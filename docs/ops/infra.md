@@ -16,13 +16,13 @@ Terraform으로 실제 `.tf` 파일을 만들 때 이 문서의 코드 블록을
 |---|---|---|
 | 컨테이너 | **ECS Fargate (Spot)** | 서버 관리 불필요. Spot이면 온디맨드 대비 약 1/3 |
 | 로드밸런서 | **ALB** | 무중단 배포, 헬스체크, 나중에 ACM 붙이기 쉬움 |
-| NAT Gateway | **안 씀** | 월 5~6만원. 예산 전체를 잡아먹음 ([adr/0002](../adr/0002-no-nat-gateway.md)) |
+| NAT Gateway | **안 씀** | 월 5~6만원. 예산 전체를 잡아먹음 ([결정 2](../../spec/3-3-DESIGN-DECISIONS.md)) |
 | 태스크 위치 | **퍼블릭 서브넷** + `assign_public_ip` | NAT 대신. SG 인바운드를 ALB로만 제한 |
 | RDS | **프라이빗 서브넷** | 아웃바운드가 필요 없어 NAT 없이 완전 격리 가능 |
-| 시크릿 | **SSM Parameter Store** | SecureString이 Standard 티어에서 무료 ([adr/0004](../adr/0004-ssm-parameter-store.md)) |
+| 시크릿 | **SSM Parameter Store** | SecureString이 Standard 티어에서 무료 ([결정 4](../../spec/3-3-DESIGN-DECISIONS.md)) |
 | CI 인증 | **GitHub OIDC** | AWS 액세스 키를 저장하지 않음 |
 
-설계 결정의 배경/트레이드오프는 [docs/adr/](../adr/)에 개별 기록되어 있습니다.
+설계 결정의 배경/트레이드오프는 [spec/3-3](../../spec/3-3-DESIGN-DECISIONS.md)에 개별 기록되어 있습니다.
 
 ## 구성도
 
@@ -355,7 +355,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "uploads" {
 
 S3 업로드는 프록시를 안 거치므로 **CORS 설정은 여전히 필요합니다.** localhost도 꼭 넣으세요. presigned 업로드 실패 원인 1위입니다.
 
-키 네이밍 ([architecture/data-model.md](../architecture/data-model.md) 기준 — `notes`/`photos` 외에 별도 테이블 없음):
+키 네이밍 ([spec/3-2-DESIGN-CONTRACT.md](../../spec/3-2-DESIGN-CONTRACT.md) 기준 — `notes`/`photos` 외에 별도 테이블 없음):
 
 ```
 notes/{uuid}.{ext}               # note_files.note_id로 note와 연결 (presigned 업로드 시점엔 noteId가 아직 없음)
@@ -578,7 +578,7 @@ resource "aws_cloudwatch_log_group" "api" {
 }
 ```
 
-> **Fargate Spot:** AWS가 용량을 회수하면 태스크가 내려가고 다시 뜹니다. 2분 전 알림이 오고 ALB가 드레이닝하므로 대부분 무중단이지만, 순간적으로 응답이 끊길 수 있습니다. dev 환경엔 문제없습니다. 나중에 안정성이 필요하면 온디맨드 weight를 섞으세요. ([adr/0003](../adr/0003-fargate-spot.md))
+> **Fargate Spot:** AWS가 용량을 회수하면 태스크가 내려가고 다시 뜹니다. 2분 전 알림이 오고 ALB가 드레이닝하므로 대부분 무중단이지만, 순간적으로 응답이 끊길 수 있습니다. dev 환경엔 문제없습니다. 나중에 안정성이 필요하면 온디맨드 weight를 섞으세요. ([결정 3](../../spec/3-3-DESIGN-DECISIONS.md))
 
 **태스크 정의:**
 

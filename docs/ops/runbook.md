@@ -18,7 +18,7 @@
 | terraform이 CI 배포를 롤백 | `ignore_changes = [task_definition]` 누락 |
 | presigned 업로드 CORS 에러 | S3 `allowed_origins`에 localhost/Vercel 도메인 누락 |
 | Vercel에서 API 호출 실패 | `vercel.json` destination이 ALB DNS와 불일치 |
-| 태스크가 가끔 재시작 | Fargate Spot 회수. 정상 동작 ([adr/0003](../adr/0003-fargate-spot.md)) |
+| 태스크가 가끔 재시작 | Fargate Spot 회수. 정상 동작 ([결정 3](../../spec/3-3-DESIGN-DECISIONS.md)) |
 
 ## 디버깅 명령어
 

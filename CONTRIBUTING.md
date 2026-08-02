@@ -91,5 +91,6 @@ main         배포 브랜치. 직접 push 금지, PR로만 반영
 
 ## 참고
 
-- 제품/기술 문서 전체 인덱스: [docs/README.md](docs/README.md)
-- 권한 관련 작업 전 필독: [docs/architecture/auth.md](docs/architecture/auth.md)
+- 제품·설계 스펙: [spec/README.md](spec/README.md)
+- 권한 관련 작업 전 필독: [spec/3-1-DESIGN-ARCHITECTURE.md](spec/3-1-DESIGN-ARCHITECTURE.md)
+- 인프라·배포 절차: [docs/README.md](docs/README.md)
