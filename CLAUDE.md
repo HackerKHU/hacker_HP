@@ -30,6 +30,11 @@ docs/               운영 문서 — 어떻게 띄우고 고치는가
 
 문서에 적힌 내용을 바꾸는 변경이면 **같은 PR에서 문서도 갱신한다.** 갱신 규칙은 [spec/README.md](spec/README.md) "변경 원칙"에 있다.
 
+## PR을 올릴 때
+
+- **PR과 이슈에는 항상 본인을 assignee로 지정한다** (`gh pr create --assignee @me`). 누가 들고 있는 작업인지 목록에서 바로 보여야 한다. 리뷰어와 별개다 — assignee는 "내가 끝까지 책임진다"는 표시다.
+- 형식·머지 방식은 [CONTRIBUTING.md](CONTRIBUTING.md)를 따른다.
+
 ## 전역 금지
 
 - 시크릿을 코드나 yml에 하드코딩하지 않는다. SSM Parameter Store를 쓴다
