@@ -1,4 +1,4 @@
-> 상태: 초안 | 최종수정: 2026-08-01 | 담당: @somsumun
+> 상태: 초안
 
 [← 문서 인덱스](../README.md)
 
@@ -24,10 +24,11 @@ Base path: `/api`
 | GET | `/notes` | ACTIVE | 목록·검색·필터 |
 | GET | `/notes/filters` | ACTIVE | 필터 옵션(과목/교수/연도) 목록 |
 | GET | `/notes/{id}` | ACTIVE | 상세 |
-| POST | `/notes` | ACTIVE | 업로드 (multipart) |
+| POST | `/notes/upload-url` | ACTIVE | 파일별 presigned PUT URL 발급 (파일은 이 URL로 S3에 직접 업로드) |
+| POST | `/notes` | ACTIVE | 메타데이터 등록 (JSON) — body에 업로드 완료된 파일 키 목록 포함 |
 | PATCH | `/notes/{id}` | 본인/ADMIN | 수정 |
 | DELETE | `/notes/{id}` | 본인/ADMIN | 삭제 |
-| GET | `/notes/{id}/files/{fileId}` | ACTIVE | 파일 다운로드 |
+| GET | `/notes/{id}/files/{fileId}` | ACTIVE | presigned GET URL 발급 (302 리다이렉트 또는 JSON으로 반환, 파일 바이트는 서버를 거치지 않음) |
 
 **`GET /notes` 쿼리 파라미터**
 

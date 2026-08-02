@@ -1,4 +1,4 @@
-> 상태: 초안 | 최종수정: 2026-08-01 | 담당: @somsumun
+> 상태: 초안
 
 [← 문서 인덱스](../README.md)
 
@@ -59,7 +59,7 @@ erDiagram
 | `id` | bigint | PK, auto | |
 | `note_id` | bigint | FK → notes.id, ON DELETE CASCADE | |
 | `original_name` | varchar(255) | NOT NULL | 업로드 당시 파일명 |
-| `stored_path` | varchar(500) | NOT NULL | 서버 저장 경로 |
+| `stored_path` | varchar(500) | NOT NULL | S3 오브젝트 키 (파일은 S3에 직접 저장, 서버 디스크에 저장하지 않음) |
 | `size_bytes` | bigint | NOT NULL | |
 
 ### bookmarks
@@ -92,7 +92,7 @@ erDiagram
 |---|---|---|---|
 | `id` | bigint | PK, auto | |
 | `caption` | varchar(200) | NULL | |
-| `stored_path` | varchar(500) | NOT NULL | 리사이즈된 이미지 경로 |
+| `stored_path` | varchar(500) | NOT NULL | 리사이즈된 이미지의 S3 오브젝트 키 |
 | `uploader_id` | bigint | FK → users.id | |
 | `created_at` | datetime | NOT NULL | |
 

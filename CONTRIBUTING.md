@@ -3,7 +3,6 @@
 > 소규모 팀 기준. 팀원이 실제로 따를 수 있는 최소한만 담았습니다. 필요해지면 그때 추가하세요.
 > 커밋/브랜치/PR 규칙을 강제하는 자동화(husky, commitlint, PR 제목 린트)는 [docs/guides/claude-code-setup.md](docs/guides/claude-code-setup.md) Phase 1에서 레포 스캐폴딩과 함께 세팅됩니다. 지금은 규칙 정의만 담겨 있습니다.
 
-- **최종 수정**: 2026-08-01
 - **이슈 관리**: Jira, 키 접두사 `HACK-`
 
 ---

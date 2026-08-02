@@ -73,35 +73,15 @@ docs/
 
 ---
 
-## Phase 1 — 커밋 컨벤션 + 강제 장치
+## Phase 1 — 커밋 컨벤션 강제 장치
+
+> `CONTRIBUTING.md`와 `.github/PULL_REQUEST_TEMPLATE.md`는 이미 있습니다 (docs 재편 때 작성됨).
+> 이 Phase는 그 규칙을 **강제하는 설정 파일만** 추가합니다. 규칙 자체를 다시 쓰지 마세요 — `CONTRIBUTING.md`가 원본입니다. 두 곳에 같은 규칙이 있으면 나중에 한쪽만 고치고 잊어버립니다.
 
 ```
-CONTRIBUTING.md를 작성하고, 규칙을 강제하는 설정 파일들도 같이 만들어줘.
+CONTRIBUTING.md를 읽고, 거기 적힌 커밋/브랜치/PR 규칙을 강제하는
+설정 파일들을 만들어줘. 규칙 자체는 다시 쓰지 말고 그대로 따를 것.
 
-## 브랜치
-- main: 배포 브랜치, 직접 push 금지
-- develop: 통합 브랜치
-- feature/HACK-12-notice-crud
-- fix/HACK-31-render-loop
-- chore/HACK-8-ecs-memory
-
-## 커밋 메시지
-형식: <type>(<scope>): [HACK-123] 한글 설명
-
-type: feat | fix | docs | refactor | test | chore | ci
-scope: api | web | infra | deps
-
-예시:
-feat(api): [HACK-12] 공지사항 CRUD 구현
-fix(web): [HACK-31] 카테고리 선택 시 무한 렌더링 수정
-chore(infra): [HACK-8] ECS 태스크 메모리 1024로 상향
-
-## PR
-- squash merge (PR 제목이 main의 커밋 메시지가 됨)
-- 제목도 커밋 메시지와 같은 형식
-- 리뷰어 1명 이상 승인 필요
-
-## 같이 만들 파일
 1. .husky/prepare-commit-msg
    브랜치명에서 HACK-숫자를 추출해 커밋 메시지 앞에 자동 삽입.
    이미 티켓 키가 있으면 중복 삽입하지 말 것.
@@ -109,15 +89,12 @@ chore(infra): [HACK-8] ECS 태스크 메모리 1024로 상향
 
 2. .husky/commit-msg + commitlint.config.js
    @commitlint/config-conventional 기반.
+   CONTRIBUTING.md의 type/scope 목록을 그대로 반영.
    subject-case 규칙은 한글이라 끄고, header-max-length는 100.
 
-3. .github/PULL_REQUEST_TEMPLATE.md
-   섹션: 관련 티켓 / 변경 내용 / 테스트 방법 / 체크리스트
-   체크리스트에 "로컬에서 동작 확인", "문서 갱신 필요 여부 확인" 포함
-
-4. .github/workflows/lint-pr.yml
+3. .github/workflows/lint-pr.yml
    amannn/action-semantic-pull-request로 PR 제목 형식 검사.
-   허용 type과 scope는 위와 동일.
+   허용 type/scope는 CONTRIBUTING.md 기준.
 
 husky 설치 스크립트는 루트 package.json에 두고,
 apps/web의 package.json과 충돌하지 않게 워크스페이스 설정도 확인해줘.
@@ -208,7 +185,84 @@ apps/web의 package.json과 충돌하지 않게 워크스페이스 설정도 확
 
 ---
 
-## Phase 4 — Terraform
+## Phase 4 — Docker + 로컬 개발 환경
+
+> 인프라(Phase 6)보다 먼저 로컬 개발 루프를 완성합니다. 도메인이 없어 배포해도 실사용은 어차피 못 하니, 인프라 비용을 쓰기 전에 로컬에서 기능부터 만들 수 있게 합니다.
+
+```
+docs/ops/deployment.md 를 읽고 만들어줘.
+
+1. apps/api/Dockerfile
+   멀티스테이지 + Spring Boot layertools 레이어 추출.
+   런타임은 eclipse-temurin:21-jre-alpine, curl 설치(헬스체크용), non-root 유저.
+   ENTRYPOINT에서 $JAVA_OPTS 사용.
+
+2. apps/api/.dockerignore
+
+3. 루트 docker-compose.yml
+   postgres:16-alpine (RDS와 메이저 버전 일치) + minio
+   healthcheck 포함
+
+4. apps/api/src/main/resources/
+   application.yml         공통
+   application-local.yml   docker-compose 연결, S3 endpoint를 MinIO로,
+                           path-style-access: true
+   application-prod.yml    환경변수 주입(${DB_URL} 등), ddl-auto: validate
+
+5. S3 클라이언트 설정 클래스
+   endpoint와 path-style-access를 프로퍼티로 받아서
+   로컬(MinIO)과 운영(S3)이 코드 변경 없이 전환되게
+
+6. Flyway 초기 마이그레이션 디렉토리
+   src/main/resources/db/migration/ (V1__init.sql은 Phase 5에서)
+
+7. Spring Security 설정
+   /actuator/health 는 permitAll   ← 이거 빠지면 ALB 헬스체크가 401로 실패해서
+                                      태스크가 무한 재시작함
+   나머지는 일단 authenticated
+
+로컬에서 `docker compose up -d && ./gradlew bootRun` 으로
+DB 연결까지 되는 걸 확인할 수 있게 해줘.
+```
+
+**검증**: `curl localhost:8080/actuator/health` → `{"status":"UP"}`
+
+---
+
+## Phase 5 — 공지사항 CRUD (관통 테스트용 첫 기능)
+
+> 파일 업로드도 없고 권한도 단순해서(조회 ACTIVE, 쓰기 ADMIN) 로컬→AWS 배포 파이프라인을 관통시켜보기에 적당합니다. 자료·사진·회원관리 같은 나머지 기능은 Phase 8에서 로컬로 계속 만듭니다.
+
+```
+docs/architecture/data-model.md 와 auth.md 를 읽고 공지사항(notices) 기능만 구현해줘.
+다른 도메인(자료/사진/회원관리)은 아직 만들지 마. 아래는 참고용 요약이고,
+필드·제약은 반드시 원본 문서 기준으로 맞출 것.
+
+1. Flyway V1__init.sql
+   users, notices   (나머지 테이블은 Phase 8에서 추가)
+
+2. 엔티티 + Repository
+   CLAUDE.md 규칙 준수 (setter 금지, 정적 팩토리)
+
+3. 인증/인가 (auth.md 기준 — role과 status는 분리된 별개 필드)
+   - role: USER | ADMIN
+   - status: PENDING | ACTIVE | SUSPENDED
+   - 회원가입 → role=USER, status=PENDING으로 생성
+   - 관리자 승인 → status만 ACTIVE로 전환 (role은 그대로 USER)
+   - PENDING은 인증 API를 제외한 모든 API에서 403 PENDING_APPROVAL (auth.md AUTH-04)
+
+4. 공지사항 CRUD (architecture/api.md 기준)
+   - 조회: ACTIVE 이상 (role 무관)
+   - 생성/수정/삭제/고정 토글: ADMIN만
+
+권한 검증은 메서드 시큐리티(@PreAuthorize)로 명시적으로 표시해줘.
+```
+
+**검증**: `docker compose up -d && ./gradlew bootRun` 상태에서 회원가입→승인→로그인→공지 CRUD가 로컬에서 전부 동작하는지 확인
+
+---
+
+## Phase 6 — Terraform
 
 ```
 docs/ops/infra.md 를 읽고 infra/terraform/ 아래에 실제 파일을 만들어줘.
@@ -240,56 +294,16 @@ docs/ops/infra.md 를 읽고 infra/terraform/ 아래에 실제 파일을 만들�
 - OIDC의 sub 조건을 * 로 열지 말 것
 
 terraform validate 와 terraform fmt 까지 통과시켜줘.
-apply는 하지 말고 plan 단계까지만 준비.
+그 다음 docs/ops/infra.md의 적용 순서(네트워크 → ECR → 이미지 push → RDS → 전체)를
+따라 실제로 apply까지 진행해줘. Phase 5에서 배포할 코드가 이미 있으니
+이번엔 plan에서 멈추지 않고 갑니다.
 ```
 
-**검증**: `terraform init && terraform validate` 통과
+**검증**: `terraform init && terraform validate` 통과, `curl http://<ALB_DNS>/actuator/health` → 200
 
 ---
 
-## Phase 5 — Docker + 로컬 개발 환경
-
-```
-docs/ops/deployment.md 를 읽고 만들어줘.
-
-1. apps/api/Dockerfile
-   멀티스테이지 + Spring Boot layertools 레이어 추출.
-   런타임은 eclipse-temurin:21-jre-alpine, curl 설치(헬스체크용), non-root 유저.
-   ENTRYPOINT에서 $JAVA_OPTS 사용.
-
-2. apps/api/.dockerignore
-
-3. 루트 docker-compose.yml
-   postgres:16-alpine (RDS와 메이저 버전 일치) + minio
-   healthcheck 포함
-
-4. apps/api/src/main/resources/
-   application.yml         공통
-   application-local.yml   docker-compose 연결, S3 endpoint를 MinIO로,
-                           path-style-access: true
-   application-prod.yml    환경변수 주입(${DB_URL} 등), ddl-auto: validate
-
-5. S3 클라이언트 설정 클래스
-   endpoint와 path-style-access를 프로퍼티로 받아서
-   로컬(MinIO)과 운영(S3)이 코드 변경 없이 전환되게
-
-6. Flyway 초기 마이그레이션 디렉토리
-   src/main/resources/db/migration/ (V1__init.sql은 Phase 7에서)
-
-7. Spring Security 설정
-   /actuator/health 는 permitAll   ← 이거 빠지면 ALB 헬스체크가 401로 실패해서
-                                      태스크가 무한 재시작함
-   나머지는 일단 authenticated
-
-로컬에서 `docker compose up -d && ./gradlew bootRun` 으로
-DB 연결까지 되는 걸 확인할 수 있게 해줘.
-```
-
-**검증**: `curl localhost:8080/actuator/health` → `{"status":"UP"}`
-
----
-
-## Phase 6 — GitHub Actions
+## Phase 7 — GitHub Actions + 관통 배포 확인
 
 ```
 docs/ops/deployment.md 를 읽고 워크플로를 만들어줘.
@@ -320,38 +334,61 @@ docs/ops/deployment.md 를 읽고 워크플로를 만들어줘.
 - linux/amd64 와 태스크 정의의 X86_64가 일치해야 함
 ```
 
+**관통 확인**: `deploy-api.yml`을 실제로 실행해서 Phase 5의 공지사항 API가 ALB를 통해 응답하는지 확인하세요 (`/actuator/health`뿐 아니라 실제 `/api/notices` 호출까지). 확인되면 도메인을 사기 전까지 비용을 막아둡니다:
+
+```bash
+aws ecs update-service --cluster hacker-cluster --service hacker-api --desired-count 0
+```
+
+Phase 8(나머지 기능)은 로컬에서 계속 진행하고, 도메인을 산 뒤 `desired-count`를 다시 올려 재배포합니다.
+
 ---
 
-## Phase 7 — 도메인 모델 + 첫 기능
+## Phase 8 — 나머지 기능 (자료 / 사진 / 회원 관리)
 
-> Phase 6까지 끝나면 파이프라인이 완성됩니다. 여기부터가 실제 기능 개발입니다.
-> **먼저 `docs/architecture/data-model.md` 와 `auth.md` 를 확정한 뒤** 진행하세요.
+> Phase 5에서 공지사항은 이미 구현했습니다. 여기서는 나머지 도메인을 로컬에서 계속 만듭니다. 배포는 도메인이 생긴 뒤 다시 합니다 (Phase 7 참고).
 
 ```
-docs/architecture/data-model.md 와 auth.md 를 읽고 구현해줘.
+docs/product/02-notes.md, 04-photos.md, 05-admin.md 와
+docs/architecture/data-model.md, api.md 를 읽고 그대로 구현해줘.
+아래는 참고용 요약이고, 필드·제약·엔티티 목록은 반드시 원본 문서 기준으로 맞출 것 —
+문서에 없는 테이블이나 필드를 임의로 추가하지 마.
 
-1. Flyway V1__init.sql
-   User, Member, Notice, Subject, Note, ExamInfo, Album, Photo
+1. Flyway 마이그레이션 추가
+   notes, note_files, bookmarks, photos
+   (users, notices는 Phase 5에서 이미 생성됨)
 
 2. 엔티티 + Repository
    CLAUDE.md 규칙 준수 (setter 금지, 정적 팩토리)
 
-3. 인증/인가
-   - 회원가입 → PENDING 상태
-   - 관리자 승인 → MEMBER
-   - 역할: ADMIN / MEMBER / PENDING
-   - 시험정보, 정리본은 MEMBER 이상만 접근 (PENDING은 불가)
+3. 자료(NOTE) API
+   - POST /notes/upload-url — presigned PUT URL 발급 (파일은 S3로 직접 업로드)
+   - POST /notes — 메타데이터 등록 (JSON, 업로드된 파일 키 포함)
+   - GET /notes, /notes/{id}, /notes/filters — 목록·검색·필터·상세
+   - PATCH·DELETE /notes/{id} — 본인 또는 ADMIN만
+   - GET /notes/{id}/files/{fileId} — presigned GET URL 발급
+   - 즐겨찾기: GET /bookmarks, POST·DELETE /notes/{id}/bookmark
 
-4. 첫 API로 공지사항 CRUD
-   - 조회: MEMBER 이상
-   - 생성/수정/삭제: ADMIN만
+4. 활동사진(PHOTO) API
+   - GET /photos — 목록
+   - POST /photos — 다중 업로드 (multipart, 서버에서 리사이즈 후 S3 저장). ADMIN만
+   - DELETE /photos/{id} — ADMIN만
 
-권한 검증은 메서드 시큐리티(@PreAuthorize)로 명시적으로 표시해줘.
+5. 회원 관리(ADMIN) API
+   - GET /admin/users — 목록·검색·필터
+   - POST /admin/users/approve, /admin/users/reject — 일괄 처리
+   - PATCH /admin/users/{id}/status, /admin/users/{id}/role — 본인 대상 요청은 403
+   - DELETE /admin/users/{id} — 본인 대상 요청은 403
+
+권한 검증은 메서드 시큐리티(@PreAuthorize)로 명시적으로 표시하고,
+docs/architecture/api.md의 권한 컬럼과 정확히 일치시켜줘.
 ```
+
+**검증**: 로컬에서 자료 업로드→다운로드, 사진 업로드, 회원 승인/정지/권한 변경 흐름이 전부 동작하는지 확인
 
 ---
 
-## Phase 8 — 프론트 + Vercel 연결
+## Phase 9 — 프론트 + Vercel 연결
 
 ```
 1. apps/web/vercel.json
@@ -377,12 +414,15 @@ Vercel 대시보드 설정도 README에 정리해줘:
 
 ## 최종 검증
 
-- [ ] `docker compose up -d && ./gradlew bootRun` → 로컬 실행
-- [ ] `terraform validate` 통과
-- [ ] `terraform apply` (문서의 적용 순서 준수 — ECR에 이미지 먼저)
+- [ ] `docker compose up -d && ./gradlew bootRun` → 로컬 실행 (Phase 4)
+- [ ] 공지사항 CRUD 로컬 동작 확인 (Phase 5)
+- [ ] `terraform validate` 통과, `terraform apply` (문서의 적용 순서 준수 — ECR에 이미지 먼저) (Phase 6)
 - [ ] `curl http://<ALB_DNS>/actuator/health` → 200
-- [ ] `deploy-api.yml` 수동 실행 성공
-- [ ] Vercel 배포 후 프론트에서 `/api/...` 호출 성공
+- [ ] `deploy-api.yml` 수동 실행 성공, `/api/notices` 관통 확인 (Phase 7)
+- [ ] 관통 확인 후 `desired-count 0`으로 비용 정지
+- [ ] 나머지 기능(자료/사진/회원관리) 로컬 구현 완료 (Phase 8)
+- [ ] 도메인 구매 후 `desired-count` 복구 + 재배포
+- [ ] Vercel 배포 후 프론트에서 `/api/...` 호출 성공 (Phase 9)
 - [ ] `feature/HACK-1-test` 브랜치 커밋 시 티켓 키 자동 삽입 확인
 
 ---

@@ -1,4 +1,4 @@
-> 상태: 초안 | 최종수정: 2026-08-01 | 담당: @somsumun
+> 상태: 초안
 
 [← 문서 인덱스](../README.md)
 
@@ -8,7 +8,7 @@
 > **예산**: 월 약 3.5만원 (RDS 프리티어 적용 시)
 > **도메인**: 지금은 없이 시작. Vercel 프록시로 우회 — 자세한 내용과 배포 전 필수 조건은 [deployment.md](deployment.md) 참고
 
-Terraform으로 실제 `.tf` 파일을 만들 때 이 문서의 코드 블록을 그대로 옮기면 됩니다 ([guides/claude-code-setup.md](../guides/claude-code-setup.md) Phase 4).
+Terraform으로 실제 `.tf` 파일을 만들 때 이 문서의 코드 블록을 그대로 옮기면 됩니다 ([guides/claude-code-setup.md](../guides/claude-code-setup.md) Phase 6).
 
 ## 설계 결정 요약
 
@@ -355,13 +355,12 @@ resource "aws_s3_bucket_lifecycle_configuration" "uploads" {
 
 S3 업로드는 프록시를 안 거치므로 **CORS 설정은 여전히 필요합니다.** localhost도 꼭 넣으세요. presigned 업로드 실패 원인 1위입니다.
 
-키 네이밍:
+키 네이밍 ([architecture/data-model.md](../architecture/data-model.md) 기준 — `notes`/`photos` 외에 별도 테이블 없음):
 
 ```
-notes/{subjectId}/{uuid}.pdf
-exams/{examId}/{uuid}.pdf
-photos/{albumId}/{uuid}.jpg
-photos/{albumId}/thumb/{uuid}.jpg
+notes/{uuid}.{ext}               # note_files.note_id로 note와 연결 (presigned 업로드 시점엔 noteId가 아직 없음)
+photos/{photoId}/{uuid}.jpg      # 사진은 서버가 리사이즈 후 업로드하므로 photoId를 알고 있음
+photos/{photoId}/thumb/{uuid}.jpg
 ```
 
 ```hcl
@@ -803,7 +802,7 @@ terraform apply tfplan
 
 ```bash
 curl http://$(terraform output -raw alb_dns_name)/actuator/health
-# {"status":"UP"} 나오면 Phase 1 완료
+# {"status":"UP"} 나오면 최초 배포 확인 완료
 ```
 
 이 URL을 `vercel.json`의 `destination`에 넣으세요 (자세한 내용은 [deployment.md](deployment.md)).

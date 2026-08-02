@@ -1,4 +1,4 @@
-> 상태: 초안 | 최종수정: 2026-08-01 | 담당: @somsumun
+> 상태: 초안
 
 [← 문서 인덱스](../README.md)
 
@@ -30,7 +30,7 @@ ALB 기본 DNS(`xxx.ap-northeast-2.elb.amazonaws.com`)에는 **ACM 인증서를 
 
 브라우저는 Vercel하고만 통신하므로 mixed content가 없습니다. **덤으로 same-origin이 되어 쿠키 문제도 사라집니다** — `SameSite=None; Secure`가 필요 없고 `SameSite=Lax`로 충분해집니다. 프론트 코드에서는 그냥 `/api/...`로 호출하면 됩니다.
 
-파일 업로드는 presigned URL로 S3에 직접 올라가므로 프록시 용량 제한에 걸리지 않습니다.
+**파일은 이 프록시를 거치지 않습니다.** Vercel의 서버리스/Edge 함수는 요청 본문이 4.5MB로 제한되는데, 자료 파일 최대 용량은 20MB([product/07-non-functional.md](../product/07-non-functional.md))라 애초에 프록시를 통과할 수 없습니다. 그래서 파일은 presigned URL로 브라우저→S3 직접 업로드/다운로드하고([product/02-notes.md](../product/02-notes.md) NOTE-04/07), `/api/*` 프록시는 메타데이터를 주고받는 JSON 요청에만 씁니다.
 
 ### 지금 이 구성으로 하면 안 되는 것
 
@@ -343,7 +343,7 @@ Settings → Secrets and variables → Actions:
 - [ ] `deploy-api.yml` 수동 실행 성공
 - [ ] Vercel Root Directory = `apps/web`
 - [ ] `vercel.json` rewrites에 ALB DNS
-- [ ] 프론트에서 `/api/...` 호출 성공 → **Phase 1 완료**
+- [ ] 프론트에서 `/api/...` 호출 성공 → **최초 배포(도메인 없는 dev 환경) 완료**
 
 **공개 전 (필수)**
 - [ ] 도메인 구매 → ACM 인증서 → ALB 443 리스너

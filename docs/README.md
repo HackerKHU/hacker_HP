@@ -2,8 +2,6 @@
 
 동아리 홈페이지 프로젝트(모노레포) 문서 모음입니다.
 
-- **최종 수정**: 2026-08-01
-
 ## 처음 오셨다면
 
 1. [product/01-overview.md](product/01-overview.md) — 뭘 만드는지
@@ -14,14 +12,16 @@
 
 ## 문서 목록
 
-| 문서 | 내용 | 최종수정 |
-|---|---|---|
-| [product/](product/) | 제품 요구사항 — 개요, 기능별 명세(NOTE/NOTICE/PHOTO/ADMIN), 화면, 비기능 요구사항, 미결정 사항 | 2026-08-01 |
-| [architecture/](architecture/) | 기술 설계 — 인증/권한, 데이터 모델, API 명세 | 2026-08-01 |
-| [ops/](ops/) | 인프라·배포 — Terraform/AWS, Docker/CI-CD/Vercel, 런북 | 2026-08-01 |
-| [adr/](adr/) | 아키텍처 결정 기록 (ADR) | 2026-08-01 |
-| [guides/](guides/) | 작업 가이드 — Claude Code 초기 세팅 지시서 | 2026-08-01 |
-| [../CONTRIBUTING.md](../CONTRIBUTING.md) | 커밋 컨벤션, 브랜치 전략, PR 규칙 | 2026-08-01 |
+| 문서 | 내용 |
+|---|---|
+| [product/](product/) | 제품 요구사항 — 개요, 기능별 명세(NOTE/NOTICE/PHOTO/ADMIN), 화면, 비기능 요구사항, 미결정 사항 |
+| [architecture/](architecture/) | 기술 설계 — 인증/권한, 데이터 모델, API 명세 |
+| [ops/](ops/) | 인프라·배포 — Terraform/AWS, Docker/CI-CD/Vercel, 런북 |
+| [adr/](adr/) | 아키텍처 결정 기록 (ADR) |
+| [guides/](guides/) | 작업 가이드 — Claude Code 초기 세팅 지시서 |
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | 커밋 컨벤션, 브랜치 전략, PR 규칙 |
+
+> 각 문서의 최종 수정일·작성자는 `git log <파일경로>`로 확인하세요. 문서 안에 손으로 적어두면 곧 틀린 정보가 됩니다.
 
 ## 빠르게 찾기
 

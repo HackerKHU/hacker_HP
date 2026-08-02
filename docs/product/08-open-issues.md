@@ -1,4 +1,4 @@
-> 상태: 초안 | 최종수정: 2026-08-01 | 담당: @somsumun
+> 상태: 초안
 
 [← 문서 인덱스](../README.md)
 
@@ -7,7 +7,7 @@
 | # | 항목 | 비고 |
 |---|---|---|
 | 1 | 허용 학교 이메일 도메인 | 실제 도메인 확정 필요 |
-| 2 | ~~파일 저장소~~ | ✅ 확정 — S3 ([adr/0004-ssm-parameter-store.md](../adr/0004-ssm-parameter-store.md), [ops/infra.md](../ops/infra.md)) |
+| 2 | ~~파일 저장소~~ | ✅ 확정 — S3, presigned URL로 서버를 거치지 않고 직접 업로드/다운로드 ([product/02-notes.md](02-notes.md) NOTE-04/07, [ops/infra.md](../ops/infra.md)) |
 | 3 | 세션 방식 | 서버 세션(쿠키) vs JWT |
 | 4 | 최초 관리자 계정 생성 방법 | DB 직접 삽입 또는 초기화 스크립트 |
 | 5 | 탈퇴/삭제 회원의 업로드 자료 처리 | 유지 권장 (업로더 표시만 대체) |
