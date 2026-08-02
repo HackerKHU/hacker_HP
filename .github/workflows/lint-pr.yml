@@ -1,0 +1,39 @@
+name: Lint PR title
+
+# squash merge를 쓰므로 PR 제목이 그대로 main의 커밋 메시지가 된다.
+# main 로그 형식을 지키는 건 이 워크플로 하나뿐이다 (CONTRIBUTING.md).
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            refactor
+            test
+            chore
+            ci
+          scopes: |
+            api
+            web
+            infra
+            deps
+          # docs 타입처럼 scope가 마땅치 않은 경우가 있어 필수는 아니다
+          requireScope: false
+          # Jira 프로젝트가 아직 없어 티켓 키 검사는 꺼둔다.
+          # 티켓 발급이 시작되면 아래 두 줄의 주석을 푼다.
+          # subjectPattern: ^\[HACK-\d+\]\s.+$
+          # subjectPatternError: 'PR 제목은 "type(scope): [HACK-123] 설명" 형식이어야 합니다.'

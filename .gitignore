@@ -1,0 +1,24 @@
+# Terraform — tfstate에는 DB 비밀번호가 평문으로 들어간다 (docs/ops/infra.md)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+
+# 환경변수
+.env
+.env.*
+!.env.example
+
+# Java / Gradle
+build/
+.gradle/
+
+# Node
+node_modules/
+dist/
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store
