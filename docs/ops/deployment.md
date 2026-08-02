@@ -1,4 +1,6 @@
-> 상태: 초안
+> **은퇴 조건 — Dockerfile·`docker-compose.yml`·워크플로 실물이 생기면 이 문서를 삭제합니다.**
+> 아래 코드 블록은 그때부터 실제 파일의 복사본입니다.
+> 배포에서 지켜야 할 원칙은 [spec/7-DEPLOYMENT](../../spec/7-DEPLOYMENT.md)가 원본이고, 장애 대응은 [runbook.md](runbook.md)에 남습니다.
 
 [← 문서 인덱스](../README.md)
 
