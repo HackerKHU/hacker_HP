@@ -4,12 +4,16 @@
 
 **"무엇을 왜 만드는가"는 [`spec/`](../spec/README.md)이 원본**이고, 여기는 "어떻게 띄우고 어떻게 고치는가"만 다룹니다.
 
-| 문서 | 내용 |
-|---|---|
-| [ops/infra.md](ops/infra.md) | Terraform, VPC, ECS, ALB, RDS, S3, IAM |
-| [ops/deployment.md](ops/deployment.md) | Docker, GitHub Actions, Vercel 설정 |
-| [ops/runbook.md](ops/runbook.md) | 증상별 원인과 디버깅 명령어 |
-| [guides/claude-code-setup.md](guides/claude-code-setup.md) | Claude Code로 세팅을 이어서 진행하는 Phase별 지시서 |
+| 문서 | 내용 | 수명 |
+|---|---|---|
+| [ops/runbook.md](ops/runbook.md) | 증상별 원인과 디버깅 명령어 | **유지** |
+| [ops/infra.md](ops/infra.md) | Terraform, VPC, ECS, ALB, RDS, S3, IAM | `infra/terraform/` 생기면 삭제 |
+| [ops/deployment.md](ops/deployment.md) | Docker, GitHub Actions, Vercel 설정 | 워크플로·Dockerfile 실물 생기면 삭제 |
+| [guides/claude-code-setup.md](guides/claude-code-setup.md) | Phase별 세팅 지시서 | 마지막 Phase 끝나면 삭제 |
+
+**이 폴더는 대부분 비계입니다.** 지금은 코드가 없어 이 문서들이 유일한 원본이지만, 해당 코드가 생기는 순간 코드의 복사본이 됩니다. 복사본을 남겨두면 한쪽만 고쳐져서 문서가 거짓말을 시작합니다. 각 문서 서두에 은퇴 조건을 적어뒀고, 해당 코드를 넣는 PR에서 같이 지웁니다.
+
+`runbook.md`만 영구 문서입니다. "증상 → 원인"은 어떤 코드에도 적히지 않는 정보라서요.
 
 > 각 문서의 최종 수정일·작성자는 `git log <파일경로>`로 확인하세요. 문서 안에 손으로 적어두면 곧 틀린 정보가 됩니다.
 
