@@ -4,29 +4,31 @@
 
 ## 구조
 
-모노레포. 지금은 `docs/`만 있고 나머지는 순서대로 만든다 ([docs/guides/claude-code-setup.md](docs/guides/claude-code-setup.md)).
+모노레포. 지금은 `spec/`과 `docs/`만 있고 `apps/`·`infra/`는 순서대로 만든다 ([docs/guides/claude-code-setup.md](docs/guides/claude-code-setup.md)).
 
 ```
 apps/api            Spring Boot 3.5 / Java 21 / Gradle Kotlin DSL / PostgreSQL 16
 apps/web            React 19 + TypeScript + Vite → Vercel
 infra/terraform     ECS Fargate Spot + ALB + RDS + S3 (NAT Gateway 없음)
-docs/               제품·설계·운영 문서
+spec/               제품·설계 스펙 — 무엇을 왜 만드는가
+docs/               운영 문서 — 어떻게 띄우고 고치는가
 ```
 
 ## 작업 전에 읽을 문서
 
 | 하려는 일 | 읽을 것 |
 |---|---|
-| 권한 관련 (필수) | [docs/architecture/auth.md](docs/architecture/auth.md) |
-| 스키마 변경 | [docs/architecture/data-model.md](docs/architecture/data-model.md) |
-| API 추가·변경 | [docs/architecture/api.md](docs/architecture/api.md) |
+| 권한 관련 (필수) | [spec/3-1-DESIGN-ARCHITECTURE.md](spec/3-1-DESIGN-ARCHITECTURE.md) |
+| 스키마·API 변경 | [spec/3-2-DESIGN-CONTRACT.md](spec/3-2-DESIGN-CONTRACT.md) |
+| 기능 요구사항 확인 | [spec/2-1-USER-STORIES.md](spec/2-1-USER-STORIES.md), [spec/2-2-OPERATOR-REQUIREMENTS.md](spec/2-2-OPERATOR-REQUIREMENTS.md) |
+| 테스트 기준 | [spec/5-TESTING.md](spec/5-TESTING.md) |
+| 왜 이렇게 했는지 | [spec/3-3-DESIGN-DECISIONS.md](spec/3-3-DESIGN-DECISIONS.md) |
 | 인프라 | [docs/ops/infra.md](docs/ops/infra.md) |
 | 배포 | [docs/ops/deployment.md](docs/ops/deployment.md) |
 | 장애 대응 | [docs/ops/runbook.md](docs/ops/runbook.md) |
-| 왜 이렇게 했는지 | [docs/adr/](docs/adr/) |
 | 커밋·브랜치·PR | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
-문서에 적힌 내용을 바꾸는 변경이면 **같은 PR에서 문서도 갱신한다.**
+문서에 적힌 내용을 바꾸는 변경이면 **같은 PR에서 문서도 갱신한다.** 갱신 규칙은 [spec/README.md](spec/README.md) "변경 원칙"에 있다.
 
 ## 전역 금지
 
@@ -43,8 +45,8 @@ docs/               제품·설계·운영 문서
 - DTO와 엔티티를 분리한다. 컨트롤러가 엔티티를 직접 반환하지 않는다
 - 예외는 커스텀 예외 + `@RestControllerAdvice`로 일괄 처리한다
 - 마이그레이션은 Flyway만 쓴다. `ddl-auto`는 `validate` (create/update 금지)
-- 새 API에는 `@PreAuthorize`로 권한을 명시한다. [auth.md](docs/architecture/auth.md) 권한 매트릭스와 일치해야 한다
-- 파일 바이트를 서버가 받지 않는다. presigned URL 발급만 한다 ([02-notes.md](docs/product/02-notes.md) NOTE-04)
+- 새 API에는 `@PreAuthorize`로 권한을 명시한다. [3-1](spec/3-1-DESIGN-ARCHITECTURE.md) 권한 매트릭스와 일치해야 한다
+- 파일 바이트를 서버가 받지 않는다. presigned URL 발급만 한다 ([2-1 §2-1-2](spec/2-1-USER-STORIES.md))
 - `/actuator/health`는 `permitAll`. 빠지면 ALB 헬스체크가 401로 실패해 태스크가 무한 재시작한다
 
 ## apps/web 규칙
