@@ -25,6 +25,7 @@ jobs:
             design
             cicd
             refactor
+            test
             chore
           # scope는 쓰지 않는다 (CONTRIBUTING.md 1절)
           requireScope: false
