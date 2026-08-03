@@ -1,0 +1,33 @@
+name: Lint PR title
+
+# 기능 브랜치 → develop은 squash merge라 PR 제목이 그대로 커밋 메시지가 된다.
+# 로그 형식을 지키는 건 이 워크플로 하나뿐이다 (CONTRIBUTING.md).
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            design
+            cicd
+            refactor
+            test
+            chore
+          # scope는 쓰지 않는다 (CONTRIBUTING.md 1절)
+          requireScope: false
+          disallowScopes: |
+            *
