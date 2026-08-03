@@ -1,4 +1,6 @@
-> 상태: 초안
+> **은퇴 조건 — Dockerfile·`docker-compose.yml`·워크플로 실물이 생기면 이 문서를 삭제합니다.**
+> 아래 코드 블록은 그때부터 실제 파일의 복사본입니다.
+> 배포에서 지켜야 할 원칙은 [spec/7-DEPLOYMENT](../../spec/7-DEPLOYMENT.md)가 원본이고, 장애 대응은 [runbook.md](runbook.md)에 남습니다.
 
 [← 문서 인덱스](../README.md)
 
@@ -30,7 +32,7 @@ ALB 기본 DNS(`xxx.ap-northeast-2.elb.amazonaws.com`)에는 **ACM 인증서를 
 
 브라우저는 Vercel하고만 통신하므로 mixed content가 없습니다. **덤으로 same-origin이 되어 쿠키 문제도 사라집니다** — `SameSite=None; Secure`가 필요 없고 `SameSite=Lax`로 충분해집니다. 프론트 코드에서는 그냥 `/api/...`로 호출하면 됩니다.
 
-**파일은 이 프록시를 거치지 않습니다.** Vercel의 서버리스/Edge 함수는 요청 본문이 4.5MB로 제한되는데, 자료 파일 최대 용량은 20MB([product/07-non-functional.md](../product/07-non-functional.md))라 애초에 프록시를 통과할 수 없습니다. 그래서 파일은 presigned URL로 브라우저→S3 직접 업로드/다운로드하고([product/02-notes.md](../product/02-notes.md) NOTE-04/07), `/api/*` 프록시는 메타데이터를 주고받는 JSON 요청에만 씁니다.
+**파일은 이 프록시를 거치지 않습니다.** Vercel의 서버리스/Edge 함수는 요청 본문이 4.5MB로 제한되는데, 자료 파일 최대 용량은 20MB([3-3 §3-3-7](../../spec/3-3-DESIGN-DECISIONS.md))라 애초에 프록시를 통과할 수 없습니다. 그래서 파일은 presigned URL로 브라우저→S3 직접 업로드/다운로드하고([2-1 §2-1-2·§2-1-4](../../spec/2-1-USER-STORIES.md)), `/api/*` 프록시는 메타데이터를 주고받는 JSON 요청에만 씁니다.
 
 ### 지금 이 구성으로 하면 안 되는 것
 
@@ -39,7 +41,7 @@ Vercel↔ALB 구간이 평문 HTTP입니다. AWS 네트워크 내부가 아니�
 - ✅ 개발/테스트, 더미 데이터, 기능 검증 — 괜찮습니다
 - ❌ **실제 부원 계정 생성, 진짜 비밀번호 입력, 시험 정보 업로드 — 하지 마세요**
 
-로그인 비밀번호가 평문으로 네트워크를 지나가고, 학과 시험 정보나 정리본은 유출되면 곤란한 자료입니다. **부원들에게 공개하기 전에는 반드시 도메인 + ACM을 붙여야 합니다.** ([adr/0005](../adr/0005-vercel-proxy-no-domain.md))
+로그인 비밀번호가 평문으로 네트워크를 지나가고, 학과 시험 정보나 정리본은 유출되면 곤란한 자료입니다. **부원들에게 공개하기 전에는 반드시 도메인 + ACM을 붙여야 합니다.** ([결정 5](../../spec/3-3-DESIGN-DECISIONS.md))
 
 ### 나중에 도메인 붙일 때 (10분)
 

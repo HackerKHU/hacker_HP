@@ -5,6 +5,9 @@
 > 이 문서는 **Claude Code에 순서대로 붙여넣을 프롬프트 모음**입니다.
 > 레포 루트나 `docs/`에 두고, 각 Phase의 프롬프트 블록을 복사해서 사용하세요.
 > Phase는 앞에서부터 순서대로 진행합니다. 앞 단계 산출물에 의존합니다.
+>
+> **은퇴 조건 — 마지막 Phase가 끝나면 이 문서를 삭제합니다.** 다 쓰고 버리는 작업 지시서지 유지할 문서가 아닙니다.
+> 여기 적힌 규칙 중 계속 지켜야 할 것은 이미 [CLAUDE.md](../../CLAUDE.md)와 [spec/](../../spec/README.md)에 들어가 있습니다.
 
 ---
 
@@ -25,16 +28,16 @@ Claude Code가 물어보면 이대로 답하세요.
 
 | 항목 | 결정 |
 |---|---|
-| 레포 | GitHub Organization 안에 **모노레포** ([adr/0001](../adr/0001-monorepo.md)) |
+| 레포 | GitHub Organization 안에 **모노레포** ([결정 1](../../spec/3-3-DESIGN-DECISIONS.md)) |
 | 백엔드 | Spring Boot 3.5 / Java 21 / Gradle (Kotlin DSL) |
 | 프론트 | React + TypeScript + Vite → Vercel |
 | DB | PostgreSQL 16 (RDS db.t4g.micro) |
-| 인프라 | ECS Fargate **Spot** + ALB, NAT Gateway 없음 ([adr/0002](../adr/0002-no-nat-gateway.md), [adr/0003](../adr/0003-fargate-spot.md)) |
-| 시크릿 | SSM Parameter Store (SecureString) ([adr/0004](../adr/0004-ssm-parameter-store.md)) |
+| 인프라 | ECS Fargate **Spot** + ALB, NAT Gateway 없음 ([결정 2](../../spec/3-3-DESIGN-DECISIONS.md), [결정 3](../../spec/3-3-DESIGN-DECISIONS.md)) |
+| 시크릿 | SSM Parameter Store (SecureString) ([결정 4](../../spec/3-3-DESIGN-DECISIONS.md)) |
 | CI 인증 | GitHub OIDC (액세스 키 저장 안 함) |
 | 이슈 관리 | Jira, 키 접두사 `HACK-` |
 | 브랜치 | `main` / `develop` / `feature/HACK-12-설명` |
-| 도메인 | **아직 없음.** Vercel rewrites 프록시로 우회 ([adr/0005](../adr/0005-vercel-proxy-no-domain.md)) |
+| 도메인 | **아직 없음.** Vercel rewrites 프록시로 우회 ([결정 5](../../spec/3-3-DESIGN-DECISIONS.md)) |
 
 ---
 
@@ -53,11 +56,9 @@ apps/web/     React 19 + TypeScript + Vite
               react-router-dom, axios(또는 fetch wrapper)
 
 infra/terraform/
+spec/                 제품·설계 스펙 (이미 있음)
 docs/
-  ├─ product/
-  ├─ architecture/
   ├─ ops/
-  ├─ adr/
   └─ guides/
 .github/workflows/
 
@@ -119,9 +120,9 @@ apps/web의 package.json과 충돌하지 않게 워크스페이스 설정도 확
 - 자주 쓰는 명령어 (로컬 실행, 테스트, 빌드, terraform)
 - 커밋 규칙 요약 3줄 + CONTRIBUTING.md 링크
 - 작업 전 읽어야 할 문서 매핑:
-    스키마 변경 → docs/architecture/data-model.md
-    API 추가/변경 → docs/architecture/api.md
-    권한 관련 → docs/architecture/auth.md (필수)
+    스키마 변경 → spec/3-2-DESIGN-CONTRACT.md
+    API 추가/변경 → spec/3-2-DESIGN-CONTRACT.md
+    권한 관련 → spec/3-1-DESIGN-ARCHITECTURE.md (필수)
     인프라 → docs/ops/infra.md
     배포 → docs/ops/deployment.md
     장애 → docs/ops/runbook.md
@@ -137,7 +138,7 @@ apps/web의 package.json과 충돌하지 않게 워크스페이스 설정도 확
 - DTO와 엔티티 분리, 컨트롤러는 엔티티를 직접 반환하지 않음
 - 예외는 커스텀 예외 + @RestControllerAdvice로 일괄 처리
 - 마이그레이션은 Flyway만 사용, ddl-auto는 validate (create/update 금지)
-- 새 API는 반드시 권한 검증을 명시 (docs/architecture/auth.md 권한 매트릭스 참조)
+- 새 API는 반드시 권한 검증을 명시 (spec/3-1-DESIGN-ARCHITECTURE.md 권한 매트릭스 참조)
 
 ## apps/web/CLAUDE.md
 - any 금지, 타입은 명시
@@ -234,7 +235,7 @@ DB 연결까지 되는 걸 확인할 수 있게 해줘.
 > 파일 업로드도 없고 권한도 단순해서(조회 ACTIVE, 쓰기 ADMIN) 로컬→AWS 배포 파이프라인을 관통시켜보기에 적당합니다. 자료·사진·회원관리 같은 나머지 기능은 Phase 8에서 로컬로 계속 만듭니다.
 
 ```
-docs/architecture/data-model.md 와 auth.md 를 읽고 공지사항(notices) 기능만 구현해줘.
+spec/3-2-DESIGN-CONTRACT.md 와 auth.md 를 읽고 공지사항(notices) 기능만 구현해줘.
 다른 도메인(자료/사진/회원관리)은 아직 만들지 마. 아래는 참고용 요약이고,
 필드·제약은 반드시 원본 문서 기준으로 맞출 것.
 
@@ -251,7 +252,7 @@ docs/architecture/data-model.md 와 auth.md 를 읽고 공지사항(notices) 기
    - 관리자 승인 → status만 ACTIVE로 전환 (role은 그대로 USER)
    - PENDING은 인증 API를 제외한 모든 API에서 403 PENDING_APPROVAL (auth.md AUTH-04)
 
-4. 공지사항 CRUD (architecture/api.md 기준)
+4. 공지사항 CRUD (spec/3-2-DESIGN-CONTRACT.md 기준)
    - 조회: ACTIVE 이상 (role 무관)
    - 생성/수정/삭제/고정 토글: ADMIN만
 
@@ -349,8 +350,8 @@ Phase 8(나머지 기능)은 로컬에서 계속 진행하고, 도메인을 산 
 > Phase 5에서 공지사항은 이미 구현했습니다. 여기서는 나머지 도메인을 로컬에서 계속 만듭니다. 배포는 도메인이 생긴 뒤 다시 합니다 (Phase 7 참고).
 
 ```
-docs/product/02-notes.md, 04-photos.md, 05-admin.md 와
-docs/architecture/data-model.md, api.md 를 읽고 그대로 구현해줘.
+spec/2-1-USER-STORIES.md, 04-photos.md, 05-admin.md 와
+spec/3-2-DESIGN-CONTRACT.md, api.md 를 읽고 그대로 구현해줘.
 아래는 참고용 요약이고, 필드·제약·엔티티 목록은 반드시 원본 문서 기준으로 맞출 것 —
 문서에 없는 테이블이나 필드를 임의로 추가하지 마.
 
@@ -381,7 +382,7 @@ docs/architecture/data-model.md, api.md 를 읽고 그대로 구현해줘.
    - DELETE /admin/users/{id} — 본인 대상 요청은 403
 
 권한 검증은 메서드 시큐리티(@PreAuthorize)로 명시적으로 표시하고,
-docs/architecture/api.md의 권한 컬럼과 정확히 일치시켜줘.
+spec/3-2-DESIGN-CONTRACT.md의 권한 컬럼과 정확히 일치시켜줘.
 ```
 
 **검증**: 로컬에서 자료 업로드→다운로드, 사진 업로드, 회원 승인/정지/권한 변경 흐름이 전부 동작하는지 확인
@@ -434,7 +435,7 @@ Vercel 대시보드 설정도 README에 정리해줘:
 ```
 작업 전에 CLAUDE.md와 관련 docs/ 문서를 먼저 읽어줘.
 시크릿은 SSM Parameter Store를 쓰고 코드에 하드코딩하지 마.
-새 API를 만들면 docs/architecture/auth.md의 권한 매트릭스에 맞게
+새 API를 만들면 spec/3-1-DESIGN-ARCHITECTURE.md의 권한 매트릭스에 맞게
 @PreAuthorize를 명시하고, 매트릭스에 없으면 나에게 먼저 물어봐.
 ```
 
