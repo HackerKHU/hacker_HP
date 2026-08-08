@@ -4,7 +4,7 @@
 
 ## 구조
 
-모노레포. 현재 `apps/api` 서버 보일러플레이트와 `spec/`·`docs/`가 있으며, `apps/web`과 `infra/`는 순서대로 만든다. 현재 상태·범위·역할·협업 흐름은 [README.md](README.md)가 통합 진입점이다.
+모노레포. 현재 `apps/api`와 `apps/web` 보일러플레이트, `spec/`·`docs/`가 있으며, `infra/`는 다음 단계에서 만든다. 현재 상태·범위·역할·협업 흐름은 [README.md](README.md)가 통합 진입점이다.
 
 ## 현재 MVP
 
@@ -68,4 +68,4 @@ docs/               운영 문서 — 어떻게 띄우고 고치는가
 
 ## 아직 없는 것
 
-API에는 Spotless가 적용되어 있다. `apps/web`을 만들 때 Biome을 적용하고, 커밋 메시지 훅(husky + commitlint)도 별도 이슈로 도입한다. 지금은 PR 제목 린트만 있다.
+API에는 Spotless, Web에는 Biome이 적용되어 있다. 커밋 메시지 훅(husky + commitlint)은 별도 이슈로 도입한다. 지금은 PR 제목 린트만 있다.
