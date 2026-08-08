@@ -48,6 +48,7 @@ chore: ECS 태스크 메모리 1024로 상향
 feat/12-notice-crud ──PR──> develop
                                   └── release/v0.1.0 ──PR──> main
 fix/31-render-loop  ──PR──> develop
+                       release/v0.1.0 <──PR── fix/42-release-blocker
 ```
 
 - 일반 작업 브랜치: `{type}/{issue-number}-{title-slug}`
@@ -59,8 +60,9 @@ fix/31-render-loop  ──PR──> develop
 - 출시 준비가 끝난 최신 `origin/develop`에서 `release/vX.Y.Z` 브랜치를 만들고, 이 브랜치에서 출시 후보를 검증합니다.
 - `main`에는 `release/vX.Y.Z` 브랜치만 PR을 보냅니다. `develop → main` 직접 PR은 만들지 않습니다.
 - release 브랜치를 만든 뒤에는 새 기능을 넣지 않고 출시를 막는 수정만 PR로 반영합니다.
-- release 브랜치에만 반영된 수정이 있으면 출시 후 `release/vX.Y.Z → develop` 동기화 PR을 만들고, 동기화가 끝난 뒤 release 브랜치를 삭제합니다.
-- 분기 전 `git fetch origin` 후 **최신 `origin/develop` 기준**으로 자릅니다. 로컬 `develop`만 보고 판단하지 않습니다.
+- 출시 차단 수정 브랜치는 대상 `release/vX.Y.Z`에서 분기해 같은 release 브랜치로 PR을 보냅니다. `develop`에 추가된 다음 기능을 출시 후보에 섞지 않습니다.
+- release 브랜치에만 반영된 수정이 있으면 출시 후 `release/vX.Y.Z → develop` 동기화 PR을 만듭니다. 동기화가 끝나면 ruleset 우회 권한을 가진 Organization Owner 또는 저장소 관리자가 release 브랜치를 삭제합니다.
+- 분기 전 `git fetch origin`을 실행하고 대상 원격 브랜치(`origin/develop` 또는 `origin/release/vX.Y.Z`)에서 자릅니다. 로컬 브랜치만 보고 판단하지 않습니다.
 - 이슈 번호는 `#` 없이 숫자만 적습니다.
 - slug는 kebab-case, 영어를 우선합니다. 이슈 제목이 한국어면 짧은 영어로 옮깁니다.
 - type은 커밋 메시지 표와 같은 목록을 씁니다.
@@ -70,7 +72,7 @@ fix/31-render-loop  ──PR──> develop
 
 ## 3. PR 규칙
 
-- **제목**: 커밋 메시지와 같은 형식(`type: 한글 설명`). `Lint PR title` 워크플로가 검사합니다.
+- **제목·출발 브랜치**: `Lint PR title` 워크플로가 제목 형식(`type: 한글 설명`)을 검사하고, `main` 대상 PR은 `release/vX.Y.Z`에서만 출발했는지 검증합니다.
 - **머지 방식**:
 
   | | 방식 | 이유 |
