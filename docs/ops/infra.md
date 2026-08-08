@@ -11,7 +11,7 @@
 > **예산**: 월 약 3.5만원 (RDS 프리티어 적용 시)
 > **도메인**: 지금은 없이 시작. Vercel 프록시로 우회 — 자세한 내용과 배포 전 필수 조건은 [deployment.md](deployment.md) 참고
 
-Terraform으로 실제 `.tf` 파일을 만들 때 이 문서의 코드 블록을 그대로 옮기면 됩니다 ([guides/claude-code-setup.md](../guides/claude-code-setup.md) Phase 6).
+`infra/terraform/`이 생기기 전에는 이 문서가 Terraform 구현 절차의 원본이다. 실제 코드가 생기면 문서 서두의 은퇴 조건에 따라 코드로 책임을 넘긴다.
 
 ## 설계 결정 요약
 

@@ -4,6 +4,8 @@
 
 무엇을 검증해야 머지할 수 있는지, 오류가 났을 때 어떻게 응답하는지를 잡아준다. **이 문서에 적힌 검증을 통과하지 못한 PR은 머지하지 않는다** (MUST).
 
+> **출시 단계** — MVP에서는 인증·회원 관리·공지에 해당하는 테스트를 출시 조건으로 삼는다. 자료·즐겨찾기·S3·사진·회원 제거·권한 변경 테스트는 해당 `Post Launch` 기능을 구현하는 PR부터 적용한다. 구현되지 않은 기능의 테스트 때문에 MVP 출시를 막지 않되, 구현한 기능에 해당하는 MUST 테스트는 미룰 수 없다.
+
 ```text
 §5-1   테스트 범위       무엇을 테스트하고 무엇을 안 하는가
 §5-2   필수 테스트 사례   권한·경계 조건 중심
@@ -34,8 +36,8 @@
 
 | # | 조건 | 기대 |
 |---|---|---|
-| T-01 | 비로그인으로 `GET /notes` | `401 UNAUTHENTICATED` |
-| T-02 | `PENDING` 사용자로 `GET /notes` | `403 PENDING_APPROVAL` |
+| T-01 | 비로그인으로 `GET /notices` | `401 UNAUTHENTICATED` |
+| T-02 | `PENDING` 사용자로 `GET /notices` | `403 PENDING_APPROVAL` |
 | T-03 | `SUSPENDED` 사용자로 로그인 | `403 SUSPENDED`, 세션 미발급 |
 | T-04 | `USER`로 `POST /notices` | `403 FORBIDDEN` |
 | T-05 | `USER`로 `GET /admin/users` | `403 FORBIDDEN` |

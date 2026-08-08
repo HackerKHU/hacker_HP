@@ -49,7 +49,7 @@
 - [ ] ALB 보안그룹에서 평문 80 인바운드 정리
 - [ ] RDS `deletion_protection = true`, `skip_final_snapshot = false`
 - [ ] [1-BACKGROUND §1-5](1-BACKGROUND.md)의 미결정 항목이 모두 비었는지 확인
-- [ ] [5-TESTING §5-2](5-TESTING.md)의 MUST 테스트가 모두 통과하는지 확인
+- [ ] [5-TESTING §5-2](5-TESTING.md) 중 이번 출시 범위에 해당하는 MUST 테스트가 모두 통과하는지 확인
 
 현재 Vercel↔ALB 구간이 평문이고 ALB 자체도 인터넷에 열려 있어, **로그인 비밀번호가 그대로 네트워크를 지난다.** 학과 시험 정보와 정리본은 유출되면 곤란한 자료다.
 

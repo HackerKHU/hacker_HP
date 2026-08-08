@@ -4,7 +4,11 @@
 
 ## 구조
 
-모노레포. 지금은 `spec/`과 `docs/`만 있고 `apps/`·`infra/`는 순서대로 만든다 ([docs/guides/claude-code-setup.md](docs/guides/claude-code-setup.md)).
+모노레포. 지금은 `spec/`과 `docs/`만 있고 `apps/`·`infra/`는 순서대로 만든다. 현재 상태·범위·역할·협업 흐름은 [README.md](README.md)가 통합 진입점이다.
+
+## 현재 MVP
+
+1차 출시는 **인증·회원 관리·공지**만 구현한다. 상세 범위와 역할은 [README.md](README.md), 제품 스펙 원본은 [spec/1-BACKGROUND.md §1-6](spec/1-BACKGROUND.md#1-6-1차-출시-범위)이다.
 
 ```
 apps/api            Spring Boot 3.5 / Java 21 / Gradle Kotlin DSL / PostgreSQL 16
@@ -51,7 +55,7 @@ docs/               운영 문서 — 어떻게 띄우고 고치는가
 - 예외는 커스텀 예외 + `@RestControllerAdvice`로 일괄 처리한다
 - 마이그레이션은 Flyway만 쓴다. `ddl-auto`는 `validate` (create/update 금지)
 - 새 API에는 `@PreAuthorize`로 권한을 명시한다. [3-1](spec/3-1-DESIGN-ARCHITECTURE.md) 권한 매트릭스와 일치해야 한다
-- 파일 바이트를 서버가 받지 않는다. presigned URL 발급만 한다 ([2-1 §2-1-2](spec/2-1-USER-STORIES.md))
+- 자료 파일 바이트를 서버가 받지 않는다. presigned URL 발급만 한다 ([2-1 §2-1-2](spec/2-1-USER-STORIES.md))
 - `/actuator/health`는 `permitAll`. 빠지면 ALB 헬스체크가 401로 실패해 태스크가 무한 재시작한다
 
 ## apps/web 규칙
