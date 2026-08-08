@@ -15,7 +15,7 @@
 
 1. 이 문서와 `docs/ops/infra.md`, `docs/ops/deployment.md` 등을 레포에 먼저 커밋
 2. Claude Code 실행 → 각 Phase 프롬프트를 붙여넣기
-3. Phase가 끝날 때마다 **커밋하고 다음으로**
+3. Phase가 끝날 때마다 **커밋하고 다음으로**. 단, MVP 프론트엔드는 Phase 5 백엔드와 병렬로 진행
 4. 세션이 끊기면 `CLAUDE.md`가 컨텍스트를 복원해줍니다
 
 **한 번에 다 시키지 마세요.** Phase 단위로 끊어야 검토가 가능하고, 잘못됐을 때 되돌리기 쉽습니다.
@@ -35,8 +35,8 @@ Claude Code가 물어보면 이대로 답하세요.
 | 인프라 | ECS Fargate **Spot** + ALB, NAT Gateway 없음 ([결정 2](../../spec/3-3-DESIGN-DECISIONS.md), [결정 3](../../spec/3-3-DESIGN-DECISIONS.md)) |
 | 시크릿 | SSM Parameter Store (SecureString) ([결정 4](../../spec/3-3-DESIGN-DECISIONS.md)) |
 | CI 인증 | GitHub OIDC (액세스 키 저장 안 함) |
-| 이슈 관리 | Jira, 키 접두사 `HACK-` |
-| 브랜치 | `main` / `develop` / `feature/HACK-12-설명` |
+| 이슈 관리 | GitHub Issues (`MVP` / `Post Launch` 마일스톤) |
+| 브랜치 | `main` / `develop` / `feat/12-설명` |
 | 도메인 | **아직 없음.** Vercel rewrites 프록시로 우회 ([결정 5](../../spec/3-3-DESIGN-DECISIONS.md)) |
 
 ---
@@ -49,7 +49,7 @@ Claude Code가 물어보면 이대로 답하세요.
 apps/api/     Spring Boot 3.5, Java 21, Gradle Kotlin DSL
               의존성: web, data-jpa, security, validation, actuator,
                      flyway-core, flyway-database-postgresql,
-                     postgresql, lombok
+                     postgresql, lombok, springdoc-openapi
               패키지: com.hacker.api
 
 apps/web/     React 19 + TypeScript + Vite
@@ -74,36 +74,21 @@ docs/
 
 ---
 
-## Phase 1 — 커밋 컨벤션 강제 장치
+## Phase 1 — PR 제목 컨벤션 검사
 
 > `CONTRIBUTING.md`와 `.github/PULL_REQUEST_TEMPLATE.md`는 이미 있습니다 (docs 재편 때 작성됨).
 > 이 Phase는 그 규칙을 **강제하는 설정 파일만** 추가합니다. 규칙 자체를 다시 쓰지 마세요 — `CONTRIBUTING.md`가 원본입니다. 두 곳에 같은 규칙이 있으면 나중에 한쪽만 고치고 잊어버립니다.
 
 ```
-CONTRIBUTING.md를 읽고, 거기 적힌 커밋/브랜치/PR 규칙을 강제하는
-설정 파일들을 만들어줘. 규칙 자체는 다시 쓰지 말고 그대로 따를 것.
+CONTRIBUTING.md를 읽고 .github/workflows/lint-pr.yml을 확인해줘.
 
-1. .husky/prepare-commit-msg
-   브랜치명에서 HACK-숫자를 추출해 커밋 메시지 앞에 자동 삽입.
-   이미 티켓 키가 있으면 중복 삽입하지 말 것.
-   브랜치에 티켓 키가 없으면 조용히 통과(에러 내지 말 것).
-
-2. .husky/commit-msg + commitlint.config.js
-   @commitlint/config-conventional 기반.
-   CONTRIBUTING.md의 type/scope 목록을 그대로 반영.
-   subject-case 규칙은 한글이라 끄고, header-max-length는 100.
-
-3. .github/workflows/lint-pr.yml
-   amannn/action-semantic-pull-request로 PR 제목 형식 검사.
-   허용 type/scope는 CONTRIBUTING.md 기준.
-
-husky 설치 스크립트는 루트 package.json에 두고,
-apps/web의 package.json과 충돌하지 않게 워크스페이스 설정도 확인해줘.
+amannn/action-semantic-pull-request로 PR 제목을 검사하고,
+허용 type과 scope 금지 규칙은 CONTRIBUTING.md 기준으로 맞춰줘.
+커밋 훅과 별도 티켓 키 자동 삽입은 만들지 마.
+이슈 연결은 PR 본문의 `Closes #이슈번호`로 처리해.
 ```
 
-**검증**: `feature/HACK-1-test` 브랜치에서 `git commit -m "feat(api): 테스트"` → `[HACK-1]`이 자동으로 붙는지
-
-> 커밋 규칙은 **코드 작성 전에** 세팅하세요. 나중에 붙이면 이전 커밋들과 형식이 달라져 로그가 지저분해집니다.
+**검증**: `feat/1-test` 브랜치의 PR 제목 `feat: 테스트 기능 추가`는 통과하고 `feature: 테스트`는 실패하는지 확인
 
 ---
 
@@ -201,23 +186,17 @@ docs/ops/deployment.md 를 읽고 만들어줘.
 2. apps/api/.dockerignore
 
 3. 루트 docker-compose.yml
-   postgres:16-alpine (RDS와 메이저 버전 일치) + minio
-   healthcheck 포함
+   postgres:16-alpine (RDS와 메이저 버전 일치), healthcheck 포함
 
 4. apps/api/src/main/resources/
    application.yml         공통
-   application-local.yml   docker-compose 연결, S3 endpoint를 MinIO로,
-                           path-style-access: true
+   application-local.yml   docker-compose PostgreSQL 연결
    application-prod.yml    환경변수 주입(${DB_URL} 등), ddl-auto: validate
 
-5. S3 클라이언트 설정 클래스
-   endpoint와 path-style-access를 프로퍼티로 받아서
-   로컬(MinIO)과 운영(S3)이 코드 변경 없이 전환되게
-
-6. Flyway 초기 마이그레이션 디렉토리
+5. Flyway 초기 마이그레이션 디렉토리
    src/main/resources/db/migration/ (V1__init.sql은 Phase 5에서)
 
-7. Spring Security 설정
+6. Spring Security 설정
    /actuator/health 는 permitAll   ← 이거 빠지면 ALB 헬스체크가 401로 실패해서
                                       태스크가 무한 재시작함
    나머지는 일단 authenticated
@@ -232,11 +211,12 @@ DB 연결까지 되는 걸 확인할 수 있게 해줘.
 
 ## Phase 5 — 공지사항 CRUD (관통 테스트용 첫 기능)
 
-> 파일 업로드도 없고 권한도 단순해서(조회 ACTIVE, 쓰기 ADMIN) 로컬→AWS 배포 파이프라인을 관통시켜보기에 적당합니다. 자료·사진·회원관리 같은 나머지 기능은 Phase 8에서 로컬로 계속 만듭니다.
+> 파일 업로드 없이 인증·회원 관리·공지로 로컬→AWS 배포 파이프라인을 관통합니다. 자료·사진·S3 같은 `Post Launch` 기능은 Phase 8에서 구현합니다.
 
 ```
-spec/3-2-DESIGN-CONTRACT.md 와 auth.md 를 읽고 공지사항(notices) 기능만 구현해줘.
-다른 도메인(자료/사진/회원관리)은 아직 만들지 마. 아래는 참고용 요약이고,
+spec/3-1-DESIGN-ARCHITECTURE.md 와 spec/3-2-DESIGN-CONTRACT.md 를 읽고
+인증·회원 관리와 공지사항(notices) MVP를 구현해줘.
+다른 도메인(자료/사진/S3)은 아직 만들지 마. 아래는 참고용 요약이고,
 필드·제약은 반드시 원본 문서 기준으로 맞출 것.
 
 1. Flyway V1__init.sql
@@ -245,16 +225,25 @@ spec/3-2-DESIGN-CONTRACT.md 와 auth.md 를 읽고 공지사항(notices) 기능�
 2. 엔티티 + Repository
    CLAUDE.md 규칙 준수 (setter 금지, 정적 팩토리)
 
-3. 인증/인가 (auth.md 기준 — role과 status는 분리된 별개 필드)
+3. 인증/인가 (spec/3-1-DESIGN-ARCHITECTURE.md 기준 — role과 status는 분리된 별개 필드)
    - role: USER | ADMIN
    - status: PENDING | ACTIVE | SUSPENDED
    - 회원가입 → role=USER, status=PENDING으로 생성
    - 관리자 승인 → status만 ACTIVE로 전환 (role은 그대로 USER)
-   - PENDING은 인증 API를 제외한 모든 API에서 403 PENDING_APPROVAL (auth.md AUTH-04)
+   - PENDING은 인증 API를 제외한 모든 API에서 403 PENDING_APPROVAL (AUTH-04)
 
 4. 공지사항 CRUD (spec/3-2-DESIGN-CONTRACT.md 기준)
    - 조회: ACTIVE 이상 (role 무관)
    - 생성/수정/삭제/고정 토글: ADMIN만
+
+5. MVP 회원 관리
+   - 회원 목록
+   - PENDING 가입 승인
+   - ACTIVE/SUSPENDED 상태 변경
+
+6. Swagger/OpenAPI
+   - 구현한 API의 요청·응답, 권한, 상태 코드와 대표 오류 응답 명시
+   - Swagger UI와 /v3/api-docs 노출
 
 권한 검증은 메서드 시큐리티(@PreAuthorize)로 명시적으로 표시해줘.
 ```
@@ -345,13 +334,13 @@ Phase 8(나머지 기능)은 로컬에서 계속 진행하고, 도메인을 산 
 
 ---
 
-## Phase 8 — 나머지 기능 (자료 / 사진 / 회원 관리)
+## Phase 8 — Post Launch 기능 (자료 / 사진 / 나머지 회원 관리)
 
 > Phase 5에서 공지사항은 이미 구현했습니다. 여기서는 나머지 도메인을 로컬에서 계속 만듭니다. 배포는 도메인이 생긴 뒤 다시 합니다 (Phase 7 참고).
 
 ```
-spec/2-1-USER-STORIES.md, 04-photos.md, 05-admin.md 와
-spec/3-2-DESIGN-CONTRACT.md, api.md 를 읽고 그대로 구현해줘.
+spec/2-1-USER-STORIES.md, spec/2-2-OPERATOR-REQUIREMENTS.md 와
+spec/3-2-DESIGN-CONTRACT.md 를 읽고 Post Launch 기능을 구현해줘.
 아래는 참고용 요약이고, 필드·제약·엔티티 목록은 반드시 원본 문서 기준으로 맞출 것 —
 문서에 없는 테이블이나 필드를 임의로 추가하지 마.
 
@@ -389,7 +378,9 @@ spec/3-2-DESIGN-CONTRACT.md의 권한 컬럼과 정확히 일치시켜줘.
 
 ---
 
-## Phase 9 — 프론트 + Vercel 연결
+## Phase 5-FE — MVP 프론트 + Vercel 연결
+
+> 경현이 담당하며 Phase 5 백엔드와 병렬로 진행합니다. 이 절이 문서 뒤에 있어도 Phase 8 완료를 기다리지 않습니다.
 
 ```
 1. apps/web/vercel.json
@@ -401,8 +392,12 @@ spec/3-2-DESIGN-CONTRACT.md의 권한 컬럼과 정확히 일치시켜줘.
 
 3. 라우팅 골격
    /login, /signup
-   /notices, /subjects, /exams, /photos   (부원)
-   /admin/*                                (관리자)
+   /pending
+   /notices, /notices/:id                  (부원)
+   /admin/notices/*, /admin/users           (관리자)
+
+   Post Launch에서 추가:
+   /subjects, /exams, /photos
 
 4. 역할 기반 라우트 가드
 
@@ -413,18 +408,24 @@ Vercel 대시보드 설정도 README에 정리해줘:
 
 ---
 
-## 최종 검증
+## MVP 검증
 
 - [ ] `docker compose up -d && ./gradlew bootRun` → 로컬 실행 (Phase 4)
-- [ ] 공지사항 CRUD 로컬 동작 확인 (Phase 5)
+- [ ] 가입→승인→로그인→공지 CRUD·상단 고정 로컬 동작 확인 (Phase 5)
+- [ ] MVP 프론트에서 로그인·승인 대기·공지·회원 관리 흐름 확인 (Phase 5-FE)
 - [ ] `terraform validate` 통과, `terraform apply` (문서의 적용 순서 준수 — ECR에 이미지 먼저) (Phase 6)
 - [ ] `curl http://<ALB_DNS>/actuator/health` → 200
 - [ ] `deploy-api.yml` 수동 실행 성공, `/api/notices` 관통 확인 (Phase 7)
 - [ ] 관통 확인 후 `desired-count 0`으로 비용 정지
-- [ ] 나머지 기능(자료/사진/회원관리) 로컬 구현 완료 (Phase 8)
 - [ ] 도메인 구매 후 `desired-count` 복구 + 재배포
-- [ ] Vercel 배포 후 프론트에서 `/api/...` 호출 성공 (Phase 9)
-- [ ] `feature/HACK-1-test` 브랜치 커밋 시 티켓 키 자동 삽입 확인
+- [ ] Vercel 배포 후 프론트에서 `/api/...` 호출 성공 (Phase 5-FE)
+- [ ] PR 본문의 `Closes #이슈번호`로 관련 GitHub Issue가 연결되는지 확인
+
+## Post Launch 검증
+
+- [ ] 자료 CRUD·검색·즐겨찾기와 S3 업로드·다운로드 확인 (Phase 8)
+- [ ] 활동사진 조회·업로드 확인 (Phase 8)
+- [ ] 가입 거부·회원 제거·관리자 권한 변경 확인 (Phase 8)
 
 ---
 

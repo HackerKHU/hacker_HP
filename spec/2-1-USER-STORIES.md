@@ -4,6 +4,8 @@
 
 승인된 부원(`USER` / `ACTIVE`)이 이 사이트에서 하려는 일과, 각 기능의 완료 조건을 잡아준다. 관리자 전용 기능은 [2-2](2-2-OPERATOR-REQUIREMENTS.md)에 있다. 이 문서의 모든 기능은 `ACTIVE` 상태를 전제로 하며, 권한 조합은 [3-1](3-1-DESIGN-ARCHITECTURE.md) 매트릭스가 원본이다.
 
+> **출시 단계** — MVP에는 공지 조회·관리와 인증 화면만 포함한다. 자료·즐겨찾기·활동사진은 요구사항을 유지하되 `Post Launch`에서 구현한다 ([1-BACKGROUND §1-6](1-BACKGROUND.md#1-6-1차-출시-범위)).
+
 ```text
 §2-1-1   자료 목록·검색·필터    쌓인 정리본에서 원하는 것을 찾는다
 §2-1-2   자료 업로드            정리본을 올린다
@@ -98,23 +100,23 @@
 
 ## 2-1-8 화면 목록
 
-| 구분 | 화면 | 접근 권한 |
-|---|---|---|
-| 인증 | 로그인 | 비로그인 |
-| 인증 | 회원가입 신청 | 비로그인 |
-| 인증 | 승인 대기 안내 | PENDING |
-| 공통 | 메인 (공지 요약 + 최근 자료) | ACTIVE |
-| 자료 | 시험 정리본 목록 | ACTIVE |
-| 자료 | 과목 정리본 목록 | ACTIVE |
-| 자료 | 자료 상세 | ACTIVE |
-| 자료 | 자료 등록 / 수정 | ACTIVE |
-| 자료 | 내 즐겨찾기 | ACTIVE |
-| 공지 | 공지 목록 | ACTIVE |
-| 공지 | 공지 상세 | ACTIVE |
-| 공지 | 공지 작성 / 수정 | ADMIN |
-| 사진 | 활동사진 갤러리 | ACTIVE |
-| 사진 | 사진 업로드 | ADMIN |
-| 관리 | 회원 관리 (목록 + 일괄 처리) | ADMIN |
+| 단계 | 구분 | 화면 | 접근 권한 |
+|---|---|---|---|
+| MVP | 인증 | 로그인 | 비로그인 |
+| MVP | 인증 | 회원가입 신청 | 비로그인 |
+| MVP | 인증 | 승인 대기 안내 | PENDING |
+| MVP | 공통 | 메인 또는 공지 목록 진입 | ACTIVE |
+| MVP | 공지 | 공지 목록 | ACTIVE |
+| MVP | 공지 | 공지 상세 | ACTIVE |
+| MVP | 공지 | 공지 작성 / 수정 | ADMIN |
+| MVP | 관리 | 회원 관리 | ADMIN |
+| Post Launch | 자료 | 시험 정리본 목록 | ACTIVE |
+| Post Launch | 자료 | 과목 정리본 목록 | ACTIVE |
+| Post Launch | 자료 | 자료 상세 | ACTIVE |
+| Post Launch | 자료 | 자료 등록 / 수정 | ACTIVE |
+| Post Launch | 자료 | 내 즐겨찾기 | ACTIVE |
+| Post Launch | 사진 | 활동사진 갤러리 | ACTIVE |
+| Post Launch | 사진 | 사진 업로드 | ADMIN |
 
 관리자 화면과 부원 화면은 라우트를 분리한다 (MUST). 라우트 가드는 [3-1](3-1-DESIGN-ARCHITECTURE.md) 매트릭스와 일치해야 하며, **UI에서 감추는 것만으로 권한을 통제하지 않는다.**
 

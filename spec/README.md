@@ -9,10 +9,11 @@
 | 항목 | 값 |
 | --- | --- |
 | 상태 | Baseline v1 |
-| 기준일 | 2026-08-03 |
+| 기준일 | 2026-08-08 |
 | 제품명 | hacker_HP |
 | 저장소 | https://github.com/HackerKHU/hacker_HP |
 | 기준 코드 | **없음** — 구현 착수 전이다 |
+| 1차 출시 | 인증·회원 관리·공지 ([1-BACKGROUND §1-6](1-BACKGROUND.md#1-6-1차-출시-범위)) |
 
 **이 프로젝트는 스펙을 먼저 확정하고 구현이 스펙을 따른다.** 코드가 아직 없으므로 이 문서의 거의 모든 내용은 "확정 스펙, 미구현"이다. 성격이 다른 절은 서두에 상태를 표기한다.
 
@@ -56,7 +57,7 @@
 | [2-2-OPERATOR-REQUIREMENTS.md](2-2-OPERATOR-REQUIREMENTS.md) | 가입 승인, 회원 상태·권한 관리, 관리자 계정 안전장치 |
 | [3-1-DESIGN-ARCHITECTURE.md](3-1-DESIGN-ARCHITECTURE.md) | Role과 Status의 분리, 권한 매트릭스, 가입·로그인 흐름, 서버 재검증 원칙 |
 | [3-2-DESIGN-CONTRACT.md](3-2-DESIGN-CONTRACT.md) | 테이블·컬럼·제약, API 엔드포인트와 에러 코드 |
-| [3-3-DESIGN-DECISIONS.md](3-3-DESIGN-DECISIONS.md) | 결정 5건의 배경·이유·트레이드오프, 비기능 제약값 |
+| [3-3-DESIGN-DECISIONS.md](3-3-DESIGN-DECISIONS.md) | 설계·출시 결정의 배경·이유·트레이드오프, 비기능 제약값 |
 | [5-TESTING.md](5-TESTING.md) | 무엇을 어떻게 검증해야 머지 가능한지, 오류 응답 규칙 |
 | [7-DEPLOYMENT.md](7-DEPLOYMENT.md) | 배포 원칙과 공개 전 필수 조건 |
 

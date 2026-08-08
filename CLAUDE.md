@@ -6,6 +6,16 @@
 
 모노레포. 지금은 `spec/`과 `docs/`만 있고 `apps/`·`infra/`는 순서대로 만든다 ([docs/guides/claude-code-setup.md](docs/guides/claude-code-setup.md)).
 
+## 현재 MVP
+
+1차 출시는 **인증·회원 관리·공지**만 구현한다. 자료·검색·즐겨찾기·S3·활동사진·관리자 권한 변경은 `Post Launch`다. 범위 원본은 [spec/1-BACKGROUND.md §1-6](spec/1-BACKGROUND.md#1-6-1차-출시-범위)이다.
+
+- 경현: PM, 프론트엔드, API 통합
+- 수민: 공지 백엔드, 인프라
+- 승원: 인증·권한·회원 관리 백엔드
+- 구현 API는 Swagger/OpenAPI를 같은 PR에서 갱신한다
+- 작업은 GitHub Issues로 관리하고 PR에 `Closes #이슈번호`를 적는다
+
 ```
 apps/api            Spring Boot 3.5 / Java 21 / Gradle Kotlin DSL / PostgreSQL 16
 apps/web            React 19 + TypeScript + Vite → Vercel
@@ -51,7 +61,7 @@ docs/               운영 문서 — 어떻게 띄우고 고치는가
 - 예외는 커스텀 예외 + `@RestControllerAdvice`로 일괄 처리한다
 - 마이그레이션은 Flyway만 쓴다. `ddl-auto`는 `validate` (create/update 금지)
 - 새 API에는 `@PreAuthorize`로 권한을 명시한다. [3-1](spec/3-1-DESIGN-ARCHITECTURE.md) 권한 매트릭스와 일치해야 한다
-- 파일 바이트를 서버가 받지 않는다. presigned URL 발급만 한다 ([2-1 §2-1-2](spec/2-1-USER-STORIES.md))
+- 자료 파일 바이트를 서버가 받지 않는다. presigned URL 발급만 한다 ([2-1 §2-1-2](spec/2-1-USER-STORIES.md))
 - `/actuator/health`는 `permitAll`. 빠지면 ALB 헬스체크가 401로 실패해 태스크가 무한 재시작한다
 
 ## apps/web 규칙
