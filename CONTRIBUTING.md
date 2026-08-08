@@ -2,7 +2,9 @@
 
 > 소규모 팀 기준. 팀원이 실제로 따를 수 있는 최소한만 담았습니다. 필요해지면 그때 추가하세요.
 
-- **이슈 관리**: Jira 도입 예정 (키 접두사 `HACK-`). **아직 프로젝트를 만들지 않았습니다** — 티켓 키가 들어가는 규칙은 도입 시점부터 적용합니다.
+- **이슈 관리**: GitHub Issues가 백로그의 단일 원본이다. 별도 이슈 관리 도구와 이중으로 기록하지 않는다.
+- **마일스톤**: 1차 출시 작업은 `MVP`, 이후 기능은 `Post Launch`로 구분한다.
+- **WIP 제한**: 한 사람이 동시에 `In Progress`로 진행하는 이슈는 최대 2개다.
 
 ---
 
@@ -36,7 +38,7 @@ chore: ECS 태스크 메모리 1024로 상향
 - scope는 쓰지 않습니다. 어느 앱인지는 diff가 보여줍니다.
 - subject는 명령형으로 간결하게 ("~한다"가 아니라 "~수정", "~추가").
 - 본문이 필요하면 빈 줄 하나 띄우고 **왜** 바꿨는지 위주로 씁니다. 무엇을 바꿨는지는 diff가 보여줍니다.
-- 커밋 제목에 Jira 키를 넣지 않습니다. 티켓 연결은 브랜치명과 PR 본문이 담당합니다.
+- 커밋 제목에 이슈 번호를 넣지 않습니다. 이슈 연결은 브랜치명과 PR 본문이 담당합니다.
 
 ---
 
@@ -45,20 +47,20 @@ chore: ECS 태스크 메모리 1024로 상향
 ```
 main         배포 브랜치. 직접 push 금지, PR로만 반영
  └─ develop        통합 브랜치
-     └─ feat/HACK-12-notice-crud
-     └─ fix/HACK-31-render-loop
-     └─ chore/HACK-8-ecs-memory
+     └─ feat/12-notice-crud
+     └─ fix/31-render-loop
+     └─ chore/8-ecs-memory
 ```
 
-형식: `{type}/{JIRA_KEY}-{title-slug}`
+형식: `{type}/{issue-number}-{title-slug}`
 
-> **Jira 도입 전까지는 키를 생략하고 `{type}/{title-slug}`를 씁니다** (예: `chore/repo-baseline`). 프로젝트를 만들면 그때부터 키를 넣습니다.
+이슈가 없는 저장소 설정이나 긴급 수정은 예외적으로 `{type}/{title-slug}`를 쓸 수 있다. 작업 추적이 필요한 변경은 먼저 이슈를 만든다.
 
 - 기능 브랜치는 `develop`에서 분기해 `develop`으로 PR을 보냅니다.
 - `develop`이 충분히 안정되면 `develop → main` PR로 배포합니다.
 - 분기 전 `git fetch origin` 후 **최신 `origin/develop` 기준**으로 자릅니다. 로컬 `develop`만 보고 판단하지 않습니다.
-- **Jira 키는 `HACK-12`처럼 대문자로 유지**합니다. 나머지(type, slug)는 전부 소문자입니다.
-- slug는 kebab-case, 영어를 우선합니다. Jira 요약이 한국어면 짧은 영어로 옮깁니다.
+- 이슈 번호는 `#` 없이 숫자만 적습니다.
+- slug는 kebab-case, 영어를 우선합니다. 이슈 제목이 한국어면 짧은 영어로 옮깁니다.
 - type은 커밋 메시지 표와 같은 목록을 씁니다.
 - 오래 사는 브랜치는 만들지 않습니다. 며칠 안에 머지가 안 되면 범위를 쪼개라는 신호입니다.
 
@@ -77,15 +79,26 @@ main         배포 브랜치. 직접 push 금지, PR로만 반영
   ruleset으로 강제되어 있어 다른 방식은 버튼이 뜨지 않습니다.
 
 - **리뷰**: 최소 1명 승인 후 머지.
-- **Jira 티켓 표기** *(도입 후 적용)*: PR 본문에 티켓 키가 나오면 **예외 없이 전부 링크로** 씁니다. 범위 표기(`HACK-12~15`)도 개별 링크로 펼칩니다.
-
-  ```
-  [HACK-12](https://<사이트>.atlassian.net/browse/HACK-12)
-  ```
+- **자동 리뷰**: Claude 봇 리뷰는 보조 수단이다. 봇 리뷰 여부와 무관하게 사람 1명의 승인이 필요하다.
+- **이슈 연결**: PR 본문에 `Closes #12`를 적는다. 여러 이슈를 닫을 때는 번호별로 각각 적는다.
+- **API 변경**: 구현 또는 변경된 API의 Swagger/OpenAPI 명세를 같은 PR에서 갱신한다.
+- **화면 변경**: 확인 가능한 스크린샷 또는 짧은 영상을 PR에 첨부한다.
 
 - PR을 올리면 [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) 내용이 자동으로 채워집니다.
 
-> **Jira 상태는 자동으로 안 바뀝니다.** 브랜치명이나 PR 본문에 `HACK-12`가 들어가면 Jira 티켓의 Development 패널에 PR·커밋이 보이기만 할 뿐, 상태(Done 등)는 직접 옮기거나 Jira Automation 규칙을 따로 설정해야 합니다.
+---
+
+## 4. GitHub Issues
+
+- 구현 전에 이슈를 만들고 담당자 한 명, 마일스톤, 완료 조건을 지정한다.
+- `Backlog → Ready → In Progress → Review → Done` 순서로 관리한다.
+- 기능 PR이 `develop` 머지 시 이슈를 자동으로 닫게 하려면 GitHub 저장소의 default branch를 `develop`으로 설정한다. default branch가 `main`인 동안에는 PR 머지 후 이슈를 직접 닫는다.
+- 막힌 작업은 `blocked` 라벨을 붙이고 원인과 필요한 도움을 댓글로 남긴다.
+- 범위가 커지면 한 이슈에서 계속 늘리지 말고 후속 이슈로 분리한다.
+- 세부 명세는 구현하면서 바꿀 수 있지만, 권한·스키마·API가 바뀌면 관련 `spec/` 문서도 같은 PR에서 갱신한다.
+- 이슈의 완료는 코드 작성만 뜻하지 않는다. 테스트, 문서, 통합 확인과 PR 머지까지 끝나야 한다.
+
+권장 라벨은 `backend`, `frontend`, `infra`, `docs`, `bug`, `blocked`, `launch-critical`, `post-launch`다.
 
 ---
 
