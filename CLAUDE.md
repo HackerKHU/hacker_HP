@@ -37,6 +37,7 @@ docs/               운영 문서 — 어떻게 띄우고 고치는가
 ## PR을 올릴 때
 
 - **PR과 이슈에는 항상 본인을 assignee로 지정한다** (`gh pr create --assignee @me`). 누가 들고 있는 작업인지 목록에서 바로 보여야 한다. 리뷰어와 별개다 — assignee는 "내가 끝까지 책임진다"는 표시다.
+- 일반 작업 PR은 `develop`으로 보내고, `main`에는 `release/vX.Y.Z` 브랜치만 PR을 보낸다. release 브랜치 생성·동기화 절차는 [CONTRIBUTING.md](CONTRIBUTING.md)를 따른다.
 - 형식·머지 방식은 [CONTRIBUTING.md](CONTRIBUTING.md)를 따른다.
 
 ## 전역 금지

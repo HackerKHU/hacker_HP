@@ -52,8 +52,9 @@ NAT Gateway는 사용하지 않는다. ECS 태스크는 퍼블릭 서브넷에 �
 | 백로그 | GitHub Issues가 단일 원본 |
 | 마일스톤 | `MVP`, `Post Launch` |
 | WIP | 한 사람당 `In Progress` 최대 2개 |
-| 기본 브랜치 | `develop`; `main`은 출시 브랜치 |
-| 브랜치 | `{type}/{issue-number}-{slug}` |
+| 기본 브랜치 | `develop`; `main`은 배포 브랜치 |
+| 브랜치 | 일반 작업은 `{type}/{issue-number}-{slug}`, 출시는 `release/vX.Y.Z` |
+| 출시 흐름 | `develop → release/vX.Y.Z → main` |
 | PR 연결 | 본문에 `Closes #이슈번호` |
 | API 계약 | 구현 전에 Swagger/OpenAPI로 합의하고 같은 PR에서 갱신 |
 | 리뷰 | Codex 리뷰 확인 및 피드백 반영, 사람 리뷰는 선택 |
