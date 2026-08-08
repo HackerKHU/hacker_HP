@@ -4,17 +4,11 @@
 
 ## 구조
 
-모노레포. 지금은 `spec/`과 `docs/`만 있고 `apps/`·`infra/`는 순서대로 만든다 ([docs/guides/claude-code-setup.md](docs/guides/claude-code-setup.md)).
+모노레포. 지금은 `spec/`과 `docs/`만 있고 `apps/`·`infra/`는 순서대로 만든다. 현재 상태·범위·역할·협업 흐름은 [README.md](README.md)가 통합 진입점이다.
 
 ## 현재 MVP
 
-1차 출시는 **인증·회원 관리·공지**만 구현한다. 자료·검색·즐겨찾기·S3·활동사진·관리자 권한 변경은 `Post Launch`다. 범위 원본은 [spec/1-BACKGROUND.md §1-6](spec/1-BACKGROUND.md#1-6-1차-출시-범위)이다.
-
-- 경현: PM, 프론트엔드, API 통합
-- 수민: 공지 백엔드, 인프라
-- 승원: 인증·권한·회원 관리 백엔드
-- 구현 API는 Swagger/OpenAPI를 같은 PR에서 갱신한다
-- 작업은 GitHub Issues로 관리하고 PR에 `Closes #이슈번호`를 적는다
+1차 출시는 **인증·회원 관리·공지**만 구현한다. 상세 범위와 역할은 [README.md](README.md), 제품 스펙 원본은 [spec/1-BACKGROUND.md §1-6](spec/1-BACKGROUND.md#1-6-1차-출시-범위)이다.
 
 ```
 apps/api            Spring Boot 3.5 / Java 21 / Gradle Kotlin DSL / PostgreSQL 16
