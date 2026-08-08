@@ -1,12 +1,14 @@
 name: 작업
 description: 기능, 리팩터링, 문서, 인프라 작업을 등록합니다.
-title: ""
+title: "feat: "
 labels: []
 body:
   - type: markdown
     attributes:
       value: |
         작업 범위를 작게 유지하고, 한 명이 끝까지 책임질 수 있는 단위로 작성해주세요.
+
+        제목은 `type: 한글 설명` 형식입니다. 기본값은 `feat:`이니 문서·설정·인프라 작업이면 `docs:`, `chore:`, `cicd:` 등으로 바꿔주세요. type 목록은 CONTRIBUTING.md 1절에 있습니다.
 
   - type: dropdown
     id: release
