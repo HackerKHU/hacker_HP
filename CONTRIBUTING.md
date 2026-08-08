@@ -44,20 +44,22 @@ chore: ECS 태스크 메모리 1024로 상향
 
 ## 2. 브랜치 전략
 
-```
-main         배포 브랜치. 직접 push 금지, PR로만 반영
- └─ develop        통합 브랜치
-     └─ feat/12-notice-crud
-     └─ fix/31-render-loop
-     └─ chore/8-ecs-memory
+```text
+feat/12-notice-crud ──PR──> develop
+                                  └── release/v0.1.0 ──PR──> main
+fix/31-render-loop  ──PR──> develop
 ```
 
-형식: `{type}/{issue-number}-{title-slug}`
+- 일반 작업 브랜치: `{type}/{issue-number}-{title-slug}`
+- 출시 브랜치: `release/v{major}.{minor}.{patch}` (예: `release/v0.1.0`)
 
 이슈가 없는 저장소 설정이나 긴급 수정은 예외적으로 `{type}/{title-slug}`를 쓸 수 있다. 작업 추적이 필요한 변경은 먼저 이슈를 만든다.
 
 - 기능 브랜치는 `develop`에서 분기해 `develop`으로 PR을 보냅니다.
-- `develop`이 충분히 안정되면 `develop → main` PR로 배포합니다.
+- 출시 준비가 끝난 최신 `origin/develop`에서 `release/vX.Y.Z` 브랜치를 만들고, 이 브랜치에서 출시 후보를 검증합니다.
+- `main`에는 `release/vX.Y.Z` 브랜치만 PR을 보냅니다. `develop → main` 직접 PR은 만들지 않습니다.
+- release 브랜치를 만든 뒤에는 새 기능을 넣지 않고 출시를 막는 수정만 PR로 반영합니다.
+- release 브랜치에만 반영된 수정이 있으면 출시 후 `release/vX.Y.Z → develop` 동기화 PR을 만들고, 동기화가 끝난 뒤 release 브랜치를 삭제합니다.
 - 분기 전 `git fetch origin` 후 **최신 `origin/develop` 기준**으로 자릅니다. 로컬 `develop`만 보고 판단하지 않습니다.
 - 이슈 번호는 `#` 없이 숫자만 적습니다.
 - slug는 kebab-case, 영어를 우선합니다. 이슈 제목이 한국어면 짧은 영어로 옮깁니다.
@@ -74,12 +76,14 @@ main         배포 브랜치. 직접 push 금지, PR로만 반영
   | | 방식 | 이유 |
   |---|---|---|
   | 기능 브랜치 → `develop` | **Squash merge** | 브랜치 안의 지저분한 커밋이 남지 않습니다 |
-  | `develop` → `main` | **Merge commit** | 어느 기능 묶음이 언제 배포됐는지 히스토리에 남습니다 |
+  | 수정 브랜치 → `release/vX.Y.Z` | **Squash merge** | 출시 후보의 변경 이력을 작게 유지합니다 |
+  | `release/vX.Y.Z` → `main` | **Merge commit** | 어느 버전이 언제 배포됐는지 히스토리에 남습니다 |
+  | `release/vX.Y.Z` → `develop` | **Squash merge** | release에서 발생한 수정만 통합 브랜치에 되돌립니다 |
 
   ruleset으로 강제되어 있어 다른 방식은 버튼이 뜨지 않습니다.
 
 - **리뷰**: Codex 리뷰 결과를 확인하고 필요한 피드백을 반영한 뒤 머지한다.
-- **사람 리뷰**: 필요할 때 요청하며 필수 조건은 아니다.
+- **사람 리뷰**: 필요할 때 요청하며 release 및 main PR을 포함해 필수 조건은 아니다.
 - **이슈 연결**: PR 본문에 `Closes #12`를 적는다. 여러 이슈를 닫을 때는 번호별로 각각 적는다.
 - **API 변경**: 구현 또는 변경된 API의 Swagger/OpenAPI 명세를 같은 PR에서 갱신한다.
 - **화면 변경**: 확인 가능한 스크린샷 또는 짧은 영상을 PR에 첨부한다.

@@ -1,7 +1,7 @@
 name: Lint PR title
 
-# 기능 브랜치 → develop은 squash merge라 PR 제목이 그대로 커밋 메시지가 된다.
-# 로그 형식을 지키는 건 이 워크플로 하나뿐이다 (CONTRIBUTING.md).
+# 일반 작업과 release PR 모두 CONTRIBUTING.md의 제목 형식을 따른다.
+# squash merge에서는 PR 제목이 그대로 커밋 메시지가 된다.
 
 on:
   pull_request:

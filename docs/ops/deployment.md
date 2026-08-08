@@ -170,6 +170,22 @@ management:
 
 ---
 
+## 출시 브랜치
+
+브랜치 전략의 원본은 [`CONTRIBUTING.md`](../../CONTRIBUTING.md)다. 배포할 버전이 준비되면 최신 `origin/develop`에서 SemVer 형식의 release 브랜치를 만든다.
+
+```bash
+git fetch origin
+git switch -c release/v0.1.0 origin/develop
+git push -u origin release/v0.1.0
+```
+
+release 브랜치에서는 배포 후보를 검증하고 출시를 막는 수정만 PR로 받는다. 검증이 끝나면 `release/v0.1.0 → main` PR을 Merge commit으로 병합한다. release에서 추가 수정이 발생했다면 배포 후 `release/v0.1.0 → develop` 동기화 PR을 먼저 병합하고 release 브랜치를 삭제한다.
+
+`develop → main` 직접 PR과 release 브랜치에서의 새 기능 개발은 하지 않는다.
+
+---
+
 ## GitHub Actions
 
 ### .github/workflows/ci.yml
@@ -179,7 +195,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, 'release/**']
 
 jobs:
   api:
