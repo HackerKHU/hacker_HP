@@ -96,6 +96,7 @@ fix/31-render-loop  ──PR──> develop
 
 ## 4. GitHub Issues
 
+- **제목**: 커밋·PR과 같은 `type: 한글 설명` 형식을 쓴다. type은 1절 표와 같은 목록이며, 이슈의 결과물이 무엇인지로 고른다 (문서만 바뀌면 `docs`, 화면이 생기면 `feat`). 이슈 템플릿이 접두사를 채워주므로 작업 성격에 맞게 바꿔 쓴다. 템플릿의 제목 기본값과 YAML 유효성은 `Lint issue templates` 워크플로가 검사한다.
 - 구현 전에 이슈를 만들고 담당자 한 명, 마일스톤, 완료 조건을 지정한다.
 - `Backlog → Ready → In Progress → Review → Done` 순서로 관리한다.
 - 기능 PR이 `develop` 머지 시 이슈를 자동으로 닫게 하려면 GitHub 저장소의 default branch를 `develop`으로 설정한다. default branch가 `main`인 동안에는 PR 머지 후 이슈를 직접 닫는다.

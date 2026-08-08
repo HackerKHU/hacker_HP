@@ -1,0 +1,27 @@
+name: Lint issue templates
+
+# 이슈 템플릿의 YAML이 깨지면 GitHub이 폼을 조용히 무시하고,
+# 제목 기본값이 사라지면 CONTRIBUTING.md 4절의 제목 규칙이 유명무실해진다.
+# 둘 다 사람이 알아채기 어려우므로 PR에서 검사한다.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  templates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: YAML 파서 설치
+        run: pip install pyyaml
+      - name: 이슈 템플릿 검사 규칙 테스트
+        run: bash .github/scripts/test-validate-issue-templates.sh
+      - name: 이슈 템플릿 검사
+        run: bash .github/scripts/validate-issue-templates.sh
