@@ -36,7 +36,8 @@ function isErrorBody(value: unknown): value is ErrorBody {
   return (
     typeof value === 'object' &&
     value !== null &&
-    typeof (value as { code?: unknown }).code === 'string'
+    typeof (value as { code?: unknown }).code === 'string' &&
+    typeof (value as { message?: unknown }).message === 'string'
   )
 }
 
@@ -82,11 +83,11 @@ export async function request<T>(
   if (!response.ok) {
     throw await toApiError(response)
   }
-  if (response.status === 204) {
-    return undefined as T
-  }
   try {
-    return (await response.json()) as T
+    // 무본문 응답을 status로 가르지 않는다 — 서버가 logout·DELETE를 204로 줄지
+    // 200 + 빈 본문으로 줄지 아직 확정되지 않았다.
+    const text = await response.text()
+    return text === '' ? (undefined as T) : (JSON.parse(text) as T)
   } catch (cause) {
     throw new ApiError(
       'INVALID_RESPONSE',
@@ -97,13 +98,13 @@ export async function request<T>(
   }
 }
 
-/** 값이 없는 파라미터는 쿼리에서 뺀다. */
+/** 값이 없는 파라미터는 쿼리에서 뺀다. 빈 문자열도 뺀다 — 0은 남긴다(page=0이 첫 페이지). */
 export function toQuery(
   params: Record<string, string | number | undefined>,
 ): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined) {
+    if (value !== undefined && value !== '') {
       search.set(key, String(value))
     }
   }

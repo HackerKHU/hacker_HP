@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, request } from './client'
+import { ApiError, request, toQuery } from './client'
 import type { ErrorCode } from './types'
 
 function mockErrorResponse(status: number, code: ErrorCode) {
@@ -26,5 +26,35 @@ describe('request 에러 매핑', () => {
     expect((pending as ApiError).code).toBe('PENDING_APPROVAL')
     expect((forbidden as ApiError).code).toBe('FORBIDDEN')
     expect((pending as ApiError).code).not.toBe((forbidden as ApiError).code)
+  })
+
+  it('message가 없는 에러 본문은 INVALID_RESPONSE로 떨어뜨린다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ code: 'FORBIDDEN' }, { status: 403 })),
+    )
+
+    const error = await request('/notices').catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).code).toBe('INVALID_RESPONSE')
+    expect(typeof (error as ApiError).message).toBe('string')
+  })
+
+  it('200 + 빈 본문을 undefined로 통과시킨다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 200 })),
+    )
+
+    await expect(request('/auth/logout', { method: 'POST' })).resolves.toBe(
+      undefined,
+    )
+  })
+})
+
+describe('toQuery', () => {
+  it('빈 문자열은 빼고 0은 남긴다', () => {
+    expect(toQuery({ q: '', page: 0, size: undefined })).toBe('?page=0')
   })
 })
