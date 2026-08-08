@@ -611,7 +611,7 @@ resource "aws_ecs_task_definition" "api" {
       { name = "SPRING_PROFILES_ACTIVE", value = "prod" },
       { name = "AWS_REGION", value = local.region },
       { name = "S3_BUCKET", value = aws_s3_bucket.uploads.id },
-      { name = "JAVA_OPTS", value = "-XX:MaxRAMPercentage=70 -XX:+UseSerialGC" }
+      { name = "JAVA_TOOL_OPTIONS", value = "-XX:MaxRAMPercentage=70 -XX:+UseSerialGC" }
     ]
 
     secrets = [

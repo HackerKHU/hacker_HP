@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: hacker-hp-api
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true

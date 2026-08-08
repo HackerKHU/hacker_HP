@@ -93,11 +93,12 @@ COPY --from=extract /app/application/           ./
 USER app
 EXPOSE 8080
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS org.springframework.boot.loader.launch.JarLauncher"]
+ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]
 ```
 
 레이어 추출을 쓰면 의존성 레이어가 재사용돼서 배포 시 업로드 용량이 수십 MB로 줄어듭니다.
 `curl`은 컨테이너 헬스체크에 필요합니다.
+JVM 옵션은 ECS에서 `JAVA_TOOL_OPTIONS`로 주입하며, `java`가 이 환경변수를 자동으로 읽습니다.
 
 > 로더 클래스명은 Spring Boot 3.2 이상 기준입니다. 3.1 이하면 `org.springframework.boot.loader.JarLauncher`.
 
