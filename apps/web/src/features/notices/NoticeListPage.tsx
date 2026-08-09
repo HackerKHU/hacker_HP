@@ -208,14 +208,19 @@ export function NoticeListPage() {
          * 관리자가 실수로 누른다.
          */}
         {isAdmin && (
-          <Button
-            variant={managing ? 'secondary' : 'outline'}
-            size="sm"
-            aria-pressed={managing}
-            onClick={() => setManaging((on) => !on)}
-          >
-            관리
-          </Button>
+          <div className="flex shrink-0 gap-2">
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/admin/notices/new">새 공지</Link>
+            </Button>
+            <Button
+              variant={managing ? 'secondary' : 'outline'}
+              size="sm"
+              aria-pressed={managing}
+              onClick={() => setManaging((on) => !on)}
+            >
+              관리
+            </Button>
+          </div>
         )}
       </div>
 

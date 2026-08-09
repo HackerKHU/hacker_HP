@@ -4,6 +4,7 @@ import { Button } from './components/ui/button'
 import { LandingPage } from './features/landing/LandingPage'
 import { PrivacyPage } from './features/legal/PrivacyPage'
 import { NoticeDetailPage } from './features/notices/NoticeDetailPage'
+import { NoticeFormPage } from './features/notices/NoticeFormPage'
 import { NoticeListPage } from './features/notices/NoticeListPage'
 import { GuestOnly, PendingOnly, RequireActive } from './routes/guards'
 
@@ -67,18 +68,12 @@ function App() {
       {/* 관리자 화면 — 부원 라우트와 /admin 접두사로 분리한다 */}
       <Route element={<RequireActive requiredRole="ADMIN" />}>
         <Route element={<AppLayout />}>
-          <Route
-            path="/admin/notices"
-            element={<Placeholder title="공지 관리" />}
-          />
-          <Route
-            path="/admin/notices/new"
-            element={<Placeholder title="공지 작성" />}
-          />
-          <Route
-            path="/admin/notices/:id/edit"
-            element={<Placeholder title="공지 수정" />}
-          />
+          {/*
+            공지 작성·수정은 한 화면이 맡는다. 목록형 "공지 관리" 화면은 두지 않는다 —
+            spec §2-1-8 화면 목록에도 없고, 고정 토글은 공지 목록의 관리 모드에 있다.
+          */}
+          <Route path="/admin/notices/new" element={<NoticeFormPage />} />
+          <Route path="/admin/notices/:id/edit" element={<NoticeFormPage />} />
           <Route
             path="/admin/members"
             element={<Placeholder title="회원 관리" />}

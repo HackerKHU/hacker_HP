@@ -158,12 +158,15 @@ describe('헤더 메뉴 노출', () => {
   it('ADMIN에게는 회원 관리가 보인다', async () => {
     auth.me = () => Promise.resolve({ ...BASE, role: 'ADMIN' })
 
-    renderAt('/admin/notices')
-    await screen.findByRole('heading', { name: '공지 관리' })
+    renderAt('/admin/members')
+    await screen.findByRole('heading', { name: '회원 관리' })
 
     expect(menuLabels()).toEqual(['공지사항', '회원 관리'])
-    // 공지 관리 라우트는 살아 있지만 진입 위치가 미정이라 메뉴에서 뺐다.
-    // 무심코 되살리면 여기서 잡힌다.
+    /*
+     * 목록형 "공지 관리" 화면은 없다 (spec §2-1-8). 라우트도 메뉴도 두지 않는다 —
+     * 작성·수정은 /admin/notices/new·/edit이 맡고 고정 토글은 공지 목록에 있다.
+     * 무심코 되살리면 여기서 잡힌다.
+     */
     expect(menuLabels()).not.toContain('공지 관리')
   })
 
