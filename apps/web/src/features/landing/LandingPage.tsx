@@ -1,5 +1,3 @@
-import { Link } from 'react-router-dom'
-import { homePath, useSession } from '@/auth/session'
 import {
   Accordion,
   AccordionContent,
@@ -19,10 +17,6 @@ function Heading({ children }: { children: string }) {
 }
 
 function Hero() {
-  const session = useSession()
-  const loggedIn =
-    session.state.kind === 'active' || session.state.kind === 'pending'
-
   return (
     <section id="top" className={cn(SECTION, 'py-28')}>
       <p className="text-sm tracking-[0.2em] text-muted-foreground">
@@ -32,25 +26,6 @@ function Hero() {
       <h1 className="mt-6 max-w-3xl text-5xl leading-tight font-semibold tracking-tight text-foreground">
         {CLUB.tagline}
       </h1>
-
-      {session.state.kind !== 'loading' && (
-        <div className="mt-10 flex gap-3">
-          {loggedIn ? (
-            <Button asChild size="lg">
-              <Link to={homePath(session)}>내 페이지로</Link>
-            </Button>
-          ) : (
-            <>
-              <Button asChild size="lg">
-                <Link to="/signup">가입 신청</Link>
-              </Button>
-              <Button asChild size="lg" variant="outline">
-                <Link to="/login">로그인</Link>
-              </Button>
-            </>
-          )}
-        </div>
-      )}
     </section>
   )
 }
@@ -141,11 +116,17 @@ function Faq() {
       <Accordion type="single" collapsible className="mt-8">
         {FAQS.map((faq) => (
           <AccordionItem key={faq.question} value={faq.question}>
-            <AccordionTrigger className="text-left">
+            {/*
+              shadcn 기본값이 text-sm(14px)이라 같은 페이지의 소개 본문·푸터(16px)보다
+              작다. 우리가 정한 값이 아니라 복사본의 기본값이므로 **사용처에서 덮는다** —
+              `accordion.tsx`를 고치면 이 컴포넌트를 쓰는 다른 화면까지 따라 바뀐다.
+            */}
+            <AccordionTrigger className="text-left text-base leading-7 font-semibold">
               {faq.question}
             </AccordionTrigger>
             <AccordionContent>
-              <p className="max-w-3xl leading-7 text-muted-foreground">
+              {/* 답변은 소개 본문과 같은 16px / 줄높이 2.0으로 맞춘다. */}
+              <p className="max-w-3xl text-base leading-8 text-muted-foreground">
                 {faq.answer}
               </p>
             </AccordionContent>
