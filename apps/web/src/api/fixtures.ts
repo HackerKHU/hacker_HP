@@ -25,17 +25,13 @@ import type { User } from './types'
  * - `applying`  PENDING, 신청서 미제출 — 신청 폼을 봐야 하는 상태 (spec 3-1-6)
  * - `pending`   PENDING, 신청서 제출 완료 — 승인 대기 안내를 봐야 하는 상태
  * - `guest`     세션 없음. getMe가 401 UNAUTHENTICATED
- * - `suspended` 로그인 자체가 403 SUSPENDED로 차단 (spec 3-1-2)
  * - `blocked`   세션은 있으나 서버가 403 PENDING_APPROVAL로 막는 상태 (spec 3-1-6)
+ *
+ * 정지·도메인 위반 같은 OAuth 실패는 여기에 없다. 서버가 세션을 만들지 않고
+ * `/login?error=...`로 되돌리므로(계약 §3-2-3), 그 화면은 주소로 직접 열어 만든다.
+ * 시나리오로 두면 `guest`와 결과가 같아 아무것도 구분하지 못한다.
  */
-type Scenario =
-  | 'user'
-  | 'admin'
-  | 'applying'
-  | 'pending'
-  | 'guest'
-  | 'suspended'
-  | 'blocked'
+type Scenario = 'user' | 'admin' | 'applying' | 'pending' | 'guest' | 'blocked'
 
 const SCENARIO = (import.meta.env.VITE_FIXTURE_SCENARIO ?? 'user') as Scenario
 
@@ -105,7 +101,7 @@ const USERS: Record<
 let application: { studentNo: string; name: string } | null = null
 
 export function fixtureMe(): Promise<User> {
-  if (SCENARIO === 'guest' || SCENARIO === 'suspended') {
+  if (SCENARIO === 'guest') {
     return Promise.reject(
       new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
     )
@@ -141,11 +137,6 @@ export function fixtureApplication(body: {
   studentNo: string
   name: string
 }): Promise<void> {
-  if (SCENARIO === 'suspended') {
-    return Promise.reject(
-      new ApiError('SUSPENDED', 403, '이용이 정지된 계정입니다.'),
-    )
-  }
   if (SCENARIO === 'guest') {
     return Promise.reject(
       new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),

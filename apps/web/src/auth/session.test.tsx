@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { User } from '../api/types'
 import { hasApplied, SessionProvider, useSession } from './session'
@@ -26,7 +26,14 @@ const PENDING: User = {
 function Probe() {
   const session = useSession()
   const applied = hasApplied(session)
-  return <span data-testid="applied">{String(applied)}</span>
+  return (
+    <>
+      <span data-testid="applied">{String(applied)}</span>
+      <button type="button" onClick={() => void session.refresh()}>
+        새로고침
+      </button>
+    </>
+  )
 }
 
 function renderProbe() {
@@ -73,5 +80,25 @@ describe('PENDING 세션의 신청 여부', () => {
 
     // 모르는 것을 false로 단정하면 이미 신청한 사람에게 폼이 다시 뜬다.
     await waitFor(() => expect(el).toHaveTextContent('null'))
+  })
+
+  // 회귀 — `null`을 풀 경로가 없으면 신청 화면이 폼과 안내 중 무엇도 못 고르고 영영 멈춘다.
+  it('refresh()가 알 수 없는 PENDING을 실제 상태로 푼다', async () => {
+    const { ApiError } = await import('../api/client')
+    auth.me.mockRejectedValueOnce(
+      new ApiError('PENDING_APPROVAL', 403, '승인 대기 중입니다.'),
+    )
+
+    const el = await renderProbe()
+    await waitFor(() => expect(el).toHaveTextContent('null'))
+
+    auth.me.mockResolvedValueOnce({
+      ...PENDING,
+      studentNo: '2024001122',
+      appliedAt: '2026-03-02T10:00:00Z',
+    })
+    fireEvent.click(screen.getByRole('button', { name: '새로고침' }))
+
+    await waitFor(() => expect(el).toHaveTextContent('true'))
   })
 })

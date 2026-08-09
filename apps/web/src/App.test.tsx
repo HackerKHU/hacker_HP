@@ -99,8 +99,9 @@ describe('라우트 가드', () => {
     ).toBeInTheDocument()
   })
 
-  // 회귀 — 회원가입 신청은 비로그인 전용이다(spec §3-1-3). 정지 계정에게는 로그인 화면만 연다.
-  it('SUSPENDED가 가입 화면에 가면 로그인 화면으로 보낸다', async () => {
+  // 회귀 — 가입도 구글 버튼 하나로 하므로 /signup은 없다(2-1 §2-1-8, 3-3 결정 13).
+  // 저장된 링크로 들어와도 존재하지 않는 화면이 아니라 로그인으로 보내야 한다.
+  it('없어진 /signup으로 들어오면 로그인 화면으로 보낸다', async () => {
     auth.me = () => Promise.resolve({ ...BASE, status: 'SUSPENDED' })
 
     renderAt('/signup')

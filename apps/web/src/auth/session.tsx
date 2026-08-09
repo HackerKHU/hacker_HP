@@ -52,6 +52,14 @@ interface Session {
    * 403은 PENDING_APPROVAL·SUSPENDED·FORBIDDEN이 모두 쓰므로 status가 아니라 code로 가른다.
    */
   reportApiError: (error: unknown) => void
+  /**
+   * 서버에서 사용자 정보를 다시 읽어 세션을 갱신한다.
+   *
+   * `pending`이면서 `user`가 `null`인 상태(403으로만 알아낸 경우)를 푸는 유일한 경로다.
+   * 그대로 두면 신청 화면이 폼과 대기 안내 중 무엇을 보일지 영영 정하지 못한다.
+   * 신청서를 제출한 뒤 화면을 다시 그릴 때도 쓴다.
+   */
+  refresh: () => Promise<void>
 }
 
 /**
@@ -124,6 +132,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  const refresh = useCallback(
+    () =>
+      getMe()
+        .then((me) => setState(fromUser(me)))
+        .catch((error: unknown) => {
+          // 실패는 곧 비로그인이다. 코드가 상태를 알려주면 그쪽을 쓴다.
+          setState(fromApiError(error) ?? { kind: 'guest' })
+        }),
+    [],
+  )
+
   useEffect(() => {
     let alive = true
     getMe()
@@ -131,7 +150,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (alive) setState(fromUser(me))
       })
       .catch((error: unknown) => {
-        // 실패는 곧 비로그인이다. 코드가 상태를 알려주면 그쪽을 쓴다.
         if (alive) setState(fromApiError(error) ?? { kind: 'guest' })
       })
     return () => {
@@ -140,8 +158,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<Session>(
-    () => ({ state, setUser, reportApiError }),
-    [state, setUser, reportApiError],
+    () => ({ state, setUser, reportApiError, refresh }),
+    [state, setUser, reportApiError, refresh],
   )
 
   return <SessionContext value={value}>{children}</SessionContext>
