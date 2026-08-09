@@ -1,6 +1,10 @@
 spring:
   application:
     name: hacker-hp-api
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
 
 management:
   endpoints:

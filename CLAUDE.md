@@ -8,7 +8,7 @@
 
 ## 현재 MVP
 
-1차 출시는 **인증·회원 관리·공지**만 구현한다. 상세 범위와 역할은 [README.md](README.md), 제품 스펙 원본은 [spec/1-BACKGROUND.md §1-6](spec/1-BACKGROUND.md#1-6-1차-출시-범위)이다.
+1차 출시는 **공개 랜딩·인증·회원 관리·공지**만 구현한다. 랜딩은 로그인 없이 열리는 정적 페이지다 ([spec/3-3 결정 8](spec/3-3-DESIGN-DECISIONS.md#3-3-9-결정-8--공개-랜딩-페이지를-1차-출시에-포함하고-정적으로-구현한다)). 상세 범위와 역할은 [README.md](README.md), 제품 스펙 원본은 [spec/1-BACKGROUND.md §1-6](spec/1-BACKGROUND.md#1-6-1차-출시-범위)이다.
 
 ```
 apps/api            Spring Boot 3.5 / Java 21 / Gradle Kotlin DSL / PostgreSQL 16
