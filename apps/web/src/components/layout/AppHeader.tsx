@@ -15,13 +15,17 @@ import { cn } from '@/lib/utils'
  * #36의 라우트 가드가 막고, 서버가 다시 검증한다. 여기가 담당하는 것은 노출뿐이다.
  */
 const MENUS = {
-  USER: [{ to: '/notices', label: '공지' }],
+  USER: [{ to: '/notices', label: '공지사항' }],
   ADMIN: [
-    { to: '/notices', label: '공지' },
-    { to: '/admin/notices', label: '공지 관리' },
+    { to: '/notices', label: '공지사항' },
     { to: '/admin/members', label: '회원 관리' },
   ],
 } satisfies Record<Role, { to: string; label: string }[]>
+
+/*
+ * `/admin/notices` 계열 라우트는 App.tsx에 살아 있고 가드도 그대로다.
+ * 진입 위치가 아직 정해지지 않아 **메뉴에서만 뺐다** — 죽은 라우트가 아니니 지우지 말 것.
+ */
 
 /**
  * 서버가 세션을 지웠다고 확인해 준 경우만 로그아웃 성공이다.
@@ -68,7 +72,7 @@ export function AppHeader() {
     <header className="border-b border-border bg-background">
       <div className="mx-auto flex h-14 w-full max-w-[1152px] items-center gap-8 px-6">
         <Link to="/" className="font-semibold tracking-tight">
-          HackerKHU
+          HACKER
         </Link>
 
         <nav className="flex items-center gap-1" aria-label="주요 메뉴">

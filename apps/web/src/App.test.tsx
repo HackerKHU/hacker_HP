@@ -10,11 +10,26 @@ const auth = vi.hoisted(() => ({
   me: (): Promise<User> =>
     Promise.reject(new Error('테스트가 지정하지 않았다')),
   logout: (): Promise<void> => Promise.resolve(),
+  listRejects: null as unknown,
 }))
 
 vi.mock('./api/auth', () => ({
   getMe: () => auth.me(),
   logout: () => auth.logout(),
+}))
+
+// 이 파일은 라우트 가드와 헤더만 본다. 공지 화면이 실제 요청을 내보내면
+// 로딩 실패 alert가 생겨 로그아웃 alert와 섞인다.
+vi.mock('./api/notices', () => ({
+  list: () =>
+    auth.listRejects
+      ? Promise.reject(auth.listRejects)
+      : Promise.resolve({
+          content: [],
+          page: { size: 10, number: 0, totalElements: 0, totalPages: 0 },
+        }),
+  get: () => Promise.reject(new Error('이 파일에서는 쓰지 않는다')),
+  togglePin: () => Promise.reject(new Error('이 파일에서는 쓰지 않는다')),
 }))
 
 const BASE: User = {
@@ -53,6 +68,7 @@ beforeEach(() => {
   auth.me = () =>
     Promise.reject(new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'))
   auth.logout = () => Promise.resolve()
+  auth.listRejects = null
 })
 
 /** 메뉴 링크 이름 목록. 플레이스홀더 화면 제목과 겹치므로 범위를 nav 안으로 좁힌다. */
@@ -81,7 +97,7 @@ describe('라우트 가드', () => {
     renderAt('/admin/members')
 
     expect(
-      await screen.findByRole('heading', { name: '공지 목록' }),
+      await screen.findByRole('heading', { name: '공지사항' }),
     ).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '회원 관리' })).toBeNull()
   })
@@ -123,7 +139,7 @@ describe('라우트 가드', () => {
     )
 
     expect(
-      await screen.findByRole('heading', { name: '공지 목록' }),
+      await screen.findByRole('heading', { name: '공지사항' }),
     ).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '오류 발생' }))
@@ -135,22 +151,26 @@ describe('라우트 가드', () => {
 })
 
 describe('헤더 메뉴 노출', () => {
-  it('ADMIN에게는 관리 메뉴까지 보인다', async () => {
+  it('ADMIN에게는 회원 관리가 보인다', async () => {
     auth.me = () => Promise.resolve({ ...BASE, role: 'ADMIN' })
 
     renderAt('/admin/notices')
     await screen.findByRole('heading', { name: '공지 관리' })
 
-    expect(menuLabels()).toEqual(['공지', '공지 관리', '회원 관리'])
+    expect(menuLabels()).toEqual(['공지사항', '회원 관리'])
+    // 공지 관리 라우트는 살아 있지만 진입 위치가 미정이라 메뉴에서 뺐다.
+    // 무심코 되살리면 여기서 잡힌다.
+    expect(menuLabels()).not.toContain('공지 관리')
   })
 
   it('ACTIVE USER에게는 공지만 보이고 관리 메뉴는 없다', async () => {
     auth.me = () => Promise.resolve(BASE)
 
     renderAt('/notices')
-    await screen.findByRole('heading', { name: '공지 목록' })
+    await screen.findByRole('heading', { name: '공지사항' })
 
-    expect(menuLabels()).toEqual(['공지'])
+    expect(menuLabels()).toEqual(['공지사항'])
+    expect(menuLabels()).not.toContain('회원 관리')
   })
 
   it('PENDING에게는 메뉴가 없고 로그아웃만 있다', async () => {
@@ -193,8 +213,27 @@ describe('로그아웃', () => {
       '로그아웃하지 못했습니다',
     )
     expect(
-      screen.getByRole('heading', { name: '공지 목록' }),
+      screen.getByRole('heading', { name: '공지사항' }),
     ).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '로그인' })).toBeNull()
+  })
+})
+
+describe('화면에서 올린 API 오류', () => {
+  // 회귀 — 권한이 바뀐 사용자가 공지 화면에 남아 요청만 계속 실패하면 안 된다.
+  // 목록 API의 403 PENDING_APPROVAL이 세션 계약을 타고 가드까지 이어져야 한다.
+  it('목록 조회가 403 PENDING_APPROVAL이면 대기 화면으로 보낸다', async () => {
+    auth.me = () => Promise.resolve(BASE)
+    auth.listRejects = new ApiError(
+      'PENDING_APPROVAL',
+      403,
+      '가입 승인 대기 중입니다.',
+    )
+
+    renderAt('/notices')
+
+    expect(
+      await screen.findByRole('heading', { name: '승인 대기' }),
+    ).toBeInTheDocument()
   })
 })
