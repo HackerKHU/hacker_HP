@@ -189,7 +189,12 @@ describe('공지 목록', () => {
     api.togglePinFails = true
 
     renderList()
-    fireEvent.click(await screen.findByRole('button', { name: '관리' }))
+    /*
+     * 목록이 도착한 뒤에 관리 모드를 켠다. "관리" 버튼은 세션만으로 뜨므로 그걸 기다려도
+     * 목록이 왔다는 보장이 없고, 고정 버튼은 항목마다 달리므로 목록이 없으면 하나도 없다.
+     */
+    await screen.findByRole('link', { name: /고정된 공지/ })
+    fireEvent.click(screen.getByRole('button', { name: '관리' }))
     fireEvent.click(screen.getAllByRole('button', { name: /^고정/ })[0])
 
     expect(await screen.findByRole('alert')).toHaveTextContent(

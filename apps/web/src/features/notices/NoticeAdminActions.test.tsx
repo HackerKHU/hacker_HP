@@ -18,6 +18,9 @@ import { SessionProvider } from '@/auth/session'
  *
  * 여기서도 앱을 실제 경로로 띄운다 — 진입점은 링크라 **가리키는 주소가 맞는지**가
  * 핵심인데, 컴포넌트를 직접 그리면 그 주소로 실제로 갈 수 있는지는 확인되지 않는다.
+ *
+ * **부재를 단언하기 전에 화면이 다 그려질 때까지 기다린다.** 아직 안 그려진 것을 두고
+ * "없다"고 하면 무엇이든 통과한다 — 목록이나 상세가 도착했다는 증거를 먼저 잡는다.
  */
 const NOTICE: Notice = {
   id: 1,
@@ -107,31 +110,49 @@ beforeEach(() => {
 })
 
 describe('관리자 진입점 노출', () => {
-  it('ADMIN에게는 목록에 새 공지, 상세에 수정·삭제가 보인다', async () => {
+  it('ADMIN에게는 목록에 새 공지가 보인다', async () => {
     renderAt('/notices')
-    expect(
-      await screen.findByRole('link', { name: '새 공지' }),
-    ).toHaveAttribute('href', '/admin/notices/new')
 
+    // 목록이 도착했는지부터 확인한다 — 진입점 유무는 그 뒤에 본다.
+    await screen.findByRole('link', { name: /지울 공지/ })
+    expect(screen.getByRole('link', { name: '새 공지' })).toHaveAttribute(
+      'href',
+      '/admin/notices/new',
+    )
+  })
+
+  it('ADMIN에게는 상세에 수정·삭제가 보인다', async () => {
     renderAt('/notices/1')
-    const edit = await screen.findByRole('link', { name: '수정' })
-    expect(edit).toHaveAttribute('href', '/admin/notices/1/edit')
+
+    expect(await screen.findByRole('link', { name: '수정' })).toHaveAttribute(
+      'href',
+      '/admin/notices/1/edit',
+    )
     expect(screen.getByRole('button', { name: '삭제' })).toBeInTheDocument()
   })
 
   /*
    * 일반 부원에게는 보이지 않는다. **노출 제어일 뿐 권한 통제가 아니다** (spec §3-1-7) —
    * 실제 차단은 `NoticeFormPage.test.tsx`의 가드 테스트가 확인한다.
+   *
+   * 한 테스트에서 두 화면을 이어 렌더하지 않는다. 앞 화면이 마운트된 채로 남아 다음
+   * 조회가 어느 쪽을 집었는지 흐려지고, 부재 단언은 그런 상태에서 특히 못 미덥다.
    */
-  it('USER에게는 어느 진입점도 보이지 않는다', async () => {
+  it('USER에게는 목록에 새 공지가 없다', async () => {
     auth.role = 'USER'
 
     renderAt('/notices')
-    await screen.findByRole('heading', { name: '공지사항' })
+
+    await screen.findByRole('link', { name: /지울 공지/ })
     expect(screen.queryByRole('link', { name: '새 공지' })).toBeNull()
+  })
+
+  it('USER에게는 상세에 수정·삭제가 없다', async () => {
+    auth.role = 'USER'
 
     renderAt('/notices/1')
-    await screen.findAllByRole('heading', { name: '지울 공지' })
+
+    await screen.findByRole('heading', { name: '지울 공지' })
     expect(screen.queryByRole('link', { name: '수정' })).toBeNull()
     expect(screen.queryByRole('button', { name: '삭제' })).toBeNull()
   })

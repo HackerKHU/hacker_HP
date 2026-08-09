@@ -14,6 +14,11 @@ import { SessionProvider } from '@/auth/session'
  * 실제로 태운다 — 컴포넌트를 직접 그리면 가드를 건너뛰어, 라우트가 가드 밖으로 나가도
  * 테스트가 계속 통과한다. "일반 부원이 URL로 직접 접근하면 차단된다"가 이슈의 완료
  * 조건이므로 그 경로를 그대로 밟아야 의미가 있다.
+ *
+ * **기다릴 대상은 "로딩이 끝났음을 증명하는 것"이어야 한다.** 제목 heading은 불러오는
+ * 중에도 이미 렌더되므로 그걸 기다린 뒤 폼 입력을 `getBy`로 집으면, 조회가 끝나기 전에
+ * 단언이 먼저 도착하는 실행에서만 깨진다 — 단독 실행은 통과하고 전체 스위트에서 가끔
+ * 터지는 플레이키가 된다. 그래서 여기서는 **폼 입력 자체를 `findBy`로 기다린다.**
  */
 const api = vi.hoisted(() => ({
   created: [] as { title: string; content: string }[],
@@ -130,16 +135,16 @@ describe('작성·수정 화면 접근 권한', () => {
   ])('ADMIN은 %s를 연다', async (path, heading) => {
     renderAt(path)
 
-    expect(
-      await screen.findByRole('heading', { name: heading }),
-    ).toBeInTheDocument()
+    // 폼이 실제로 떴는지까지 본다. heading은 불러오는 중에도 이미 있다.
+    expect(await screen.findByLabelText('제목')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument()
   })
 })
 
 describe('공지 등록', () => {
   it('저장하면 새 공지 상세로 이동한다', async () => {
     renderAt('/admin/notices/new')
-    await screen.findByRole('heading', { name: '새 공지' })
+    await screen.findByLabelText('제목')
 
     fireEvent.change(screen.getByLabelText('제목'), {
       target: { value: '새 제목' },
@@ -161,7 +166,7 @@ describe('공지 등록', () => {
     ['내용이 공백뿐이면', '제목', '   '],
   ])('%s 저장 요청이 나가지 않는다', async (_label, title, content) => {
     renderAt('/admin/notices/new')
-    await screen.findByRole('heading', { name: '새 공지' })
+    await screen.findByLabelText('제목')
 
     fireEvent.change(screen.getByLabelText('제목'), {
       target: { value: title },
@@ -181,7 +186,7 @@ describe('공지 등록', () => {
   // 제목은 varchar(200)이다 (spec §3-2-2). 상한이 화면에 드러나야 한다.
   it('제목 상한이 화면에 보이고 입력이 상한을 넘지 않는다', async () => {
     renderAt('/admin/notices/new')
-    await screen.findByRole('heading', { name: '새 공지' })
+    await screen.findByLabelText('제목')
 
     const title = screen.getByLabelText('제목')
     expect(title).toHaveAttribute('maxLength', '200')
@@ -203,7 +208,7 @@ describe('공지 등록', () => {
     )
 
     renderAt('/admin/notices/new')
-    await screen.findByRole('heading', { name: '새 공지' })
+    await screen.findByLabelText('제목')
 
     fireEvent.change(screen.getByLabelText('제목'), {
       target: { value: '제목' },
@@ -224,10 +229,14 @@ describe('공지 등록', () => {
 describe('공지 수정', () => {
   it('기존 값이 폼에 채워지고 저장하면 그 공지로 돌아간다', async () => {
     renderAt('/admin/notices/7/edit')
-    await screen.findByRole('heading', { name: '공지 수정' })
 
+    /*
+     * **불러오기가 끝난 뒤에 단언한다.** 이 화면은 기존 공지를 받아온 뒤에야 폼을
+     * 그리는데, heading("공지 수정")은 그 전에 이미 렌더된다. heading을 기다리고
+     * 입력을 `getBy`로 집으면 조회가 아직 안 끝난 실행에서 라벨을 못 찾는다.
+     */
     // 빈 폼이면 저장하는 순간 기존 내용이 날아간다.
-    expect(screen.getByLabelText('제목')).toHaveValue('기존 제목')
+    expect(await screen.findByLabelText('제목')).toHaveValue('기존 제목')
     expect(screen.getByLabelText('내용')).toHaveValue('기존 본문')
 
     fireEvent.change(screen.getByLabelText('제목'), {
