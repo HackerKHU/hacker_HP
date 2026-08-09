@@ -30,7 +30,9 @@ ALB 기본 DNS(`xxx.ap-northeast-2.elb.amazonaws.com`)에는 **ACM 인증서를 
 브라우저 ──HTTPS──> Vercel Edge ──HTTP──> ALB ──> ECS
 ```
 
-브라우저는 Vercel하고만 통신하므로 mixed content가 없습니다. **덤으로 same-origin이 되어 쿠키 문제도 사라집니다** — `SameSite=None; Secure`가 필요 없고 `SameSite=Lax`로 충분해집니다. 프론트 코드에서는 그냥 `/api/...`로 호출하면 됩니다.
+브라우저는 Vercel하고만 통신하므로 mixed content가 없습니다. **덤으로 same-origin이 되어 쿠키 문제도 사라집니다** — `SameSite=None; Secure`가 필요 없고 `SameSite=Lax`로 충분해집니다. 프론트 코드에서는 그냥 `/api/v1/...`로 호출하면 됩니다.
+
+프록시 `source`는 `/api/v1/:path*`이 아니라 `/api/:path*`로 둡니다. 나중에 `/api/v2`가 생겨도 rewrites 설정을 건드리지 않기 위해서입니다 ([3-3 결정 9](../../spec/3-3-DESIGN-DECISIONS.md)).
 
 **파일은 이 프록시를 거치지 않습니다.** Vercel의 서버리스/Edge 함수는 요청 본문이 4.5MB로 제한되는데, 자료 파일 최대 용량은 20MB([3-3 §3-3-7](../../spec/3-3-DESIGN-DECISIONS.md))라 애초에 프록시를 통과할 수 없습니다. 그래서 파일은 presigned URL로 브라우저→S3 직접 업로드/다운로드하고([2-1 §2-1-2·§2-1-4](../../spec/2-1-USER-STORIES.md)), `/api/*` 프록시는 메타데이터를 주고받는 JSON 요청에만 씁니다.
 
@@ -354,7 +356,7 @@ Settings → Secrets and variables → Actions:
 - **Root Directory**: `apps/web`
 - **Ignored Build Step**: `git diff --quiet HEAD^ HEAD -- ./`
 - `vercel.json`에 위 rewrites 설정
-- 프론트 코드에서는 `fetch('/api/...')` — 별도 base URL 불필요
+- 프론트 코드에서는 `fetch('/api/v1/...')` — 별도 base URL 불필요
 
 ---
 
@@ -372,7 +374,7 @@ Settings → Secrets and variables → Actions:
 - [ ] `deploy-api.yml` 수동 실행 성공
 - [ ] Vercel Root Directory = `apps/web`
 - [ ] `vercel.json` rewrites에 ALB DNS
-- [ ] 프론트에서 `/api/...` 호출 성공 → **최초 배포(도메인 없는 dev 환경) 완료**
+- [ ] 프론트에서 `/api/v1/...` 호출 성공 → **최초 배포(도메인 없는 dev 환경) 완료**
 
 **공개 전 (필수)**
 - [ ] 도메인 구매 → ACM 인증서 → ALB 443 리스너

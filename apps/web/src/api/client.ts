@@ -1,8 +1,13 @@
 import type { ClientErrorCode, ErrorBody, ErrorCode } from './types'
 import { ERROR_CODES } from './types'
 
-/** Vercel rewrites 프록시를 타므로 절대 URL을 쓰지 않는다. */
-const BASE_URL = '/api'
+/**
+ * Vercel rewrites 프록시를 타므로 절대 URL을 쓰지 않는다.
+ *
+ * 버전은 경로에 붙인다(3-3 결정 9). 호환을 깨는 변경이 필요해지면 이 값을 고치지 않고
+ * `/api/v2`를 새로 연다.
+ */
+const BASE_URL = '/api/v1'
 
 /**
  * 인증 정보를 요청에 싣는 유일한 지점.
