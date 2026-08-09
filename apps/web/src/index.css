@@ -105,6 +105,14 @@
     @apply border-border outline-ring/50;
   }
 
+  /* 제목은 줄 길이를 균등하게 나눈다. 두세 줄짜리 제목에서 효과가 크다. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
+  }
+
   body {
     @apply bg-background text-foreground;
     /*
@@ -119,6 +127,15 @@
      */
     word-break: keep-all;
     overflow-wrap: break-word;
+
+    /*
+     * `keep-all`은 규칙상 맞지만 긴 어절이 통째로 넘어가며 앞줄 끝에 큰 공백을 남긴다.
+     * `pretty`가 줄 길이를 고르게 재배치하고 마지막 줄에 한 단어만 남는 것도 막는다.
+     *
+     * 대상 환경은 데스크톱 Chrome·Edge다 (spec 3-3-7). 지원하지 않는 브라우저에서는
+     * **그냥 무시될 뿐 깨지지 않는다** — 폴백을 따로 두지 않는다.
+     */
+    text-wrap: pretty;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
@@ -133,14 +150,15 @@
  * 캐러셀 라이브러리를 쓰지 않는다 — 이 정도는 CSS 애니메이션으로 충분하다.
  *
  * **속도 조정은 아래 `--marquee-duration` 한 곳에서 한다.** 읽거나 볼 수 있는 속도여야
- * 하므로 넉넉하게 잡았다.
+ * 하므로 넉넉하게 잡았다. 지속시간은 트랙 길이와 함께 움직여야 한다 — 카드를 넓히면
+ * 같은 시간에 더 먼 거리를 지나므로 체감 속도가 빨라진다.
  */
 .marquee-viewport {
   overflow: hidden;
 }
 
 .marquee-track {
-  --marquee-duration: 60s;
+  --marquee-duration: 80s;
   animation: marquee var(--marquee-duration) linear infinite;
 }
 

@@ -83,11 +83,11 @@ function Activities() {
             ACTIVITIES.map((activity) => (
               <li
                 key={`${pass}-${activity.title}`}
-                className="w-64 shrink-0"
+                className="w-90 shrink-0"
                 // 같은 카드가 네 번 나온다. 첫 벌만 읽히게 하고 나머지는 감춘다.
                 aria-hidden={passIndex > 0}
               >
-                <div className="aspect-[3/4] overflow-hidden rounded-lg border border-border bg-card">
+                <div className="aspect-[4/3] overflow-hidden rounded-lg border border-border bg-card">
                   {activity.src ? (
                     <img
                       src={activity.src}
@@ -101,14 +101,14 @@ function Activities() {
                     </div>
                   )}
                 </div>
-                <p className="mt-4 font-medium text-foreground">
+                <p className="mt-4 text-lg font-medium text-foreground">
                   {activity.title}
                 </p>
                 {/*
                   설명 길이가 항목마다 달라 그대로 두면 카드 높이가 들쭉날쭉해진다.
                   가장 긴 설명(4줄) 높이를 최소값으로 잡아 카드 바닥을 맞춘다.
                 */}
-                <p className="mt-1 min-h-24 text-sm leading-6 text-muted-foreground">
+                <p className="mt-1 min-h-21 text-base leading-7 text-muted-foreground">
                   {activity.note}
                 </p>
               </li>
