@@ -12,9 +12,12 @@ const BASE_URL = '/api/v1'
 /**
  * 인증 정보를 요청에 싣는 유일한 지점.
  *
- * 세션 방식(서버 세션 쿠키 vs JWT)은 #17에서 아직 결정되지 않았다. 지금은 쿠키 세션을
- * 가정하고 `credentials: 'include'`만 붙인다. JWT로 뒤집히면 이 함수만 고친다 —
- * 다른 파일에 쿠키/헤더 분기를 흘리지 말 것.
+ * 신원은 JWT, 인가 상태는 서버 세션이 담당한다(3-3 결정 11). 둘 다 `httpOnly` 쿠키로
+ * 오가므로 여기서는 `credentials: 'include'`만 붙인다. 토큰을 JS로 읽지 않는다 —
+ * `localStorage` 저장은 금지다.
+ *
+ * CSRF 토큰 전송은 아직 붙이지 않았다. 서버가 인증을 구현할 때(#26) 이 함수에서만
+ * 처리한다. 다른 파일에 쿠키/헤더 분기를 흘리지 말 것.
  */
 function withAuth(init: RequestInit): RequestInit {
   return { ...init, credentials: 'include' }
