@@ -1,16 +1,18 @@
 /**
  * 백엔드가 없는 동안 화면을 만들기 위한 더미 응답 계층.
  *
- * **서버가 붙으면 이 파일을 통째로 지우고 api 함수의 `USE_FIXTURES` 분기도 함께 제거한다.**
+ * **서버가 붙으면 이 파일을 통째로 지우고 `auth.ts`의 `VITE_USE_FIXTURES` 분기도 함께 제거한다.**
  * 임시 파일이므로 여기에 화면 로직을 두지 않는다 — 응답만 만든다.
+ *
+ * 이 파일의 값은 프로덕션 번들에 실리면 안 된다. 플래그를 상수로 export하지 않는 이유는
+ * `auth.ts` 상단 주석에 있다. 기준은 코드 모양이 아니라 측정이다 —
+ * `npm run build` 후 `grep -c "member@khu.ac.kr" dist/assets/*.js`가 0이어야 한다.
  *
  * 반환 타입은 반드시 `src/api/types.ts`의 실제 계약 타입으로 선언한다.
  * 타입이 계약을 강제하는 것이 이 파일의 존재 이유다.
  */
 import { ApiError } from './client'
 import type { User } from './types'
-
-export const USE_FIXTURES = import.meta.env.VITE_USE_FIXTURES === 'true'
 
 /**
  * 어떤 사용자로 볼지 / 어떤 실패를 볼지 고르는 스위치. `.env.local`에서 바꾼다.
