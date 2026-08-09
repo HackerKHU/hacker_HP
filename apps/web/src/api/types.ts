@@ -13,13 +13,15 @@ export interface User {
   approvedAt: string | null
 }
 
-/** Spring Data `Page`의 기본 직렬화 형태 중 실제로 쓰는 필드만 선언한다. */
+/** 목록 API 공통 응답. 형태는 spec/3-2-DESIGN-CONTRACT.md §3-2-8(Spring Data `PagedModel`)이 원본이다. */
 export interface Page<T> {
   content: T[]
-  number: number
-  size: number
-  totalElements: number
-  totalPages: number
+  page: {
+    size: number
+    number: number
+    totalElements: number
+    totalPages: number
+  }
 }
 
 /** 서버가 내려주는 에러 코드. 원본은 spec/3-2-DESIGN-CONTRACT.md §3-2-7 표다. */

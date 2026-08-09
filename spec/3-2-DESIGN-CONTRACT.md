@@ -16,6 +16,7 @@
 §3-2-5   API — 공지·사진
 §3-2-6   API — 회원 관리
 §3-2-7   공통 에러 코드
+§3-2-8   공통 페이지 응답
 ```
 
 ## 3-2-1 ERD
@@ -201,6 +202,25 @@ Base path: `/api`. 권한 컬럼은 [3-1 §3-1-3](3-1-DESIGN-ARCHITECTURE.md) �
 | 415 | `UNSUPPORTED_FILE_TYPE` | 허용되지 않는 확장자 |
 
 에러 응답은 커스텀 예외 + `@RestControllerAdvice`로 일괄 처리한다 (MUST). 응답 형식은 [5-TESTING §5-4](5-TESTING.md)에 있다.
+
+## 3-2-8 공통 페이지 응답
+
+목록 API는 모두 페이지 응답을 쓴다. MVP는 `GET /notices`, `GET /admin/users`, `Post Launch`는 `GET /notes`, `GET /bookmarks`, `GET /photos`가 대상이다.
+
+공통 요청 파라미터는 `page`(0부터 시작), `size`(기본 20)다.
+
+응답 형태는 Spring Data `PagedModel`로 고정한다 (MUST).
+
+```json
+{
+  "content": [],
+  "page": { "size": 20, "number": 0, "totalElements": 300, "totalPages": 15 }
+}
+```
+
+서버는 `@EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO)`를 전역에 한 번 적용한다 (MUST).
+
+`Page` 객체를 그대로 직렬화하지 않는다 (MUST). Spring 3.3+는 이 방식의 구조 안정성을 보장하지 않고 경고를 남기며, `pageable`·`sort`·`offset` 같은 내부 구현 필드가 응답에 노출된다.
 
 ---
 [← 이전: 아키텍처](3-1-DESIGN-ARCHITECTURE.md) · [다음: 결정 기록 →](3-3-DESIGN-DECISIONS.md)
