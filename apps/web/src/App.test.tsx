@@ -25,6 +25,7 @@ const BASE: User = {
   role: 'USER',
   status: 'ACTIVE',
   createdAt: '2026-03-02T09:00:00Z',
+  appliedAt: '2026-03-02T09:10:00Z',
   approvedAt: '2026-03-03T09:00:00Z',
 }
 

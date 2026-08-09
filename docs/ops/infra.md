@@ -440,6 +440,28 @@ SecureString은 Standard 티어에서 무료입니다(Advanced만 유료). ECS �
 
 **`JWT_SECRET`은 필요합니다.** 신원 증명을 JWT로 하기로 확정했습니다([3-3 결정 12](../../spec/3-3-DESIGN-DECISIONS.md)). 인가 상태를 담는 서버 세션은 RDS에 저장하므로 위 `DB_*` 파라미터를 그대로 쓰며, 세션용 파라미터를 따로 만들지 않습니다.
 
+**구글 OAuth 자격도 필요합니다.** 가입·로그인을 구글로 처리하므로([3-3 결정 13](../../spec/3-3-DESIGN-DECISIONS.md)) `GOOGLE_CLIENT_ID`와 `GOOGLE_CLIENT_SECRET`을 같은 방식으로 SecureString에 둡니다. 값은 Google Cloud Console의 OAuth 클라이언트에서 발급받아 넣습니다 — Terraform이 만들 수 있는 값이 아니라 `random_password`를 쓰지 않습니다.
+
+```hcl
+resource "aws_ssm_parameter" "google_client_id" {
+  name  = "/hacker/dev/GOOGLE_CLIENT_ID"
+  type  = "SecureString"
+  value = var.google_client_id     # terraform.tfvars (커밋하지 않음)
+}
+
+resource "aws_ssm_parameter" "google_client_secret" {
+  name  = "/hacker/dev/GOOGLE_CLIENT_SECRET"
+  type  = "SecureString"
+  value = var.google_client_secret
+}
+```
+
+승인된 redirect URI는 **프론트엔드 오리진** 기준으로 등록합니다. 브라우저는 Vercel과만 통신하므로 ALB 주소를 등록하면 콜백이 다른 오리진에 떨어져 쿠키가 붙지 않습니다.
+
+```
+https://<vercel-도메인>/api/v1/login/oauth2/code/google
+```
+
 `ADMIN_BOOTSTRAP_EMAIL`·`ADMIN_BOOTSTRAP_TOKEN`은 [spec 결정 11](../../spec/3-3-DESIGN-DECISIONS.md)의 최초 관리자 승격에 씁니다. `apply` 후 토큰 값을 확인하려면:
 
 ```bash

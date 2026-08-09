@@ -5,11 +5,14 @@ export type UserStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED'
 export interface User {
   id: number
   email: string
-  studentNo: string
+  /** 신청서를 내기 전에는 비어 있다. 구글이 학번을 주지 않는다 (3-3 결정 13). */
+  studentNo: string | null
   name: string
   role: Role
   status: UserStatus
   createdAt: string
+  /** 신청서 제출 시각. PENDING 사용자에게 신청 폼과 대기 안내 중 무엇을 보일지 가른다. */
+  appliedAt: string | null
   approvedAt: string | null
 }
 
@@ -37,7 +40,7 @@ export const ERROR_CODES = [
   'SUSPENDED',
   'FORBIDDEN',
   'NOT_FOUND',
-  'DUPLICATE_EMAIL',
+  'DUPLICATE_STUDENT_NO',
   'FILE_TOO_LARGE',
   'UNSUPPORTED_FILE_TYPE',
 ] as const
