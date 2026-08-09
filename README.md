@@ -13,7 +13,7 @@
 | MVP | 관리자 가입 승인, 회원 상태 관리, 회원 관리 화면 |
 | MVP | 공지 CRUD, 상단 고정 |
 | MVP | React 프론트엔드, Spring API, PostgreSQL, Vercel·ECS Fargate 배포 |
-| Post Launch | 자료 CRUD·검색·즐겨찾기, S3 업로드·다운로드 |
+| Post Launch | 자료 CRUD, 검색·필터, 즐겨찾기, S3 업로드·다운로드 |
 | Post Launch | 활동사진 조회·업로드·리사이즈 |
 | Post Launch | 가입 거부, 회원 제거, 관리자 권한 부여·회수 |
 | Post Launch | 랜딩 콘텐츠 관리자 편집 |
