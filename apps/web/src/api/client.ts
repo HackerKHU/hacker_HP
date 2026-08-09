@@ -1,4 +1,5 @@
 import type { ClientErrorCode, ErrorBody, ErrorCode } from './types'
+import { ERROR_CODES } from './types'
 
 /** Vercel rewrites 프록시를 타므로 절대 URL을 쓰지 않는다. */
 const BASE_URL = '/api'
@@ -32,13 +33,20 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * 서버 응답은 신뢰 경계다. `code`가 문자열이라는 것만으로 통과시키면 오타나 미문서화 코드가
+ * `ErrorCode`로 선언된 자리에 그대로 들어앉는다 — 유니온은 런타임에 아무것도 막지 못한다.
+ * 계약(§3-2-7)에 없는 코드는 INVALID_RESPONSE로 격리한다.
+ */
 function isErrorBody(value: unknown): value is ErrorBody {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as { code?: unknown }).code === 'string' &&
-    typeof (value as { message?: unknown }).message === 'string'
-  )
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const { code, message } = value as { code?: unknown; message?: unknown }
+  if (typeof code !== 'string' || typeof message !== 'string') {
+    return false
+  }
+  return ERROR_CODES.some((known) => known === code)
 }
 
 /**

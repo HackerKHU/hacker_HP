@@ -20,8 +20,12 @@ export function signup(body: SignupRequest): Promise<void> {
   })
 }
 
-export function login(body: LoginRequest): Promise<User> {
-  return request<User>('/auth/login', {
+/**
+ * 로그인은 세션만 만들고 본문을 돌려주지 않는다 (spec/3-2-DESIGN-CONTRACT.md §3-2-3).
+ * 신원은 `getMe()`로만 조회한다 — 새로고침했을 때와 같은 경로를 쓴다.
+ */
+export function login(body: LoginRequest): Promise<void> {
+  return request('/auth/login', {
     method: 'POST',
     body: JSON.stringify(body),
   })

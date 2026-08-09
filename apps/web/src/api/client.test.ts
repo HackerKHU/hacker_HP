@@ -41,6 +41,23 @@ describe('request 에러 매핑', () => {
     expect(typeof (error as ApiError).message).toBe('string')
   })
 
+  it('계약에 없는 code는 INVALID_RESPONSE로 격리한다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json(
+          { code: 'FORBIDEN', message: '오타 난 코드' },
+          { status: 403 },
+        ),
+      ),
+    )
+
+    const error = await request('/notices').catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).code).toBe('INVALID_RESPONSE')
+  })
+
   it('200 + 빈 본문을 undefined로 통과시킨다', async () => {
     vi.stubGlobal(
       'fetch',

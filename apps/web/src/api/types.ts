@@ -24,17 +24,25 @@ export interface Page<T> {
   }
 }
 
-/** 서버가 내려주는 에러 코드. 원본은 spec/3-2-DESIGN-CONTRACT.md §3-2-7 표다. */
-export type ErrorCode =
-  | 'VALIDATION_ERROR'
-  | 'UNAUTHENTICATED'
-  | 'PENDING_APPROVAL'
-  | 'SUSPENDED'
-  | 'FORBIDDEN'
-  | 'NOT_FOUND'
-  | 'DUPLICATE_EMAIL'
-  | 'FILE_TOO_LARGE'
-  | 'UNSUPPORTED_FILE_TYPE'
+/**
+ * 서버가 내려주는 에러 코드. 원본은 spec/3-2-DESIGN-CONTRACT.md §3-2-7 표다.
+ *
+ * 타입과 런타임 검사용 목록이 어긋나지 않도록 배열 하나에서 타입을 파생시킨다.
+ * 유니온 타입은 컴파일 타임에만 존재하므로, 서버 응답은 이 목록으로 실제로 검사해야 한다.
+ */
+export const ERROR_CODES = [
+  'VALIDATION_ERROR',
+  'UNAUTHENTICATED',
+  'PENDING_APPROVAL',
+  'SUSPENDED',
+  'FORBIDDEN',
+  'NOT_FOUND',
+  'DUPLICATE_EMAIL',
+  'FILE_TOO_LARGE',
+  'UNSUPPORTED_FILE_TYPE',
+] as const
+
+export type ErrorCode = (typeof ERROR_CODES)[number]
 
 /** 서버까지 못 갔거나 계약을 벗어난 응답이 온 경우. 서버 코드 목록과 섞지 않는다. */
 export type ClientErrorCode = 'NETWORK_ERROR' | 'INVALID_RESPONSE'

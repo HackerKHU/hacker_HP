@@ -129,6 +129,12 @@ Base path: `/api`. 권한 컬럼은 [3-1 §3-1-3](3-1-DESIGN-ARCHITECTURE.md) �
 | POST | `/auth/logout` | 로그인 | 로그아웃 |
 | GET | `/auth/me` | 로그인 | 내 정보 + role/status |
 
+`POST /auth/login`은 응답 본문을 반환하지 않는다 (MUST). 로그인은 세션(또는 토큰) 발급까지만 책임진다.
+
+클라이언트는 로그인 성공 후 `GET /auth/me`로 `role`과 `status`를 조회한다 (MUST).
+
+신원 조회 경로를 하나로 유지하기 위함이다. 로그인 응답에도 사용자 정보를 실으면 같은 값을 두 곳에서 만들게 되고, 새로고침으로 세션을 복구할 때는 어차피 `GET /auth/me`를 쓰므로 흐름이 갈라진다.
+
 ## 3-2-4 API — 자료·즐겨찾기
 
 | Method | Path | 권한 | 설명 |
