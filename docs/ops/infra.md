@@ -438,6 +438,8 @@ resource "aws_ssm_parameter" "admin_bootstrap_token" {
 
 SecureString은 Standard 티어에서 무료입니다(Advanced만 유료). ECS 태스크 정의의 `secrets` 블록에서 바로 참조하므로 앱 코드에 비밀번호가 남지 않습니다.
 
+**`JWT_SECRET`은 필요합니다.** 신원 증명을 JWT로 하기로 확정했습니다([3-3 결정 12](../../spec/3-3-DESIGN-DECISIONS.md)). 인가 상태를 담는 서버 세션은 RDS에 저장하므로 위 `DB_*` 파라미터를 그대로 쓰며, 세션용 파라미터를 따로 만들지 않습니다.
+
 `ADMIN_BOOTSTRAP_EMAIL`·`ADMIN_BOOTSTRAP_TOKEN`은 [spec 결정 11](../../spec/3-3-DESIGN-DECISIONS.md)의 최초 관리자 승격에 씁니다. `apply` 후 토큰 값을 확인하려면:
 
 ```bash
