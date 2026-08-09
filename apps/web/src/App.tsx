@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
-import { DevFixtureLogin } from './features/auth/DevFixtureLogin'
+import { Button } from './components/ui/button'
 import { LandingPage } from './features/landing/LandingPage'
 import { PrivacyPage } from './features/legal/PrivacyPage'
 import { NoticeDetailPage } from './features/notices/NoticeDetailPage'
@@ -8,16 +8,19 @@ import { NoticeListPage } from './features/notices/NoticeListPage'
 import { GuestOnly, PendingOnly, RequireActive } from './routes/guards'
 
 /**
- * 로그인 화면 자리. 실제 구현은 #37이다.
+ * 로그인 화면 자리. **실제 구현은 #37이다.**
  *
- * 픽스처가 켜져 있을 때만 검토용 로그인 버튼을 붙인다. 플래그를 함수 안에서 리터럴로
- * 평가하므로 꺼진 빌드에서는 `if (false)`가 되어 `DevFixtureLogin` 모듈째 사라진다.
+ * 가입도 로그인도 구글 버튼 하나로 한다 (spec §3-1-4, 3-3 결정 13). 여기서는 버튼을
+ * 그려만 두고 아무 데도 연결하지 않는다 — 동작하는 척하는 가짜 로그인을 두면 검토하는
+ * 사람이 진짜인지 헷갈리고, 어차피 #37이 걷어낼 자리다.
  */
 function LoginScreen() {
   return (
     <>
       <Placeholder title="로그인" />
-      {import.meta.env.VITE_USE_FIXTURES === 'true' && <DevFixtureLogin />}
+      <Button type="button" className="mt-6">
+        구글 계정으로 로그인
+      </Button>
     </>
   )
 }
