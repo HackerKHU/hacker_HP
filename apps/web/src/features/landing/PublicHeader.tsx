@@ -37,13 +37,31 @@ export function PublicHeader() {
          * 그대로 쓴다 — 상태별 홈 규칙이 두 벌이 되면 어긋난다.
          */}
         {session.state.kind !== 'loading' && (
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
             {session.state.kind === 'guest' ||
             session.state.kind === 'suspended' ? (
-              <Button asChild variant="outline" size="sm">
-                <Link to="/login">로그인</Link>
-              </Button>
+              <>
+                {/*
+                 * 두 버튼은 가는 곳이 완전히 다르다.
+                 * **지원하기 = 동아리 가입** — 외부 모집 폼으로 나간다. 아직 부원이 아닌 사람용.
+                 * **로그인 = 이 사이트** — 이미 부원인 사람용.
+                 * 강조(흰색)를 지원하기에 준 것은 랜딩을 처음 보는 사람이 대부분이기 때문이다.
+                 */}
+                <Button asChild size="sm">
+                  <a
+                    href={CLUB.applyUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
+                    지원하기
+                  </a>
+                </Button>
+                <Button asChild variant="outline" size="sm">
+                  <Link to="/login">로그인</Link>
+                </Button>
+              </>
             ) : (
+              // 이미 부원인 사람에게 지원 버튼은 의미가 없다.
               <Button asChild variant="outline" size="sm">
                 <Link to={homePath(session)}>내 페이지</Link>
               </Button>

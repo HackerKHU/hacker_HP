@@ -113,3 +113,50 @@
     -moz-osx-font-smoothing: grayscale;
   }
 }
+
+/*
+ * 활동 사진 가로 흐름.
+ *
+ * 트랙에 같은 묶음을 두 벌 이어붙이고 절반(-50%)만큼 밀어 끊김 없이 반복한다.
+ * 캐러셀 라이브러리를 쓰지 않는다 — 이 정도는 CSS 애니메이션으로 충분하다.
+ *
+ * **속도 조정은 아래 `--marquee-duration` 한 곳에서 한다.** 읽거나 볼 수 있는 속도여야
+ * 하므로 넉넉하게 잡았다.
+ */
+.marquee-viewport {
+  overflow: hidden;
+}
+
+.marquee-track {
+  --marquee-duration: 60s;
+  animation: marquee var(--marquee-duration) linear infinite;
+}
+
+/* 사진을 보려는 사람이 멈출 수단이 있어야 한다. 키보드 포커스에도 멈춘다. */
+.marquee-viewport:hover .marquee-track,
+.marquee-viewport:focus-within .marquee-track {
+  animation-play-state: paused;
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/*
+ * 자동으로 계속 움직이는 콘텐츠는 접근성 문제다. 모션을 줄이도록 설정한 사용자에게는
+ * 애니메이션을 멈추고 가로 스크롤로 직접 볼 수 있게 한다.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+  }
+
+  .marquee-viewport {
+    overflow-x: auto;
+  }
+}
