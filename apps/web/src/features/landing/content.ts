@@ -93,7 +93,7 @@ export interface Activity {
    * `public/landing/` 아래 경로. 실물이 없으면 빈 문자열로 두고 화면이 자리표시자를
    * 그리게 한다. 파일을 넣는 방법은 `public/landing/README.md` 참고.
    *
-   * TODO: 신입생 멘토멘티와 축제 부스는 아직 사진이 없다. 나머지 여섯은 채워져 있다.
+   * TODO: 신입생 멘토멘티만 아직 사진이 없다. 나머지 일곱은 채워져 있다.
    */
   src: string
   /** 스크린리더가 읽는 설명. 장식이 아니라 내용이라 무엇이 찍혔는지 적는다. */
@@ -165,8 +165,8 @@ export const ACTIVITIES: Activity[] = [
     note: '5월에 1박 2일로 다녀옵니다. 선발대와 후발대로 나뉘어 원하는 시간에 합류할 수 있습니다.',
   },
   {
-    src: '',
-    alt: '',
+    src: '/landing/festival.jpg',
+    alt: '밤에 열린 축제 부스에서 음식을 준비하는 부원들',
     title: '축제 부스',
     note: '5월 학교 축제 기간에 부스를 운영합니다.',
   },

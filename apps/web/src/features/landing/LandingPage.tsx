@@ -110,9 +110,13 @@ function Activities() {
                       )}
                     />
                   ) : (
-                    // 아직 사진이 없는 항목이다. 실제 사진과 나란히 놓여도 튀지 않게
-                    // 같은 상자를 쓰고, 비어 있다는 것만 조용히 드러낸다.
-                    <div className="flex size-full items-center justify-center text-xs text-muted-foreground">
+                    /*
+                     * 여덟 칸 중 하나만 사진이 없다. 평평한 단색 상자를 두면 사진들 사이에서
+                     * 구멍처럼 읽히므로, 두 무채색 토큰 사이의 옅은 그러데이션으로 채워
+                     * "빈 자리"가 아니라 "그림 없는 타일"로 보이게 한다.
+                     * 안내 문구는 톤을 낮춰 카드 밖에서는 눈에 걸리지 않게 둔다.
+                     */
+                    <div className="flex size-full items-center justify-center bg-gradient-to-br from-card to-secondary text-xs text-muted-foreground/70">
                       사진 준비 중
                     </div>
                   )}
