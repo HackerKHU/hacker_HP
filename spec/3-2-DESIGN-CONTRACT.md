@@ -134,6 +134,7 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 | POST | `/auth/login` | 비로그인 | 로그인 |
 | POST | `/auth/logout` | 로그인 | 로그아웃 |
 | GET | `/auth/me` | 로그인 | 내 정보 + role/status |
+| POST | `/auth/bootstrap-admin` | 로그인 | 최초 관리자 승격/마지막 관리자 복구. body: `{ "token": "..." }` — [3-3 결정 11](3-3-DESIGN-DECISIONS.md) |
 
 `POST /auth/login`은 응답 본문을 반환하지 않는다 (MUST). 로그인은 세션(또는 토큰) 발급까지만 책임진다.
 
@@ -195,9 +196,9 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 | GET | `/admin/users` | ADMIN | 목록 — `status`, `role`, `q`, `sort`, `page`, `size` |
 | POST | `/admin/users/approve` | ADMIN | 일괄 승인 — body: `{ "userIds": [1,2,3] }` |
 | POST | `/admin/users/reject` | ADMIN | 일괄 거부 — body: `{ "userIds": [1,2,3] }` |
-| PATCH | `/admin/users/{id}/status` | ADMIN | `ACTIVE` ↔ `SUSPENDED` |
-| PATCH | `/admin/users/{id}/role` | ADMIN | 권한 부여/회수 (본인 불가) |
-| DELETE | `/admin/users/{id}` | ADMIN | 회원 제거 (본인 불가) |
+| PATCH | `/admin/users/{id}/status` | ADMIN | `ACTIVE` ↔ `SUSPENDED` (본인을 `SUSPENDED`로: 마지막 활성 관리자면 차단) |
+| PATCH | `/admin/users/{id}/role` | ADMIN | 권한 부여/회수 (본인 대상: 마지막 활성 관리자면 차단) |
+| DELETE | `/admin/users/{id}` | ADMIN | 회원 제거 (본인 대상: 마지막 활성 관리자면 차단) |
 
 ## 3-2-7 공통 에러 코드
 
@@ -207,7 +208,7 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 | 401 | `UNAUTHENTICATED` | 미로그인 |
 | 403 | `PENDING_APPROVAL` | `PENDING` 사용자의 일반 API 접근 |
 | 403 | `SUSPENDED` | 정지된 계정의 로그인 시도 |
-| 403 | `FORBIDDEN` | 권한 부족 / 본인 권한 회수·삭제 시도 |
+| 403 | `FORBIDDEN` | 권한 부족 / 마지막 활성 관리자의 본인 권한 회수·삭제·정지 시도 |
 | 404 | `NOT_FOUND` | 리소스 없음 |
 | 409 | `DUPLICATE_EMAIL` | 이메일 중복 |
 | 413 | `FILE_TOO_LARGE` | 파일 용량 초과 |

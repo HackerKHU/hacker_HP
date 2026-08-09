@@ -37,6 +37,7 @@
 - 배포 서킷 브레이커(`rollback = true`)를 켜둔다 (MUST). 실패한 배포가 자동으로 되돌아간다.
 - CI가 태스크 정의를 갱신하므로 `aws_ecs_service`에 `lifecycle { ignore_changes = [task_definition, desired_count] }`를 둔다 (MUST). 없으면 다음 `terraform apply`가 CI 배포를 롤백한다.
 - 빌드 플랫폼은 `linux/amd64`로 고정한다 (MUST). 태스크 정의의 `X86_64`와 어긋나면 `exec format error`가 난다.
+- **최초 배포 후, `ADMIN_BOOTSTRAP_EMAIL`로 가입하고 `POST /auth/bootstrap-admin`을 호출해 관리자를 승격한다** (MUST) — [3-3 결정 11](3-3-DESIGN-DECISIONS.md). 안 하면 첫 가입자가 계속 `PENDING`으로 남고, 승인해 줄 관리자가 아무도 없다. 토큰 값은 `docs/ops/infra.md`의 안내대로 SSM에서 조회한다.
 
 **개발 순서** — 인프라를 통째로 세우기 전에 로컬에서 기능 하나를 완성하고, 그것으로 배포 경로를 한 번만 관통한다 (SHOULD). 관통이 끝나면 `desired_count = 0`으로 내려 고정비를 막고, 나머지 기능은 로컬에서 쌓는다. 기능 없이 완성된 인프라는 `/actuator/health` 200 외에는 검증할 방법이 없다.
 
