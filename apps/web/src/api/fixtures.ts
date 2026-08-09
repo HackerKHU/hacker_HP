@@ -115,9 +115,11 @@ export function fixtureMe(): Promise<User> {
       new ApiError('PENDING_APPROVAL', 403, '가입 승인 대기 중입니다.'),
     )
   }
-  if (SCENARIO === 'applying' && application) {
+  // 신청서를 냈으면 그 값으로 덮는다. `pending`도 대상이다 — 승인 전 재제출이
+  // 계약에 있으므로(T-51) 그 화면도 픽스처로 만들 수 있어야 한다.
+  if (application && (SCENARIO === 'applying' || SCENARIO === 'pending')) {
     return Promise.resolve({
-      ...USERS.applying,
+      ...USERS[SCENARIO],
       studentNo: application.studentNo,
       name: application.name,
       appliedAt: '2026-03-02T10:00:00Z',
@@ -149,13 +151,22 @@ export function fixtureApplication(body: {
       new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
     )
   }
-  // 신청 API는 PENDING 전용이다 (계약 §3-2-3, T-47). 픽스처가 이걸 허용하면
+  // 신청 API는 PENDING 전용이다 (계약 §3-2-3, T-50). 픽스처가 이걸 허용하면
   // 승인 후 학번을 바꾸는 회귀가 화면 개발 중에 드러나지 않는다.
   if (SCENARIO === 'user' || SCENARIO === 'admin') {
     return Promise.reject(
       new ApiError('FORBIDDEN', 403, '승인된 계정은 신청서를 낼 수 없습니다.'),
     )
   }
-  application = { studentNo: body.studentNo, name: body.name }
+  // 공백 검증은 서버 계약이다 (§3-2-3, T-52). 픽스처가 통과시키면 오류 UI 없이도
+  // 폼이 정상처럼 보이고, 빈 신청서가 승인 대상이 되는 경로를 화면에서 못 잡는다.
+  const studentNo = body.studentNo.trim()
+  const name = body.name.trim()
+  if (studentNo === '' || name === '') {
+    return Promise.reject(
+      new ApiError('VALIDATION_ERROR', 400, '학번과 이름을 입력해주세요.'),
+    )
+  }
+  application = { studentNo, name }
   return Promise.resolve()
 }

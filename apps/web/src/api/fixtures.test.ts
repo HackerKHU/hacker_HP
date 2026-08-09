@@ -57,6 +57,40 @@ describe('신청 픽스처', () => {
     expect(me.name).toBe('김정정')
   })
 
+  it('pending 시나리오의 재제출도 반영된다', async () => {
+    const { fixtureApplication, fixtureMe } = await loadFixtures('pending')
+
+    await fixtureApplication({ studentNo: '2024005566', name: '박수정' })
+    const me = await fixtureMe()
+
+    expect(me.studentNo).toBe('2024005566')
+    expect(me.name).toBe('박수정')
+  })
+
+  it.each([
+    ['빈 문자열', '', '김신입'],
+    ['공백만', '   ', '김신입'],
+    ['이름이 공백만', '2024001122', '  '],
+  ])(
+    '%s 신청서는 거부하고 상태를 바꾸지 않는다',
+    async (_, studentNo, name) => {
+      const { fixtureApplication, fixtureMe, ApiError } =
+        await loadFixtures('applying')
+
+      const error = await fixtureApplication({ studentNo, name }).catch(
+        (caught: unknown) => caught,
+      )
+
+      expect(error).toBeInstanceOf(ApiError)
+      expect((error as InstanceType<typeof ApiError>).code).toBe(
+        'VALIDATION_ERROR',
+      )
+      // 거부됐으면 신청 상태가 남아서는 안 된다 — 남으면 승인 대상이 된다.
+      const me = await fixtureMe()
+      expect(me.appliedAt).toBeNull()
+    },
+  )
+
   it.each(['user', 'admin'])(
     '%s 시나리오는 신청서 제출을 거부한다 — PENDING 전용이다',
     async (scenario) => {

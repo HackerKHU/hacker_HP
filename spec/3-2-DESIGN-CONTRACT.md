@@ -149,17 +149,21 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 | GET | `/oauth2/authorization/google` | 비로그인 | 구글 로그인 시작 (가입 겸용) |
 | GET | `/login/oauth2/code/google` | 비로그인 | 구글 콜백. 성공 시 계정 생성 또는 조회 후 세션 발급 |
 | POST | `/auth/application` | PENDING | 신청서 제출·수정. body: `{ "studentNo": "...", "name": "..." }` |
-
-**`studentNo`와 `name`은 공백이 아니어야 한다** (MUST). 둘 중 하나라도 비었거나 공백뿐이면 `400 VALIDATION_ERROR`를 반환하고 **`applied_at`을 기록하지 않는다** (MUST).
-
-PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. 검증이 없으면 `""`를 제출한 계정이 `applied_at`을 얻어 승인 대상이 되고, 식별 정보가 없는 채로 관리자 부트스트랩까지 통과한다.
 | POST | `/auth/logout` | 로그인 | 로그아웃 |
 | GET | `/auth/me` | 로그인 | 내 정보 + role/status/신청 여부 |
 | POST | `/auth/bootstrap-admin` | 로그인 + **신청서 제출 완료** | 최초 관리자 승격/마지막 관리자 복구. body: `{ "token": "..." }` — [3-3 결정 11](3-3-DESIGN-DECISIONS.md) |
 
-**`POST /auth/bootstrap-admin`은 `applied_at IS NOT NULL`인 계정만 호출할 수 있다** (MUST). 신청서를 내지 않은 계정이 이 경로로 곧장 `ACTIVE`가 되면 `student_no`가 비어 있는 관리자가 만들어지는데, 신청 API는 `PENDING` 전용이라 나중에 채울 방법이 없다. 이 조건이 빠지면 최초 관리자만 학번 없는 계정으로 남는다.
-
 **`POST /auth/signup`과 `POST /auth/login`은 없다.** 자체 비밀번호를 쓰지 않으므로 두 엔드포인트가 사라졌다 ([3-3 결정 13](3-3-DESIGN-DECISIONS.md#3-3-14-결정-13--가입로그인을-구글-oauth로-한다)).
+
+### `POST /auth/application` — 신청서
+
+**`studentNo`와 `name`은 공백이 아니어야 한다** (MUST). 둘 중 하나라도 비었거나 공백뿐이면 `400 VALIDATION_ERROR`를 반환하고 **`applied_at`을 기록하지 않는다** (MUST).
+
+PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. 검증이 없으면 `""`를 제출한 계정이 `applied_at`을 얻어 승인 대상이 되고, 식별 정보가 없는 채로 관리자 부트스트랩까지 통과한다.
+
+### `POST /auth/bootstrap-admin` — 신청 완료 계정만
+
+**`applied_at IS NOT NULL`인 계정만 호출할 수 있다** (MUST). 신청서를 내지 않은 계정이 이 경로로 곧장 `ACTIVE`가 되면 `student_no`가 비어 있는 관리자가 만들어지는데, 신청 API는 `PENDING` 전용이라 나중에 채울 방법이 없다. 이 조건이 빠지면 최초 관리자만 학번 없는 계정으로 남는다.
 
 ### 구글 OAuth 경로
 
@@ -170,6 +174,28 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 구글 콘솔에 등록할 redirect URI도 **프론트엔드 오리진** 기준이다. 브라우저는 Vercel과만 통신하므로 ALB 주소를 등록하면 콜백이 다른 오리진에 떨어져 쿠키가 붙지 않는다.
 
 `GET /auth/me`는 신청서 제출 여부를 함께 반환한다. 프론트엔드가 `PENDING` 사용자에게 신청 폼을 보일지 대기 안내를 보일지 이 값으로 가른다 ([3-1 §3-1-6](3-1-DESIGN-ARCHITECTURE.md)).
+
+### 콜백은 항상 SPA로 되돌린다
+
+**구글 콜백은 성공이든 실패든 JSON을 반환하지 않는다** (MUST). 브라우저 전체가 이동한 흐름이므로, 오류 본문을 그대로 내보내면 사용자가 SPA 밖의 빈 화면에 갇힌다. `request()`를 거치지 않아 프론트엔드의 공통 오류 처리도 동작하지 않는다.
+
+| 결과 | 리다이렉트 |
+|---|---|
+| 성공 | `/` — 이후 SPA가 `GET /auth/me`로 상태를 판단해 알맞은 화면으로 보낸다 |
+| 실패 | `/login?error={코드}` |
+
+실패 코드는 이용자에게 무엇을 해야 하는지 알려줄 수 있는 것만 쓴다 (MUST).
+
+| 코드 | 상황 | 로그인 화면이 보여줄 것 |
+|---|---|---|
+| `domain` | 허용 도메인이 아닌 계정 | "`khu.ac.kr` 계정으로 로그인하세요" |
+| `unverified` | `email_verified`가 거짓 | 구글에서 이메일 인증을 마치라는 안내 |
+| `suspended` | 정지된 계정 | 정지 안내 ([3-1 §3-1-5](3-1-DESIGN-ARCHITECTURE.md)) |
+| `failed` | 그 외 (`state` 불일치, 토큰 교환 실패 등) | 일반 오류. 원인을 자세히 알리지 않는다 |
+
+**쿼리 파라미터에 이메일·토큰·예외 메시지를 담지 않는다** (MUST). 주소창과 브라우저 기록, 리퍼러에 남는다.
+
+§3-2-7의 상태 코드(`403 SUSPENDED`, `403 FORBIDDEN` 등)는 **API 호출에만 쓴다.** 콜백 실패는 상태 코드가 아니라 위 표의 리다이렉트로 알린다.
 
 ### CSRF 토큰
 
@@ -249,16 +275,18 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 |---|---|---|---|
 | GET | `/admin/users` | ADMIN | 목록 — `status`, `role`, `q`, `sort`, `page`, `size` |
 | POST | `/admin/users/approve` | ADMIN | 일괄 승인 — body: `{ "userIds": [1,2,3] }` |
+| POST | `/admin/users/reject` | ADMIN | 일괄 거부 — body: `{ "userIds": [1,2,3] }` |
+| PATCH | `/admin/users/{id}/status` | ADMIN | `ACTIVE` ↔ `SUSPENDED` (본인을 `SUSPENDED`로: 마지막 활성 관리자면 차단) |
+| PATCH | `/admin/users/{id}/role` | ADMIN | 권한 부여/회수 (본인 대상: 마지막 활성 관리자면 차단) |
+| DELETE | `/admin/users/{id}` | ADMIN | 회원 제거 (본인 대상: 마지막 활성 관리자면 차단) |
+
+### 신청일과 승인 대상
 
 **`GET /admin/users`의 "가입 신청일"은 `applied_at`이다** (MUST). `created_at`(첫 구글 로그인)이 아니다 — 표시·정렬 모두 `applied_at`을 쓴다 ([2-2 §2-2-1](2-2-OPERATOR-REQUIREMENTS.md)). 응답에는 두 값을 모두 담되 화면이 무엇을 "신청일"로 부르는지 어긋나지 않게 한다.
 
 **승인 대상 목록은 `status = 'PENDING' AND applied_at IS NOT NULL`로 거른다** (MUST). 신청하지 않은 계정은 승인 UI에 나타나지 않는다.
 
-`POST /admin/users/approve`에 신청하지 않은 계정의 id가 섞여 오면 그 건은 실패로 집계한다 (MUST). 목록에서 걸렀더라도 API를 직접 부르는 경로가 남아 있다.
-| POST | `/admin/users/reject` | ADMIN | 일괄 거부 — body: `{ "userIds": [1,2,3] }` |
-| PATCH | `/admin/users/{id}/status` | ADMIN | `ACTIVE` ↔ `SUSPENDED` (본인을 `SUSPENDED`로: 마지막 활성 관리자면 차단) |
-| PATCH | `/admin/users/{id}/role` | ADMIN | 권한 부여/회수 (본인 대상: 마지막 활성 관리자면 차단) |
-| DELETE | `/admin/users/{id}` | ADMIN | 회원 제거 (본인 대상: 마지막 활성 관리자면 차단) |
+`POST /admin/users/approve`에 신청하지 않은 계정의 id가 섞여 오면 그 건은 실패로 집계하고 그 계정의 상태를 바꾸지 않는다 (MUST). 목록에서 걸렀더라도 API를 직접 부르는 경로가 남아 있다.
 
 ## 3-2-7 공통 에러 코드
 

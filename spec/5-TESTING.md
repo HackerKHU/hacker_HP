@@ -43,12 +43,12 @@
 |---|---|---|
 | T-01 | 비로그인으로 `GET /notices` | `401 UNAUTHENTICATED` |
 | T-02 | `PENDING` 사용자로 `GET /notices` | `403 PENDING_APPROVAL` |
-| T-03 | `SUSPENDED` 사용자로 로그인 | `403 SUSPENDED`, 세션 미발급 |
+| T-03 | `SUSPENDED` 계정으로 구글 로그인 | 세션 미발급, `/login?error=suspended`로 리다이렉트 |
 | T-04 | `USER`로 `POST /notices` | `403 FORBIDDEN` |
 | T-05 | `USER`로 `GET /admin/users` | `403 FORBIDDEN` |
 | T-06 | 같은 구글 계정으로 두 번째 로그인 | 새 계정을 만들지 않고 기존 계정에 붙는다 (`google_sub`로 조회) |
 | T-07 | 신청서의 학번이 다른 계정에 이미 있음 | `409 DUPLICATE_STUDENT_NO` |
-| T-08 | `khu.ac.kr`이 아닌 구글 계정으로 로그인 | `403 FORBIDDEN`, **계정이 생성되지 않는다** |
+| T-08 | `khu.ac.kr`이 아닌 구글 계정으로 로그인 | `/login?error=domain`으로 리다이렉트, **계정이 생성되지 않는다** |
 
 ### 소유자·안전장치
 
@@ -135,15 +135,18 @@ T-36는 `permitAll` 경로를 CSRF 검사에서까지 빼는 구현을, T-37은 
 
 | # | 조건 | 기대 |
 |---|---|---|
-| T-41 | 구글이 준 ID 토큰의 `email_verified`가 거짓 | `403 FORBIDDEN`, 계정 미생성 |
-| T-42 | `hd` 주장만 `khu.ac.kr`이고 `email`은 다른 도메인 | `403 FORBIDDEN` — **`hd`를 신뢰해 통과시키면 안 된다** |
-| T-43 | 기존 계정의 이메일이 구글에서 바뀐 채로 같은 `sub`로 로그인 | 새 계정을 만들지 않고 기존 계정에 붙는다. **`users.email`이 새 값으로 갱신되고** `GET /auth/me`·회원 목록이 새 주소를 보여준다 |
-| T-44 | 첫 로그인 직후 `GET /auth/me` | `status=PENDING`, `studentNo`는 비어 있고 신청 여부가 거짓 |
-| T-45 | `PENDING`이 신청서 제출 후 `GET /auth/me` | 신청 여부가 참, 학번이 채워짐 |
-| T-46 | 신청하지 않은 `PENDING` 계정이 있는 상태에서 관리자가 승인 목록 조회 | 그 계정이 목록에 없다 |
-| T-47 | `ACTIVE` 사용자가 `POST /auth/application` 호출 | 거부된다 — 승인 후에는 이 경로로 학번을 바꿀 수 없다 |
-| T-48 | 승인 대기 중 신청서를 다시 제출 | 성공, 내용이 갱신된다 |
-| T-49 | `studentNo` 또는 `name`을 `""`·공백만으로 제출 | `400 VALIDATION_ERROR`. **`applied_at`이 기록되지 않아 승인 대상이 되지 않는다** |
+| T-41 | 구글이 준 ID 토큰의 `email_verified`가 거짓 | `/login?error=unverified`로 리다이렉트, 계정 미생성 |
+| T-42 | `hd` 주장만 `khu.ac.kr`이고 `email`은 다른 도메인 | `/login?error=domain`으로 리다이렉트 — **`hd`를 신뢰해 통과시키면 안 된다** |
+| T-43 | 콜백 실패 응답 전반 | **JSON 본문이 아니라 리다이렉트다.** 브라우저가 SPA 밖에 남지 않는다 |
+| T-44 | 실패 리다이렉트의 쿼리 | 이메일·토큰·예외 메시지가 담기지 않는다 |
+| T-45 | 기존 계정의 이메일이 구글에서 바뀐 채로 같은 `sub`로 로그인 | 새 계정을 만들지 않고 기존 계정에 붙는다. **`users.email`이 새 값으로 갱신되고** `GET /auth/me`·회원 목록이 새 주소를 보여준다 |
+| T-46 | 첫 로그인 직후 `GET /auth/me` | `status=PENDING`, `studentNo`는 비어 있고 신청 여부가 거짓 |
+| T-47 | `PENDING`이 신청서 제출 후 `GET /auth/me` | 신청 여부가 참, 학번이 채워짐 |
+| T-48 | 신청하지 않은 `PENDING` 계정이 있는 상태에서 관리자가 승인 목록 조회 | 그 계정이 목록에 없다 |
+| T-49 | **목록을 우회해** `POST /admin/users/approve`에 미신청 계정 id를 직접 전달 | 그 건은 실패로 집계되고 계정은 `PENDING`으로 남는다. `student_no=NULL`인 `ACTIVE`가 만들어지지 않는다 |
+| T-50 | `ACTIVE` 사용자가 `POST /auth/application` 호출 | 거부된다 — 승인 후에는 이 경로로 학번을 바꿀 수 없다 |
+| T-51 | 승인 대기 중 신청서를 다시 제출 | 성공, 내용이 갱신된다 |
+| T-52 | `studentNo` 또는 `name`을 `""`·공백만으로 제출 | `400 VALIDATION_ERROR`. **`applied_at`이 기록되지 않아 승인 대상이 되지 않는다** |
 
 T-42이 이 절의 핵심이다. `hd` 파라미터는 구글이 붙여주는 힌트일 뿐이라 그것만 보고 통과시키면 도메인 제한이 무력해진다.
 
