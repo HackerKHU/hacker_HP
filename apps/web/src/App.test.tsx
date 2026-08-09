@@ -26,6 +26,7 @@ vi.mock('./api/notices', () => ({
       page: { size: 10, number: 0, totalElements: 0, totalPages: 0 },
     }),
   get: () => Promise.reject(new Error('이 파일에서는 쓰지 않는다')),
+  togglePin: () => Promise.reject(new Error('이 파일에서는 쓰지 않는다')),
 }))
 
 const BASE: User = {
@@ -152,7 +153,7 @@ describe('헤더 메뉴 노출', () => {
     renderAt('/admin/notices')
     await screen.findByRole('heading', { name: '공지 관리' })
 
-    expect(menuLabels()).toEqual(['공지', '회원 관리'])
+    expect(menuLabels()).toEqual(['공지사항', '회원 관리'])
     // 공지 관리 라우트는 살아 있지만 진입 위치가 미정이라 메뉴에서 뺐다.
     // 무심코 되살리면 여기서 잡힌다.
     expect(menuLabels()).not.toContain('공지 관리')
@@ -164,7 +165,7 @@ describe('헤더 메뉴 노출', () => {
     renderAt('/notices')
     await screen.findByRole('heading', { name: '공지사항' })
 
-    expect(menuLabels()).toEqual(['공지'])
+    expect(menuLabels()).toEqual(['공지사항'])
     expect(menuLabels()).not.toContain('회원 관리')
   })
 

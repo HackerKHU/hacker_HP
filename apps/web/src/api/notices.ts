@@ -1,5 +1,5 @@
 import { request, toQuery } from './client'
-import { fixtureNotice, fixtureNotices } from './fixtures'
+import { fixtureNotice, fixtureNotices, fixtureTogglePin } from './fixtures'
 import type { Page } from './types'
 
 export interface Notice {
@@ -57,5 +57,6 @@ export function remove(id: number): Promise<void> {
 }
 
 export function togglePin(id: number): Promise<Notice> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true') return fixtureTogglePin(id)
   return request<Notice>(`/notices/${id}/pin`, { method: 'PATCH' })
 }

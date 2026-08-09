@@ -108,6 +108,20 @@ export function fixtureLogin(): Promise<void> {
 // ── 공지 ────────────────────────────────────────────────────────────────────
 
 const FIXTURE_PAGE_SIZE = 10
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * 픽스처 날짜는 **모듈이 로드된 시각 기준 상대 오프셋**이다.
+ *
+ * 절대 날짜를 박으면 시간이 지나면서 "새글" 표시가 영영 사라져 화면 확인이 안 된다.
+ * 기준 시각을 한 번만 찍어 모든 공지가 같은 순간을 기준으로 삼으므로, 몇 번째 공지가
+ * 며칠 전인지는 항상 같다 — 정렬 순서와 새글 대상이 실행마다 바뀌지 않는다.
+ */
+const LOADED_AT = Date.now()
+
+function daysAgo(days: number): string {
+  return new Date(LOADED_AT - days * DAY_MS).toISOString()
+}
 
 /**
  * 서버가 `is_pinned DESC, created_at DESC`로 정렬해 내려준다 (spec §2-1-6).
@@ -121,8 +135,9 @@ const NOTICES: Notice[] = [
     content:
       '1학기 정기 세미나 일정을 안내합니다.\n\n매주 수요일 저녁 7시, 전자정보대학관 305호에서 진행합니다.\n주제는 격주로 바뀌며 첫 주는 리버싱 기초입니다.\n\n참가 신청은 동아리방 화이트보드에 이름을 적어주세요.',
     isPinned: true,
-    createdAt: '2026-08-05T09:00:00Z',
-    updatedAt: '2026-08-05T09:00:00Z',
+    // 1일 전 — 고정이면서 새글이다. 핀(강)과 NEW(약)의 위계가 한 행에서 보인다.
+    createdAt: daysAgo(1),
+    updatedAt: daysAgo(1),
   },
   {
     id: 102,
@@ -130,8 +145,8 @@ const NOTICES: Notice[] = [
     content:
       '이번 학기부터 동아리방 출입 카드 등록이 필요합니다.\n\n미등록 상태로는 야간 출입이 제한됩니다.\n등록은 운영진에게 문의해주세요.',
     isPinned: true,
-    createdAt: '2026-07-28T02:30:00Z',
-    updatedAt: '2026-07-30T05:10:00Z',
+    createdAt: daysAgo(12),
+    updatedAt: daysAgo(10),
   },
 ]
 
@@ -162,16 +177,16 @@ const TOPICS = [
 ]
 
 for (const [index, topic] of TOPICS.entries()) {
-  // 8월 4일부터 하루씩 거슬러 올라간다. 날짜가 서로 달라야 정렬이 눈에 보인다.
-  const day = 4 - index
-  const date = new Date(Date.UTC(2026, 7, day, 1, 0, 0))
+  // 0·2·5·8… 일 전. 앞의 둘이 3일 이내라 새글 표시가 실제로 보인다.
+  // 간격이 있어야 날짜가 서로 다르고 정렬이 눈에 보인다.
+  const days = index === 0 ? 0 : index * 3 - 1
   NOTICES.push({
     id: 100 - index,
     title: topic,
     content: `${topic}에 대한 상세 내용입니다.\n\n자세한 사항은 운영진에게 문의해주세요.`,
     isPinned: false,
-    createdAt: date.toISOString(),
-    updatedAt: date.toISOString(),
+    createdAt: daysAgo(days),
+    updatedAt: daysAgo(days),
   })
 }
 
@@ -198,5 +213,24 @@ export function fixtureNotice(id: number): Promise<Notice> {
       new ApiError('NOT_FOUND', 404, '공지를 찾을 수 없습니다.'),
     )
   }
+  return Promise.resolve(found)
+}
+
+/**
+ * 고정 토글. 실제 서버처럼 상태를 바꾸고 목록을 다시 정렬한다 —
+ * 고정하면 위로 올라가는 것이 화면에서 보여야 한다.
+ */
+export function fixtureTogglePin(id: number): Promise<Notice> {
+  const found = NOTICES.find((notice) => notice.id === id)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '공지를 찾을 수 없습니다.'),
+    )
+  }
+  found.isPinned = !found.isPinned
+  NOTICES.sort((a, b) => {
+    if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1
+    return b.createdAt.localeCompare(a.createdAt)
+  })
   return Promise.resolve(found)
 }

@@ -15,9 +15,9 @@ import { cn } from '@/lib/utils'
  * #36의 라우트 가드가 막고, 서버가 다시 검증한다. 여기가 담당하는 것은 노출뿐이다.
  */
 const MENUS = {
-  USER: [{ to: '/notices', label: '공지' }],
+  USER: [{ to: '/notices', label: '공지사항' }],
   ADMIN: [
-    { to: '/notices', label: '공지' },
+    { to: '/notices', label: '공지사항' },
     { to: '/admin/members', label: '회원 관리' },
   ],
 } satisfies Record<Role, { to: string; label: string }[]>
