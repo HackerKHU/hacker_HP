@@ -5,21 +5,11 @@ services:
       POSTGRES_DB: hacker
       POSTGRES_USER: hacker
       POSTGRES_PASSWORD: localdev
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]   # 루프백만. 공유 네트워크에서 기본 계정 노출 방지
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hacker"]
       interval: 5s
 
-  minio:                              # S3 호환. presigned URL 로직 그대로 테스트
-    image: minio/minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports: ["9000:9000", "9001:9001"]
-    volumes: [miniodata:/data]
-
 volumes:
   pgdata:
-  miniodata:
