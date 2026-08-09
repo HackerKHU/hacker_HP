@@ -93,6 +93,14 @@ const USERS: Record<
   },
 }
 
+/**
+ * `applying` 시나리오에서 신청서를 냈는지. `fixtureApplication()`이 켠다.
+ *
+ * 이게 없으면 신청 폼을 제출해도 `fixtureMe()`가 계속 `appliedAt: null`을 돌려줘
+ * 화면이 폼에 머문다 — 픽스처만으로는 제출 후 화면을 만들 수 없다.
+ */
+let applied = false
+
 export function fixtureMe(): Promise<User> {
   if (SCENARIO === 'guest' || SCENARIO === 'suspended') {
     return Promise.reject(
@@ -104,16 +112,22 @@ export function fixtureMe(): Promise<User> {
       new ApiError('PENDING_APPROVAL', 403, '가입 승인 대기 중입니다.'),
     )
   }
+  if (SCENARIO === 'applying' && applied) {
+    return Promise.resolve(USERS.pending)
+  }
   return Promise.resolve(USERS[SCENARIO])
 }
 
 /**
  * 신청서 제출은 본문을 반환하지 않는다. 제출 후 화면은 `fixtureMe()`로 다시 그린다.
  *
+ * `applying` 시나리오에서는 제출 여부를 기억해, 이어지는 `fixtureMe()`가 신청 완료
+ * 상태를 돌려준다. 그래야 폼 → 대기 안내 전환을 픽스처만으로 확인할 수 있다.
+ *
  * 로그인은 구글 OAuth 리다이렉트라 픽스처로 흉내 낼 수 없다 (3-3 결정 13).
  * 어떤 사용자로 볼지는 `VITE_FIXTURE_SCENARIO`가 정한다.
  */
-export function fixtureLogin(): Promise<void> {
+export function fixtureApplication(): Promise<void> {
   if (SCENARIO === 'suspended') {
     return Promise.reject(
       new ApiError('SUSPENDED', 403, '이용이 정지된 계정입니다.'),
@@ -124,5 +138,6 @@ export function fixtureLogin(): Promise<void> {
       new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
     )
   }
+  applied = true
   return Promise.resolve()
 }

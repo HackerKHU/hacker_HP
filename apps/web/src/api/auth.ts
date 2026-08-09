@@ -1,5 +1,5 @@
 import { apiPath, request } from './client'
-import { fixtureLogin, fixtureMe } from './fixtures'
+import { fixtureApplication, fixtureMe } from './fixtures'
 import type { User } from './types'
 
 /*
@@ -31,7 +31,7 @@ export interface ApplicationRequest {
  * (spec/3-1-DESIGN-ARCHITECTURE.md §3-1-4).
  */
 export function submitApplication(body: ApplicationRequest): Promise<void> {
-  if (import.meta.env.VITE_USE_FIXTURES === 'true') return fixtureLogin()
+  if (import.meta.env.VITE_USE_FIXTURES === 'true') return fixtureApplication()
   return request('/auth/application', {
     method: 'POST',
     body: JSON.stringify(body),

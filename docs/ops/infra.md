@@ -491,9 +491,15 @@ spring:
             client-secret: ${GOOGLE_CLIENT_SECRET}
             redirect-uri: ${OAUTH_REDIRECT_URI}   # https://<vercel-도메인>/api/v1/login/oauth2/code/google
             scope: [openid, email, profile]
+
+app:
+  auth:
+    allowed-email-domain: ${ALLOWED_EMAIL_DOMAIN}   # khu.ac.kr
 ```
 
-`OAUTH_REDIRECT_URI`는 시크릿이 아니므로 SSM SecureString이 아니라 태스크 정의의 `environment`에 둡니다.
+`OAUTH_REDIRECT_URI`와 `ALLOWED_EMAIL_DOMAIN`은 시크릿이 아니므로 SSM SecureString이 아니라 태스크 정의의 `environment`에 둡니다.
+
+**허용 도메인은 설정 키 `app.auth.allowed-email-domain` 하나로 관리합니다** ([3-1 §3-1-4](../../spec/3-1-DESIGN-ARCHITECTURE.md)). 값을 코드에 하드코딩하지 않고, 이 키가 비어 있으면 기동에 실패하도록 둡니다 — 기본값을 코드에 심어두면 설정 누락이 조용히 지나가고 도메인 제한이 무력해집니다. 로컬은 `application-local.yml`에 같은 키를 적고, 태스크 정의는 위 `environment` 항목으로 주입합니다.
 
 forwarded header(`server.forward-headers-strategy`)로 원본 scheme·host를 복원하는 방법도 있습니다. 다만 이 경로에서는 **Vercel과 ALB 두 곳이 헤더를 건드리므로** 무엇이 어떤 값을 남기는지에 의존하게 됩니다. 명시적 URI가 더 적은 가정으로 같은 결과를 냅니다.
 
@@ -700,6 +706,8 @@ resource "aws_ecs_task_definition" "api" {
       { name = "S3_BUCKET", value = aws_s3_bucket.uploads.id },
       # 프록시가 두 겹이라 Spring이 조립한 redirect_uri는 구글 등록값과 어긋난다. 절대 URI로 고정한다.
       { name = "OAUTH_REDIRECT_URI", value = var.oauth_redirect_uri },
+      # 가입을 허용할 학교 이메일 도메인. 시크릿이 아니므로 SSM이 아니라 여기에 둔다.
+      { name = "ALLOWED_EMAIL_DOMAIN", value = var.allowed_email_domain },
       { name = "JAVA_TOOL_OPTIONS", value = "-XX:MaxRAMPercentage=70 -XX:+UseSerialGC" }
     ]
 
@@ -846,6 +854,47 @@ resource "aws_iam_role_policy" "github_actions" {
 `sub` 조건을 `*`로 열면 **다른 사람의 레포에서도 이 역할을 가져다 씁니다.** 반드시 조직/레포명으로 고정하세요.
 
 `iam:PassRole` 누락이 ECS 배포 파이프라인 실패 원인 1위입니다.
+
+### variables.tf — 사람이 넣어야 하는 값
+
+Terraform이 만들어낼 수 없는 값들입니다. 구글 클라이언트 자격은 Google Cloud Console에서 발급받고, redirect URI는 Vercel 도메인이 정해져야 알 수 있습니다.
+
+```hcl
+variable "google_client_id" {
+  description = "Google Cloud Console OAuth 클라이언트 ID"
+  type        = string
+  sensitive   = true
+}
+
+variable "google_client_secret" {
+  description = "Google Cloud Console OAuth 클라이언트 시크릿"
+  type        = string
+  sensitive   = true
+}
+
+variable "oauth_redirect_uri" {
+  description = "구글에 등록한 승인 redirect URI. 프론트엔드 오리진 기준이다"
+  type        = string
+  # 예: https://hacker-hp.vercel.app/api/v1/login/oauth2/code/google
+}
+
+variable "allowed_email_domain" {
+  description = "가입을 허용할 학교 이메일 도메인"
+  type        = string
+  default     = "khu.ac.kr"
+}
+```
+
+```hcl
+# terraform.tfvars — .gitignore 대상. 커밋하지 않는다
+google_client_id     = "xxxxxxxx.apps.googleusercontent.com"
+google_client_secret = "GOCSPX-xxxxxxxx"
+oauth_redirect_uri   = "https://hacker-hp.vercel.app/api/v1/login/oauth2/code/google"
+```
+
+`sensitive = true`를 붙이면 `terraform plan` 출력에 값이 찍히지 않습니다. **다만 `tfstate`에는 평문으로 들어가므로** 커밋 금지 규칙은 그대로입니다.
+
+`allowed_email_domain`은 시크릿이 아니라 기본값을 둡니다. 도메인이 바뀌면 이 한 줄만 고칩니다.
 
 ### outputs.tf
 
