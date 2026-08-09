@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { homePath, useSession } from '@/auth/session'
+import { hasApplied, homePath, useSession } from '@/auth/session'
 import { useLogout } from '@/auth/useLogout'
 import { Button } from '@/components/ui/button'
 import { CLUB, SECTIONS } from './content'
@@ -16,6 +16,9 @@ export function PublicHeader() {
    * 다시 그려져 로그아웃된 것이 화면에 드러난다.
    */
   const { logout, failed } = useLogout()
+  const isActive = session.state.kind === 'active'
+  // PENDING일 때만 의미가 있다. `null`이면 403으로만 알아내 신청 여부를 모르는 상태다.
+  const applied = hasApplied(session)
 
   return (
     <header className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur">
@@ -42,37 +45,19 @@ export function PublicHeader() {
          */}
         {session.state.kind !== 'loading' && (
           <div className="ml-auto flex items-center gap-2">
-            {session.state.kind === 'active' ||
-            session.state.kind === 'pending' ? (
+            {failed && (
+              <p role="alert" className="text-sm text-muted-foreground">
+                로그아웃하지 못했습니다. 다시 시도해 주세요.
+              </p>
+            )}
+
+            {session.state.kind === 'guest' ||
+            session.state.kind === 'suspended' ? (
               <>
                 {/*
-                 * 로그인한 사람이 랜딩에 왔을 때 들어갈 문과 나갈 문이 모두 필요하다.
-                 * **PENDING에게 "승인 대기 중"을 보여주는 것이 중요하다** — 신청해놓고
-                 * 기다리는 사람이 자기 상태를 여기서 알 수 있어야 한다.
-                 */}
-                <Button asChild variant="outline" size="sm">
-                  <Link to={homePath(session)}>
-                    {session.state.kind === 'pending'
-                      ? '승인 대기 중'
-                      : '공지사항'}
-                  </Link>
-                </Button>
-                {failed && (
-                  <p role="alert" className="text-sm text-muted-foreground">
-                    로그아웃하지 못했습니다. 다시 시도해 주세요.
-                  </p>
-                )}
-                <Button variant="ghost" size="sm" onClick={logout}>
-                  로그아웃
-                </Button>
-              </>
-            ) : (
-              <>
-                {/*
-                 * 두 버튼은 가는 곳이 완전히 다르다.
-                 * **지원하기 = 동아리 가입** — 외부 모집 폼으로 나간다. 아직 부원이 아닌 사람용.
-                 * **로그인 = 이 사이트** — 이미 부원인 사람용.
-                 * 강조(흰색)를 지원하기에 준 것은 랜딩을 처음 보는 사람이 대부분이기 때문이다.
+                 * 아직 부원이 아닌 사람이다. 지원하기는 **외부 모집 폼**으로 나간다 —
+                 * 이 사이트 로그인이 아니라 동아리 가입이라 가는 곳이 다르다.
+                 * 강조(흰색)를 준 것은 랜딩을 처음 보는 사람이 대부분이기 때문이다.
                  */}
                 <Button asChild size="sm">
                   <a
@@ -85,6 +70,37 @@ export function PublicHeader() {
                 </Button>
                 <Button asChild variant="outline" size="sm">
                   <Link to="/login">로그인</Link>
+                </Button>
+              </>
+            ) : (
+              <>
+                {/*
+                 * 로그인한 사람이다. **PENDING 안에 두 상태가 있다** (spec §3-1-4) —
+                 * 구글 로그인만 한 계정과 신청서를 낸 계정은 다르다. 승인 대상은 신청서를
+                 * 낸 쪽으로 한정되므로(MUST), 신청도 안 한 사람에게 "승인 대기 중"은 거짓말이다.
+                 *
+                 * 판별은 신청서 제출 시각(`appliedAt`)으로 한다 — 승인 목록 포함 여부를
+                 * 가르는 값과 같아야 서버와 어긋나지 않는다.
+                 *
+                 * 신청 전이면 지원하기가 **사이트 신청 화면**으로 간다. 로그인까지 한
+                 * 사람에게 외부 모집 폼을 다시 보여줄 이유가 없다.
+                 *
+                 * `hasApplied`가 `null`이면 403으로만 알아낸 경우라 신청 여부를 모른다.
+                 * 그때는 아무 주장도 하지 않고 로그아웃만 남긴다.
+                 */}
+                {(isActive || applied !== null) && (
+                  <Button asChild variant="outline" size="sm">
+                    <Link to={homePath(session)}>
+                      {isActive
+                        ? '공지사항'
+                        : applied
+                          ? '승인 대기 중'
+                          : '지원하기'}
+                    </Link>
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" onClick={logout}>
+                  로그아웃
                 </Button>
               </>
             )}

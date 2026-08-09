@@ -25,12 +25,21 @@ function Hero() {
   return (
     <section id="top" className={cn(SECTION, 'py-32')}>
       <p className="text-sm tracking-[0.2em] text-muted-foreground">
-        {CLUB.name}
+        {CLUB.eyebrow}
       </p>
-      <p className="mt-3 text-sm text-muted-foreground">{CLUB.fullName}</p>
-      <h1 className="mt-6 max-w-3xl text-5xl leading-tight font-semibold tracking-tight text-foreground">
-        {CLUB.tagline}
+      {/*
+        두 줄은 의도된 줄바꿈이다. `index.css`가 제목에 `text-wrap: balance`를 걸어두는데,
+        줄을 우리가 정했으므로 `text-wrap`(=wrap)으로 되돌려 간섭을 없앤다.
+        각 줄을 블록으로 두면 개행 문자 없이 두 줄이 고정된다.
+      */}
+      <h1 className="mt-6 text-5xl leading-tight font-semibold tracking-tight text-wrap text-foreground">
+        {CLUB.headline.map((line) => (
+          <span key={line} className="block">
+            {line}
+          </span>
+        ))}
       </h1>
+      <p className="mt-6 text-sm text-muted-foreground">{CLUB.fullName}</p>
     </section>
   )
 }

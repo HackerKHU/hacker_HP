@@ -23,6 +23,7 @@ const BASE: User = {
   role: 'USER',
   status: 'ACTIVE',
   createdAt: '2026-03-02T09:00:00Z',
+  appliedAt: '2026-03-02T09:10:00Z',
   approvedAt: '2026-03-03T09:00:00Z',
 }
 
@@ -63,16 +64,19 @@ describe('공개 랜딩', () => {
 
     renderLanding()
 
-    expect(
-      await screen.findByRole('heading', { name: CLUB.tagline, level: 1 }),
-    ).toBeInTheDocument()
+    // 제목은 두 줄이 의도된 줄바꿈이라 블록 두 개다. 공백 처리에 기대지 않고
+    // 두 줄이 모두 들어 있는지로 본다.
+    const heading = await screen.findByRole('heading', { level: 1 })
+    for (const line of CLUB.headline) {
+      expect(heading).toHaveTextContent(line)
+    }
     expect(screen.getByRole('heading', { name: '소개' })).toBeInTheDocument()
   })
 
   // T-24 — 랜딩은 정적이다 (spec 3-3 결정 8).
   it('렌더 중 fetch를 한 번도 부르지 않는다', async () => {
     renderLanding()
-    await screen.findByRole('heading', { name: CLUB.tagline, level: 1 })
+    await screen.findByRole('heading', { level: 1 })
 
     expect(fetchSpy).not.toHaveBeenCalled()
   })
@@ -90,7 +94,7 @@ describe('공개 랜딩', () => {
   })
 })
 describe('랜딩 헤더 상태별 진입점', () => {
-  it('비로그인에게는 지원하기와 로그인만 보인다', async () => {
+  it('비로그인에게는 외부 모집 폼과 로그인만 보인다', async () => {
     auth.me = () => Promise.reject(new Error('비로그인'))
 
     renderLanding()
@@ -98,6 +102,7 @@ describe('랜딩 헤더 상태별 진입점', () => {
       await screen.findByRole('link', { name: '로그인' }),
     ).toBeInTheDocument()
 
+    // 이 사이트 로그인이 아니라 동아리 가입이라 외부 폼으로 나간다.
     expect(screen.getByRole('link', { name: '지원하기' })).toHaveAttribute(
       'href',
       CLUB.applyUrl,
@@ -105,18 +110,42 @@ describe('랜딩 헤더 상태별 진입점', () => {
     expect(screen.queryByRole('button', { name: '로그아웃' })).toBeNull()
   })
 
-  // 신청해놓고 기다리는 사람이 랜딩에 왔을 때 자기 상태를 알 수 있어야 한다.
-  it('PENDING에게는 승인 대기 중 링크와 로그아웃이 보인다', async () => {
+  // spec §3-1-4 — PENDING 안에 두 상태가 있다. 신청도 안 한 사람에게
+  // "승인 대기 중"은 거짓말이다. 그 사람은 기다리는 게 아니라 아직 아무것도 안 했다.
+  it('로그인만 하고 신청하지 않았으면 사이트 신청 화면으로 보낸다', async () => {
     auth.me = () =>
-      Promise.resolve({ ...BASE, status: 'PENDING' as const, approvedAt: null })
+      Promise.resolve({
+        ...BASE,
+        status: 'PENDING' as const,
+        studentNo: null,
+        appliedAt: null,
+        approvedAt: null,
+      })
+
+    renderLanding()
+
+    expect(
+      await screen.findByRole('link', { name: '지원하기' }),
+    ).toHaveAttribute('href', '/pending')
+    expect(screen.queryByRole('link', { name: '승인 대기 중' })).toBeNull()
+    expect(screen.getByRole('button', { name: '로그아웃' })).toBeInTheDocument()
+  })
+
+  it('신청서를 낸 PENDING에게는 승인 대기 중이 보인다', async () => {
+    auth.me = () =>
+      Promise.resolve({
+        ...BASE,
+        status: 'PENDING' as const,
+        approvedAt: null,
+      })
 
     renderLanding()
 
     expect(
       await screen.findByRole('link', { name: '승인 대기 중' }),
     ).toHaveAttribute('href', '/pending')
-    expect(screen.getByRole('button', { name: '로그아웃' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '지원하기' })).toBeNull()
+    expect(screen.getByRole('button', { name: '로그아웃' })).toBeInTheDocument()
   })
 
   it('ACTIVE에게는 공지사항 링크와 로그아웃이 보인다', async () => {
