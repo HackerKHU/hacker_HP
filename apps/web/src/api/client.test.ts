@@ -70,6 +70,31 @@ describe('request 에러 매핑', () => {
   })
 })
 
+describe('request base URL', () => {
+  it('상대 경로 앞에 /api/v1을 붙여 호출한다', async () => {
+    const fetchMock = vi.fn(async () => new Response('', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await request('/auth/me')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/auth/me',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
+
+  it('절대 URL을 만들지 않는다 — Vercel rewrites 프록시를 타야 한다', async () => {
+    const fetchMock = vi.fn(async () => new Response('', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await request('/notices')
+
+    const [url] = fetchMock.mock.calls[0] as unknown as [string]
+    expect(url.startsWith('/api/v1/')).toBe(true)
+    expect(url).not.toMatch(/^https?:\/\//)
+  })
+})
+
 describe('toQuery', () => {
   it('빈 문자열은 빼고 0은 남긴다', () => {
     expect(toQuery({ q: '', page: 0, size: undefined })).toBe('?page=0')
