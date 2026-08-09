@@ -53,11 +53,18 @@ afterEach(() => {
 })
 
 describe('공개 랜딩', () => {
-  // T-21~T-23 — 어느 세션 상태에서도 가드에 걸리지 않고 그대로 렌더된다.
+  /*
+   * T-57~T-59, T-61 — 어느 세션 상태에서도 가드에 걸리지 않고 그대로 렌더된다.
+   *
+   * SUSPENDED가 특히 중요하다. 프론트엔드는 정지된 세션을 **세션 없음으로 수렴시켜**
+   * 로그인 화면으로 보내는데(#36), 그 정책이 랜딩까지 적용되면 정지된 사람이 공개
+   * 페이지조차 못 본다 (spec 5-TESTING).
+   */
   it.each([
     ['비로그인', null],
     ['PENDING', { ...BASE, status: 'PENDING' as const, approvedAt: null }],
     ['ACTIVE', BASE],
+    ['SUSPENDED', { ...BASE, status: 'SUSPENDED' as const }],
   ])('%s 상태에서 랜딩이 렌더된다', async (_label, user) => {
     auth.me = () =>
       user ? Promise.resolve(user) : Promise.reject(new Error('비로그인'))
@@ -71,6 +78,8 @@ describe('공개 랜딩', () => {
       expect(heading).toHaveTextContent(line)
     }
     expect(screen.getByRole('heading', { name: '소개' })).toBeInTheDocument()
+    // 가드에 걸려 로그인 화면으로 튕기지 않았는지도 본다.
+    expect(screen.queryByRole('heading', { name: '로그인' })).toBeNull()
   })
 
   // T-24 — 랜딩은 정적이다 (spec 3-3 결정 8).

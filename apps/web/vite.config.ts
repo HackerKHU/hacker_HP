@@ -3,8 +3,27 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 
+/**
+ * 배포 도메인. `og:url`과 `og:image`가 같은 값을 쓰므로 **여기 한 곳에서만 관리한다.**
+ *
+ * ⚠️ TODO: 실제 도메인으로 교체한다 (#47). 도메인은 아직 미정이다
+ * (spec 3-3 결정 5 — 도메인 없이 Vercel 프록시로 운영 중).
+ * **`example.com`이 그대로 배포되면 링크 미리보기가 엉뚱한 곳을 가리킨다.**
+ */
+const SITE_ORIGIN = 'https://example.com'
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    {
+      // 링크 미리보기 봇은 대부분 **절대 URL**을 요구한다. 상대경로면 이미지를 못 읽어
+      // 미리보기에 그림이 안 뜬다. 빌드·개발 양쪽에서 같은 값으로 치환한다.
+      name: 'inject-site-origin',
+      transformIndexHtml: (html: string) =>
+        html.replaceAll('%SITE_ORIGIN%', SITE_ORIGIN),
+    },
+  ],
   resolve: {
     // shadcn/ui가 생성하는 컴포넌트가 @/ 별칭을 쓴다. tsconfig.app.json의 paths와 같이 맞춘다.
     alias: { '@': path.resolve(import.meta.dirname, './src') },
