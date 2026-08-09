@@ -31,7 +31,8 @@ export interface ApplicationRequest {
  * (spec/3-1-DESIGN-ARCHITECTURE.md §3-1-4).
  */
 export function submitApplication(body: ApplicationRequest): Promise<void> {
-  if (import.meta.env.VITE_USE_FIXTURES === 'true') return fixtureApplication()
+  if (import.meta.env.VITE_USE_FIXTURES === 'true')
+    return fixtureApplication(body)
   return request('/auth/application', {
     method: 'POST',
     body: JSON.stringify(body),

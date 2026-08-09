@@ -94,12 +94,15 @@ const USERS: Record<
 }
 
 /**
- * `applying` 시나리오에서 신청서를 냈는지. `fixtureApplication()`이 켠다.
+ * `applying` 시나리오에서 제출한 신청서. `fixtureApplication()`이 채운다.
  *
  * 이게 없으면 신청 폼을 제출해도 `fixtureMe()`가 계속 `appliedAt: null`을 돌려줘
  * 화면이 폼에 머문다 — 픽스처만으로는 제출 후 화면을 만들 수 없다.
+ *
+ * 입력값을 그대로 들고 있어야 재제출(승인 전 수정) 화면도 만들 수 있다.
+ * 하드코딩된 값을 돌려주면 무엇을 고쳤는지 화면에서 확인할 수 없다.
  */
-let applied = false
+let application: { studentNo: string; name: string } | null = null
 
 export function fixtureMe(): Promise<User> {
   if (SCENARIO === 'guest' || SCENARIO === 'suspended') {
@@ -112,8 +115,13 @@ export function fixtureMe(): Promise<User> {
       new ApiError('PENDING_APPROVAL', 403, '가입 승인 대기 중입니다.'),
     )
   }
-  if (SCENARIO === 'applying' && applied) {
-    return Promise.resolve(USERS.pending)
+  if (SCENARIO === 'applying' && application) {
+    return Promise.resolve({
+      ...USERS.applying,
+      studentNo: application.studentNo,
+      name: application.name,
+      appliedAt: '2026-03-02T10:00:00Z',
+    })
   }
   return Promise.resolve(USERS[SCENARIO])
 }
@@ -127,7 +135,10 @@ export function fixtureMe(): Promise<User> {
  * 로그인은 구글 OAuth 리다이렉트라 픽스처로 흉내 낼 수 없다 (3-3 결정 13).
  * 어떤 사용자로 볼지는 `VITE_FIXTURE_SCENARIO`가 정한다.
  */
-export function fixtureApplication(): Promise<void> {
+export function fixtureApplication(body: {
+  studentNo: string
+  name: string
+}): Promise<void> {
   if (SCENARIO === 'suspended') {
     return Promise.reject(
       new ApiError('SUSPENDED', 403, '이용이 정지된 계정입니다.'),
@@ -138,6 +149,13 @@ export function fixtureApplication(): Promise<void> {
       new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
     )
   }
-  applied = true
+  // 신청 API는 PENDING 전용이다 (계약 §3-2-3, T-47). 픽스처가 이걸 허용하면
+  // 승인 후 학번을 바꾸는 회귀가 화면 개발 중에 드러나지 않는다.
+  if (SCENARIO === 'user' || SCENARIO === 'admin') {
+    return Promise.reject(
+      new ApiError('FORBIDDEN', 403, '승인된 계정은 신청서를 낼 수 없습니다.'),
+    )
+  }
+  application = { studentNo: body.studentNo, name: body.name }
   return Promise.resolve()
 }

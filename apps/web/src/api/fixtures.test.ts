@@ -8,7 +8,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 async function loadFixtures(scenario: string) {
   vi.stubEnv('VITE_FIXTURE_SCENARIO', scenario)
   vi.resetModules()
-  return import('./fixtures')
+  // `client`도 같은 그래프에서 가져온다. 정적 import로 받은 `ApiError`는 리셋 전
+  // 모듈의 클래스라 `instanceof`가 어긋난다.
+  const [fixtures, client] = await Promise.all([
+    import('./fixtures'),
+    import('./client'),
+  ])
+  return { ...fixtures, ApiError: client.ApiError }
 }
 
 afterEach(() => {
@@ -26,17 +32,45 @@ describe('신청 픽스처', () => {
     expect(me.appliedAt).toBeNull()
   })
 
-  it('신청서를 내면 이어지는 조회가 신청 완료 상태를 돌려준다', async () => {
+  it('신청서를 내면 이어지는 조회가 제출한 값으로 신청 완료 상태를 돌려준다', async () => {
     const { fixtureApplication, fixtureMe } = await loadFixtures('applying')
 
-    await fixtureApplication()
+    await fixtureApplication({ studentNo: '2024001122', name: '김신입' })
     const me = await fixtureMe()
 
     // 이 전환이 없으면 폼을 제출해도 화면이 폼에 머문다.
     expect(me.appliedAt).not.toBeNull()
-    expect(me.studentNo).not.toBeNull()
     expect(me.status).toBe('PENDING')
+    // 하드코딩된 값을 돌려주면 재제출 화면에서 무엇을 고쳤는지 확인할 수 없다.
+    expect(me.studentNo).toBe('2024001122')
+    expect(me.name).toBe('김신입')
   })
+
+  it('다시 제출하면 내용이 갱신된다', async () => {
+    const { fixtureApplication, fixtureMe } = await loadFixtures('applying')
+
+    await fixtureApplication({ studentNo: '2024001122', name: '김신입' })
+    await fixtureApplication({ studentNo: '2024003344', name: '김정정' })
+    const me = await fixtureMe()
+
+    expect(me.studentNo).toBe('2024003344')
+    expect(me.name).toBe('김정정')
+  })
+
+  it.each(['user', 'admin'])(
+    '%s 시나리오는 신청서 제출을 거부한다 — PENDING 전용이다',
+    async (scenario) => {
+      const { fixtureApplication, ApiError } = await loadFixtures(scenario)
+
+      const error = await fixtureApplication({
+        studentNo: '2024001122',
+        name: '김신입',
+      }).catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(ApiError)
+      expect((error as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+    },
+  )
 
   it('pending 시나리오는 처음부터 신청 완료 상태다', async () => {
     const { fixtureMe } = await loadFixtures('pending')
