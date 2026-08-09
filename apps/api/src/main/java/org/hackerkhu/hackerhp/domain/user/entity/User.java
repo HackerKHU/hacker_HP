@@ -87,8 +87,11 @@ public class User {
     this.status = Status.SUSPENDED;
   }
 
-  /** ADM-03 회원 상태 변경 — 정지 해제. */
+  /** ADM-03 회원 상태 변경 — 정지 해제. SUSPENDED 상태에서만 허용한다. */
   public void reactivate() {
+    if (this.status != Status.SUSPENDED) {
+      throw new IllegalStateException("SUSPENDED 상태에서만 정지 해제할 수 있습니다: " + this.status);
+    }
     this.status = Status.ACTIVE;
   }
 
