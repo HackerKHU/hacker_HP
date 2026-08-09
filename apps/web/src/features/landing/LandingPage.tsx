@@ -8,19 +8,14 @@ import {
 } from '@/components/ui/accordion'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import {
-  ACTIVITIES,
-  CLUB,
-  FAQS,
-  PHOTOS,
-  SECTIONS,
-  STATS,
-  SUPPORT,
-} from './content'
+import { ACTIVITIES, CLUB, FAQS, SECTIONS, STATS, SUPPORT } from './content'
 import { PublicHeader } from './PublicHeader'
 
+/** 본문 컨테이너. 다른 섹션과 좌우 정렬을 맞추는 기준이다. */
+const CONTAINER = 'mx-auto w-full max-w-[1152px] px-6'
+
 /** 섹션 제목이 고정 헤더에 가리지 않도록 여백을 준다 (`scroll-mt-*`). */
-const SECTION = 'mx-auto w-full max-w-[1152px] scroll-mt-24 px-6 py-28'
+const SECTION = `${CONTAINER} scroll-mt-24 py-28`
 
 function Heading({ children }: { children: string }) {
   return <h2 className="text-4xl font-semibold tracking-tight">{children}</h2>
@@ -56,56 +51,47 @@ function About() {
 }
 
 /**
- * 사진 트랙 한 벌. 장수가 적어 그대로 흘리면 화면 폭보다 짧아 빈 구간이 생긴다.
+ * 트랙 한 벌. 항목 수가 적어 그대로 흘리면 화면 폭보다 짧아 빈 구간이 생긴다.
  * 두 번 반복해 한 벌을 채우고, 그 한 벌을 다시 두 벌로 이어붙여 `-50%`로 순환시킨다.
- * 장수가 늘거나 줄어도 이 구조는 그대로 둔다 — 한 벌이 화면 폭보다 길기만 하면 된다.
+ * 항목이 늘거나 줄어도 이 구조는 그대로 둔다 — 한 벌이 화면 폭보다 길기만 하면 된다.
  * 각 벌에 고유 이름을 줘서 배열 인덱스를 key로 쓰지 않는다.
  */
 const MARQUEE_PASSES = ['pass-1', 'pass-2', 'pass-3', 'pass-4'] as const
 
 function Activities() {
   return (
-    <section id="activities" className={cn(SECTION, 'border-t border-border')}>
-      <Heading>활동</Heading>
+    <section
+      id="activities"
+      className="scroll-mt-24 border-t border-border py-28"
+    >
+      {/* 제목은 컨테이너 안에 둔다. 여기까지 화면 끝에 붙으면 다른 섹션과 정렬이 깨진다. */}
+      <div className={CONTAINER}>
+        <Heading>활동</Heading>
+      </div>
 
       {/*
-       * 항목 격자가 사진보다 위에 온다. 제목이 "활동"이니 읽는 사람이 먼저 알고 싶은 것은
-       * 무엇을 하는가이고, 사진은 분위기를 더하는 쪽이다. 지금은 사진이 전부 자리표시자라
-       * 제목 바로 아래에 빈 액자가 흐르면 화면이 깨진 것처럼 보이기도 한다.
-       */}
-      <ul className="mt-10 grid grid-cols-4 gap-4">
-        {ACTIVITIES.map((activity) => (
-          <li
-            key={activity.title}
-            className="rounded-lg border border-border bg-card p-5"
-          >
-            <p className="font-medium text-foreground">{activity.title}</p>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {activity.note}
-            </p>
-          </li>
-        ))}
-      </ul>
-
-      {/*
-       * 사진은 가로로 천천히 흐른다. 움직임 제어와 모션 민감도 대응은 `index.css`의
+       * 카드 흐름만 화면 전체 폭을 쓴다. `100vw`를 쓰지 않고 **컨테이너 밖에 두는** 방식이라
+       * 세로 스크롤바 폭만큼 넘쳐 가로 스크롤바가 생기는 일이 없다.
+       *
+       * 사진과 글이 한 카드다. 움직임 제어와 모션 민감도 대응은 `index.css`의
        * `.marquee-*` 규칙에 있다 — 마우스를 올리거나 포커스가 들어오면 멈추고,
        * 모션을 줄이도록 설정한 사용자에게는 가로 스크롤로 바뀐다.
        */}
-      <div className="marquee-viewport mt-12">
+      <div className="marquee-viewport mt-10">
         <ul className="marquee-track flex w-max items-start gap-6">
           {MARQUEE_PASSES.map((pass, passIndex) =>
-            PHOTOS.map((photo, photoIndex) => (
+            ACTIVITIES.map((activity) => (
               <li
-                key={`${pass}-${photoIndex + 1}`}
-                // 같은 사진이 네 번 나온다. 첫 벌만 읽히게 하고 나머지는 감춘다.
+                key={`${pass}-${activity.title}`}
+                className="w-64 shrink-0"
+                // 같은 카드가 네 번 나온다. 첫 벌만 읽히게 하고 나머지는 감춘다.
                 aria-hidden={passIndex > 0}
               >
-                <div className="aspect-[3/4] w-64 shrink-0 overflow-hidden rounded-lg border border-border bg-card">
-                  {photo.src ? (
+                <div className="aspect-[3/4] overflow-hidden rounded-lg border border-border bg-card">
+                  {activity.src ? (
                     <img
-                      src={photo.src}
-                      alt={photo.alt}
+                      src={activity.src}
+                      alt={activity.alt}
                       className="size-full object-cover"
                     />
                   ) : (
@@ -115,6 +101,12 @@ function Activities() {
                     </div>
                   )}
                 </div>
+                <p className="mt-4 font-medium text-foreground">
+                  {activity.title}
+                </p>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                  {activity.note}
+                </p>
               </li>
             )),
           )}

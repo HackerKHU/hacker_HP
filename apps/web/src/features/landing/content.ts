@@ -76,12 +76,21 @@ export const STATS: Stat[] = [
   { value: 0, unit: '명', minDigits: 2, label: '누적 활동 회원' },
 ]
 
-/** 활동 항목. 격자에 작은 카드로 그린다 — 제목과 한 줄 설명만 담는다. */
+/** 활동 항목. 사진과 글을 한 카드에 담아 가로로 흐른다. */
 export interface Activity {
+  /**
+   * `public/landing/` 아래 경로. 실물이 없으면 빈 문자열로 두고 화면이 자리표시자를
+   * 그리게 한다. 파일을 넣는 방법은 `public/landing/README.md` 참고.
+   *
+   * TODO: 항목마다 실제 사진을 넣고 `src`와 `alt`를 채운다.
+   */
+  src: string
+  /** 스크린리더가 읽는 설명. 사진을 넣을 때 함께 채운다. */
+  alt: string
   title: string
   /**
    * 한 문장, 40자 안팎. **항목이 늘수록 각각은 짧아져야 한다** —
-   * 활동 섹션은 읽는 곳이 아니라 훑는 곳이고, 한 칸만 길면 격자가 들쭉날쭉해진다.
+   * 활동 섹션은 읽는 곳이 아니라 훑는 곳이고, 한 칸만 길면 카드가 들쭉날쭉해진다.
    * 운영 방식·일정·참여 조건 같은 세부는 넣지 않는다. 궁금하면 지원해서 물어볼 일이다.
    */
   note: string
@@ -95,48 +104,49 @@ export interface Activity {
  */
 export const ACTIVITIES: Activity[] = [
   {
+    src: '',
+    alt: '',
     title: '소모임',
     note: '언리얼엔진·인공지능·보안 스터디, 볼링, 롤·롤체, 스포츠 6개. 직접 열 수도 있습니다.',
   },
-  { title: '신입생 교육', note: '1학기는 파이썬, 2학기는 C++을 가르칩니다.' },
   {
+    src: '',
+    alt: '',
+    title: '신입생 교육',
+    note: '1학기는 파이썬, 2학기는 C++을 가르칩니다.',
+  },
+  {
+    src: '',
+    alt: '',
     title: '신입생 멘토멘티',
     note: '멘토와 멘티가 조를 이뤄 밥약과 전공 스터디를 합니다.',
   },
-  { title: '개강총회', note: '학기 시작을 함께 여는 자리입니다.' },
   {
-    title: '사막',
+    src: '',
+    alt: '',
+    title: '개강총회',
+    note: '학기 시작을 함께 여는 자리입니다.',
+  },
+  {
+    src: '',
+    alt: '',
     // 외부인이 모르는 말이다. 이름만 두면 무슨 뜻인지 알 수 없다.
+    title: '사막',
     note: '사색의광장에서 막걸리를 마시는 경희대 전통 행사입니다.',
   },
-  { title: 'MT', note: '1박 2일로 다녀옵니다.' },
-  { title: '축제 부스', note: '학교 축제 기간에 부스를 운영합니다.' },
-  { title: '종강총회', note: '학기를 마무리하는 자리입니다.' },
-]
-
-export interface Photo {
-  /**
-   * `public/landing/` 아래 경로. 실물이 없으면 빈 문자열로 두고 화면이 자리표시자를
-   * 그리게 한다. 파일을 넣는 방법은 `public/landing/README.md` 참고.
-   */
-  src: string
-  /** 스크린리더가 읽는 설명. 사진을 넣을 때 함께 채운다. */
-  alt: string
-}
-
-/**
- * 활동 사진. 가로로 흐른다.
- *
- * TODO: `public/landing/`에 실제 사진을 넣고 `src`와 `alt`를 채운다. 장수는 자유롭게
- * 늘리거나 줄여도 된다 — 흐름은 항목 수에 묶여 있지 않다.
- */
-export const PHOTOS: Photo[] = [
-  { src: '', alt: '' },
-  { src: '', alt: '' },
-  { src: '', alt: '' },
-  { src: '', alt: '' },
-  { src: '', alt: '' },
-  { src: '', alt: '' },
+  { src: '', alt: '', title: 'MT', note: '1박 2일로 다녀옵니다.' },
+  {
+    src: '',
+    alt: '',
+    title: '축제 부스',
+    note: '학교 축제 기간에 부스를 운영합니다.',
+  },
+  {
+    src: '',
+    alt: '',
+    title: '종강총회',
+    note: '학기를 마무리하는 자리입니다.',
+  },
 ]
 
 export interface Faq {

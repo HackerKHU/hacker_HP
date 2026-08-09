@@ -107,6 +107,18 @@
 
   body {
     @apply bg-background text-foreground;
+    /*
+     * 한글에서 `word-break: normal`은 어절 중간에서도 줄을 끊는다
+     * ("라이프스타 / 일을"). `keep-all`이면 띄어쓰기 단위로만 끊긴다.
+     *
+     * `overflow-wrap: break-word`를 함께 준다 — `keep-all`만 두면 긴 URL이나
+     * 띄어쓰기 없는 문자열이 컨테이너를 뚫는다.
+     *
+     * **랜딩만이 아니라 앱 전체에 건다.** 공지 제목·본문도 한글이라 같은 문제가 있고,
+     * 범위를 좁히면 한글 화면이 생길 때마다 같은 결함이 다시 나온다.
+     */
+    word-break: keep-all;
+    overflow-wrap: break-word;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
