@@ -62,6 +62,7 @@ Role과 Status의 정확한 정의는 [3-1](3-1-DESIGN-ARCHITECTURE.md)이 원�
 | 인프라 | ECS Fargate Spot + ALB, NAT Gateway 없음 ([3-3 결정 2·3](3-3-DESIGN-DECISIONS.md)) |
 | 시크릿 | SSM Parameter Store SecureString ([3-3 결정 4](3-3-DESIGN-DECISIONS.md)) |
 | CI 인증 | GitHub OIDC (액세스 키를 저장하지 않는다) |
+| 로그인 | 구글 OAuth 2.0 (`khu.ac.kr` 도메인 제한) ([3-3 결정 13](3-3-DESIGN-DECISIONS.md#3-3-14-결정-13--가입로그인을-구글-oauth로-한다)) |
 
 ## 1-5 미결정 사항
 
@@ -69,11 +70,10 @@ Role과 Status의 정확한 정의는 [3-1](3-1-DESIGN-ARCHITECTURE.md)이 원�
 
 | # | 항목 | 선택지 / 상태 | 언제까지 |
 |---|---|---|---|
-| 1 | 허용 학교 이메일 도메인 | 실제 도메인 확정 필요 | 가입 기능 착수 전 |
 | 4 | 삭제된 회원의 업로드 자료 처리 | 유지 권장 (업로더 표시만 "탈퇴한 회원"으로 대체) | 회원 삭제 기능 착수 전 |
 | 5 | 활동사진 업로드 경로 | 서버 리사이즈가 필요해 multipart로 서버를 거치는데, Vercel 프록시 본문 제한(4.5MB)에 걸린다. presigned 업로드 후 서버가 S3에서 읽어 리사이즈하는 방식으로 바꿀지 결정 필요 | 사진 기능 착수 전 |
 
-> #2(세션 방식)와 #3(최초 관리자 계정 생성 방법)은 확정되어 아래 "이미 확정된 것"으로 옮겼다.
+> #1(허용 학교 이메일 도메인), #2(세션 방식), #3(최초 관리자 계정 생성 방법)은 확정되어 아래 "이미 확정된 것"으로 옮겼다.
 
 번호는 처음 매긴 것을 그대로 둔다. 닫힌 항목의 번호를 재사용하면 다른 문서의 참조가 어긋난다.
 
@@ -83,7 +83,8 @@ Role과 Status의 정확한 정의는 [3-1](3-1-DESIGN-ARCHITECTURE.md)이 원�
 |---|---|---|
 | 파일 저장소 | S3 + presigned URL | [2-1 §2-1-4](2-1-USER-STORIES.md), [3-2](3-2-DESIGN-CONTRACT.md) |
 | 기술 스택 | §1-4 표 | [3-3](3-3-DESIGN-DECISIONS.md) |
-| 인증 수단 | 학교 이메일 + 비밀번호 (학번은 신원 확인용) | [3-1 §3-1-4](3-1-DESIGN-ARCHITECTURE.md) |
+| 인증 수단 | **구글 OAuth** (`khu.ac.kr` 도메인만). 자체 비밀번호 없음. 학번은 신청서에서 받아 신원 확인용으로만 저장 | [3-3 결정 13](3-3-DESIGN-DECISIONS.md#3-3-14-결정-13--가입로그인을-구글-oauth로-한다), [3-1 §3-1-4](3-1-DESIGN-ARCHITECTURE.md) |
+| 허용 학교 이메일 도메인 | `khu.ac.kr` — 설정값으로 관리하고 하드코딩하지 않는다 | [3-1 §3-1-4](3-1-DESIGN-ARCHITECTURE.md) |
 | 최초 관리자 계정 생성 | 정상 가입 후 `POST /auth/bootstrap-admin`에 이메일·토큰이 모두 일치해야 본인 승격 | [3-3 결정 11](3-3-DESIGN-DECISIONS.md), [2-2 §2-2-7](2-2-OPERATOR-REQUIREMENTS.md) |
 | 로그인 상태 유지 | 신원은 JWT(`httpOnly` 쿠키), 인가 상태는 서버 세션(RDS). CSRF 토큰 사용 | [3-3 결정 12](3-3-DESIGN-DECISIONS.md#3-3-13-결정-12--인증은-jwt-인가-상태는-서버-세션으로-나눈다), [3-1 §3-1-5](3-1-DESIGN-ARCHITECTURE.md) |
 

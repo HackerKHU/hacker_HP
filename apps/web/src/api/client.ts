@@ -10,6 +10,17 @@ import { ERROR_CODES } from './types'
 const BASE_URL = '/api/v1'
 
 /**
+ * base URL을 붙인 절대 경로를 만든다. **base URL의 원본은 이 파일 하나다.**
+ *
+ * `request()`가 쓰지 못하는 경로도 이 함수를 거친다 — 구글 로그인처럼 브라우저를
+ * 통째로 이동시켜야 하는 경우다. 호출부가 `/api/v1`을 직접 적으면 원본이 둘이 되고,
+ * 버전이나 프록시 접두사를 바꿀 때 한쪽만 따라가 로그인만 깨진다.
+ */
+export function apiPath(path: string): string {
+  return `${BASE_URL}${path}`
+}
+
+/**
  * 인증 정보를 요청에 싣는 유일한 지점.
  *
  * 신원은 JWT, 인가 상태는 서버 세션이 담당한다(3-3 결정 11). 둘 다 `httpOnly` 쿠키로
@@ -81,7 +92,7 @@ export async function request<T>(
   let response: Response
   try {
     response = await fetch(
-      `${BASE_URL}${path}`,
+      apiPath(path),
       withAuth({
         ...init,
         headers:

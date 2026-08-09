@@ -23,12 +23,16 @@ import type { Page, User } from './types'
  *
  * - `user`      ACTIVE / USER
  * - `admin`     ACTIVE / ADMIN
- * - `pending`   PENDING — 대기중 안내 화면만 접근 가능
- * - `guest`     세션 없음. getMe가 401 UNAUTHENTICATED, login이 401로 실패
- * - `suspended` 로그인 자체가 403 SUSPENDED로 차단 (spec 3-1-2)
+ * - `applying`  PENDING, 신청서 미제출 — 신청 폼을 봐야 하는 상태 (spec 3-1-6)
+ * - `pending`   PENDING, 신청서 제출 완료 — 승인 대기 안내를 봐야 하는 상태
+ * - `guest`     세션 없음. getMe가 401 UNAUTHENTICATED
  * - `blocked`   세션은 있으나 서버가 403 PENDING_APPROVAL로 막는 상태 (spec 3-1-6)
+ *
+ * 정지·도메인 위반 같은 OAuth 실패는 여기에 없다. 서버가 세션을 만들지 않고
+ * `/login?error=...`로 되돌리므로(계약 §3-2-3), 그 화면은 주소로 직접 열어 만든다.
+ * 시나리오로 두면 `guest`와 결과가 같아 아무것도 구분하지 못한다.
  */
-type Scenario = 'user' | 'admin' | 'pending' | 'guest' | 'suspended' | 'blocked'
+type Scenario = 'user' | 'admin' | 'applying' | 'pending' | 'guest' | 'blocked'
 
 const SCENARIO = (import.meta.env.VITE_FIXTURE_SCENARIO ?? 'user') as Scenario
 
@@ -38,9 +42,13 @@ const BASE = {
   studentNo: '2021123456',
   name: '홍길동',
   createdAt: '2026-03-02T09:00:00Z',
+  appliedAt: '2026-03-02T09:10:00Z',
 } as const
 
-const USERS: Record<'user' | 'admin' | 'pending' | 'blocked', User> = {
+const USERS: Record<
+  'user' | 'admin' | 'applying' | 'pending' | 'blocked',
+  User
+> = {
   user: {
     ...BASE,
     role: 'USER',
@@ -55,6 +63,16 @@ const USERS: Record<'user' | 'admin' | 'pending' | 'blocked', User> = {
     role: 'ADMIN',
     status: 'ACTIVE',
     approvedAt: '2026-03-03T09:00:00Z',
+  },
+  // 구글 로그인만 마친 상태. 구글이 학번을 주지 않으므로 둘 다 비어 있다 (3-3 결정 13).
+  applying: {
+    ...BASE,
+    id: 3,
+    studentNo: null,
+    role: 'USER',
+    status: 'PENDING',
+    appliedAt: null,
+    approvedAt: null,
   },
   pending: {
     ...BASE,
@@ -72,8 +90,19 @@ const USERS: Record<'user' | 'admin' | 'pending' | 'blocked', User> = {
   },
 }
 
+/**
+ * `applying` 시나리오에서 제출한 신청서. `fixtureApplication()`이 채운다.
+ *
+ * 이게 없으면 신청 폼을 제출해도 `fixtureMe()`가 계속 `appliedAt: null`을 돌려줘
+ * 화면이 폼에 머문다 — 픽스처만으로는 제출 후 화면을 만들 수 없다.
+ *
+ * 입력값을 그대로 들고 있어야 재제출(승인 전 수정) 화면도 만들 수 있다.
+ * 하드코딩된 값을 돌려주면 무엇을 고쳤는지 화면에서 확인할 수 없다.
+ */
+let application: { studentNo: string; name: string } | null = null
+
 export function fixtureMe(): Promise<User> {
-  if (SCENARIO === 'guest' || SCENARIO === 'suspended') {
+  if (SCENARIO === 'guest') {
     return Promise.reject(
       new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
     )
@@ -83,25 +112,54 @@ export function fixtureMe(): Promise<User> {
       new ApiError('PENDING_APPROVAL', 403, '가입 승인 대기 중입니다.'),
     )
   }
+  // 신청서를 냈으면 그 값으로 덮는다. `pending`도 대상이다 — 승인 전 재제출이
+  // 계약에 있으므로(T-51) 그 화면도 픽스처로 만들 수 있어야 한다.
+  if (application && (SCENARIO === 'applying' || SCENARIO === 'pending')) {
+    return Promise.resolve({
+      ...USERS[SCENARIO],
+      studentNo: application.studentNo,
+      name: application.name,
+      appliedAt: '2026-03-02T10:00:00Z',
+    })
+  }
   return Promise.resolve(USERS[SCENARIO])
 }
 
-/** 로그인은 본문을 반환하지 않는다 (계약 §3-2-3). 픽스처도 사용자를 지어내지 않는다. */
-export function fixtureLogin(): Promise<void> {
-  if (SCENARIO === 'suspended') {
-    return Promise.reject(
-      new ApiError('SUSPENDED', 403, '이용이 정지된 계정입니다.'),
-    )
-  }
+/**
+ * 신청서 제출은 본문을 반환하지 않는다. 제출 후 화면은 `fixtureMe()`로 다시 그린다.
+ *
+ * `applying` 시나리오에서는 제출 여부를 기억해, 이어지는 `fixtureMe()`가 신청 완료
+ * 상태를 돌려준다. 그래야 폼 → 대기 안내 전환을 픽스처만으로 확인할 수 있다.
+ *
+ * 로그인은 구글 OAuth 리다이렉트라 픽스처로 흉내 낼 수 없다 (3-3 결정 13).
+ * 어떤 사용자로 볼지는 `VITE_FIXTURE_SCENARIO`가 정한다.
+ */
+export function fixtureApplication(body: {
+  studentNo: string
+  name: string
+}): Promise<void> {
   if (SCENARIO === 'guest') {
     return Promise.reject(
-      new ApiError(
-        'UNAUTHENTICATED',
-        401,
-        '이메일 또는 비밀번호가 올바르지 않습니다.',
-      ),
+      new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
     )
   }
+  // 신청 API는 PENDING 전용이다 (계약 §3-2-3, T-50). 픽스처가 이걸 허용하면
+  // 승인 후 학번을 바꾸는 회귀가 화면 개발 중에 드러나지 않는다.
+  if (SCENARIO === 'user' || SCENARIO === 'admin') {
+    return Promise.reject(
+      new ApiError('FORBIDDEN', 403, '승인된 계정은 신청서를 낼 수 없습니다.'),
+    )
+  }
+  // 공백 검증은 서버 계약이다 (§3-2-3, T-52). 픽스처가 통과시키면 오류 UI 없이도
+  // 폼이 정상처럼 보이고, 빈 신청서가 승인 대상이 되는 경로를 화면에서 못 잡는다.
+  const studentNo = body.studentNo.trim()
+  const name = body.name.trim()
+  if (studentNo === '' || name === '') {
+    return Promise.reject(
+      new ApiError('VALIDATION_ERROR', 400, '학번과 이름을 입력해주세요.'),
+    )
+  }
+  application = { studentNo, name }
   return Promise.resolve()
 }
 
