@@ -125,35 +125,25 @@ services:
       POSTGRES_DB: hacker
       POSTGRES_USER: hacker
       POSTGRES_PASSWORD: localdev
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]   # 루프백만. 공유 네트워크에서 기본 계정 노출 방지
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hacker"]
       interval: 5s
 
-  minio:                              # S3 호환. presigned URL 로직 그대로 테스트
-    image: minio/minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports: ["9000:9000", "9001:9001"]
-    volumes: [miniodata:/data]
-
 volumes:
   pgdata:
-  miniodata:
 ```
 
-S3 클라이언트는 `endpoint`만 바꾸면 MinIO ↔ S3가 전환됩니다. **코드 수정 없이** 로컬/운영이 같은 경로를 탑니다.
+자료 업로드(S3 presigned URL)는 아직 MVP 범위 밖이라 MinIO는 넣지 않았다 ([1-BACKGROUND.md §1-6](../../spec/1-BACKGROUND.md#1-6-1차-출시-범위)). 해당 기능을 만들 때 별도 이슈에서 docker-compose.yml에 추가한다.
 
 ```yaml
 # application-local.yml
-app:
-  s3:
-    endpoint: http://localhost:9000
-    path-style-access: true      # MinIO는 필수
-    bucket: hacker-uploads
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/hacker
+    username: hacker
+    password: localdev
 ```
 
 ```yaml
@@ -364,7 +354,7 @@ Settings → Secrets and variables → Actions:
 
 **앱**
 - [ ] Dockerfile + .dockerignore
-- [ ] `docker compose up` 로컬 postgres/minio 확인
+- [ ] `docker compose up` 로컬 postgres 확인
 - [ ] `/actuator/health` permitAll 설정
 - [ ] Flyway 마이그레이션
 - [ ] `application-local.yml` / `application-prod.yml` 분리

@@ -89,7 +89,7 @@ DynamoDB 락 테이블은 불필요합니다. Terraform 1.10+ 의 S3 네이티�
 │  ├─ api/
 │  └─ web/
 │     └─ vercel.json
-├─ docker-compose.yml              # 로컬 개발 (postgres + minio)
+├─ docker-compose.yml              # 로컬 개발 (postgres)
 ├─ infra/terraform/
 │  ├─ main.tf
 │  ├─ network.tf
