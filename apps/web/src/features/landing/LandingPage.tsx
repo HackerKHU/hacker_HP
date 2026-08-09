@@ -104,7 +104,11 @@ function Activities() {
                 <p className="mt-4 font-medium text-foreground">
                   {activity.title}
                 </p>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                {/*
+                  설명 길이가 항목마다 달라 그대로 두면 카드 높이가 들쭉날쭉해진다.
+                  가장 긴 설명(4줄) 높이를 최소값으로 잡아 카드 바닥을 맞춘다.
+                */}
+                <p className="mt-1 min-h-24 text-sm leading-6 text-muted-foreground">
                   {activity.note}
                 </p>
               </li>
