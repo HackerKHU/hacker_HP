@@ -68,8 +68,8 @@ export const STATS: Stat[] = [
   { value: 6, unit: '개', label: '운영 중인 소모임' },
   // TODO: 아래 두 칸은 실제 수치를 모른다. 숫자를 모르면 칸을 줄이는 편이 낫다.
   //       빈 값을 그럴듯하게 채우지 말 것.
-  { value: null, unit: '명', label: '활동 중인 부원' },
-  { value: null, unit: '명', label: '거쳐 간 부원' },
+  { value: null, unit: '명', label: '현재 활동 회원' },
+  { value: null, unit: '명', label: '누적 활동 회원' },
 ]
 
 export interface Activity {
