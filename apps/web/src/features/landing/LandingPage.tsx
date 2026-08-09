@@ -8,11 +8,11 @@ import {
 } from '@/components/ui/accordion'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { CLUB, FAQS, PHOTOS, SECTIONS, STATS, SUPPORT } from './content'
+import { ACTIVITIES, CLUB, FAQS, SECTIONS, STATS, SUPPORT } from './content'
 import { PublicHeader } from './PublicHeader'
 
 /** 섹션 제목이 고정 헤더에 가리지 않도록 여백을 준다 (`scroll-mt-*`). */
-const SECTION = 'mx-auto w-full max-w-[1152px] scroll-mt-20 px-6 py-24'
+const SECTION = 'mx-auto w-full max-w-[1152px] scroll-mt-20 px-6 py-20'
 
 function Heading({ children }: { children: string }) {
   return <h2 className="text-3xl font-semibold tracking-tight">{children}</h2>
@@ -24,10 +24,11 @@ function Hero() {
     session.state.kind === 'active' || session.state.kind === 'pending'
 
   return (
-    <section id="top" className={cn(SECTION, 'py-32')}>
+    <section id="top" className={cn(SECTION, 'py-28')}>
       <p className="text-sm tracking-[0.2em] text-muted-foreground">
         {CLUB.name}
       </p>
+      <p className="mt-3 text-sm text-muted-foreground">{CLUB.fullName}</p>
       <h1 className="mt-6 max-w-3xl text-5xl leading-tight font-semibold tracking-tight text-foreground">
         {CLUB.tagline}
       </h1>
@@ -69,25 +70,25 @@ function About() {
   )
 }
 
-function Photos() {
+function Activities() {
   return (
-    <section id="photos" className={cn(SECTION, 'border-t border-border')}>
+    <section id="activities" className={cn(SECTION, 'border-t border-border')}>
       <Heading>활동</Heading>
       {/*
-       * 균일 격자로 두지 않고 세로 위치를 엇갈리게 배치한다. 사진 수가 적어도
+       * 균일 격자로 두지 않고 세로 위치를 엇갈리게 배치한다. 항목이 적어도
        * 리듬이 생겨 빈 느낌이 덜하다.
        */}
-      <ul className="mt-10 grid grid-cols-3 gap-6">
-        {PHOTOS.map((photo, index) => (
+      <ul className="mt-10 grid grid-cols-4 gap-6">
+        {ACTIVITIES.map((activity, index) => (
           <li
-            key={photo.caption + String(index)}
+            key={activity.title}
             className={index % 2 === 1 ? 'mt-12' : undefined}
           >
             <div className="aspect-[3/4] overflow-hidden rounded-lg border border-border bg-card">
-              {photo.src ? (
+              {activity.src ? (
                 <img
-                  src={photo.src}
-                  alt={photo.alt}
+                  src={activity.src}
+                  alt={activity.alt}
                   className="size-full object-cover"
                 />
               ) : (
@@ -97,8 +98,9 @@ function Photos() {
                 </div>
               )}
             </div>
-            <p className="mt-3 text-sm text-muted-foreground">
-              {photo.caption}
+            <p className="mt-4 font-medium text-foreground">{activity.title}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {activity.note}
             </p>
           </li>
         ))}
@@ -110,7 +112,7 @@ function Photos() {
 function Stats() {
   return (
     <section id="stats" className={cn(SECTION, 'border-t border-border')}>
-      <Heading>숫자</Heading>
+      <Heading>함께한 기록</Heading>
       <dl className="mt-10 grid grid-cols-4 gap-6">
         {STATS.map((stat) => (
           <div key={stat.label}>
@@ -131,14 +133,21 @@ function Faq() {
     <section id="faq" className={cn(SECTION, 'border-t border-border')}>
       <Heading>자주 묻는 질문</Heading>
       {/* 아코디언의 키보드 조작과 포커스는 Radix가 처리한다 (3-3 결정 10). */}
-      <Accordion type="single" collapsible className="mt-8 max-w-3xl">
+      {/*
+       * 아코디언 자체에는 폭 상한을 두지 않는다. 질문 행이 다른 섹션과 같은 폭을 써야
+       * 좌우 정렬이 맞는다. 대신 답변 문단만 읽기 좋은 폭으로 묶는다 —
+       * 1104px짜리 한 줄 문단은 눈이 줄을 놓친다.
+       */}
+      <Accordion type="single" collapsible className="mt-8">
         {FAQS.map((faq) => (
           <AccordionItem key={faq.question} value={faq.question}>
             <AccordionTrigger className="text-left">
               {faq.question}
             </AccordionTrigger>
-            <AccordionContent className="text-muted-foreground">
-              {faq.answer}
+            <AccordionContent>
+              <p className="max-w-3xl leading-7 text-muted-foreground">
+                {faq.answer}
+              </p>
             </AccordionContent>
           </AccordionItem>
         ))}
@@ -167,8 +176,14 @@ function Support() {
 function Footer() {
   return (
     <footer className="border-t border-border">
-      <div className="mx-auto flex w-full max-w-[1152px] items-center justify-between px-6 py-10 text-sm text-muted-foreground">
-        <span>{CLUB.name}</span>
+      <div className="mx-auto flex w-full max-w-[1152px] items-start justify-between gap-8 px-6 py-10 text-sm text-muted-foreground">
+        <address className="not-italic">
+          <span className="block text-foreground">{CLUB.fullName}</span>
+          <span className="mt-2 block">
+            ({CLUB.address.postalCode}) {CLUB.address.road}
+          </span>
+          <span className="block">{CLUB.address.detail}</span>
+        </address>
         <nav className="flex gap-4" aria-label="섹션 바로가기">
           {SECTIONS.map((section) => (
             <a
@@ -179,6 +194,14 @@ function Footer() {
               {section.label}
             </a>
           ))}
+          <a
+            href={CLUB.instagram}
+            target="_blank"
+            rel="noreferrer"
+            className="transition-colors hover:text-foreground"
+          >
+            인스타그램
+          </a>
         </nav>
       </div>
     </footer>
@@ -201,7 +224,7 @@ export function LandingPage() {
       <main>
         <Hero />
         <About />
-        <Photos />
+        <Activities />
         <Stats />
         <Faq />
         <Support />
