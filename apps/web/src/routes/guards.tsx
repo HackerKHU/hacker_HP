@@ -17,7 +17,7 @@ function Loading() {
   return <p>불러오는 중</p>
 }
 
-/** 비로그인 전용 — /login, /signup. 이미 로그인했으면 각자 홈으로 되돌린다. */
+/** 비로그인 전용 — /login. 이미 로그인했으면 각자 홈으로 되돌린다. */
 export function GuestOnly() {
   const session = useSession()
   const location = useLocation()

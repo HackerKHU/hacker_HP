@@ -27,10 +27,18 @@ import type { User } from '../api/types'
  */
 export type ActiveUser = Omit<User, 'status'> & { status: 'ACTIVE' }
 
+/**
+ * 승인 대기 사용자. `PENDING`은 신청 전과 신청 후를 모두 포함하므로(3-1 §3-1-2)
+ * 화면이 신청 폼과 대기 안내를 가르려면 `appliedAt`이 필요하다 — 상태를 `pending`
+ * 하나로 뭉개고 사용자를 버리면 두 화면을 구분할 근거가 사라진다.
+ */
+export type PendingUser = Omit<User, 'status'> & { status: 'PENDING' }
+
 export type SessionState =
   | { kind: 'loading' }
   | { kind: 'guest' }
-  | { kind: 'pending' }
+  /** `user`가 `null`이면 403 PENDING_APPROVAL로만 알아낸 상태라 신청 여부를 모른다. */
+  | { kind: 'pending'; user: PendingUser | null }
   | { kind: 'suspended' }
   | { kind: 'active'; user: ActiveUser }
 
@@ -44,6 +52,14 @@ interface Session {
    * 403은 PENDING_APPROVAL·SUSPENDED·FORBIDDEN이 모두 쓰므로 status가 아니라 code로 가른다.
    */
   reportApiError: (error: unknown) => void
+  /**
+   * 서버에서 사용자 정보를 다시 읽어 세션을 갱신한다.
+   *
+   * `pending`이면서 `user`가 `null`인 상태(403으로만 알아낸 경우)를 푸는 유일한 경로다.
+   * 그대로 두면 신청 화면이 폼과 대기 안내 중 무엇을 보일지 영영 정하지 못한다.
+   * 신청서를 제출한 뒤 화면을 다시 그릴 때도 쓴다.
+   */
+  refresh: () => Promise<void>
 }
 
 /**
@@ -60,7 +76,8 @@ function fromUser(me: User | null): SessionState {
   if (!me) return { kind: 'guest' }
   switch (me.status) {
     case 'PENDING':
-      return { kind: 'pending' }
+      // ACTIVE와 같은 이유로 캐스트가 아니라 리터럴로 다시 세운다.
+      return { kind: 'pending', user: { ...me, status: 'PENDING' } }
     case 'SUSPENDED':
       // 정지 계정은 세션에 넣지 않는다. 넣으면 homePath → RequireActive → GuestOnly가
       // 서로를 밀며 무한히 돈다. 로그인 화면이 정지 안내를 띄운다 (#37).
@@ -86,7 +103,8 @@ function fromApiError(error: unknown): SessionState | null {
   if (!(error instanceof ApiError)) return null
   switch (error.code) {
     case 'PENDING_APPROVAL':
-      return { kind: 'pending' }
+      // 이 코드는 "승인 대기"만 알려준다. 신청 여부는 알 수 없다.
+      return { kind: 'pending', user: null }
     case 'SUSPENDED':
       return { kind: 'suspended' }
     case 'UNAUTHENTICATED':
@@ -104,9 +122,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const setUser = useCallback((me: User | null) => setState(fromUser(me)), [])
 
   const reportApiError = useCallback((error: unknown) => {
-    const next = fromApiError(error)
-    if (next) setState(next)
+    setState((prev) => {
+      const next = fromApiError(error)
+      if (!next) return prev
+      // 403 PENDING_APPROVAL은 신청 여부를 알려주지 않는다. 이미 알고 있으면 지우지 않는다 —
+      // 덮어쓰면 신청서를 낸 사람에게 폼이 다시 뜬다.
+      if (next.kind === 'pending' && prev.kind === 'pending') return prev
+      return next
+    })
   }, [])
+
+  const refresh = useCallback(
+    () =>
+      getMe()
+        .then((me) => setState(fromUser(me)))
+        .catch((error: unknown) => {
+          // 실패는 곧 비로그인이다. 코드가 상태를 알려주면 그쪽을 쓴다.
+          setState(fromApiError(error) ?? { kind: 'guest' })
+        }),
+    [],
+  )
 
   useEffect(() => {
     let alive = true
@@ -115,7 +150,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (alive) setState(fromUser(me))
       })
       .catch((error: unknown) => {
-        // 실패는 곧 비로그인이다. 코드가 상태를 알려주면 그쪽을 쓴다.
         if (alive) setState(fromApiError(error) ?? { kind: 'guest' })
       })
     return () => {
@@ -124,8 +158,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<Session>(
-    () => ({ state, setUser, reportApiError }),
-    [state, setUser, reportApiError],
+    () => ({ state, setUser, reportApiError, refresh }),
+    [state, setUser, reportApiError, refresh],
   )
 
   return <SessionContext value={value}>{children}</SessionContext>
@@ -154,4 +188,15 @@ export function homePath({ state }: Session): string {
 
 export function isPending({ state }: Session): boolean {
   return state.kind === 'pending'
+}
+
+/**
+ * 승인 대기 화면이 신청 폼과 대기 안내 중 무엇을 보일지 가른다 (3-1 §3-1-6).
+ *
+ * `null`은 "승인 대기인 건 알지만 신청 여부는 모른다" — 403으로만 알아낸 경우다.
+ * 화면은 이때 `getMe()` 결과를 기다린다. 폼을 섣불리 띄우면 이미 낸 사람이 다시 쓴다.
+ */
+export function hasApplied({ state }: Session): boolean | null {
+  if (state.kind !== 'pending' || !state.user) return null
+  return state.user.appliedAt !== null
 }

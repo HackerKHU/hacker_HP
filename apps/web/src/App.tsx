@@ -22,12 +22,15 @@ function App() {
       {/* 개인정보처리방침도 공개다. 랜딩과 같은 취급이라 가드를 붙이지 않는다. */}
       <Route path="/privacy" element={<PrivacyPage />} />
 
+      {/*
+        비로그인 진입점은 /login 하나다. 가입도 같은 구글 버튼으로 하므로
+        별도 /signup은 없다 (2-1 §2-1-8, 3-3 결정 13).
+      */}
       <Route element={<GuestOnly />}>
         <Route path="/login" element={<Placeholder title="로그인" />} />
-        <Route path="/signup" element={<Placeholder title="가입 신청" />} />
       </Route>
 
-      {/* 여기부터 AppLayout(헤더 + 본문)을 쓴다. /login·/signup에는 붙이지 않는다. */}
+      {/* 여기부터 AppLayout(헤더 + 본문)을 쓴다. /login에는 붙이지 않는다. */}
       <Route element={<PendingOnly />}>
         <Route element={<AppLayout />}>
           <Route path="/pending" element={<Placeholder title="승인 대기" />} />

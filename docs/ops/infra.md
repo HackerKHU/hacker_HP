@@ -440,6 +440,71 @@ SecureString은 Standard 티어에서 무료입니다(Advanced만 유료). ECS �
 
 **`JWT_SECRET`은 필요합니다.** 신원 증명을 JWT로 하기로 확정했습니다([3-3 결정 12](../../spec/3-3-DESIGN-DECISIONS.md)). 인가 상태를 담는 서버 세션은 RDS에 저장하므로 위 `DB_*` 파라미터를 그대로 쓰며, 세션용 파라미터를 따로 만들지 않습니다.
 
+**구글 OAuth 자격도 필요합니다.** 가입·로그인을 구글로 처리하므로([3-3 결정 13](../../spec/3-3-DESIGN-DECISIONS.md)) `GOOGLE_CLIENT_ID`와 `GOOGLE_CLIENT_SECRET`을 같은 방식으로 SecureString에 둡니다. 값은 Google Cloud Console의 OAuth 클라이언트에서 발급받아 넣습니다 — Terraform이 만들 수 있는 값이 아니라 `random_password`를 쓰지 않습니다.
+
+```hcl
+resource "aws_ssm_parameter" "google_client_id" {
+  name  = "/hacker/dev/GOOGLE_CLIENT_ID"
+  type  = "SecureString"
+  value = var.google_client_id     # terraform.tfvars (커밋하지 않음)
+}
+
+resource "aws_ssm_parameter" "google_client_secret" {
+  name  = "/hacker/dev/GOOGLE_CLIENT_SECRET"
+  type  = "SecureString"
+  value = var.google_client_secret
+}
+```
+
+두 값은 ECS 태스크 정의의 `secrets` 블록에도 연결해야 컨테이너가 읽습니다(아래 `ecs.tf` 참고). SSM에 만들어두기만 하면 주입되지 않습니다.
+
+승인된 redirect URI는 **프론트엔드 오리진** 기준으로 등록합니다. 브라우저는 Vercel과만 통신하므로 ALB 주소를 등록하면 콜백이 다른 오리진에 떨어져 쿠키가 붙지 않습니다.
+
+```
+https://<vercel-도메인>/api/v1/login/oauth2/code/google
+```
+
+### ⚠️ redirect URI를 환경변수로 고정하세요
+
+**Spring이 만들어내는 `redirect_uri`를 그대로 두면 로그인이 콜백 전에 거부됩니다.**
+
+Spring Security OAuth2 Client는 기본적으로 **들어온 요청의 scheme·host**로 `redirect_uri`를 조립해 구글에 보냅니다. 그런데 이 구성은 프록시가 두 겹입니다.
+
+```
+브라우저 ──HTTPS──> Vercel Edge ──HTTP──> ALB ──> ECS
+   원본 호스트          여기서 바뀜        여기서도 바뀜
+```
+
+ECS에 도착한 요청의 host는 ALB DNS이고 scheme은 `http`입니다. 그대로 조립하면 `http://hacker-alb-xxxx.../api/v1/login/oauth2/code/google`이 되어 구글에 등록한 값과 달라지고, 구글이 `redirect_uri_mismatch`로 거부합니다.
+
+**환경별로 절대 URI를 명시합니다.**
+
+```yaml
+# application-prod.yml
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            redirect-uri: ${OAUTH_REDIRECT_URI}   # https://<vercel-도메인>/api/v1/login/oauth2/code/google
+            scope: [openid, email, profile]
+
+app:
+  auth:
+    allowed-email-domain: ${ALLOWED_EMAIL_DOMAIN}   # khu.ac.kr
+```
+
+`OAUTH_REDIRECT_URI`와 `ALLOWED_EMAIL_DOMAIN`은 시크릿이 아니므로 SSM SecureString이 아니라 태스크 정의의 `environment`에 둡니다.
+
+**허용 도메인은 설정 키 `app.auth.allowed-email-domain` 하나로 관리합니다** ([3-1 §3-1-4](../../spec/3-1-DESIGN-ARCHITECTURE.md)). 값을 코드에 하드코딩하지 않고, 이 키가 비어 있으면 기동에 실패하도록 둡니다 — 기본값을 코드에 심어두면 설정 누락이 조용히 지나가고 도메인 제한이 무력해집니다. 로컬은 `application-local.yml`에 같은 키를 적고, 태스크 정의는 위 `environment` 항목으로 주입합니다.
+
+forwarded header(`server.forward-headers-strategy`)로 원본 scheme·host를 복원하는 방법도 있습니다. 다만 이 경로에서는 **Vercel과 ALB 두 곳이 헤더를 건드리므로** 무엇이 어떤 값을 남기는지에 의존하게 됩니다. 명시적 URI가 더 적은 가정으로 같은 결과를 냅니다.
+
+로컬 개발은 `http://localhost:5173/api/v1/login/oauth2/code/google`을 별도 승인 URI로 등록하고 `application-local.yml`에서 같은 키를 덮어씁니다. Vite dev 프록시가 `/api`를 8080으로 넘기므로 브라우저 기준 오리진은 5173입니다.
+
 `ADMIN_BOOTSTRAP_EMAIL`·`ADMIN_BOOTSTRAP_TOKEN`은 [spec 결정 11](../../spec/3-3-DESIGN-DECISIONS.md)의 최초 관리자 승격에 씁니다. `apply` 후 토큰 값을 확인하려면:
 
 ```bash
@@ -639,6 +704,10 @@ resource "aws_ecs_task_definition" "api" {
       { name = "SPRING_PROFILES_ACTIVE", value = "prod" },
       { name = "AWS_REGION", value = local.region },
       { name = "S3_BUCKET", value = aws_s3_bucket.uploads.id },
+      # 프록시가 두 겹이라 Spring이 조립한 redirect_uri는 구글 등록값과 어긋난다. 절대 URI로 고정한다.
+      { name = "OAUTH_REDIRECT_URI", value = var.oauth_redirect_uri },
+      # 가입을 허용할 학교 이메일 도메인. 시크릿이 아니므로 SSM이 아니라 여기에 둔다.
+      { name = "ALLOWED_EMAIL_DOMAIN", value = var.allowed_email_domain },
       { name = "JAVA_TOOL_OPTIONS", value = "-XX:MaxRAMPercentage=70 -XX:+UseSerialGC" }
     ]
 
@@ -648,7 +717,9 @@ resource "aws_ecs_task_definition" "api" {
       { name = "DB_PASSWORD",          valueFrom = aws_ssm_parameter.db_password.arn },
       { name = "JWT_SECRET",           valueFrom = aws_ssm_parameter.jwt_secret.arn },
       { name = "ADMIN_BOOTSTRAP_EMAIL", valueFrom = aws_ssm_parameter.admin_bootstrap_email.arn },
-      { name = "ADMIN_BOOTSTRAP_TOKEN", valueFrom = aws_ssm_parameter.admin_bootstrap_token.arn }
+      { name = "ADMIN_BOOTSTRAP_TOKEN", valueFrom = aws_ssm_parameter.admin_bootstrap_token.arn },
+      { name = "GOOGLE_CLIENT_ID",     valueFrom = aws_ssm_parameter.google_client_id.arn },
+      { name = "GOOGLE_CLIENT_SECRET", valueFrom = aws_ssm_parameter.google_client_secret.arn }
     ]
 
     logConfiguration = {
@@ -783,6 +854,47 @@ resource "aws_iam_role_policy" "github_actions" {
 `sub` 조건을 `*`로 열면 **다른 사람의 레포에서도 이 역할을 가져다 씁니다.** 반드시 조직/레포명으로 고정하세요.
 
 `iam:PassRole` 누락이 ECS 배포 파이프라인 실패 원인 1위입니다.
+
+### variables.tf — 사람이 넣어야 하는 값
+
+Terraform이 만들어낼 수 없는 값들입니다. 구글 클라이언트 자격은 Google Cloud Console에서 발급받고, redirect URI는 Vercel 도메인이 정해져야 알 수 있습니다.
+
+```hcl
+variable "google_client_id" {
+  description = "Google Cloud Console OAuth 클라이언트 ID"
+  type        = string
+  sensitive   = true
+}
+
+variable "google_client_secret" {
+  description = "Google Cloud Console OAuth 클라이언트 시크릿"
+  type        = string
+  sensitive   = true
+}
+
+variable "oauth_redirect_uri" {
+  description = "구글에 등록한 승인 redirect URI. 프론트엔드 오리진 기준이다"
+  type        = string
+  # 예: https://hacker-hp.vercel.app/api/v1/login/oauth2/code/google
+}
+
+variable "allowed_email_domain" {
+  description = "가입을 허용할 학교 이메일 도메인"
+  type        = string
+  default     = "khu.ac.kr"
+}
+```
+
+```hcl
+# terraform.tfvars — .gitignore 대상. 커밋하지 않는다
+google_client_id     = "xxxxxxxx.apps.googleusercontent.com"
+google_client_secret = "GOCSPX-xxxxxxxx"
+oauth_redirect_uri   = "https://hacker-hp.vercel.app/api/v1/login/oauth2/code/google"
+```
+
+`sensitive = true`를 붙이면 `terraform plan` 출력에 값이 찍히지 않습니다. **다만 `tfstate`에는 평문으로 들어가므로** 커밋 금지 규칙은 그대로입니다.
+
+`allowed_email_domain`은 시크릿이 아니라 기본값을 둡니다. 도메인이 바뀌면 이 한 줄만 고칩니다.
 
 ### outputs.tf
 
