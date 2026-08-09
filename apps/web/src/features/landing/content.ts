@@ -48,15 +48,19 @@ export const CLUB = {
 
 export interface Stat {
   /**
-   * 카운트업 대상 숫자. **모르는 값은 `null`** — 그 칸은 자리표시자를 그대로 보여주고
-   * 애니메이션하지 않는다.
+   * 카운트업 대상 숫자.
    *
    * 숫자와 단위를 나눠 둔 이유는 화면에서 문자열을 파싱하지 않기 위해서다.
    * `'39년'`을 쪼개는 코드는 `'3년차'` 같은 값이 들어오는 순간 틀린다.
    */
-  value: number | null
+  value: number
   /** 숫자 뒤에 붙는 단위. 애니메이션 대상이 아니라 고정이다. */
   unit: string
+  /**
+   * 최소 표시 자릿수. 모자란 자리는 앞을 0으로 채운다.
+   * 아직 실제 값이 없는 칸을 `00명`처럼 보이게 해 자리표시자임을 드러내는 용도다.
+   */
+  minDigits?: number
   label: string
 }
 
@@ -66,10 +70,10 @@ export const STATS: Stat[] = [
   // ⚠️ 학기마다 바뀌는 값이다. 소모임이 생기거나 없어지면 `ACTIVITIES`의 소모임 설명과
   //    함께 갱신한다. 두 곳이 어긋나면 화면에서 바로 티가 난다.
   { value: 6, unit: '개', label: '운영 중인 소모임' },
-  // TODO: 아래 두 칸은 실제 수치를 모른다. 숫자를 모르면 칸을 줄이는 편이 낫다.
-  //       빈 값을 그럴듯하게 채우지 말 것.
-  { value: null, unit: '명', label: '현재 활동 회원' },
-  { value: null, unit: '명', label: '누적 활동 회원' },
+  // TODO: 아래 두 칸은 **실제 수치가 아니라 자리표시자다.** 값을 확인해 갈아야 한다.
+  //       숫자를 끝내 모르면 칸을 줄이는 편이 낫다. 그럴듯한 숫자로 채우지 말 것.
+  { value: 0, unit: '명', minDigits: 2, label: '현재 활동 회원' },
+  { value: 0, unit: '명', minDigits: 2, label: '누적 활동 회원' },
 ]
 
 export interface Activity {

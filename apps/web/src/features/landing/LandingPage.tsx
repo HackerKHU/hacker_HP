@@ -130,7 +130,15 @@ function easeOut(progress: number): number {
  *
  * 애니메이션 라이브러리를 쓰지 않는다. `requestAnimationFrame` 한 줄이면 된다.
  */
-function CountUp({ value, unit }: { value: number; unit: string }) {
+function CountUp({
+  value,
+  unit,
+  minDigits = 1,
+}: {
+  value: number
+  unit: string
+  minDigits?: number
+}) {
   const ref = useRef<HTMLSpanElement>(null)
   const [shown, setShown] = useState(0)
 
@@ -172,7 +180,7 @@ function CountUp({ value, unit }: { value: number; unit: string }) {
 
   return (
     <span ref={ref}>
-      {shown}
+      {String(shown).padStart(minDigits, '0')}
       {unit}
     </span>
   )
@@ -190,12 +198,11 @@ function Stats() {
               레이아웃이 덜컹거린다. 이 애니메이션에서 제일 티나는 결함이다.
             */}
             <dd className="text-6xl font-semibold tracking-tight tabular-nums text-foreground">
-              {stat.value === null ? (
-                // 값을 모르는 칸. 숫자가 아니므로 애니메이션하지 않는다.
-                `TODO${stat.unit}`
-              ) : (
-                <CountUp value={stat.value} unit={stat.unit} />
-              )}
+              <CountUp
+                value={stat.value}
+                unit={stat.unit}
+                minDigits={stat.minDigits}
+              />
             </dd>
             <dt className="mt-3 text-sm text-muted-foreground">{stat.label}</dt>
           </div>
