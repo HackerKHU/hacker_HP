@@ -6,6 +6,7 @@
  * 가드는 그 결과를 사용자가 헤매지 않게 미리 반영해줄 뿐이다. 가드가 뚫려도 서버가 막아야 한다.
  *
  * 권한 매트릭스 원본은 spec §3-1-3이다. 이 파일과 표가 어긋나면 표가 맞다.
+ * 분기는 모두 `SessionState.kind`로 한다 — 불리언 조합이 아니라 한 값이라 빠뜨릴 수 없다.
  */
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import type { Role } from '../api/types'
@@ -19,19 +20,33 @@ function Loading() {
 /** 비로그인 전용 — /login, /signup. 이미 로그인했으면 각자 홈으로 되돌린다. */
 export function GuestOnly() {
   const session = useSession()
-  if (session.loading) return <Loading />
-  if (session.user || isPending(session)) {
-    return <Navigate to={homePath(session)} replace />
+  const location = useLocation()
+  const { kind } = session.state
+
+  if (kind === 'loading') return <Loading />
+  if (kind === 'guest') return <Outlet />
+  /*
+   * 정지 계정에게는 로그인 화면만 연다. 회원가입 신청은 비로그인 전용이고(spec §3-1-3 매트릭스)
+   * 정지 상태의 접근 범위는 "없음"이다(§3-1-2). 서버가 student_no UNIQUE로 재가입을 막지만
+   * 화면이 매트릭스와 어긋나선 안 된다.
+   * 이미 /login이면 그대로 렌더한다 — 여기서 리다이렉트하면 순환한다. 정지 안내는 #37이 띄운다.
+   */
+  if (kind === 'suspended') {
+    return location.pathname === '/login' ? (
+      <Outlet />
+    ) : (
+      <Navigate to="/login" replace />
+    )
   }
-  return <Outlet />
+  return <Navigate to={homePath(session)} replace />
 }
 
 /** PENDING 전용 — 대기중 안내 화면. PENDING이 접근 가능한 유일한 화면이다 (spec §3-1-6). */
 export function PendingOnly() {
   const session = useSession()
-  if (session.loading) return <Loading />
+
+  if (session.state.kind === 'loading') return <Loading />
   if (isPending(session)) return <Outlet />
-  if (!session.user) return <Navigate to="/login" replace />
   return <Navigate to={homePath(session)} replace />
 }
 
@@ -39,20 +54,20 @@ export function PendingOnly() {
  * ACTIVE 전용. `role`을 주면 그 역할까지 요구한다.
  *
  * SUSPENDED용 라우트도 분기도 두지 않는다 (spec §3-1-2 — 접근 가능 범위 "없음").
- * `SessionProvider`가 정지된 계정을 세션에서 빼기 때문에 여기서는 비로그인과 구별되지 않고,
- * 로그인 화면이 정지 안내를 띄운다(#37). 여기에 분기를 더하면 리다이렉트가 순환한다.
+ * 정지 계정은 세션에 없으므로 여기서는 비로그인과 구별되지 않고 로그인 화면으로 간다.
  */
 export function RequireActive({ requiredRole }: { requiredRole?: Role }) {
   const session = useSession()
   const location = useLocation()
+  const { state } = session
 
-  if (session.loading) return <Loading />
-  if (isPending(session)) return <Navigate to="/pending" replace />
-  if (session.user?.status !== 'ACTIVE') {
+  if (state.kind === 'loading') return <Loading />
+  if (state.kind === 'pending') return <Navigate to="/pending" replace />
+  if (state.kind !== 'active') {
     // 어디로 가려 했는지 남겨둔다 — 로그인 후 복귀는 #37에서 쓴다.
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
   }
-  if (requiredRole && session.user.role !== requiredRole) {
+  if (requiredRole && state.user.role !== requiredRole) {
     return <Navigate to={homePath(session)} replace />
   }
   return <Outlet />

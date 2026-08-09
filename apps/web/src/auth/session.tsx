@@ -11,84 +11,99 @@ import { getMe } from '../api/auth'
 import { ApiError } from '../api/client'
 import type { User } from '../api/types'
 
+/**
+ * 세션 상태. 불리언 여러 개가 아니라 판별 유니온으로 둔다.
+ *
+ * `user`·`suspended`·`pendingApproval`을 따로 들고 있으면 "ACTIVE user인데 pendingApproval"
+ * 같은 모순 조합이 만들어질 수 있고, 실제로 그 뿌리에서 무한 리다이렉트와 상태 불일치가
+ * 연달아 났다. 갱신 지점을 늘어놓고 "셋을 같이 세우자"로 막는 대신,
+ * **나쁜 상태를 타입 차원에서 표현할 수 없게** 만든다. `user`는 `active`일 때만 존재한다.
+ */
+export type SessionState =
+  | { kind: 'loading' }
+  | { kind: 'guest' }
+  | { kind: 'pending' }
+  | { kind: 'suspended' }
+  | { kind: 'active'; user: User }
+
 interface Session {
-  user: User | null
-  /** 첫 getMe가 끝나기 전. 이 동안 가드는 판단을 미룬다 — 새로고침마다 /login으로 튀지 않게. */
-  loading: boolean
-  /**
-   * 서버가 403 `PENDING_APPROVAL`로 막은 상태. `user.status === 'PENDING'`과 같게 취급한다.
-   * 403은 SUSPENDED·FORBIDDEN도 쓰므로 status가 아니라 `ApiError.code`로만 판별한다.
-   */
-  pendingApproval: boolean
-  /**
-   * 정지된 계정. `user`는 `null`이므로 가드는 비로그인과 똑같이 다루고 로그인 화면이 그려진다.
-   * 그 화면이 정지 안내를 띄운다 (#37) — spec §3-1-2의 "접근 가능 범위: 없음(정지 안내 표시)".
-   */
-  suspended: boolean
+  /** `loading` 동안 가드는 판단을 미룬다 — 새로고침마다 /login으로 튀지 않게. */
+  state: SessionState
+  /** 로그인 직후 등 사용자 정보를 세션에 반영한다. */
   setUser: (user: User | null) => void
-  /** 화면의 catch에서 호출한다. PENDING_APPROVAL이면 가드가 대기중 안내로 되돌린다. */
+  /**
+   * 화면의 catch에서 호출한다. 서버가 알려준 상태로 세션을 정리한다.
+   * 403은 PENDING_APPROVAL·SUSPENDED·FORBIDDEN이 모두 쓰므로 status가 아니라 code로 가른다.
+   */
   reportApiError: (error: unknown) => void
+}
+
+/** 사용자 정보로부터 세션 상태를 정한다. */
+function fromUser(me: User | null): SessionState {
+  if (!me) return { kind: 'guest' }
+  switch (me.status) {
+    case 'PENDING':
+      return { kind: 'pending' }
+    case 'SUSPENDED':
+      // 정지 계정은 세션에 넣지 않는다. 넣으면 homePath → RequireActive → GuestOnly가
+      // 서로를 밀며 무한히 돈다. 로그인 화면이 정지 안내를 띄운다 (#37).
+      return { kind: 'suspended' }
+    default:
+      return { kind: 'active', user: me }
+  }
+}
+
+/**
+ * API 오류로부터 세션 상태를 정한다. 해당 없으면 `null` — 세션을 건드리지 않는다.
+ *
+ * SUSPENDED를 PENDING_APPROVAL과 대칭으로 다루는 것이 핵심이다. 세션 도중 관리자가
+ * 정지시키면(#31) 이후 모든 보호 API가 403 SUSPENDED로 실패하는데, 이걸 무시하면
+ * ACTIVE 세션이 그대로 남아 화면은 열려 있고 요청만 전부 실패한다.
+ */
+function fromApiError(error: unknown): SessionState | null {
+  if (!(error instanceof ApiError)) return null
+  switch (error.code) {
+    case 'PENDING_APPROVAL':
+      return { kind: 'pending' }
+    case 'SUSPENDED':
+      return { kind: 'suspended' }
+    case 'UNAUTHENTICATED':
+      return { kind: 'guest' }
+    default:
+      return null
+  }
 }
 
 const SessionContext = createContext<Session | null>(null)
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [user, setUserState] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [pendingApproval, setPendingApproval] = useState(false)
-  const [suspended, setSuspended] = useState(false)
+  const [state, setState] = useState<SessionState>({ kind: 'loading' })
 
-  /**
-   * 사용자 정보를 세션에 반영하는 유일한 지점. 로그인 직후든 새로고침이든 여기로 모인다.
-   *
-   * SUSPENDED는 세션에 넣지 않는다. 넣으면 무한 리다이렉트가 돈다 —
-   * `homePath()`가 role만 보고 `/notices`로 보내고, `RequireActive`가 ACTIVE가 아니라며
-   * `/login`으로 보내고, `GuestOnly`가 로그인 상태라며 다시 `homePath()`로 보낸다.
-   * ACTIVE로 로그인한 뒤 관리자가 정지시키면(#31) 실제로 이 상태가 만들어진다.
-   *
-   * 세션 없음 + `suspended` 플래그로 수렴시키면 로그인 시점의 403 SUSPENDED와
-   * 세션 중간 정지가 같은 종착점(로그인 화면의 정지 안내)에 도착한다.
-   */
-  const applySession = useCallback((me: User | null) => {
-    setSuspended(me?.status === 'SUSPENDED')
-    setPendingApproval(me?.status === 'PENDING')
-    setUserState(me?.status === 'SUSPENDED' ? null : me)
-  }, [])
+  const setUser = useCallback((me: User | null) => setState(fromUser(me)), [])
 
   const reportApiError = useCallback((error: unknown) => {
-    if (error instanceof ApiError && error.code === 'PENDING_APPROVAL') {
-      setPendingApproval(true)
-    }
+    const next = fromApiError(error)
+    if (next) setState(next)
   }, [])
 
   useEffect(() => {
     let alive = true
     getMe()
       .then((me) => {
-        if (alive) applySession(me)
+        if (alive) setState(fromUser(me))
       })
       .catch((error: unknown) => {
-        // 실패는 곧 비로그인이다. PENDING_APPROVAL만 예외로 세션이 있는 대기 상태다.
-        if (alive) reportApiError(error)
-      })
-      .finally(() => {
-        if (alive) setLoading(false)
+        // 실패는 곧 비로그인이다. 코드가 상태를 알려주면 그쪽을 쓴다.
+        if (alive) setState(fromApiError(error) ?? { kind: 'guest' })
       })
     return () => {
       alive = false
     }
-  }, [applySession, reportApiError])
+  }, [])
 
   const value = useMemo<Session>(
-    () => ({
-      user,
-      loading,
-      pendingApproval,
-      suspended,
-      setUser: applySession,
-      reportApiError,
-    }),
-    [user, loading, pendingApproval, suspended, applySession, reportApiError],
+    () => ({ state, setUser, reportApiError }),
+    [state, setUser, reportApiError],
   )
 
   return <SessionContext value={value}>{children}</SessionContext>
@@ -103,12 +118,18 @@ export function useSession(): Session {
 }
 
 /** 로그인 상태에서의 첫 화면. 로그인·가입 화면에 이미 로그인한 사용자가 오면 여기로 보낸다. */
-export function homePath(session: Session): string {
-  if (isPending(session)) return '/pending'
-  if (!session.user) return '/login'
-  return session.user.role === 'ADMIN' ? '/admin/notices' : '/notices'
+export function homePath({ state }: Session): string {
+  switch (state.kind) {
+    case 'pending':
+      return '/pending'
+    case 'active':
+      return state.user.role === 'ADMIN' ? '/admin/notices' : '/notices'
+    default:
+      // guest·suspended·loading. 정지 안내도 로그인 화면이 띄운다.
+      return '/login'
+  }
 }
 
-export function isPending({ user, pendingApproval }: Session): boolean {
-  return pendingApproval || user?.status === 'PENDING'
+export function isPending({ state }: Session): boolean {
+  return state.kind === 'pending'
 }

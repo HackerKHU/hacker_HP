@@ -10,7 +10,7 @@ function Placeholder({ title }: { title: string }) {
 /** 진입점. 로그인 상태에 따라 각자 홈으로 보낸다. */
 function Index() {
   const session = useSession()
-  if (session.loading) return <p>불러오는 중</p>
+  if (session.state.kind === 'loading') return <p>불러오는 중</p>
   return <Navigate to={homePath(session)} replace />
 }
 
