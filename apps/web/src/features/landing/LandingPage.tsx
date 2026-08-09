@@ -56,7 +56,7 @@ function About() {
 }
 
 /**
- * 트랙 한 벌. 항목이 4개뿐이라 그대로 흘리면 화면 폭보다 짧아 빈 구간이 생긴다.
+ * 트랙 한 벌. 항목이 셋뿐이라 그대로 흘리면 화면 폭보다 짧아 빈 구간이 생긴다.
  * 두 번 반복해 한 벌을 채우고, 그 한 벌을 다시 두 벌로 이어붙여 `-50%`로 순환시킨다.
  * 각 벌에 고유 이름을 줘서 배열 인덱스를 key로 쓰지 않는다.
  */
@@ -97,7 +97,7 @@ function Activities() {
        * 가로로 흐르는 형태에서는 세로 엇갈림이 흔들려 보여 정렬로 바꿨다.
        */}
       <div className="marquee-viewport mt-10">
-        <ul className="marquee-track flex w-max gap-6">
+        <ul className="marquee-track flex w-max items-start gap-6">
           {MARQUEE_PASSES.map((pass, passIndex) =>
             ACTIVITIES.map((activity) => (
               <li
