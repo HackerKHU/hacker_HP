@@ -87,6 +87,18 @@ describe('라우트 가드', () => {
     ).toBeInTheDocument()
   })
 
+  // 회귀 — 회원가입 신청은 비로그인 전용이다(spec §3-1-3). 정지 계정에게는 로그인 화면만 연다.
+  it('SUSPENDED가 가입 화면에 가면 로그인 화면으로 보낸다', async () => {
+    auth.me = () => Promise.resolve({ ...BASE, status: 'SUSPENDED' })
+
+    renderAt('/signup')
+
+    expect(
+      await screen.findByRole('heading', { name: '로그인' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '가입 신청' })).toBeNull()
+  })
+
   // 회귀 — 세션 도중 관리자가 정지시키면(#31) 이후 보호 API가 403 SUSPENDED로 실패한다.
   // 이 코드를 무시하면 ACTIVE 세션이 남아 화면은 열려 있고 요청만 전부 실패한다.
   it('보호 API가 403 SUSPENDED를 주면 ACTIVE 세션을 정리하고 로그인 화면으로 보낸다', async () => {

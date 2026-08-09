@@ -19,12 +19,20 @@ import type { User } from '../api/types'
  * 연달아 났다. 갱신 지점을 늘어놓고 "셋을 같이 세우자"로 막는 대신,
  * **나쁜 상태를 타입 차원에서 표현할 수 없게** 만든다. `user`는 `active`일 때만 존재한다.
  */
+/**
+ * 세션에 들어갈 수 있는 사용자. `status`를 리터럴로 고정한다.
+ *
+ * `User`를 그대로 쓰면 `{ kind: 'active', user: 정지된_사용자 }`가 타입상 만들어진다 —
+ * 나쁜 상태를 표현할 수 없게 만든다는 이 유니온의 명분에 구멍이 남는다.
+ */
+export type ActiveUser = Omit<User, 'status'> & { status: 'ACTIVE' }
+
 export type SessionState =
   | { kind: 'loading' }
   | { kind: 'guest' }
   | { kind: 'pending' }
   | { kind: 'suspended' }
-  | { kind: 'active'; user: User }
+  | { kind: 'active'; user: ActiveUser }
 
 interface Session {
   /** `loading` 동안 가드는 판단을 미룬다 — 새로고침마다 /login으로 튀지 않게. */
@@ -38,6 +46,15 @@ interface Session {
   reportApiError: (error: unknown) => void
 }
 
+/**
+ * 계약에 없는 계정 상태. `UserStatus`에 값이 추가되면 이 인자가 `never`가 아니게 되어
+ * **빌드가 깨진다.** 새 상태가 조용히 `active`로 취급되는 일을 막는 것이 목적이다 —
+ * 계약이 소리 없이 어긋나서 이미 두 번(SUSPENDED 루프, 403 비대칭) 당했다.
+ */
+function unknownStatus(status: never): never {
+  throw new Error(`알 수 없는 계정 상태: ${String(status)}`)
+}
+
 /** 사용자 정보로부터 세션 상태를 정한다. */
 function fromUser(me: User | null): SessionState {
   if (!me) return { kind: 'guest' }
@@ -48,8 +65,13 @@ function fromUser(me: User | null): SessionState {
       // 정지 계정은 세션에 넣지 않는다. 넣으면 homePath → RequireActive → GuestOnly가
       // 서로를 밀며 무한히 돈다. 로그인 화면이 정지 안내를 띄운다 (#37).
       return { kind: 'suspended' }
+    case 'ACTIVE':
+      // 캐스트가 아니라 새 객체 리터럴이다. `User`는 유니온이 아니라 인터페이스라
+      // `status === 'ACTIVE'` 검사로 객체가 좁혀지지 않는다. 리터럴로 다시 세우면
+      // 문맥 타입이 그대로 붙어 `as`가 필요 없다.
+      return { kind: 'active', user: { ...me, status: 'ACTIVE' } }
     default:
-      return { kind: 'active', user: me }
+      return unknownStatus(me.status)
   }
 }
 
