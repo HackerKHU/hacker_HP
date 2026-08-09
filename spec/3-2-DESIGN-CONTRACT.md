@@ -136,11 +136,29 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 
 | Method | Path | 권한 | 설명 |
 |---|---|---|---|
+| GET | `/auth/csrf` | 비로그인 | CSRF 토큰 발급 |
 | POST | `/auth/signup` | 비로그인 | 가입 신청 |
 | POST | `/auth/login` | 비로그인 | 로그인 |
 | POST | `/auth/logout` | 로그인 | 로그아웃 |
 | GET | `/auth/me` | 로그인 | 내 정보 + role/status |
 | POST | `/auth/bootstrap-admin` | 로그인 | 최초 관리자 승격/마지막 관리자 복구. body: `{ "token": "..." }` — [3-3 결정 11](3-3-DESIGN-DECISIONS.md) |
+
+### CSRF 토큰
+
+인증 쿠키가 자동 전송되므로 상태를 바꾸는 요청은 CSRF 토큰을 검증한다 ([3-3 결정 12](3-3-DESIGN-DECISIONS.md#3-3-13-결정-12--인증은-jwt-인가-상태는-서버-세션으로-나눈다)).
+
+| 항목 | 값 |
+|---|---|
+| 쿠키 이름 | `XSRF-TOKEN` — **`httpOnly`가 아니다.** 클라이언트가 읽어 헤더에 실어야 한다 |
+| 헤더 이름 | `X-XSRF-TOKEN` |
+| 검증 대상 | `POST`, `PATCH`, `DELETE` 등 상태를 바꾸는 모든 요청 |
+| 발급 경로 | `GET /auth/csrf` |
+
+**`POST /auth/login`과 `POST /auth/signup`도 검증 대상이다** (MUST). 로그인 CSRF는 피해자를 공격자 계정에 로그인시키므로 예외로 두지 않는다.
+
+그래서 세션도 토큰도 없는 최초 진입에는 발급 경로가 필요하다. **클라이언트는 첫 상태 변경 요청 전에 `GET /auth/csrf`를 호출해 `XSRF-TOKEN` 쿠키를 받는다** (MUST). 이 엔드포인트는 응답 본문 없이 쿠키만 내려주며 비로그인으로 접근할 수 있다.
+
+토큰이 없거나 쿠키와 헤더 값이 다르면 `403 FORBIDDEN`을 반환한다.
 
 `POST /auth/login`은 응답 본문을 반환하지 않는다 (MUST). 로그인은 세션(또는 토큰) 발급까지만 책임진다.
 
