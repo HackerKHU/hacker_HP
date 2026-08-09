@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import {
   Accordion,
   AccordionContent,
@@ -113,6 +114,69 @@ function Activities() {
   )
 }
 
+/** 카운트업 지속시간. 조정은 여기 한 곳. */
+const COUNT_UP_MS = 1200
+
+/** 빠르게 올라가다 천천히 멈춘다 (ease-out). */
+function easeOut(progress: number): number {
+  return 1 - (1 - progress) ** 3
+}
+
+/**
+ * 숫자를 0에서 목표값까지 올린다. **화면에 들어올 때 한 번만** 실행한다 —
+ * 페이지 로드 시점에 시작하면 스크롤해서 내려왔을 땐 이미 끝나 있고,
+ * 볼 때마다 다시 움직이면 성가시다.
+ *
+ * 애니메이션 라이브러리를 쓰지 않는다. `requestAnimationFrame` 한 줄이면 된다.
+ */
+function CountUp({ value, unit }: { value: number; unit: string }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [shown, setShown] = useState(0)
+
+  useEffect(() => {
+    const node = ref.current
+    const reduceMotion =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    // 모션을 줄이는 설정이면 움직이지 않고 최종값을 바로 보여준다.
+    // IntersectionObserver가 없는 환경(jsdom 등)에서도 값이 0에 멈추지 않게 한다.
+    if (!node || reduceMotion || typeof IntersectionObserver === 'undefined') {
+      setShown(value)
+      return
+    }
+
+    let frame = 0
+    let startedAt = 0
+
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return
+      observer.disconnect() // 한 번만 실행한다
+
+      const step = (now: number) => {
+        if (startedAt === 0) startedAt = now
+        const progress = Math.min(1, (now - startedAt) / COUNT_UP_MS)
+        setShown(Math.round(value * easeOut(progress)))
+        if (progress < 1) frame = requestAnimationFrame(step)
+      }
+      frame = requestAnimationFrame(step)
+    })
+    observer.observe(node)
+
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+    }
+  }, [value])
+
+  return (
+    <span ref={ref}>
+      {shown}
+      {unit}
+    </span>
+  )
+}
+
 function Stats() {
   return (
     <section id="stats" className={cn(SECTION, 'border-t border-border')}>
@@ -120,9 +184,17 @@ function Stats() {
       <dl className="mt-10 grid grid-cols-4 gap-6">
         {STATS.map((stat) => (
           <div key={stat.label}>
-            {/* 단위를 숫자에 포함해 값 하나로 읽히게 한다. */}
-            <dd className="text-6xl font-semibold tracking-tight text-foreground">
-              {stat.value}
+            {/*
+              `tabular-nums`가 없으면 숫자가 바뀔 때마다 글자 폭이 달라져 카운트업 내내
+              레이아웃이 덜컹거린다. 이 애니메이션에서 제일 티나는 결함이다.
+            */}
+            <dd className="text-6xl font-semibold tracking-tight tabular-nums text-foreground">
+              {stat.value === null ? (
+                // 값을 모르는 칸. 숫자가 아니므로 애니메이션하지 않는다.
+                `TODO${stat.unit}`
+              ) : (
+                <CountUp value={stat.value} unit={stat.unit} />
+              )}
             </dd>
             <dt className="mt-3 text-sm text-muted-foreground">{stat.label}</dt>
           </div>

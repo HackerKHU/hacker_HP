@@ -47,21 +47,29 @@ export const CLUB = {
 } as const
 
 export interface Stat {
-  /** 단위를 숫자에 포함한다 — "39"보다 "39년"이 읽힌다 */
-  value: string
+  /**
+   * 카운트업 대상 숫자. **모르는 값은 `null`** — 그 칸은 자리표시자를 그대로 보여주고
+   * 애니메이션하지 않는다.
+   *
+   * 숫자와 단위를 나눠 둔 이유는 화면에서 문자열을 파싱하지 않기 위해서다.
+   * `'39년'`을 쪼개는 코드는 `'3년차'` 같은 값이 들어오는 순간 틀린다.
+   */
+  value: number | null
+  /** 숫자 뒤에 붙는 단위. 애니메이션 대상이 아니라 고정이다. */
+  unit: string
   label: string
 }
 
 export const STATS: Stat[] = [
   // 1987년 창립부터 2026년까지. 창립 연도가 확인되었으므로 이 값은 확정이다.
-  { value: '39년', label: '함께한 시간' },
+  { value: 39, unit: '년', label: '함께한 시간' },
   // ⚠️ 학기마다 바뀌는 값이다. 소모임이 생기거나 없어지면 `ACTIVITIES`의 소모임 설명과
   //    함께 갱신한다. 두 곳이 어긋나면 화면에서 바로 티가 난다.
-  { value: '6개', label: '운영 중인 소모임' },
+  { value: 6, unit: '개', label: '운영 중인 소모임' },
   // TODO: 아래 두 칸은 실제 수치를 모른다. 숫자를 모르면 칸을 줄이는 편이 낫다.
   //       빈 값을 그럴듯하게 채우지 말 것.
-  { value: 'TODO명', label: '활동 중인 부원' },
-  { value: 'TODO명', label: '거쳐 간 부원' },
+  { value: null, unit: '명', label: '활동 중인 부원' },
+  { value: null, unit: '명', label: '거쳐 간 부원' },
 ]
 
 export interface Activity {
