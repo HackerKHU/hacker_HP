@@ -272,7 +272,7 @@ Vite SPA는 정적 번들이므로 Vercel에서 CDN으로만 서빙되고, 서�
 
 *왜 두 자격 증명을 결합해야 하는가* — 신원과 인가를 나눠 가지면, 둘이 같은 사람의 것인지 확인하지 않는 순간 조합 공격이 열린다. 공격자가 자기 계정의 유효한 JWT와 훔친 관리자 세션 쿠키를 함께 보내면, 서버가 각각을 따로 신뢰할 경우 자기 신원으로 관리자 권한을 쓰게 된다. 그래서 세션에 사용자 id를 함께 저장하고 매 요청 JWT의 `sub`와 대조한다. 이 검증이 빠지면 분리 설계가 그대로 취약점이 된다.
 
-*왜 세션을 RDS에 두는가* — ECS 태스크는 Fargate Spot이라 AWS가 언제든 회수한다([결정 3](#3-3-3-결정-3--ecs-fargate-spot을-쓴다)). 메모리에 두면 회수될 때마다 전원이 로그아웃된다. 비용 절감을 위해 유휴 시간에 `desired_count = 0`으로 내리는 운영([docs/ops/infra.md](../../docs/ops/infra.md))에서도 마찬가지다. 캐시 계층(Redis/ElastiCache)은 인프라에 없고 동아리 규모에 도입할 이유도 없으므로, 이미 있는 RDS를 쓴다.
+*왜 세션을 RDS에 두는가* — ECS 태스크는 Fargate Spot이라 AWS가 언제든 회수한다([결정 3](#3-3-3-결정-3--ecs-fargate-spot을-쓴다)). 메모리에 두면 회수될 때마다 전원이 로그아웃된다. 비용 절감을 위해 유휴 시간에 `desired_count = 0`으로 내리는 운영([docs/ops/infra.md](../docs/ops/infra.md))에서도 마찬가지다. 캐시 계층(Redis/ElastiCache)은 인프라에 없고 동아리 규모에 도입할 이유도 없으므로, 이미 있는 RDS를 쓴다.
 
 *왜 `httpOnly` 쿠키인가* — `localStorage`에 둔 토큰은 XSS 한 번으로 그대로 털린다. `httpOnly`면 스크립트가 읽지 못한다. Vercel rewrites 프록시 덕분에 브라우저 입장에서 same-origin이라([결정 5](#3-3-5-결정-5--도메인-없이-vercel-프록시로-https를-우회한다)) `SameSite`는 `None`이 아니라 `Lax`로 충분하고, 프론트엔드는 이미 `credentials: 'include'`로 호출하고 있어 바꿀 것이 없다.
 
