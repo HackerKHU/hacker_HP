@@ -10,6 +10,8 @@ shadcn/ui + Tailwind CSS를 쓴다 ([3-3 결정 9](../../spec/3-3-DESIGN-DECISIO
 
 **`:root`가 라이트(로그인 이후 화면), `.dark`가 다크(랜딩)다.** 랜딩은 최상위를 `.dark`로 감싸 팔레트를 뒤집어 쓴다.
 
+폰트 Pretendard는 `index.html`에서 jsDelivr CDN으로 받으며 버전을 고정해 두었다. CDN이 실패하면 `--font-sans`의 시스템 폰트로 저하될 뿐 화면은 깨지지 않는다 — 외부 의존이므로 CSP를 걸 때 이 호스트를 빠뜨리지 않는다.
+
 ## 요구 환경
 
 - Node.js 24.15 이상
