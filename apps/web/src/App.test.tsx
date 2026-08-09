@@ -10,6 +10,7 @@ const auth = vi.hoisted(() => ({
   me: (): Promise<User> =>
     Promise.reject(new Error('테스트가 지정하지 않았다')),
   logout: (): Promise<void> => Promise.resolve(),
+  listRejects: null as unknown,
 }))
 
 vi.mock('./api/auth', () => ({
@@ -21,10 +22,12 @@ vi.mock('./api/auth', () => ({
 // 로딩 실패 alert가 생겨 로그아웃 alert와 섞인다.
 vi.mock('./api/notices', () => ({
   list: () =>
-    Promise.resolve({
-      content: [],
-      page: { size: 10, number: 0, totalElements: 0, totalPages: 0 },
-    }),
+    auth.listRejects
+      ? Promise.reject(auth.listRejects)
+      : Promise.resolve({
+          content: [],
+          page: { size: 10, number: 0, totalElements: 0, totalPages: 0 },
+        }),
   get: () => Promise.reject(new Error('이 파일에서는 쓰지 않는다')),
   togglePin: () => Promise.reject(new Error('이 파일에서는 쓰지 않는다')),
 }))
@@ -65,6 +68,7 @@ beforeEach(() => {
   auth.me = () =>
     Promise.reject(new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'))
   auth.logout = () => Promise.resolve()
+  auth.listRejects = null
 })
 
 /** 메뉴 링크 이름 목록. 플레이스홀더 화면 제목과 겹치므로 범위를 nav 안으로 좁힌다. */
@@ -212,5 +216,24 @@ describe('로그아웃', () => {
       screen.getByRole('heading', { name: '공지사항' }),
     ).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '로그인' })).toBeNull()
+  })
+})
+
+describe('화면에서 올린 API 오류', () => {
+  // 회귀 — 권한이 바뀐 사용자가 공지 화면에 남아 요청만 계속 실패하면 안 된다.
+  // 목록 API의 403 PENDING_APPROVAL이 세션 계약을 타고 가드까지 이어져야 한다.
+  it('목록 조회가 403 PENDING_APPROVAL이면 대기 화면으로 보낸다', async () => {
+    auth.me = () => Promise.resolve(BASE)
+    auth.listRejects = new ApiError(
+      'PENDING_APPROVAL',
+      403,
+      '가입 승인 대기 중입니다.',
+    )
+
+    renderAt('/notices')
+
+    expect(
+      await screen.findByRole('heading', { name: '승인 대기' }),
+    ).toBeInTheDocument()
   })
 })

@@ -11,7 +11,7 @@ vi.mock('@/api/notices', () => ({
       ? Promise.resolve({
           id: 1,
           title: '있는 공지',
-          content: '본문',
+          content: '첫 줄\n둘째 줄',
           isPinned: false,
           createdAt: '2026-08-05T09:00:00Z',
           updatedAt: '2026-08-05T09:00:00Z',
@@ -48,6 +48,21 @@ function renderDetail(id: string) {
 }
 
 describe('공지 상세', () => {
+  it('제목과 본문을 렌더하고 줄바꿈을 보존한다', async () => {
+    renderDetail('1')
+
+    expect(
+      await screen.findByRole('heading', { name: '있는 공지' }),
+    ).toBeInTheDocument()
+
+    // 본문은 평문이다. 줄바꿈만 살리고 마크업으로 해석하지 않는 것이 이 화면의 계약이다.
+    const body = screen.getByText(/첫 줄/)
+    expect(body).toHaveTextContent('첫 줄')
+    expect(body).toHaveTextContent('둘째 줄')
+    expect(body.textContent).toContain('\n')
+    expect(body.className).toContain('whitespace-pre-wrap')
+  })
+
   // 회귀 — 없는 id로 들어와도 화면이 깨지지 않고 빠져나갈 길이 있어야 한다.
   it('없는 공지면 안내를 띄우고 목록으로 돌아갈 링크를 남긴다', async () => {
     renderDetail('999')

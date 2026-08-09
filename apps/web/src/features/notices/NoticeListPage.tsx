@@ -1,6 +1,6 @@
 import { Pin } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Fragment, useEffect, useState } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { list, type Notice, togglePin } from '@/api/notices'
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import {
   Pagination,
   PaginationContent,
+  PaginationEllipsis,
   PaginationItem,
   PaginationLink,
   PaginationNext,
@@ -43,6 +44,37 @@ function parsePage(raw: string | null): number {
   return Math.max(0, Math.floor(value))
 }
 
+/**
+ * 페이지네이션에 보여줄 번호 목록.
+ *
+ * **규칙** — 첫 페이지·마지막 페이지·현재 페이지와 그 양옆 한 칸을 보여준다. 번호가
+ * 건너뛰는 자리에만 생략 부호가 들어간다.
+ *
+ * 번호 버튼은 최대 5개, 생략 부호는 최대 2개라 **총 페이지 수와 무관하게 7칸을 넘지 않는다.**
+ * 전부 그리면 250건(25페이지)쯤에서 버튼이 본문 너비를 넘는다.
+ *
+ * 총 3페이지처럼 적을 때는 건너뛰는 자리가 없어 생략 부호가 뜨지 않는다.
+ */
+function pageWindow(page: number, totalPages: number): number[] {
+  const last = totalPages - 1
+  const wanted = [0, last, page - 1, page, page + 1]
+  const shown = [...new Set(wanted)]
+    .filter((number) => number >= 0 && number <= last)
+    .sort((a, b) => a - b)
+
+  // 건너뛰는 페이지가 딱 하나면 생략 부호 대신 그 번호를 그대로 넣는다. 생략 부호가
+  // 번호와 같은 자리를 차지하므로 하나를 감춰봤자 이득이 없고 보기만 어색하다.
+  // 번호가 하나 늘 때 생략 부호가 하나 줄므로 7칸 상한은 그대로다.
+  const filled: number[] = []
+  for (const number of shown) {
+    const previous = filled.at(-1)
+    if (previous !== undefined && number - previous === 2)
+      filled.push(previous + 1)
+    filled.push(number)
+  }
+  return filled
+}
+
 /** 서버는 UTC로 내려준다. 목록에서는 날짜까지만 보여준다. */
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('ko-KR', {
@@ -59,6 +91,7 @@ export function NoticeListPage() {
   // URL의 `page`는 API 파라미터와 같은 **0-기반**이다 (spec §3-2-8). 화면 라벨만 1을
   // 더해 보여준다 — URL과 API 사이에 변환을 두면 그 자리가 off-by-one이 사는 곳이 된다.
   const [searchParams, setSearchParams] = useSearchParams()
+  const { pathname } = useLocation()
   const page = parsePage(searchParams.get('page'))
 
   const { state, reportApiError } = useSession()
@@ -98,6 +131,8 @@ export function NoticeListPage() {
     return () => {
       alive = false
     }
+    // biome-ignore lint/correctness/useExhaustiveDependencies(reloadKey): 본문에서 읽지 않는다.
+    // 토글 후 이 effect를 다시 태우기 위한 트리거이며, 이것이 유일한 재조회 경로다.
   }, [page, reloadKey, reportApiError])
 
   /**
@@ -116,8 +151,27 @@ export function NoticeListPage() {
     }
   }, [data, page, setSearchParams])
 
+  /**
+   * 페이지 파라미터를 만드는 **유일한 규칙**. `goTo`(클릭 이동)와 `hrefFor`(링크 주소)가
+   * 이걸 같이 쓴다 — 두 곳이 다른 규칙을 쓰면 링크가 가리키는 곳과 클릭 결과가 갈린다.
+   * 0페이지는 파라미터를 빼서 주소가 깨끗해진다.
+   */
+  function pageParams(next: number): Record<string, string> {
+    return next === 0 ? {} : { page: String(next) }
+  }
+
   function goTo(next: number) {
-    setSearchParams(next === 0 ? {} : { page: String(next) })
+    setSearchParams(pageParams(next))
+  }
+
+  /**
+   * 링크가 실제 대상 주소를 가리키게 한다. `href="#"`이면 새 탭으로 열거나 주소를 복사할 때
+   * 엉뚱한 곳이 열린다 — 페이지 번호를 URL에 둔 이 화면의 설계와 앞뒤가 맞지 않는다.
+   * 클릭은 여전히 `preventDefault` 후 `setSearchParams`를 타므로 전체 새로고침이 나지 않는다.
+   */
+  function hrefFor(next: number): string {
+    const search = new URLSearchParams(pageParams(next)).toString()
+    return search === '' ? pathname : `${pathname}?${search}`
   }
 
   /**
@@ -140,12 +194,6 @@ export function NoticeListPage() {
       setPinning(false)
     }
   }
-
-  // 페이지 번호는 그 자체가 식별자다. 배열 인덱스를 key로 쓰지 않는다.
-  const pageNumbers = Array.from(
-    { length: data?.page.totalPages ?? 0 },
-    (_, index) => index,
-  )
 
   return (
     <section>
@@ -265,7 +313,7 @@ export function NoticeListPage() {
           <PaginationContent>
             <PaginationItem>
               <PaginationPrevious
-                href="#"
+                href={hrefFor(Math.max(0, page - 1))}
                 aria-disabled={page === 0}
                 className={page === 0 ? 'pointer-events-none opacity-50' : ''}
                 onClick={(event) => {
@@ -275,24 +323,33 @@ export function NoticeListPage() {
               />
             </PaginationItem>
 
-            {pageNumbers.map((number) => (
-              <PaginationItem key={number}>
-                <PaginationLink
-                  href="#"
-                  isActive={number === page}
-                  onClick={(event) => {
-                    event.preventDefault()
-                    goTo(number)
-                  }}
-                >
-                  {number + 1}
-                </PaginationLink>
-              </PaginationItem>
-            ))}
+            {pageWindow(page, data.page.totalPages).map(
+              (number, index, shown) => (
+                <Fragment key={number}>
+                  {index > 0 && number - shown[index - 1] > 1 && (
+                    <PaginationItem>
+                      <PaginationEllipsis />
+                    </PaginationItem>
+                  )}
+                  <PaginationItem>
+                    <PaginationLink
+                      href={hrefFor(number)}
+                      isActive={number === page}
+                      onClick={(event) => {
+                        event.preventDefault()
+                        goTo(number)
+                      }}
+                    >
+                      {number + 1}
+                    </PaginationLink>
+                  </PaginationItem>
+                </Fragment>
+              ),
+            )}
 
             <PaginationItem>
               <PaginationNext
-                href="#"
+                href={hrefFor(Math.min(data.page.totalPages - 1, page + 1))}
                 aria-disabled={page >= data.page.totalPages - 1}
                 className={
                   page >= data.page.totalPages - 1
