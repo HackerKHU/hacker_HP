@@ -90,15 +90,103 @@
 }
 
 @layer base {
+  html {
+    /* 앵커 이동을 부드럽게. 모션에 민감한 사용자에게는 적용하지 않는다. */
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
   * {
     @apply border-border outline-ring/50;
   }
 
+  /* 제목은 줄 길이를 균등하게 나눈다. 두세 줄짜리 제목에서 효과가 크다. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
+  }
+
   body {
     @apply bg-background text-foreground;
+    /*
+     * 한글에서 `word-break: normal`은 어절 중간에서도 줄을 끊는다
+     * ("라이프스타 / 일을"). `keep-all`이면 띄어쓰기 단위로만 끊긴다.
+     *
+     * `overflow-wrap: break-word`를 함께 준다 — `keep-all`만 두면 긴 URL이나
+     * 띄어쓰기 없는 문자열이 컨테이너를 뚫는다.
+     *
+     * **랜딩만이 아니라 앱 전체에 건다.** 공지 제목·본문도 한글이라 같은 문제가 있고,
+     * 범위를 좁히면 한글 화면이 생길 때마다 같은 결함이 다시 나온다.
+     */
+    word-break: keep-all;
+    overflow-wrap: break-word;
+
+    /*
+     * `keep-all`은 규칙상 맞지만 긴 어절이 통째로 넘어가며 앞줄 끝에 큰 공백을 남긴다.
+     * `pretty`가 줄 길이를 고르게 재배치하고 마지막 줄에 한 단어만 남는 것도 막는다.
+     *
+     * 대상 환경은 데스크톱 Chrome·Edge다 (spec 3-3-7). 지원하지 않는 브라우저에서는
+     * **그냥 무시될 뿐 깨지지 않는다** — 폴백을 따로 두지 않는다.
+     */
+    text-wrap: pretty;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/*
+ * 활동 카드 가로 흐름. 사진과 제목, 한 줄 설명이 한 카드이고 그 카드들이 흐른다.
+ *
+ * 트랙에 같은 묶음을 두 벌 이어붙이고 절반(-50%)만큼 밀어 끊김 없이 반복한다.
+ * 캐러셀 라이브러리를 쓰지 않는다 — 이 정도는 CSS 애니메이션으로 충분하다.
+ *
+ * **속도 조정은 아래 `--marquee-duration` 한 곳에서 한다.** 읽거나 볼 수 있는 속도여야
+ * 하므로 넉넉하게 잡았다. 지속시간은 트랙 길이와 함께 움직여야 한다 — 카드를 넓히면
+ * 같은 시간에 더 먼 거리를 지나므로 체감 속도가 빨라진다.
+ */
+.marquee-viewport {
+  overflow: hidden;
+}
+
+.marquee-track {
+  --marquee-duration: 80s;
+  animation: marquee var(--marquee-duration) linear infinite;
+}
+
+/* 카드를 읽으려는 사람이 멈출 수단이 있어야 한다. 키보드 포커스에도 멈춘다. */
+.marquee-viewport:hover .marquee-track,
+.marquee-viewport:focus-within .marquee-track {
+  animation-play-state: paused;
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/*
+ * 자동으로 계속 움직이는 콘텐츠는 접근성 문제다. 모션을 줄이도록 설정한 사용자에게는
+ * 애니메이션을 멈추고 가로 스크롤로 직접 볼 수 있게 한다.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+  }
+
+  .marquee-viewport {
+    overflow-x: auto;
   }
 }

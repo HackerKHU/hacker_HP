@@ -1,9 +1,7 @@
-import { useState } from 'react'
-import { Link, NavLink, useNavigate } from 'react-router-dom'
-import { logout } from '@/api/auth'
-import { ApiError } from '@/api/client'
+import { Link, NavLink } from 'react-router-dom'
 import type { Role } from '@/api/types'
 import { useSession } from '@/auth/session'
+import { useLogout } from '@/auth/useLogout'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -27,51 +25,19 @@ const MENUS = {
  * 진입 위치가 아직 정해지지 않아 **메뉴에서만 뺐다** — 죽은 라우트가 아니니 지우지 말 것.
  */
 
-/**
- * 서버가 세션을 지웠다고 확인해 준 경우만 로그아웃 성공이다.
- *
- * 401 `UNAUTHENTICATED`도 성공으로 친다 — 지울 세션이 이미 없다는 뜻이다. 이걸 실패로 다루면
- * 만료된 세션에서는 로그아웃이 영영 안 된다. 403이 여러 코드를 공유하듯 여기서도
- * status가 아니라 `ApiError.code`로 판별한다.
- */
-function isLoggedOut(error: unknown): boolean {
-  return error instanceof ApiError && error.code === 'UNAUTHENTICATED'
-}
-
 export function AppHeader() {
-  const { state, setUser } = useSession()
-  const navigate = useNavigate()
-  const [failed, setFailed] = useState(false)
+  const { state } = useSession()
+  // 로그아웃 로직은 랜딩 헤더와 함께 쓴다. 복사하지 않는다.
+  const { logout, failed } = useLogout('/login')
 
   // PENDING은 공지도 볼 수 없으므로 메뉴가 없다. 띄워봤자 눌러도 가드가 되돌린다.
   const menus = state.kind === 'active' ? MENUS[state.user.role] : []
 
-  async function handleLogout() {
-    try {
-      await logout()
-    } catch (error: unknown) {
-      if (!isLoggedOut(error)) {
-        /*
-         * 실패했으면 세션을 비우지도, 이동하지도 않는다.
-         *
-         * 서버 세션 쿠키는 HttpOnly라 브라우저에서 지울 수 없다. 화면만 로그아웃된 척하면
-         * 사용자는 안전하다고 믿고 자리를 뜨는데 서버 세션은 살아 있다. 공용 PC에서
-         * 다음 사람이 사이트를 열면 getMe()가 성공해 남의 계정으로 들어가진다.
-         * 로그인 화면을 보여주는 것이 오히려 위험한 경우다.
-         */
-        setFailed(true)
-        return
-      }
-    }
-    setFailed(false)
-    setUser(null)
-    navigate('/login', { replace: true })
-  }
-
   return (
     <header className="border-b border-border bg-background">
       <div className="mx-auto flex h-14 w-full max-w-[1152px] items-center gap-8 px-6">
-        <Link to="/" className="font-semibold tracking-tight">
+        {/* 부원이 로고를 눌렀는데 소개 페이지가 나오면 어색하다. 랜딩은 푸터 링크로 간다. */}
+        <Link to="/notices" className="font-semibold tracking-tight">
           HACKER
         </Link>
 
@@ -100,7 +66,7 @@ export function AppHeader() {
               로그아웃하지 못했습니다. 다시 시도해 주세요.
             </p>
           )}
-          <Button variant="ghost" size="sm" onClick={handleLogout}>
+          <Button variant="ghost" size="sm" onClick={logout}>
             로그아웃
           </Button>
         </div>

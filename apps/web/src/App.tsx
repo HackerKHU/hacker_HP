@@ -1,33 +1,52 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { homePath, useSession } from './auth/session'
 import { AppLayout } from './components/layout/AppLayout'
+import { Button } from './components/ui/button'
+import { LandingPage } from './features/landing/LandingPage'
+import { PrivacyPage } from './features/legal/PrivacyPage'
 import { NoticeDetailPage } from './features/notices/NoticeDetailPage'
 import { NoticeListPage } from './features/notices/NoticeListPage'
 import { GuestOnly, PendingOnly, RequireActive } from './routes/guards'
+
+/**
+ * 로그인 화면 자리. **실제 구현은 #37이다.**
+ *
+ * 가입도 로그인도 구글 버튼 하나로 한다 (spec §3-1-4, 3-3 결정 13). 여기서는 버튼을
+ * 그려만 두고 아무 데도 연결하지 않는다 — 동작하는 척하는 가짜 로그인을 두면 검토하는
+ * 사람이 진짜인지 헷갈리고, 어차피 #37이 걷어낼 자리다.
+ */
+function LoginScreen() {
+  return (
+    <>
+      <Placeholder title="로그인" />
+      <Button type="button" className="mt-6">
+        구글 계정으로 로그인
+      </Button>
+    </>
+  )
+}
 
 /** 화면은 아직 없다. 이름만 렌더한다 — 각 화면은 자기 이슈에서 만든다. */
 function Placeholder({ title }: { title: string }) {
   return <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
 }
 
-/** 진입점. 로그인 상태에 따라 각자 홈으로 보낸다. */
-function Index() {
-  const session = useSession()
-  if (session.state.kind === 'loading') return <p>불러오는 중</p>
-  return <Navigate to={homePath(session)} replace />
-}
-
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<Index />} />
+      {/*
+        공개 랜딩. **가드를 붙이지 않는다** — 어느 세션 상태에서도 열려야 한다
+        (spec 5-TESTING T-57~T-61). PendingOnly나 RequireActive 아래로 옮기지 말 것.
+      */}
+      <Route path="/" element={<LandingPage />} />
+      {/* 개인정보처리방침도 공개다. 랜딩과 같은 취급이라 가드를 붙이지 않는다. */}
+      <Route path="/privacy" element={<PrivacyPage />} />
 
       {/*
         비로그인 진입점은 /login 하나다. 가입도 같은 구글 버튼으로 하므로
         별도 /signup은 없다 (2-1 §2-1-8, 3-3 결정 13).
       */}
       <Route element={<GuestOnly />}>
-        <Route path="/login" element={<Placeholder title="로그인" />} />
+        <Route path="/login" element={<LoginScreen />} />
       </Route>
 
       {/* 여기부터 AppLayout(헤더 + 본문)을 쓴다. /login에는 붙이지 않는다. */}

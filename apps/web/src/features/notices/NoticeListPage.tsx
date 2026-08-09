@@ -114,6 +114,7 @@ export function NoticeListPage() {
    * 다시 태운다 — 명령형으로 따로 부르면 그 요청은 cleanup이 취소하지 못해서,
    * 페이지를 옮기는 중 토글하면 이전 페이지의 응답이 새 페이지 데이터를 덮어쓴다.
    */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey는 본문에서 읽지 않고 재조회 트리거로만 쓴다.
   useEffect(() => {
     let alive = true
     setData(null)
@@ -131,8 +132,6 @@ export function NoticeListPage() {
     return () => {
       alive = false
     }
-    // biome-ignore lint/correctness/useExhaustiveDependencies(reloadKey): 본문에서 읽지 않는다.
-    // 토글 후 이 effect를 다시 태우기 위한 트리거이며, 이것이 유일한 재조회 경로다.
   }, [page, reloadKey, reportApiError])
 
   /**

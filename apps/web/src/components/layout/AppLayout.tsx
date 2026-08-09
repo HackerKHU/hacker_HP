@@ -1,4 +1,4 @@
-import { Outlet } from 'react-router-dom'
+import { Link, Outlet } from 'react-router-dom'
 import { AppHeader } from './AppHeader'
 
 /**
@@ -16,6 +16,24 @@ export function AppLayout() {
       <main className="mx-auto w-full max-w-[1152px] px-6 py-8">
         <Outlet />
       </main>
+
+      {/*
+        헤더 로고는 부원 홈(/notices)으로 간다. 공개 페이지로 나가는 길은 여기 남긴다 —
+        로고를 눌렀는데 소개 페이지가 나오면 부원 입장에서 어색하다.
+      */}
+      <footer className="mt-16 border-t border-border">
+        <div className="mx-auto flex w-full max-w-[1152px] gap-4 px-6 py-6 text-sm text-muted-foreground">
+          <Link to="/" className="transition-colors hover:text-foreground">
+            동아리 소개
+          </Link>
+          <Link
+            to="/privacy"
+            className="transition-colors hover:text-foreground"
+          >
+            개인정보처리방침
+          </Link>
+        </div>
+      </footer>
     </div>
   )
 }

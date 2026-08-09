@@ -1,6 +1,6 @@
 # hacker_HP Web
 
-React 19, TypeScript, Vite로 만든 프론트엔드 애플리케이션이다. 현재 라우터와 권한 라우트 가드, 세션 조회, 공통 레이아웃까지 구현되어 있고 각 화면은 이름만 렌더하는 플레이스홀더다.
+React 19, TypeScript, Vite로 만든 프론트엔드 애플리케이션이다. 공개 랜딩·개인정보처리방침·공지 목록과 상세는 실제 화면이고, 로그인·신청·회원 관리는 아직 이름만 렌더하는 플레이스홀더다.
 
 ## UI 기반
 
@@ -42,10 +42,13 @@ cp .env.example .env.local
 |---|---|
 | `user` (기본) | ACTIVE / USER — 관리자 라우트가 막힌다 |
 | `admin` | ACTIVE / ADMIN — 관리자 라우트가 열린다 |
-| `pending` | PENDING — 대기중 안내 화면만 접근 가능 |
+| `applying` | PENDING, **신청서 제출 전** — 구글 로그인만 마친 상태. 학번이 비어 있다 |
+| `pending` | PENDING, **신청서 제출 후** — 승인 대기 |
 | `guest` | 세션 없음 — 보호 라우트가 로그인 화면으로 간다 |
-| `suspended` | 로그인이 403 `SUSPENDED`로 차단 |
 | `blocked` | 세션은 있으나 서버가 403 `PENDING_APPROVAL`로 차단 |
+
+`applying`과 `pending`을 나눈 것은 화면이 신청 폼과 대기 안내를 갈라야 하기 때문이다
+(spec §3-1-4 — 승인 대상은 신청서를 낸 계정으로 한정된다).
 
 **픽스처는 임시다.** [`src/api/fixtures.ts`](src/api/fixtures.ts)는 백엔드가 붙으면 통째로 지우고 `src/api/auth.ts`의 `VITE_USE_FIXTURES` 분기도 함께 제거한다.
 

@@ -54,7 +54,8 @@ export function PendingOnly() {
  * ACTIVE 전용. `role`을 주면 그 역할까지 요구한다.
  *
  * SUSPENDED용 라우트도 분기도 두지 않는다 (spec §3-1-2 — 접근 가능 범위 "없음").
- * 정지 계정은 세션에 없으므로 여기서는 비로그인과 구별되지 않고 로그인 화면으로 간다.
+ * 정지 계정은 세션 유니온의 `suspended`로 남아 `GuestOnly`가 따로 분기하지만, 이 가드
+ * 입장에서는 `active`가 아니라는 점만 중요해 로그인 화면으로 보낸다.
  */
 export function RequireActive({ requiredRole }: { requiredRole?: Role }) {
   const session = useSession()

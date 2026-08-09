@@ -2,9 +2,20 @@ import path from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
+import { SITE_ORIGIN } from './site.config.ts'
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    {
+      // 링크 미리보기 봇은 대부분 **절대 URL**을 요구한다. 상대경로면 이미지를 못 읽어
+      // 미리보기에 그림이 안 뜬다. 빌드·개발 양쪽에서 같은 값으로 치환한다.
+      name: 'inject-site-origin',
+      transformIndexHtml: (html: string) =>
+        html.replaceAll('%SITE_ORIGIN%', SITE_ORIGIN),
+    },
+  ],
   resolve: {
     // shadcn/ui가 생성하는 컴포넌트가 @/ 별칭을 쓴다. tsconfig.app.json의 paths와 같이 맞춘다.
     alias: { '@': path.resolve(import.meta.dirname, './src') },
