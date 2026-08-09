@@ -1,4 +1,5 @@
 import { request } from './client'
+import { fixtureLogin, fixtureMe, USE_FIXTURES } from './fixtures'
 import type { User } from './types'
 
 export interface SignupRequest {
@@ -25,6 +26,7 @@ export function signup(body: SignupRequest): Promise<void> {
  * 신원은 `getMe()`로만 조회한다 — 새로고침했을 때와 같은 경로를 쓴다.
  */
 export function login(body: LoginRequest): Promise<void> {
+  if (USE_FIXTURES) return fixtureLogin()
   return request('/auth/login', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -32,9 +34,11 @@ export function login(body: LoginRequest): Promise<void> {
 }
 
 export function logout(): Promise<void> {
+  if (USE_FIXTURES) return Promise.resolve()
   return request('/auth/logout', { method: 'POST' })
 }
 
 export function getMe(): Promise<User> {
+  if (USE_FIXTURES) return fixtureMe()
   return request<User>('/auth/me')
 }
