@@ -1,5 +1,5 @@
 import { Pin } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { list, type Notice, togglePin } from '@/api/notices'
 import type { Page } from '@/api/types'
@@ -30,6 +30,19 @@ function isNew(createdAt: string): boolean {
   return Date.now() - new Date(createdAt).getTime() < NEW_WITHIN_DAYS * DAY_MS
 }
 
+/**
+ * URL의 `page`를 0 이상 정수로 수렴시킨다.
+ *
+ * `Math.max(0, Number(...))`만으로는 `?page=1.5`가 그대로 통과해 API의 정수 계약을 깨고,
+ * 어느 정수 페이지 링크에도 `aria-current`가 붙지 않는다. NaN·Infinity·음수·소수를
+ * 모두 여기서 거른다.
+ */
+function parsePage(raw: string | null): number {
+  const value = Number(raw ?? '0')
+  if (!Number.isFinite(value)) return 0
+  return Math.max(0, Math.floor(value))
+}
+
 /** 서버는 UTC로 내려준다. 목록에서는 날짜까지만 보여준다. */
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('ko-KR', {
@@ -46,7 +59,7 @@ export function NoticeListPage() {
   // URL의 `page`는 API 파라미터와 같은 **0-기반**이다 (spec §3-2-8). 화면 라벨만 1을
   // 더해 보여준다 — URL과 API 사이에 변환을 두면 그 자리가 off-by-one이 사는 곳이 된다.
   const [searchParams, setSearchParams] = useSearchParams()
-  const page = Math.max(0, Number(searchParams.get('page') ?? '0') || 0)
+  const page = parsePage(searchParams.get('page'))
 
   const { state, reportApiError } = useSession()
   const isAdmin = state.kind === 'active' && state.user.role === 'ADMIN'
@@ -56,33 +69,52 @@ export function NoticeListPage() {
   // 관리 모드는 URL에 넣지 않는다. 페이지 번호와 달리 공유하거나 새로고침으로 유지할
   // 이유가 없는 일시적 UI 상태다.
   const [managing, setManaging] = useState(false)
-  const [pinning, setPinning] = useState<number | null>(null)
+  // 토글은 목록 정렬을 바꾼다. 하나가 진행 중이면 전부 잠근다 — 항목별로 추적하는 것보다
+  // 짧고, 동시에 여러 개를 누르는 것이 애초에 의미가 없다.
+  const [pinning, setPinning] = useState(false)
   const [pinFailed, setPinFailed] = useState(false)
+  // 재조회 트리거. 값을 올리면 아래 effect가 다시 돈다.
+  const [reloadKey, setReloadKey] = useState(0)
 
-  const load = useCallback(
-    (signal: { alive: boolean }) =>
-      list({ page, size: PAGE_SIZE })
-        .then((result) => {
-          if (signal.alive) setData(result)
-        })
-        .catch((error: unknown) => {
-          if (!signal.alive) return
-          // #36 계약 — 403 PENDING_APPROVAL이면 가드가 대기 화면으로 되돌린다.
-          reportApiError(error)
-          setFailed(true)
-        }),
-    [page, reportApiError],
-  )
-
+  /**
+   * **목록을 조회하는 유일한 경로다.** 토글 후 재조회도 `reloadKey`를 올려 이 effect를
+   * 다시 태운다 — 명령형으로 따로 부르면 그 요청은 cleanup이 취소하지 못해서,
+   * 페이지를 옮기는 중 토글하면 이전 페이지의 응답이 새 페이지 데이터를 덮어쓴다.
+   */
   useEffect(() => {
-    const signal = { alive: true }
+    let alive = true
     setData(null)
     setFailed(false)
-    load(signal)
+    list({ page, size: PAGE_SIZE })
+      .then((result) => {
+        if (alive) setData(result)
+      })
+      .catch((error: unknown) => {
+        if (!alive) return
+        // #36 계약 — 403 PENDING_APPROVAL이면 가드가 대기 화면으로 되돌린다.
+        reportApiError(error)
+        setFailed(true)
+      })
     return () => {
-      signal.alive = false
+      alive = false
     }
-  }, [load])
+  }, [page, reloadKey, reportApiError])
+
+  /**
+   * F-2 — 범위를 넘은 `page`로 들어오면 마지막 유효 페이지로 되돌린다.
+   * 그냥 두면 공지가 있는데도 "등록된 공지가 없습니다"가 뜬다.
+   *
+   * `totalPages`가 0이면(공지가 하나도 없으면) 움직이지 않는다. 되돌릴 유효 페이지가
+   * 없어서 무한히 이동하게 된다. 이동 후에는 `page < totalPages`가 되어 조건이 다시
+   * 참이 되지 않으므로 루프가 생기지 않는다.
+   */
+  useEffect(() => {
+    if (!data) return
+    const { totalPages } = data.page
+    if (totalPages >= 1 && page >= totalPages) {
+      setSearchParams({ page: String(totalPages - 1) }, { replace: true })
+    }
+  }, [data, page, setSearchParams])
 
   function goTo(next: number) {
     setSearchParams(next === 0 ? {} : { page: String(next) })
@@ -96,16 +128,16 @@ export function NoticeListPage() {
    * 생긴다. 되돌릴 것도 없어진다.
    */
   async function handleTogglePin(id: number) {
-    setPinning(id)
+    setPinning(true)
     setPinFailed(false)
     try {
       await togglePin(id)
-      await load({ alive: true })
+      setReloadKey((key) => key + 1)
     } catch (error: unknown) {
       reportApiError(error)
       setPinFailed(true)
     } finally {
-      setPinning(null)
+      setPinning(false)
     }
   }
 
@@ -217,7 +249,7 @@ export function NoticeListPage() {
                   variant="ghost"
                   size="sm"
                   className="ml-2 shrink-0"
-                  disabled={pinning === notice.id}
+                  disabled={pinning}
                   onClick={() => handleTogglePin(notice.id)}
                 >
                   {notice.isPinned ? '고정 해제' : '고정'}
