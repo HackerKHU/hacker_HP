@@ -1,6 +1,16 @@
 # hacker_HP Web
 
-React 19, TypeScript, Vite로 만든 프론트엔드 애플리케이션이다. 현재 라우터와 권한 라우트 가드, 세션 조회까지 구현되어 있고 각 화면은 이름만 렌더하는 플레이스홀더다.
+React 19, TypeScript, Vite로 만든 프론트엔드 애플리케이션이다. 현재 라우터와 권한 라우트 가드, 세션 조회, 공통 레이아웃까지 구현되어 있고 각 화면은 이름만 렌더하는 플레이스홀더다.
+
+## UI 기반
+
+shadcn/ui + Tailwind CSS를 쓴다 ([3-3 결정 10](../../spec/3-3-DESIGN-DECISIONS.md#3-3-11-결정-10--ui-기반으로-shadcnui--tailwind를-쓴다)). 컴포넌트는 `npx shadcn@latest add <이름>`으로 `src/components/ui/`에 복사해 쓰며, **그 화면을 만드는 이슈에서 필요한 것만** 추가한다.
+
+색 토큰은 `src/index.css`에 있고 이름은 shadcn 규약(`--background`, `--foreground`, `--card`, `--border`, `--muted-foreground` …)을 그대로 쓴다. 컴포넌트들이 이 이름을 참조하므로 별도 이름 체계를 만들지 않는다. 값은 무채색뿐이며 유채색을 넣지 않는다.
+
+**`:root`가 라이트(로그인 이후 화면), `.dark`가 다크(랜딩)다.** 랜딩은 최상위를 `.dark`로 감싸 팔레트를 뒤집어 쓴다.
+
+폰트 Pretendard는 `index.html`에서 jsDelivr CDN으로 받으며 버전을 고정해 두었다. CDN이 실패하면 `--font-sans`의 시스템 폰트로 저하될 뿐 화면은 깨지지 않는다 — 외부 의존이므로 CSP를 걸 때 이 호스트를 빠뜨리지 않는다.
 
 ## 요구 환경
 

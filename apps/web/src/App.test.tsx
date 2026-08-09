@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -9,10 +9,12 @@ import { SessionProvider, useSession } from './auth/session'
 const auth = vi.hoisted(() => ({
   me: (): Promise<User> =>
     Promise.reject(new Error('테스트가 지정하지 않았다')),
+  logout: (): Promise<void> => Promise.resolve(),
 }))
 
 vi.mock('./api/auth', () => ({
   getMe: () => auth.me(),
+  logout: () => auth.logout(),
 }))
 
 const BASE: User = {
@@ -50,7 +52,16 @@ function renderAt(path: string, extra?: React.ReactNode) {
 beforeEach(() => {
   auth.me = () =>
     Promise.reject(new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'))
+  auth.logout = () => Promise.resolve()
 })
+
+/** 메뉴 링크 이름 목록. 플레이스홀더 화면 제목과 겹치므로 범위를 nav 안으로 좁힌다. */
+function menuLabels() {
+  const nav = screen.getByRole('navigation', { name: '주요 메뉴' })
+  return within(nav)
+    .queryAllByRole('link')
+    .map((link) => link.textContent)
+}
 
 describe('라우트 가드', () => {
   it('PENDING 사용자가 보호 라우트에 가면 대기중 안내로 되돌린다', async () => {
@@ -120,5 +131,70 @@ describe('라우트 가드', () => {
     expect(
       await screen.findByRole('heading', { name: '로그인' }),
     ).toBeInTheDocument()
+  })
+})
+
+describe('헤더 메뉴 노출', () => {
+  it('ADMIN에게는 관리 메뉴까지 보인다', async () => {
+    auth.me = () => Promise.resolve({ ...BASE, role: 'ADMIN' })
+
+    renderAt('/admin/notices')
+    await screen.findByRole('heading', { name: '공지 관리' })
+
+    expect(menuLabels()).toEqual(['공지', '공지 관리', '회원 관리'])
+  })
+
+  it('ACTIVE USER에게는 공지만 보이고 관리 메뉴는 없다', async () => {
+    auth.me = () => Promise.resolve(BASE)
+
+    renderAt('/notices')
+    await screen.findByRole('heading', { name: '공지 목록' })
+
+    expect(menuLabels()).toEqual(['공지'])
+  })
+
+  it('PENDING에게는 메뉴가 없고 로그아웃만 있다', async () => {
+    auth.me = () =>
+      Promise.resolve({ ...BASE, status: 'PENDING', approvedAt: null })
+
+    renderAt('/pending')
+    await screen.findByRole('heading', { name: '승인 대기' })
+
+    expect(menuLabels()).toEqual([])
+    expect(screen.getByRole('button', { name: '로그아웃' })).toBeInTheDocument()
+  })
+})
+
+describe('로그아웃', () => {
+  it('성공하면 세션을 비우고 로그인 화면으로 보낸다', async () => {
+    auth.me = () => Promise.resolve(BASE)
+
+    renderAt('/notices')
+    fireEvent.click(await screen.findByRole('button', { name: '로그아웃' }))
+
+    expect(
+      await screen.findByRole('heading', { name: '로그인' }),
+    ).toBeInTheDocument()
+  })
+
+  // 회귀 — 실패를 성공처럼 처리하면 서버 세션(HttpOnly 쿠키)이 살아 있는데 사용자는
+  // 로그아웃됐다고 믿는다. 공용 PC에서 다음 사람이 남의 계정으로 들어가진다.
+  it('서버 오류로 실패하면 세션을 유지하고 이동하지 않는다', async () => {
+    auth.me = () => Promise.resolve(BASE)
+    auth.logout = () =>
+      Promise.reject(
+        new ApiError('NETWORK_ERROR', 0, '서버에 연결하지 못했습니다.'),
+      )
+
+    renderAt('/notices')
+    fireEvent.click(await screen.findByRole('button', { name: '로그아웃' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '로그아웃하지 못했습니다',
+    )
+    expect(
+      screen.getByRole('heading', { name: '공지 목록' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '로그인' })).toBeNull()
   })
 })

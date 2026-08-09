@@ -7,6 +7,17 @@
       name="description"
       content="HackerKHU 동아리 구성원을 위한 내부 홈페이지"
     />
+    <!--
+      Pretendard 동적 서브셋. 한글 웹폰트 전체는 수 MB라, unicode-range로 쪼개
+      브라우저가 실제로 쓰는 조각만 받게 한다. 로딩 실패 시 index.css의 --font-sans
+      폴백(system-ui → Apple SD Gothic Neo → Noto Sans KR)으로 떨어진다.
+    -->
+    <link
+      rel="stylesheet"
+      as="style"
+      crossorigin
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+    />
     <title>HackerKHU</title>
   </head>
   <body>
