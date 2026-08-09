@@ -1,6 +1,8 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { homePath, useSession } from './auth/session'
 import { AppLayout } from './components/layout/AppLayout'
+import { NoticeDetailPage } from './features/notices/NoticeDetailPage'
+import { NoticeListPage } from './features/notices/NoticeListPage'
 import { GuestOnly, PendingOnly, RequireActive } from './routes/guards'
 
 /** 화면은 아직 없다. 이름만 렌더한다 — 각 화면은 자기 이슈에서 만든다. */
@@ -35,11 +37,8 @@ function App() {
       {/* 부원 화면 — ACTIVE(USER·ADMIN) */}
       <Route element={<RequireActive />}>
         <Route element={<AppLayout />}>
-          <Route path="/notices" element={<Placeholder title="공지 목록" />} />
-          <Route
-            path="/notices/:id"
-            element={<Placeholder title="공지 상세" />}
-          />
+          <Route path="/notices" element={<NoticeListPage />} />
+          <Route path="/notices/:id" element={<NoticeDetailPage />} />
         </Route>
       </Route>
 

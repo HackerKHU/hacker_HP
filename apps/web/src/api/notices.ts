@@ -1,4 +1,5 @@
 import { request, toQuery } from './client'
+import { fixtureNotice, fixtureNotices } from './fixtures'
 import type { Page } from './types'
 
 export interface Notice {
@@ -17,10 +18,15 @@ export type NoticeQuery = {
 
 /** 정렬은 서버가 `is_pinned DESC, created_at DESC`로 고정한다 (spec §2-1-6). */
 export function list(query: NoticeQuery = {}): Promise<Page<Notice>> {
+  // 플래그는 함수 안에서 리터럴로 평가한다 — 이유는 `auth.ts` 상단 주석에 있다.
+  if (import.meta.env.VITE_USE_FIXTURES === 'true') {
+    return fixtureNotices(query.page, query.size)
+  }
   return request<Page<Notice>>(`/notices${toQuery(query)}`)
 }
 
 export function get(id: number): Promise<Notice> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true') return fixtureNotice(id)
   return request<Notice>(`/notices/${id}`)
 }
 

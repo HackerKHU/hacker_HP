@@ -17,6 +17,17 @@ vi.mock('./api/auth', () => ({
   logout: () => auth.logout(),
 }))
 
+// 이 파일은 라우트 가드와 헤더만 본다. 공지 화면이 실제 요청을 내보내면
+// 로딩 실패 alert가 생겨 로그아웃 alert와 섞인다.
+vi.mock('./api/notices', () => ({
+  list: () =>
+    Promise.resolve({
+      content: [],
+      page: { size: 10, number: 0, totalElements: 0, totalPages: 0 },
+    }),
+  get: () => Promise.reject(new Error('이 파일에서는 쓰지 않는다')),
+}))
+
 const BASE: User = {
   id: 1,
   email: 'member@khu.ac.kr',

@@ -12,7 +12,8 @@
  * 타입이 계약을 강제하는 것이 이 파일의 존재 이유다.
  */
 import { ApiError } from './client'
-import type { User } from './types'
+import type { Notice } from './notices'
+import type { Page, User } from './types'
 
 /**
  * 어떤 사용자로 볼지 / 어떤 실패를 볼지 고르는 스위치. `.env.local`에서 바꾼다.
@@ -102,4 +103,100 @@ export function fixtureLogin(): Promise<void> {
     )
   }
   return Promise.resolve()
+}
+
+// ── 공지 ────────────────────────────────────────────────────────────────────
+
+const FIXTURE_PAGE_SIZE = 10
+
+/**
+ * 서버가 `is_pinned DESC, created_at DESC`로 정렬해 내려준다 (spec §2-1-6).
+ * **픽스처도 그 순서로 이미 정렬된 상태로 둔다.** 화면에서 다시 정렬하면 서버가 붙었을 때
+ * 클라이언트 정렬이 남아 서버 순서를 덮어쓴다.
+ */
+const NOTICES: Notice[] = [
+  {
+    id: 101,
+    title: '2026학년도 1학기 정기 세미나 일정 안내 및 참가 신청 방법 공지',
+    content:
+      '1학기 정기 세미나 일정을 안내합니다.\n\n매주 수요일 저녁 7시, 전자정보대학관 305호에서 진행합니다.\n주제는 격주로 바뀌며 첫 주는 리버싱 기초입니다.\n\n참가 신청은 동아리방 화이트보드에 이름을 적어주세요.',
+    isPinned: true,
+    createdAt: '2026-08-05T09:00:00Z',
+    updatedAt: '2026-08-05T09:00:00Z',
+  },
+  {
+    id: 102,
+    title: '동아리방 출입 규칙 변경',
+    content:
+      '이번 학기부터 동아리방 출입 카드 등록이 필요합니다.\n\n미등록 상태로는 야간 출입이 제한됩니다.\n등록은 운영진에게 문의해주세요.',
+    isPinned: true,
+    createdAt: '2026-07-28T02:30:00Z',
+    updatedAt: '2026-07-30T05:10:00Z',
+  },
+]
+
+const TOPICS = [
+  '스터디 모집 안내',
+  '해커톤 참가팀 모집',
+  '정기 총회 결과 공유',
+  'CTF 대회 후기 공유 및 다음 대회 참가 안내드립니다',
+  '서버 점검 안내',
+  '신입 부원 환영회',
+  '외부 강연 신청',
+  '동아리 티셔츠 수요 조사',
+  '기자재 대여 규정 안내 — 노트북과 라즈베리파이 반납 기한을 지켜주세요',
+  '방학 중 운영 일정',
+  '스터디 결과 발표회',
+  '회비 납부 안내',
+  '졸업생 멘토링 신청',
+  '보안 취약점 제보 채널 안내',
+  '학술제 부스 운영 인원 모집',
+  '동아리방 청소 당번',
+  '리눅스 기초 스터디 자료 공유',
+  '워크숍 장소 투표',
+  '프로젝트 팀 빌딩 안내',
+  '연말 정산 보고',
+  '신규 서버 도입 안내',
+  '홈페이지 개편 진행 상황',
+  '외부 협력 동아리 교류전',
+]
+
+for (const [index, topic] of TOPICS.entries()) {
+  // 8월 4일부터 하루씩 거슬러 올라간다. 날짜가 서로 달라야 정렬이 눈에 보인다.
+  const day = 4 - index
+  const date = new Date(Date.UTC(2026, 7, day, 1, 0, 0))
+  NOTICES.push({
+    id: 100 - index,
+    title: topic,
+    content: `${topic}에 대한 상세 내용입니다.\n\n자세한 사항은 운영진에게 문의해주세요.`,
+    isPinned: false,
+    createdAt: date.toISOString(),
+    updatedAt: date.toISOString(),
+  })
+}
+
+export function fixtureNotices(
+  page = 0,
+  size = FIXTURE_PAGE_SIZE,
+): Promise<Page<Notice>> {
+  const start = page * size
+  return Promise.resolve({
+    content: NOTICES.slice(start, start + size),
+    page: {
+      size,
+      number: page,
+      totalElements: NOTICES.length,
+      totalPages: Math.ceil(NOTICES.length / size),
+    },
+  })
+}
+
+export function fixtureNotice(id: number): Promise<Notice> {
+  const found = NOTICES.find((notice) => notice.id === id)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '공지를 찾을 수 없습니다.'),
+    )
+  }
+  return Promise.resolve(found)
 }
