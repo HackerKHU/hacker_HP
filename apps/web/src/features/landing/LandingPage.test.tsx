@@ -1,10 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import App from '@/App'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
-import { CLUB, FAQS } from './content'
-import { LandingPage } from './LandingPage'
+import { CLUB, FAQS, isPlaceholder } from './content'
 
 const auth = vi.hoisted(() => ({
   me: (): Promise<User> =>
@@ -27,11 +27,18 @@ const BASE: User = {
   approvedAt: '2026-03-03T09:00:00Z',
 }
 
+/**
+ * `LandingPage`를 직접 그리지 않고 **`/`로 앱을 띄운다.**
+ *
+ * 컴포넌트를 직접 렌더하면 라우트 배선을 건너뛴다 — `/`가 가드 뒤로 들어가도
+ * 테스트는 계속 통과한다. T-57~T-61이 확인하려는 건 "가드에 걸리지 않는다"이므로
+ * 실제 경로로 도달하는지까지 봐야 의미가 있다.
+ */
 function renderLanding() {
   render(
     <MemoryRouter initialEntries={['/']}>
       <SessionProvider>
-        <LandingPage />
+        <App />
       </SessionProvider>
     </MemoryRouter>,
   )
@@ -41,7 +48,11 @@ let fetchSpy: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   auth.me = () => Promise.reject(new Error('비로그인'))
-  // T-24 — 랜딩이 fetch/XHR을 부르는지 감시한다. 실제로 불리면 테스트가 잡는다.
+  /*
+   * 이 파일은 `@/api/auth`를 목킹하므로 세션 확인조차 나가지 않는다. 따라서 여기서는
+   * fetch가 **0건**이어야 하고, 불리면 목킹을 우회한 요청이라는 뜻이라 즉시 실패시킨다.
+   * T-60의 실제 검증(세션 확인 1회만 허용)은 목킹하지 않는 `LandingNetwork.test.tsx`가 한다.
+   */
   fetchSpy = vi.fn(() =>
     Promise.reject(new Error('랜딩은 fetch를 부르지 않는다')),
   )
@@ -82,14 +93,6 @@ describe('공개 랜딩', () => {
     expect(screen.queryByRole('heading', { name: '로그인' })).toBeNull()
   })
 
-  // T-24 — 랜딩은 정적이다 (spec 3-3 결정 8).
-  it('렌더 중 fetch를 한 번도 부르지 않는다', async () => {
-    renderLanding()
-    await screen.findByRole('heading', { level: 1 })
-
-    expect(fetchSpy).not.toHaveBeenCalled()
-  })
-
   it('FAQ 항목을 누르면 답이 펼쳐진다', async () => {
     renderLanding()
 
@@ -111,11 +114,19 @@ describe('랜딩 헤더 상태별 진입점', () => {
       await screen.findByRole('link', { name: '로그인' }),
     ).toBeInTheDocument()
 
-    // 이 사이트 로그인이 아니라 동아리 가입이라 외부 폼으로 나간다.
-    expect(screen.getByRole('link', { name: '지원하기' })).toHaveAttribute(
-      'href',
-      CLUB.applyUrl,
-    )
+    /*
+     * 이 사이트 로그인이 아니라 동아리 가입이라 외부 폼으로 나간다. 다만 주소가 아직
+     * 자리표시자면 링크가 아니라 **잠긴 버튼**이어야 한다 — 살려두면 example.com으로 나간다.
+     */
+    if (isPlaceholder(CLUB.applyUrl)) {
+      expect(screen.getByRole('button', { name: '지원하기' })).toBeDisabled()
+      expect(screen.queryByRole('link', { name: '지원하기' })).toBeNull()
+    } else {
+      expect(screen.getByRole('link', { name: '지원하기' })).toHaveAttribute(
+        'href',
+        CLUB.applyUrl,
+      )
+    }
     expect(screen.queryByRole('button', { name: '로그아웃' })).toBeNull()
   })
 

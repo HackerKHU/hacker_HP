@@ -17,7 +17,7 @@
  * `docs/ops/infra.md`와 `spec/3-3-DESIGN-DECISIONS.md`.
  */
 
-export interface PrivacySection {
+interface PrivacySection {
   title: string
   paragraphs?: string[]
   items?: string[]

@@ -35,7 +35,7 @@ function App() {
     <Routes>
       {/*
         공개 랜딩. **가드를 붙이지 않는다** — 어느 세션 상태에서도 열려야 한다
-        (spec 5-TESTING T-21~T-25). PendingOnly나 RequireActive 아래로 옮기지 말 것.
+        (spec 5-TESTING T-57~T-61). PendingOnly나 RequireActive 아래로 옮기지 말 것.
       */}
       <Route path="/" element={<LandingPage />} />
       {/* 개인정보처리방침도 공개다. 랜딩과 같은 취급이라 가드를 붙이지 않는다. */}

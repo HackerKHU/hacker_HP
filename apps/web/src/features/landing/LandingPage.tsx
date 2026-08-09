@@ -8,7 +8,15 @@ import {
 } from '@/components/ui/accordion'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { ACTIVITIES, CLUB, FAQS, SECTIONS, STATS, SUPPORT } from './content'
+import {
+  ACTIVITIES,
+  CLUB,
+  FAQS,
+  isPlaceholder,
+  SECTIONS,
+  STATS,
+  SUPPORT,
+} from './content'
 import { PublicHeader } from './PublicHeader'
 
 /** 본문 컨테이너. 다른 섹션과 좌우 정렬을 맞추는 기준이다. */
@@ -288,9 +296,21 @@ function Support() {
       <p className="mt-8 max-w-2xl leading-8 text-muted-foreground">
         {SUPPORT.description}
       </p>
-      <Button asChild size="lg" className="mt-8">
-        <a href={mailto}>후원 문의하기</a>
-      </Button>
+      {isPlaceholder(SUPPORT.email) ? (
+        /* 주소가 없는 mailto는 빈 메일 창만 띄운다. 잠가서 아직 없다는 걸 드러낸다. */
+        <Button
+          size="lg"
+          className="mt-8"
+          disabled
+          title="문의 주소가 아직 없습니다"
+        >
+          후원 문의하기
+        </Button>
+      ) : (
+        <Button asChild size="lg" className="mt-8">
+          <a href={mailto}>후원 문의하기</a>
+        </Button>
+      )}
     </section>
   )
 }
@@ -338,9 +358,9 @@ function Footer() {
 
 /**
  * 공개 랜딩. **가드를 붙이지 않는다** — 비로그인·PENDING·ACTIVE·SUSPENDED 어느
- * 상태에서도 그대로 열려야 한다 (spec 5-TESTING T-21~T-25).
+ * 상태에서도 그대로 열려야 한다 (spec 5-TESTING T-57~T-61).
  *
- * **API를 호출하지 않는다** (spec 3-3 결정 8, T-24). 콘텐츠는 전부 `content.ts`에 있다.
+ * **API를 호출하지 않는다** (spec 3-3 결정 8, T-60). 콘텐츠는 전부 `content.ts`에 있다.
  *
  * 랜딩만 다크다. 최상위를 `.dark`로 감싸 #69에서 세운 토큰을 뒤집어 쓴다 —
  * 로그인 이후 화면은 라이트 그대로다.

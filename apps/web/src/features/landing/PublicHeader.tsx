@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { hasApplied, homePath, useSession } from '@/auth/session'
 import { useLogout } from '@/auth/useLogout'
 import { Button } from '@/components/ui/button'
-import { CLUB, SECTIONS } from './content'
+import { CLUB, isPlaceholder, SECTIONS } from './content'
 
 /**
  * 랜딩 전용 헤더. `AppHeader`와 별개 컴포넌트다 — 배경이 검정이고 메뉴가 라우트가 아니라
@@ -59,15 +59,29 @@ export function PublicHeader() {
                  * 이 사이트 로그인이 아니라 동아리 가입이라 가는 곳이 다르다.
                  * 강조(흰색)를 준 것은 랜딩을 처음 보는 사람이 대부분이기 때문이다.
                  */}
-                <Button asChild size="sm">
-                  <a
-                    href={CLUB.applyUrl}
-                    target="_blank"
-                    rel="noreferrer noopener"
+                {isPlaceholder(CLUB.applyUrl) ? (
+                  /*
+                   * 모집 폼 주소가 아직 없다. 링크를 살려두면 눌러서 `example.com`으로
+                   * 나간다 — 자리표시자가 아니라 **고장난 링크**다. 잠가서 티를 낸다.
+                   */
+                  <Button
+                    size="sm"
+                    disabled
+                    title="모집 폼 주소가 아직 없습니다"
                   >
                     지원하기
-                  </a>
-                </Button>
+                  </Button>
+                ) : (
+                  <Button asChild size="sm">
+                    <a
+                      href={CLUB.applyUrl}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                    >
+                      지원하기
+                    </a>
+                  </Button>
+                )}
                 <Button asChild variant="outline" size="sm">
                   <Link to="/login">로그인</Link>
                 </Button>

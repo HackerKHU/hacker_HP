@@ -12,6 +12,9 @@
  * 않는다. 나중에 관리자 편집 기능이 붙으면 **이 파일이 API 응답으로 바뀐다.**
  */
 
+/** 동아리방. 주소 세부와 FAQ 답변이 같이 쓴다 — 두 곳에 숫자를 따로 적지 않는다. */
+const ROOM = '전자정보대학 241-6호'
+
 export const CLUB = {
   name: 'HACKER',
   fullName: '경희대학교 소프트웨어융합대학 학술동아리 해커',
@@ -33,7 +36,6 @@ export const CLUB = {
     '전문 지식을 탐구하는 스터디부터 함께 땀 흘리는 여러 소모임까지, 컴퓨터공학도의 건강한 라이프스타일을 설계합니다.',
     '1987년부터 이어져 온 경희대학교 소프트웨어융합대학 학술동아리입니다.',
   ],
-  room: '전자정보대학 241-6호',
   instagram: 'https://www.instagram.com/khu_hacker/',
   /**
    * 동아리 지원(모집) 폼. **이 사이트 회원가입이 아니라 동아리 가입이다.**
@@ -53,11 +55,11 @@ export const CLUB = {
   address: {
     postalCode: '17104',
     road: '경기도 용인시 기흥구 덕영대로 1732',
-    detail: '경희대학교 국제캠퍼스 전자정보대학 241-6호',
+    detail: `경희대학교 국제캠퍼스 ${ROOM}`,
   },
 } as const
 
-export interface Stat {
+interface Stat {
   /**
    * 카운트업 대상 숫자.
    *
@@ -88,7 +90,7 @@ export const STATS: Stat[] = [
 ]
 
 /** 활동 항목. 사진과 글을 한 카드에 담아 가로로 흐른다. */
-export interface Activity {
+interface Activity {
   /**
    * `public/landing/` 아래 경로. 실물이 없으면 빈 문자열로 두고 화면이 자리표시자를
    * 그리게 한다. 파일을 넣는 방법은 `public/landing/README.md` 참고.
@@ -182,7 +184,7 @@ export const ACTIVITIES: Activity[] = [
   },
 ]
 
-export interface Faq {
+interface Faq {
   question: string
   answer: string
 }
@@ -209,7 +211,7 @@ export const FAQS: Faq[] = [
   },
   {
     question: '동아리방은 어디인가요?',
-    answer: '전자정보대학 241-6호입니다.',
+    answer: `${ROOM}입니다.`,
   },
   {
     question: '모집은 언제 하나요?',
@@ -226,6 +228,16 @@ export const SUPPORT = {
   /** 메일 제목. 받는 쪽에서 분류하기 쉽게 고정 문구를 둔다 */
   subject: '후원 문의',
 } as const
+
+/**
+ * 아직 채워지지 않은 자리표시자인지.
+ *
+ * 값이 비어 있는데 링크를 살려두면 눌러서 `example.com`으로 나간다. 자리표시자 표시가
+ * 아니라 **고장난 링크**이므로, 화면은 이 값을 보고 버튼을 잠근다.
+ */
+export function isPlaceholder(value: string): boolean {
+  return value.includes('TODO')
+}
 
 /** 헤더와 푸터가 같이 쓰는 목록. 순서가 곧 화면 순서다. */
 export const SECTIONS = [

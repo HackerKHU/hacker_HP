@@ -2,15 +2,7 @@ import path from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
-
-/**
- * 배포 도메인. `og:url`과 `og:image`가 같은 값을 쓰므로 **여기 한 곳에서만 관리한다.**
- *
- * ⚠️ TODO: 실제 도메인으로 교체한다 (#47). 도메인은 아직 미정이다
- * (spec 3-3 결정 5 — 도메인 없이 Vercel 프록시로 운영 중).
- * **`example.com`이 그대로 배포되면 링크 미리보기가 엉뚱한 곳을 가리킨다.**
- */
-const SITE_ORIGIN = 'https://example.com'
+import { SITE_ORIGIN } from './site.config.ts'
 
 export default defineConfig({
   plugins: [
