@@ -89,3 +89,45 @@ describe('공개 랜딩', () => {
     expect(await screen.findByText(first.answer)).toBeInTheDocument()
   })
 })
+describe('랜딩 헤더 상태별 진입점', () => {
+  it('비로그인에게는 지원하기와 로그인만 보인다', async () => {
+    auth.me = () => Promise.reject(new Error('비로그인'))
+
+    renderLanding()
+    expect(
+      await screen.findByRole('link', { name: '로그인' }),
+    ).toBeInTheDocument()
+
+    expect(screen.getByRole('link', { name: '지원하기' })).toHaveAttribute(
+      'href',
+      CLUB.applyUrl,
+    )
+    expect(screen.queryByRole('button', { name: '로그아웃' })).toBeNull()
+  })
+
+  // 신청해놓고 기다리는 사람이 랜딩에 왔을 때 자기 상태를 알 수 있어야 한다.
+  it('PENDING에게는 승인 대기 중 링크와 로그아웃이 보인다', async () => {
+    auth.me = () =>
+      Promise.resolve({ ...BASE, status: 'PENDING' as const, approvedAt: null })
+
+    renderLanding()
+
+    expect(
+      await screen.findByRole('link', { name: '승인 대기 중' }),
+    ).toHaveAttribute('href', '/pending')
+    expect(screen.getByRole('button', { name: '로그아웃' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '지원하기' })).toBeNull()
+  })
+
+  it('ACTIVE에게는 공지사항 링크와 로그아웃이 보인다', async () => {
+    auth.me = () => Promise.resolve(BASE)
+
+    renderLanding()
+
+    expect(
+      await screen.findByRole('link', { name: '공지사항' }),
+    ).toHaveAttribute('href', '/notices')
+    expect(screen.getByRole('button', { name: '로그아웃' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '지원하기' })).toBeNull()
+  })
+})

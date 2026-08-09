@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { homePath, useSession } from '@/auth/session'
+import { useLogout } from '@/auth/useLogout'
 import { Button } from '@/components/ui/button'
 import { CLUB, SECTIONS } from './content'
 
@@ -9,6 +10,12 @@ import { CLUB, SECTIONS } from './content'
  */
 export function PublicHeader() {
   const session = useSession()
+  /*
+   * 로그아웃 후 이동하지 않는다. 랜딩은 비로그인도 볼 수 있는 페이지라 굳이 옮길 이유가
+   * 없고, 보던 자리에 그대로 남는 편이 덜 놀랍다. 세션이 비면 헤더가 비로그인 상태로
+   * 다시 그려져 로그아웃된 것이 화면에 드러난다.
+   */
+  const { logout, failed } = useLogout()
 
   return (
     <header className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur">
@@ -31,15 +38,35 @@ export function PublicHeader() {
 
         {/*
          * 세션을 확인하는 동안에는 아무것도 그리지 않는다. "로그인"을 먼저 그렸다가
-         * 곧바로 "공지사항 보기"로 바뀌면 깜빡인다.
-         *
-         * 로그인한 사람이 랜딩에 왔을 때 들어갈 문이 필요하다. 목적지는 `homePath`를
-         * 그대로 쓴다 — 상태별 홈 규칙이 두 벌이 되면 어긋난다.
+         * 곧바로 다른 것으로 바뀌면 깜빡인다.
          */}
         {session.state.kind !== 'loading' && (
           <div className="ml-auto flex items-center gap-2">
-            {session.state.kind === 'guest' ||
-            session.state.kind === 'suspended' ? (
+            {session.state.kind === 'active' ||
+            session.state.kind === 'pending' ? (
+              <>
+                {/*
+                 * 로그인한 사람이 랜딩에 왔을 때 들어갈 문과 나갈 문이 모두 필요하다.
+                 * **PENDING에게 "승인 대기 중"을 보여주는 것이 중요하다** — 신청해놓고
+                 * 기다리는 사람이 자기 상태를 여기서 알 수 있어야 한다.
+                 */}
+                <Button asChild variant="outline" size="sm">
+                  <Link to={homePath(session)}>
+                    {session.state.kind === 'pending'
+                      ? '승인 대기 중'
+                      : '공지사항'}
+                  </Link>
+                </Button>
+                {failed && (
+                  <p role="alert" className="text-sm text-muted-foreground">
+                    로그아웃하지 못했습니다. 다시 시도해 주세요.
+                  </p>
+                )}
+                <Button variant="ghost" size="sm" onClick={logout}>
+                  로그아웃
+                </Button>
+              </>
+            ) : (
               <>
                 {/*
                  * 두 버튼은 가는 곳이 완전히 다르다.
@@ -60,11 +87,6 @@ export function PublicHeader() {
                   <Link to="/login">로그인</Link>
                 </Button>
               </>
-            ) : (
-              // 이미 부원인 사람에게 지원 버튼은 의미가 없다.
-              <Button asChild variant="outline" size="sm">
-                <Link to={homePath(session)}>내 페이지</Link>
-              </Button>
             )}
           </div>
         )}
