@@ -93,11 +93,18 @@ export interface Activity {
    * `public/landing/` 아래 경로. 실물이 없으면 빈 문자열로 두고 화면이 자리표시자를
    * 그리게 한다. 파일을 넣는 방법은 `public/landing/README.md` 참고.
    *
-   * TODO: 항목마다 실제 사진을 넣고 `src`와 `alt`를 채운다.
+   * TODO: 신입생 멘토멘티와 축제 부스는 아직 사진이 없다. 나머지 여섯은 채워져 있다.
    */
   src: string
-  /** 스크린리더가 읽는 설명. 사진을 넣을 때 함께 채운다. */
+  /** 스크린리더가 읽는 설명. 장식이 아니라 내용이라 무엇이 찍혔는지 적는다. */
   alt: string
+  /**
+   * 카드(4:3 가로)에 맞춰 자를 때의 기준점. Tailwind `object-*` 유틸리티다.
+   *
+   * 세로 사진은 가로가 잘리지 않고 **위아래만** 잘린다 — 4:3 상자를 채우려면 폭에 맞춰
+   * 확대되기 때문이다. 그래서 좌우 치우침보다 세로 기준점이 중요하다.
+   */
+  crop?: string
   title: string
   /**
    * 두 문장까지. 설명이 아니라 인상을 주는 정도다 — 활동 섹션은 읽는 곳이 아니라 훑는 곳이다.
@@ -119,14 +126,14 @@ export interface Activity {
  */
 export const ACTIVITIES: Activity[] = [
   {
-    src: '',
-    alt: '',
+    src: '/landing/club.jpg',
+    alt: '볼링장에서 함께 볼링을 치는 부원들',
     title: '소모임',
     note: '스터디부터 볼링·스포츠까지, 지금 있는 6개 모두 부원이 직접 연 것입니다. 열면 동아리비로 지원합니다.',
   },
   {
-    src: '',
-    alt: '',
+    src: '/landing/education.jpg',
+    alt: '강의실 화면에 해커 교육 1일차 변수와 함수 슬라이드가 띄워진 신입생 교육 현장',
     title: '신입생 교육',
     note: '1학기는 파이썬, 2학기는 C++을 가르칩니다.',
   },
@@ -137,21 +144,23 @@ export const ACTIVITIES: Activity[] = [
     note: '멘토와 멘티가 조를 이룹니다. 밥약과 전공 스터디를 함께합니다.',
   },
   {
-    src: '',
-    alt: '',
+    src: '/landing/opening.jpg',
+    alt: '개강총회에 모인 부원들의 단체사진',
     title: '개강총회',
     note: '3월에 엽니다. 학기 시작을 함께 여는 자리입니다.',
   },
   {
-    src: '',
-    alt: '',
+    src: '/landing/samak.jpg',
+    // 유일한 세로 사진(900×1200)이다. 위아래가 잘리므로 얼굴이 남도록 위쪽으로 당긴다.
+    crop: 'object-[center_35%]',
+    alt: '벚꽃이 핀 사색의광장에 모인 부원들',
     // 외부인이 모르는 말이다. 이름만 두면 무슨 뜻인지 알 수 없다.
     title: '사막',
     note: '사색의광장에서 막걸리를 마시는 경희대 전통 행사로, 벚꽃 시기에 맞춰 4월에 엽니다. 잠깐 들렀다 가도 됩니다.',
   },
   {
-    src: '',
-    alt: '',
+    src: '/landing/mt.jpg',
+    alt: 'MT 숙소 실내에 모여 있는 부원들',
     title: 'MT',
     note: '5월에 1박 2일로 다녀옵니다. 선발대와 후발대로 나뉘어 원하는 시간에 합류할 수 있습니다.',
   },
@@ -162,8 +171,8 @@ export const ACTIVITIES: Activity[] = [
     note: '5월 학교 축제 기간에 부스를 운영합니다.',
   },
   {
-    src: '',
-    alt: '',
+    src: '/landing/closing.jpg',
+    alt: '종강총회를 마치고 가게 앞에서 찍은 단체사진',
     title: '종강총회',
     note: '한 학기를 마무리하는 자리입니다. 활동비 정산도 함께합니다.',
   },

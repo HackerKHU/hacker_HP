@@ -99,15 +99,21 @@ function Activities() {
               >
                 <div className="aspect-[4/3] overflow-hidden rounded-lg border border-border bg-card">
                   {activity.src ? (
+                    // 비율이 섞여 있다(대부분 4:3 가로, 사막만 3:4 세로). 카드 비율에
+                    // 맞춰 채우되 기준점은 항목별로 잡는다.
                     <img
                       src={activity.src}
                       alt={activity.alt}
-                      className="size-full object-cover"
+                      className={cn(
+                        'size-full object-cover',
+                        activity.crop ?? 'object-center',
+                      )}
                     />
                   ) : (
-                    // 실물이 없다. 비어 있다는 것이 드러나야 채워 넣을 생각을 한다.
+                    // 아직 사진이 없는 항목이다. 실제 사진과 나란히 놓여도 튀지 않게
+                    // 같은 상자를 쓰고, 비어 있다는 것만 조용히 드러낸다.
                     <div className="flex size-full items-center justify-center text-xs text-muted-foreground">
-                      사진 없음
+                      사진 준비 중
                     </div>
                   )}
                 </div>

@@ -101,6 +101,23 @@ const USERS: Record<
  */
 let application: { studentNo: string; name: string } | null = null
 
+/**
+ * 시나리오별 픽스처 사용자. **검토용 로그인 버튼(개발 전용)이 쓴다.**
+ * 서버를 다른 시나리오로 다시 띄우지 않고도 상태를 바꿔볼 수 있게 하려는 것이다.
+ */
+export const FIXTURE_LOGINS = [
+  { key: 'user', label: '부원으로 로그인' },
+  { key: 'admin', label: '관리자로 로그인' },
+  { key: 'applying', label: '신청 전 상태로' },
+  { key: 'pending', label: '신청 후 대기 상태로' },
+] as const
+
+export function fixtureUserFor(
+  key: (typeof FIXTURE_LOGINS)[number]['key'],
+): User {
+  return USERS[key]
+}
+
 export function fixtureMe(): Promise<User> {
   if (SCENARIO === 'guest') {
     return Promise.reject(

@@ -1,10 +1,26 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
+import { DevFixtureLogin } from './features/auth/DevFixtureLogin'
 import { LandingPage } from './features/landing/LandingPage'
 import { PrivacyPage } from './features/legal/PrivacyPage'
 import { NoticeDetailPage } from './features/notices/NoticeDetailPage'
 import { NoticeListPage } from './features/notices/NoticeListPage'
 import { GuestOnly, PendingOnly, RequireActive } from './routes/guards'
+
+/**
+ * 로그인 화면 자리. 실제 구현은 #37이다.
+ *
+ * 픽스처가 켜져 있을 때만 검토용 로그인 버튼을 붙인다. 플래그를 함수 안에서 리터럴로
+ * 평가하므로 꺼진 빌드에서는 `if (false)`가 되어 `DevFixtureLogin` 모듈째 사라진다.
+ */
+function LoginScreen() {
+  return (
+    <>
+      <Placeholder title="로그인" />
+      {import.meta.env.VITE_USE_FIXTURES === 'true' && <DevFixtureLogin />}
+    </>
+  )
+}
 
 /** 화면은 아직 없다. 이름만 렌더한다 — 각 화면은 자기 이슈에서 만든다. */
 function Placeholder({ title }: { title: string }) {
@@ -27,7 +43,7 @@ function App() {
         별도 /signup은 없다 (2-1 §2-1-8, 3-3 결정 13).
       */}
       <Route element={<GuestOnly />}>
-        <Route path="/login" element={<Placeholder title="로그인" />} />
+        <Route path="/login" element={<LoginScreen />} />
       </Route>
 
       {/* 여기부터 AppLayout(헤더 + 본문)을 쓴다. /login에는 붙이지 않는다. */}
