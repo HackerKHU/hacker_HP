@@ -20,15 +20,15 @@ import {
 import { PublicHeader } from './PublicHeader'
 
 /** 섹션 제목이 고정 헤더에 가리지 않도록 여백을 준다 (`scroll-mt-*`). */
-const SECTION = 'mx-auto w-full max-w-[1152px] scroll-mt-20 px-6 py-20'
+const SECTION = 'mx-auto w-full max-w-[1152px] scroll-mt-24 px-6 py-28'
 
 function Heading({ children }: { children: string }) {
-  return <h2 className="text-3xl font-semibold tracking-tight">{children}</h2>
+  return <h2 className="text-4xl font-semibold tracking-tight">{children}</h2>
 }
 
 function Hero() {
   return (
-    <section id="top" className={cn(SECTION, 'py-28')}>
+    <section id="top" className={cn(SECTION, 'py-32')}>
       <p className="text-sm tracking-[0.2em] text-muted-foreground">
         {CLUB.name}
       </p>
@@ -226,16 +226,23 @@ function Faq() {
         {FAQS.map((faq) => (
           <AccordionItem key={faq.question} value={faq.question}>
             {/*
-              shadcn 기본값이 text-sm(14px)이라 같은 페이지의 소개 본문·푸터(16px)보다
-              작다. 우리가 정한 값이 아니라 복사본의 기본값이므로 **사용처에서 덮는다** —
-              `accordion.tsx`를 고치면 이 컴포넌트를 쓰는 다른 화면까지 따라 바뀐다.
+              **질문은 본문이 아니라 소제목이다.** 레퍼런스 실측에서도 20px였다(dnd·nexters).
+              답변만 본문 16px로 두면 질문과 답변 사이에 위계가 생긴다.
+
+              shadcn 기본값(`text-sm`)은 우리가 정한 값이 아니라 복사본의 기본값이므로
+              **사용처에서 덮는다** — `accordion.tsx`를 고치면 이 컴포넌트를 쓰는 다른
+              화면까지 따라 바뀐다.
             */}
-            <AccordionTrigger className="text-left text-base leading-7 font-semibold">
+            <AccordionTrigger className="py-5 text-left text-xl leading-8 font-semibold">
               {faq.question}
             </AccordionTrigger>
             <AccordionContent>
-              {/* 답변은 소개 본문과 같은 16px / 줄높이 2.0으로 맞춘다. */}
-              <p className="max-w-3xl text-base leading-8 text-muted-foreground">
+              {/*
+                답변에 폭 상한을 두지 않는다. 768px로 묶어 두면 질문 행(1104px)보다 훨씬
+                일찍 줄이 바뀌어, 오른쪽이 비어 있는데도 문장이 끊긴 것처럼 보인다.
+                1104px는 16px 한글 기준 한 줄 65~70자로 읽기 좋은 범위 안이다.
+              */}
+              <p className="text-base leading-8 text-muted-foreground">
                 {faq.answer}
               </p>
             </AccordionContent>

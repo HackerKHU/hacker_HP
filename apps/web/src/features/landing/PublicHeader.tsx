@@ -12,8 +12,8 @@ export function PublicHeader() {
 
   return (
     <header className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur">
-      <div className="mx-auto flex h-14 w-full max-w-[1152px] items-center gap-8 px-6">
-        <a href="#top" className="font-semibold tracking-tight">
+      <div className="mx-auto flex h-20 w-full max-w-[1152px] items-center gap-8 px-6">
+        <a href="#top" className="text-xl font-semibold tracking-tight">
           {CLUB.name}
         </a>
 
@@ -22,7 +22,7 @@ export function PublicHeader() {
             <a
               key={section.id}
               href={`#${section.id}`}
-              className="rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="rounded-md px-3 py-2 text-base text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >
               {section.label}
             </a>
