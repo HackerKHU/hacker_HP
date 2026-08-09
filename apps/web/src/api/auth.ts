@@ -1,4 +1,4 @@
-import { request } from './client'
+import { apiPath, request } from './client'
 import { fixtureLogin, fixtureMe } from './fixtures'
 import type { User } from './types'
 
@@ -19,7 +19,7 @@ import type { User } from './types'
  * 자체 비밀번호를 쓰지 않으므로 `POST /auth/signup`·`POST /auth/login`은 계약에서 사라졌다.
  * 실제 연결은 #26에서 한다.
  */
-export const GOOGLE_LOGIN_PATH = '/api/v1/oauth2/authorization/google'
+export const GOOGLE_LOGIN_PATH = apiPath('/oauth2/authorization/google')
 
 export interface ApplicationRequest {
   studentNo: string

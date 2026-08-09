@@ -66,30 +66,31 @@
 
 | # | 조건 | 기대 |
 |---|---|---|
-| T-16 | 활성 관리자 0명, 이메일·토큰 모두 `ADMIN_BOOTSTRAP_EMAIL`/`ADMIN_BOOTSTRAP_TOKEN`과 일치 | 승격 성공 — `role=ADMIN`, `status=ACTIVE`, `approved_at` 기록됨 |
+| T-16 | 활성 관리자 0명, **신청서 제출을 마친** 계정이 이메일·토큰 모두 일치 | 승격 성공 — `role=ADMIN`, `status=ACTIVE`, `approved_at` 기록됨. `student_no`가 채워져 있다 |
 | T-17 | 활성 관리자 0명, 이메일은 일치하나 토큰 불일치 | `403 FORBIDDEN` |
 | T-18 | 활성 관리자 0명, `ADMIN_BOOTSTRAP_EMAIL`과 다른 이메일의 사용자가 올바른 토큰으로 호출 | `403 FORBIDDEN` |
 | T-19 | 활성 관리자가 이미 1명 이상 존재할 때 올바른 토큰으로 호출 | `403 FORBIDDEN` |
+| T-20 | **첫 구글 로그인 직후(신청서 미제출)** 이메일·토큰이 모두 일치하는 계정이 호출 | `403 FORBIDDEN` — 학번 없는 관리자가 만들어지면 안 된다 |
 
 ### 데이터 무결성
 
 | # | 조건 | 기대 |
 |---|---|---|
-| T-20 | 자료 삭제 | `note_files`·`bookmarks` 레코드가 함께 사라진다 |
-| T-21 | 같은 `(user, note)`로 즐겨찾기 두 번 | 두 번째는 실패하거나 멱등 처리 |
-| T-22 | `category=EXAM`인데 `exam_type=NULL`로 INSERT | DB CHECK 제약 위반 |
-| T-23 | 서로 다른 계정이 같은 학번으로 신청서 제출 | UNIQUE 제약 위반 |
+| T-21 | 자료 삭제 | `note_files`·`bookmarks` 레코드가 함께 사라진다 |
+| T-22 | 같은 `(user, note)`로 즐겨찾기 두 번 | 두 번째는 실패하거나 멱등 처리 |
+| T-23 | `category=EXAM`인데 `exam_type=NULL`로 INSERT | DB CHECK 제약 위반 |
+| T-24 | 서로 다른 계정이 같은 학번으로 신청서 제출 | UNIQUE 제약 위반 |
 
 ### 파일
 
 | # | 조건 | 기대 |
 |---|---|---|
-| T-24 | 20MB 초과 파일로 presigned URL 요청 | `413 FILE_TOO_LARGE` |
-| T-25 | 허용되지 않은 확장자로 요청 | `415 UNSUPPORTED_FILE_TYPE` |
-| T-26 | presigned URL 유효시간 경과 후 접근 | S3가 거부 |
-| T-27 | S3 오브젝트 키를 직접 브라우저로 열기 | 403 (버킷 비공개) |
+| T-25 | 20MB 초과 파일로 presigned URL 요청 | `413 FILE_TOO_LARGE` |
+| T-26 | 허용되지 않은 확장자로 요청 | `415 UNSUPPORTED_FILE_TYPE` |
+| T-27 | presigned URL 유효시간 경과 후 접근 | S3가 거부 |
+| T-28 | S3 오브젝트 키를 직접 브라우저로 열기 | 403 (버킷 비공개) |
 
-**T-24는 발급 조건만 검사하는 것으로 부족하다.** presigned PUT은 실제 업로드 용량을 강제하지 못하므로, 등록(③) 단계에서 실제 오브젝트 크기를 확인하는 경로까지 테스트한다 (MUST) — [2-1 §2-1-2](2-1-USER-STORIES.md).
+**T-25는 발급 조건만 검사하는 것으로 부족하다.** presigned PUT은 실제 업로드 용량을 강제하지 못하므로, 등록(③) 단계에서 실제 오브젝트 크기를 확인하는 경로까지 테스트한다 (MUST) — [2-1 §2-1-2](2-1-USER-STORIES.md).
 
 ### 세션·CSRF
 
@@ -99,17 +100,17 @@
 
 | # | 조건 | 기대 |
 |---|---|---|
-| T-28 | 사용자 A의 JWT 쿠키와 사용자 B의 세션 쿠키를 함께 전송 | `401 UNAUTHENTICATED`. **A의 신원으로 B의 `role`이 쓰이지 않는다.** 응답이 JWT·세션 쿠키를 모두 폐기한다 |
-| T-29 | 유효한 JWT만 있고 세션이 없다 (로그아웃·만료 이후) | `401 UNAUTHENTICATED`. 서명이 유효해도 통과하지 못한다 |
-| T-30 | 세션만 있고 JWT 쿠키가 없다 | `401 UNAUTHENTICATED` |
+| T-29 | 사용자 A의 JWT 쿠키와 사용자 B의 세션 쿠키를 함께 전송 | `401 UNAUTHENTICATED`. **A의 신원으로 B의 `role`이 쓰이지 않는다.** 응답이 JWT·세션 쿠키를 모두 폐기한다 |
+| T-30 | 유효한 JWT만 있고 세션이 없다 (로그아웃·만료 이후) | `401 UNAUTHENTICATED`. 서명이 유효해도 통과하지 못한다 |
+| T-31 | 세션만 있고 JWT 쿠키가 없다 | `401 UNAUTHENTICATED` |
 
 **상태 변경이 기존 세션에 반영되는가** — 새로 로그인하지 않고 **같은 세션으로** 다음 요청을 보내 확인한다.
 
 | # | 조건 | 기대 |
 |---|---|---|
-| T-31 | 로그인 중인 `ACTIVE` 회원을 관리자가 `SUSPENDED`로 변경 | 그 회원의 다음 요청이 차단된다 — [2-2 §2-2-3](2-2-OPERATOR-REQUIREMENTS.md) |
-| T-32 | 로그인 중인 `PENDING` 회원을 관리자가 일괄 승인 | 그 회원의 다음 요청이 더 이상 `403 PENDING_APPROVAL`을 받지 않는다 |
-| T-33 | 로그인 중인 `ADMIN`의 role을 `USER`로 회수 | 그 사용자의 다음 관리자 API 요청이 `403 FORBIDDEN` |
+| T-32 | 로그인 중인 `ACTIVE` 회원을 관리자가 `SUSPENDED`로 변경 | 그 회원의 다음 요청이 차단된다 — [2-2 §2-2-3](2-2-OPERATOR-REQUIREMENTS.md) |
+| T-33 | 로그인 중인 `PENDING` 회원을 관리자가 일괄 승인 | 그 회원의 다음 요청이 더 이상 `403 PENDING_APPROVAL`을 받지 않는다 |
+| T-34 | 로그인 중인 `ADMIN`의 role을 `USER`로 회수 | 그 사용자의 다음 관리자 API 요청이 `403 FORBIDDEN` |
 
 DB만 바꾸고 세션을 그대로 두는 구현을 잡아내는 것이 이 세 사례의 목적이다.
 
@@ -117,13 +118,16 @@ DB만 바꾸고 세션을 그대로 두는 구현을 잡아내는 것이 이 세
 
 | # | 조건 | 기대 |
 |---|---|---|
-| T-34 | 비로그인 상태로 `GET /auth/csrf` | `XSRF-TOKEN` 쿠키 발급. 인증 없이 접근 가능 |
-| T-35 | CSRF 토큰 없이 `POST /auth/application` | `403 FORBIDDEN`. 인증 영역 경로도 검사 대상이다 |
-| T-36 | 쿠키와 `X-XSRF-TOKEN` 헤더의 값이 서로 다른 상태로 `POST /notices` | `403 FORBIDDEN` |
-| T-37 | T-34에서 받은 토큰을 헤더에 실어 `POST /auth/application` → 이어서 관리자 쓰기 요청 | 모두 성공 |
-| T-38 | 구글 로그인 시작 요청에서 `state`를 지우거나 바꿔 콜백 | 로그인 거부 — OAuth `state` 검증을 끄면 로그인 CSRF가 열린다 |
+| T-35 | 비로그인 상태로 `GET /auth/csrf` | `XSRF-TOKEN` 쿠키 발급. 인증 없이 접근 가능 |
+| T-36 | CSRF 토큰 없이 `POST /auth/application` | `403 FORBIDDEN`. 인증 영역 경로도 검사 대상이다 |
+| T-37 | 쿠키와 `X-XSRF-TOKEN` 헤더의 값이 서로 다른 상태로 `POST /notices` | `403 FORBIDDEN` |
+| T-38 | **`PENDING` 세션**이 T-35의 토큰을 헤더에 실어 `POST /auth/application` | 성공 |
+| T-39 | **`ADMIN` 세션**이 T-35의 토큰을 헤더에 실어 `POST /notices` | 성공 |
+| T-40 | 구글 로그인 시작 요청에서 `state`를 지우거나 바꿔 콜백 | 로그인 거부 — OAuth `state` 검증을 끄면 로그인 CSRF가 열린다 |
 
-T-35는 `permitAll` 경로를 CSRF 검사에서까지 빼는 구현을, T-36은 관리자 쓰기 요청의 검사를 끈 구현을 잡는다.
+T-36는 `permitAll` 경로를 CSRF 검사에서까지 빼는 구현을, T-37은 관리자 쓰기 요청의 검사를 끈 구현을 잡는다.
+
+**T-38과 T-39는 서로 다른 세션이다** (MUST). `POST /auth/application`은 `PENDING`만, 관리자 쓰기는 `ACTIVE`·`ADMIN`만 성공할 수 있어 한 세션으로 둘 다 통과할 수 없다. 정상 경로가 CSRF 때문에 막히지 않는지를 각 권한에서 따로 확인한다.
 
 ### 구글 OAuth·신청
 
@@ -131,16 +135,16 @@ T-35는 `permitAll` 경로를 CSRF 검사에서까지 빼는 구현을, T-36은 
 
 | # | 조건 | 기대 |
 |---|---|---|
-| T-39 | 구글이 준 ID 토큰의 `email_verified`가 거짓 | `403 FORBIDDEN`, 계정 미생성 |
-| T-40 | `hd` 주장만 `khu.ac.kr`이고 `email`은 다른 도메인 | `403 FORBIDDEN` — **`hd`를 신뢰해 통과시키면 안 된다** |
-| T-41 | 기존 계정의 이메일이 구글에서 바뀐 채로 같은 `sub`로 로그인 | 새 계정을 만들지 않고 기존 계정에 붙는다 |
-| T-42 | 첫 로그인 직후 `GET /auth/me` | `status=PENDING`, `studentNo`는 비어 있고 신청 여부가 거짓 |
-| T-43 | `PENDING`이 신청서 제출 후 `GET /auth/me` | 신청 여부가 참, 학번이 채워짐 |
-| T-44 | 신청하지 않은 `PENDING` 계정이 있는 상태에서 관리자가 승인 목록 조회 | 그 계정이 목록에 없다 |
-| T-45 | `ACTIVE` 사용자가 `POST /auth/application` 호출 | 거부된다 — 승인 후에는 이 경로로 학번을 바꿀 수 없다 |
-| T-46 | 승인 대기 중 신청서를 다시 제출 | 성공, 내용이 갱신된다 |
+| T-41 | 구글이 준 ID 토큰의 `email_verified`가 거짓 | `403 FORBIDDEN`, 계정 미생성 |
+| T-42 | `hd` 주장만 `khu.ac.kr`이고 `email`은 다른 도메인 | `403 FORBIDDEN` — **`hd`를 신뢰해 통과시키면 안 된다** |
+| T-43 | 기존 계정의 이메일이 구글에서 바뀐 채로 같은 `sub`로 로그인 | 새 계정을 만들지 않고 기존 계정에 붙는다 |
+| T-44 | 첫 로그인 직후 `GET /auth/me` | `status=PENDING`, `studentNo`는 비어 있고 신청 여부가 거짓 |
+| T-45 | `PENDING`이 신청서 제출 후 `GET /auth/me` | 신청 여부가 참, 학번이 채워짐 |
+| T-46 | 신청하지 않은 `PENDING` 계정이 있는 상태에서 관리자가 승인 목록 조회 | 그 계정이 목록에 없다 |
+| T-47 | `ACTIVE` 사용자가 `POST /auth/application` 호출 | 거부된다 — 승인 후에는 이 경로로 학번을 바꿀 수 없다 |
+| T-48 | 승인 대기 중 신청서를 다시 제출 | 성공, 내용이 갱신된다 |
 
-T-40이 이 절의 핵심이다. `hd` 파라미터는 구글이 붙여주는 힌트일 뿐이라 그것만 보고 통과시키면 도메인 제한이 무력해진다.
+T-42이 이 절의 핵심이다. `hd` 파라미터는 구글이 붙여주는 힌트일 뿐이라 그것만 보고 통과시키면 도메인 제한이 무력해진다.
 
 ## 5-3 수동 검증
 

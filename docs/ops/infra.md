@@ -456,11 +456,48 @@ resource "aws_ssm_parameter" "google_client_secret" {
 }
 ```
 
+두 값은 ECS 태스크 정의의 `secrets` 블록에도 연결해야 컨테이너가 읽습니다(아래 `ecs.tf` 참고). SSM에 만들어두기만 하면 주입되지 않습니다.
+
 승인된 redirect URI는 **프론트엔드 오리진** 기준으로 등록합니다. 브라우저는 Vercel과만 통신하므로 ALB 주소를 등록하면 콜백이 다른 오리진에 떨어져 쿠키가 붙지 않습니다.
 
 ```
 https://<vercel-도메인>/api/v1/login/oauth2/code/google
 ```
+
+### ⚠️ redirect URI를 환경변수로 고정하세요
+
+**Spring이 만들어내는 `redirect_uri`를 그대로 두면 로그인이 콜백 전에 거부됩니다.**
+
+Spring Security OAuth2 Client는 기본적으로 **들어온 요청의 scheme·host**로 `redirect_uri`를 조립해 구글에 보냅니다. 그런데 이 구성은 프록시가 두 겹입니다.
+
+```
+브라우저 ──HTTPS──> Vercel Edge ──HTTP──> ALB ──> ECS
+   원본 호스트          여기서 바뀜        여기서도 바뀜
+```
+
+ECS에 도착한 요청의 host는 ALB DNS이고 scheme은 `http`입니다. 그대로 조립하면 `http://hacker-alb-xxxx.../api/v1/login/oauth2/code/google`이 되어 구글에 등록한 값과 달라지고, 구글이 `redirect_uri_mismatch`로 거부합니다.
+
+**환경별로 절대 URI를 명시합니다.**
+
+```yaml
+# application-prod.yml
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            redirect-uri: ${OAUTH_REDIRECT_URI}   # https://<vercel-도메인>/api/v1/login/oauth2/code/google
+            scope: [openid, email, profile]
+```
+
+`OAUTH_REDIRECT_URI`는 시크릿이 아니므로 SSM SecureString이 아니라 태스크 정의의 `environment`에 둡니다.
+
+forwarded header(`server.forward-headers-strategy`)로 원본 scheme·host를 복원하는 방법도 있습니다. 다만 이 경로에서는 **Vercel과 ALB 두 곳이 헤더를 건드리므로** 무엇이 어떤 값을 남기는지에 의존하게 됩니다. 명시적 URI가 더 적은 가정으로 같은 결과를 냅니다.
+
+로컬 개발은 `http://localhost:5173/api/v1/login/oauth2/code/google`을 별도 승인 URI로 등록하고 `application-local.yml`에서 같은 키를 덮어씁니다. Vite dev 프록시가 `/api`를 8080으로 넘기므로 브라우저 기준 오리진은 5173입니다.
 
 `ADMIN_BOOTSTRAP_EMAIL`·`ADMIN_BOOTSTRAP_TOKEN`은 [spec 결정 11](../../spec/3-3-DESIGN-DECISIONS.md)의 최초 관리자 승격에 씁니다. `apply` 후 토큰 값을 확인하려면:
 
@@ -661,6 +698,8 @@ resource "aws_ecs_task_definition" "api" {
       { name = "SPRING_PROFILES_ACTIVE", value = "prod" },
       { name = "AWS_REGION", value = local.region },
       { name = "S3_BUCKET", value = aws_s3_bucket.uploads.id },
+      # 프록시가 두 겹이라 Spring이 조립한 redirect_uri는 구글 등록값과 어긋난다. 절대 URI로 고정한다.
+      { name = "OAUTH_REDIRECT_URI", value = var.oauth_redirect_uri },
       { name = "JAVA_TOOL_OPTIONS", value = "-XX:MaxRAMPercentage=70 -XX:+UseSerialGC" }
     ]
 
@@ -670,7 +709,9 @@ resource "aws_ecs_task_definition" "api" {
       { name = "DB_PASSWORD",          valueFrom = aws_ssm_parameter.db_password.arn },
       { name = "JWT_SECRET",           valueFrom = aws_ssm_parameter.jwt_secret.arn },
       { name = "ADMIN_BOOTSTRAP_EMAIL", valueFrom = aws_ssm_parameter.admin_bootstrap_email.arn },
-      { name = "ADMIN_BOOTSTRAP_TOKEN", valueFrom = aws_ssm_parameter.admin_bootstrap_token.arn }
+      { name = "ADMIN_BOOTSTRAP_TOKEN", valueFrom = aws_ssm_parameter.admin_bootstrap_token.arn },
+      { name = "GOOGLE_CLIENT_ID",     valueFrom = aws_ssm_parameter.google_client_id.arn },
+      { name = "GOOGLE_CLIENT_SECRET", valueFrom = aws_ssm_parameter.google_client_secret.arn }
     ]
 
     logConfiguration = {
