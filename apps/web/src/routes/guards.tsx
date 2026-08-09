@@ -38,8 +38,9 @@ export function PendingOnly() {
 /**
  * ACTIVE 전용. `role`을 주면 그 역할까지 요구한다.
  *
- * SUSPENDED용 분기는 두지 않는다 — SUSPENDED는 로그인 자체가 차단되어 세션이 생기지 않는다
- * (spec §3-1-2). 로그인 응답의 403 SUSPENDED로 처리되는 문제지 라우팅 문제가 아니다.
+ * SUSPENDED용 라우트도 분기도 두지 않는다 (spec §3-1-2 — 접근 가능 범위 "없음").
+ * `SessionProvider`가 정지된 계정을 세션에서 빼기 때문에 여기서는 비로그인과 구별되지 않고,
+ * 로그인 화면이 정지 안내를 띄운다(#37). 여기에 분기를 더하면 리다이렉트가 순환한다.
  */
 export function RequireActive({ requiredRole }: { requiredRole?: Role }) {
   const session = useSession()

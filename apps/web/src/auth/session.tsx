@@ -20,6 +20,11 @@ interface Session {
    * 403은 SUSPENDED·FORBIDDEN도 쓰므로 status가 아니라 `ApiError.code`로만 판별한다.
    */
   pendingApproval: boolean
+  /**
+   * 정지된 계정. `user`는 `null`이므로 가드는 비로그인과 똑같이 다루고 로그인 화면이 그려진다.
+   * 그 화면이 정지 안내를 띄운다 (#37) — spec §3-1-2의 "접근 가능 범위: 없음(정지 안내 표시)".
+   */
+  suspended: boolean
   setUser: (user: User | null) => void
   /** 화면의 catch에서 호출한다. PENDING_APPROVAL이면 가드가 대기중 안내로 되돌린다. */
   reportApiError: (error: unknown) => void
@@ -28,9 +33,27 @@ interface Session {
 const SessionContext = createContext<Session | null>(null)
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
+  const [user, setUserState] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [pendingApproval, setPendingApproval] = useState(false)
+  const [suspended, setSuspended] = useState(false)
+
+  /**
+   * 사용자 정보를 세션에 반영하는 유일한 지점. 로그인 직후든 새로고침이든 여기로 모인다.
+   *
+   * SUSPENDED는 세션에 넣지 않는다. 넣으면 무한 리다이렉트가 돈다 —
+   * `homePath()`가 role만 보고 `/notices`로 보내고, `RequireActive`가 ACTIVE가 아니라며
+   * `/login`으로 보내고, `GuestOnly`가 로그인 상태라며 다시 `homePath()`로 보낸다.
+   * ACTIVE로 로그인한 뒤 관리자가 정지시키면(#31) 실제로 이 상태가 만들어진다.
+   *
+   * 세션 없음 + `suspended` 플래그로 수렴시키면 로그인 시점의 403 SUSPENDED와
+   * 세션 중간 정지가 같은 종착점(로그인 화면의 정지 안내)에 도착한다.
+   */
+  const applySession = useCallback((me: User | null) => {
+    setSuspended(me?.status === 'SUSPENDED')
+    setPendingApproval(me?.status === 'PENDING')
+    setUserState(me?.status === 'SUSPENDED' ? null : me)
+  }, [])
 
   const reportApiError = useCallback((error: unknown) => {
     if (error instanceof ApiError && error.code === 'PENDING_APPROVAL') {
@@ -42,7 +65,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     let alive = true
     getMe()
       .then((me) => {
-        if (alive) setUser(me)
+        if (alive) applySession(me)
       })
       .catch((error: unknown) => {
         // 실패는 곧 비로그인이다. PENDING_APPROVAL만 예외로 세션이 있는 대기 상태다.
@@ -54,20 +77,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false
     }
-  }, [reportApiError])
+  }, [applySession, reportApiError])
 
   const value = useMemo<Session>(
     () => ({
       user,
       loading,
       pendingApproval,
-      setUser: (next) => {
-        setUser(next)
-        setPendingApproval(next?.status === 'PENDING')
-      },
+      suspended,
+      setUser: applySession,
       reportApiError,
     }),
-    [user, loading, pendingApproval, reportApiError],
+    [user, loading, pendingApproval, suspended, applySession, reportApiError],
   )
 
   return <SessionContext value={value}>{children}</SessionContext>

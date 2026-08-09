@@ -57,4 +57,16 @@ describe('라우트 가드', () => {
     ).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '회원 관리' })).toBeNull()
   })
+
+  // 회귀 — ACTIVE로 로그인한 뒤 관리자가 정지시키면(#31) 세션은 살아 있고 status만 바뀐다.
+  // 정지 계정을 세션에 넣으면 homePath → RequireActive → GuestOnly가 서로를 밀며 무한히 돈다.
+  it('SUSPENDED 사용자가 보호 라우트에 가면 순환 없이 로그인 화면에 닿는다', async () => {
+    session.user = { ...BASE, status: 'SUSPENDED' }
+
+    renderAt('/notices')
+
+    expect(
+      await screen.findByRole('heading', { name: '로그인' }),
+    ).toBeInTheDocument()
+  })
 })
