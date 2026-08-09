@@ -60,12 +60,13 @@ const MARQUEE_PASSES = ['pass-1', 'pass-2', 'pass-3', 'pass-4'] as const
 
 function Activities() {
   return (
-    <section
-      id="activities"
-      className="scroll-mt-24 border-t border-border py-28"
-    >
-      {/* 제목은 컨테이너 안에 둔다. 여기까지 화면 끝에 붙으면 다른 섹션과 정렬이 깨진다. */}
-      <div className={CONTAINER}>
+    <section id="activities" className="scroll-mt-24 pb-28">
+      {/*
+       * 구분선과 제목은 다른 섹션과 **똑같은 컨테이너**에 둔다. `border-t`를 `section`에
+       * 걸면 `max-w`가 없어 화면 끝까지 그어져 다른 섹션과 좌우가 어긋난다.
+       * 아래 클래스 묶음은 `SECTION`의 컨테이너 부분과 같아야 한다.
+       */}
+      <div className={cn(CONTAINER, 'border-t border-border pt-28')}>
         <Heading>활동</Heading>
       </div>
 
