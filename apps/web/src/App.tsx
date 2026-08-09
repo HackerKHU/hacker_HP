@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
 import { LandingPage } from './features/landing/LandingPage'
+import { PrivacyPage } from './features/legal/PrivacyPage'
 import { NoticeDetailPage } from './features/notices/NoticeDetailPage'
 import { NoticeListPage } from './features/notices/NoticeListPage'
 import { GuestOnly, PendingOnly, RequireActive } from './routes/guards'
@@ -18,6 +19,8 @@ function App() {
         (spec 5-TESTING T-21~T-25). PendingOnly나 RequireActive 아래로 옮기지 말 것.
       */}
       <Route path="/" element={<LandingPage />} />
+      {/* 개인정보처리방침도 공개다. 랜딩과 같은 취급이라 가드를 붙이지 않는다. */}
+      <Route path="/privacy" element={<PrivacyPage />} />
 
       <Route element={<GuestOnly />}>
         <Route path="/login" element={<Placeholder title="로그인" />} />

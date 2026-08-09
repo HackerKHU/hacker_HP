@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Accordion,
   AccordionContent,
@@ -284,6 +285,12 @@ function Footer() {
           >
             인스타그램
           </a>
+          <Link
+            to="/privacy"
+            className="transition-colors hover:text-foreground"
+          >
+            개인정보처리방침
+          </Link>
         </nav>
       </div>
     </footer>
