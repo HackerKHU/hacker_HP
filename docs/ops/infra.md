@@ -417,9 +417,35 @@ resource "aws_ssm_parameter" "jwt_secret" {
   type  = "SecureString"
   value = random_password.jwt.result
 }
+
+resource "random_password" "admin_bootstrap_token" {
+  length  = 32
+  special = false
+}
+
+resource "aws_ssm_parameter" "admin_bootstrap_email" {
+  name  = "/hacker/dev/ADMIN_BOOTSTRAP_EMAIL"
+  type  = "SecureString"
+  value = "<최초-관리자-이메일>"   # apply 전에 실제 이메일로 바꿀 것
+}
+
+resource "aws_ssm_parameter" "admin_bootstrap_token" {
+  name  = "/hacker/dev/ADMIN_BOOTSTRAP_TOKEN"
+  type  = "SecureString"
+  value = random_password.admin_bootstrap_token.result
+}
 ```
 
 SecureString은 Standard 티어에서 무료입니다(Advanced만 유료). ECS 태스크 정의의 `secrets` 블록에서 바로 참조하므로 앱 코드에 비밀번호가 남지 않습니다.
+
+`ADMIN_BOOTSTRAP_EMAIL`·`ADMIN_BOOTSTRAP_TOKEN`은 [spec 결정 11](../../spec/3-3-DESIGN-DECISIONS.md)의 최초 관리자 승격에 씁니다. `apply` 후 토큰 값을 확인하려면:
+
+```bash
+aws ssm get-parameter --name /hacker/dev/ADMIN_BOOTSTRAP_TOKEN \
+  --with-decryption --query Parameter.Value --output text
+```
+
+이 값을 최초 관리자가 될 사람에게 안전한 채널(직접 전달, 사설 DM 등)로 알려주고, 그 사람이 가입 후 `POST /auth/bootstrap-admin`을 호출할 때 쓰게 합니다. 커밋 로그나 공개 채널에 남기지 않습니다.
 
 ### alb.tf — ALB, 타겟 그룹, 리스너
 
@@ -615,10 +641,12 @@ resource "aws_ecs_task_definition" "api" {
     ]
 
     secrets = [
-      { name = "DB_URL",      valueFrom = aws_ssm_parameter.db_url.arn },
-      { name = "DB_USERNAME", valueFrom = aws_ssm_parameter.db_username.arn },
-      { name = "DB_PASSWORD", valueFrom = aws_ssm_parameter.db_password.arn },
-      { name = "JWT_SECRET",  valueFrom = aws_ssm_parameter.jwt_secret.arn }
+      { name = "DB_URL",               valueFrom = aws_ssm_parameter.db_url.arn },
+      { name = "DB_USERNAME",          valueFrom = aws_ssm_parameter.db_username.arn },
+      { name = "DB_PASSWORD",          valueFrom = aws_ssm_parameter.db_password.arn },
+      { name = "JWT_SECRET",           valueFrom = aws_ssm_parameter.jwt_secret.arn },
+      { name = "ADMIN_BOOTSTRAP_EMAIL", valueFrom = aws_ssm_parameter.admin_bootstrap_email.arn },
+      { name = "ADMIN_BOOTSTRAP_TOKEN", valueFrom = aws_ssm_parameter.admin_bootstrap_token.arn }
     ]
 
     logConfiguration = {
