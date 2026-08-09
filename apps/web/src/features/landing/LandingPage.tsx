@@ -1,0 +1,212 @@
+import { Link } from 'react-router-dom'
+import { homePath, useSession } from '@/auth/session'
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+import { CLUB, FAQS, PHOTOS, SECTIONS, STATS, SUPPORT } from './content'
+import { PublicHeader } from './PublicHeader'
+
+/** 섹션 제목이 고정 헤더에 가리지 않도록 여백을 준다 (`scroll-mt-*`). */
+const SECTION = 'mx-auto w-full max-w-[1152px] scroll-mt-20 px-6 py-24'
+
+function Heading({ children }: { children: string }) {
+  return <h2 className="text-3xl font-semibold tracking-tight">{children}</h2>
+}
+
+function Hero() {
+  const session = useSession()
+  const loggedIn =
+    session.state.kind === 'active' || session.state.kind === 'pending'
+
+  return (
+    <section id="top" className={cn(SECTION, 'py-32')}>
+      <p className="text-sm tracking-[0.2em] text-muted-foreground">
+        {CLUB.name}
+      </p>
+      <h1 className="mt-6 max-w-3xl text-5xl leading-tight font-semibold tracking-tight text-foreground">
+        {CLUB.tagline}
+      </h1>
+
+      {session.state.kind !== 'loading' && (
+        <div className="mt-10 flex gap-3">
+          {loggedIn ? (
+            <Button asChild size="lg">
+              <Link to={homePath(session)}>내 페이지로</Link>
+            </Button>
+          ) : (
+            <>
+              <Button asChild size="lg">
+                <Link to="/signup">가입 신청</Link>
+              </Button>
+              <Button asChild size="lg" variant="outline">
+                <Link to="/login">로그인</Link>
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function About() {
+  return (
+    <section id="about" className={cn(SECTION, 'border-t border-border')}>
+      <Heading>소개</Heading>
+      <div className="mt-8 max-w-2xl space-y-4">
+        {CLUB.about.map((paragraph) => (
+          <p key={paragraph} className="leading-8 text-muted-foreground">
+            {paragraph}
+          </p>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function Photos() {
+  return (
+    <section id="photos" className={cn(SECTION, 'border-t border-border')}>
+      <Heading>활동</Heading>
+      {/*
+       * 균일 격자로 두지 않고 세로 위치를 엇갈리게 배치한다. 사진 수가 적어도
+       * 리듬이 생겨 빈 느낌이 덜하다.
+       */}
+      <ul className="mt-10 grid grid-cols-3 gap-6">
+        {PHOTOS.map((photo, index) => (
+          <li
+            key={photo.caption + String(index)}
+            className={index % 2 === 1 ? 'mt-12' : undefined}
+          >
+            <div className="aspect-[3/4] overflow-hidden rounded-lg border border-border bg-card">
+              {photo.src ? (
+                <img
+                  src={photo.src}
+                  alt={photo.alt}
+                  className="size-full object-cover"
+                />
+              ) : (
+                // 실물이 없다. 비어 있다는 것이 드러나야 채워 넣을 생각을 한다.
+                <div className="flex size-full items-center justify-center text-xs text-muted-foreground">
+                  사진 없음
+                </div>
+              )}
+            </div>
+            <p className="mt-3 text-sm text-muted-foreground">
+              {photo.caption}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function Stats() {
+  return (
+    <section id="stats" className={cn(SECTION, 'border-t border-border')}>
+      <Heading>숫자</Heading>
+      <dl className="mt-10 grid grid-cols-4 gap-6">
+        {STATS.map((stat) => (
+          <div key={stat.label}>
+            {/* 단위를 숫자에 포함해 값 하나로 읽히게 한다. */}
+            <dd className="text-6xl font-semibold tracking-tight text-foreground">
+              {stat.value}
+            </dd>
+            <dt className="mt-3 text-sm text-muted-foreground">{stat.label}</dt>
+          </div>
+        ))}
+      </dl>
+    </section>
+  )
+}
+
+function Faq() {
+  return (
+    <section id="faq" className={cn(SECTION, 'border-t border-border')}>
+      <Heading>자주 묻는 질문</Heading>
+      {/* 아코디언의 키보드 조작과 포커스는 Radix가 처리한다 (3-3 결정 10). */}
+      <Accordion type="single" collapsible className="mt-8 max-w-3xl">
+        {FAQS.map((faq) => (
+          <AccordionItem key={faq.question} value={faq.question}>
+            <AccordionTrigger className="text-left">
+              {faq.question}
+            </AccordionTrigger>
+            <AccordionContent className="text-muted-foreground">
+              {faq.answer}
+            </AccordionContent>
+          </AccordionItem>
+        ))}
+      </Accordion>
+    </section>
+  )
+}
+
+function Support() {
+  // 문의는 mailto로 받는다. 별도 페이지나 폼을 만들면 백엔드가 딸려온다.
+  const mailto = `mailto:${SUPPORT.email}?subject=${encodeURIComponent(SUPPORT.subject)}`
+
+  return (
+    <section id="support" className={cn(SECTION, 'border-t border-border')}>
+      <Heading>후원</Heading>
+      <p className="mt-8 max-w-2xl leading-8 text-muted-foreground">
+        {SUPPORT.description}
+      </p>
+      <Button asChild size="lg" className="mt-8">
+        <a href={mailto}>후원 문의하기</a>
+      </Button>
+    </section>
+  )
+}
+
+function Footer() {
+  return (
+    <footer className="border-t border-border">
+      <div className="mx-auto flex w-full max-w-[1152px] items-center justify-between px-6 py-10 text-sm text-muted-foreground">
+        <span>{CLUB.name}</span>
+        <nav className="flex gap-4" aria-label="섹션 바로가기">
+          {SECTIONS.map((section) => (
+            <a
+              key={section.id}
+              href={`#${section.id}`}
+              className="transition-colors hover:text-foreground"
+            >
+              {section.label}
+            </a>
+          ))}
+        </nav>
+      </div>
+    </footer>
+  )
+}
+
+/**
+ * 공개 랜딩. **가드를 붙이지 않는다** — 비로그인·PENDING·ACTIVE·SUSPENDED 어느
+ * 상태에서도 그대로 열려야 한다 (spec 5-TESTING T-21~T-25).
+ *
+ * **API를 호출하지 않는다** (spec 3-3 결정 8, T-24). 콘텐츠는 전부 `content.ts`에 있다.
+ *
+ * 랜딩만 다크다. 최상위를 `.dark`로 감싸 #69에서 세운 토큰을 뒤집어 쓴다 —
+ * 로그인 이후 화면은 라이트 그대로다.
+ */
+export function LandingPage() {
+  return (
+    <div className="dark min-h-screen bg-background text-foreground">
+      <PublicHeader />
+      <main>
+        <Hero />
+        <About />
+        <Photos />
+        <Stats />
+        <Faq />
+        <Support />
+      </main>
+      <Footer />
+    </div>
+  )
+}

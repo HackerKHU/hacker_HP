@@ -5,8 +5,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="HackerKHU 동아리 구성원을 위한 내부 홈페이지"
+      content="TODO: 동아리를 한 줄로 소개하는 문장으로 교체"
     />
+
+    <!--
+      링크 미리보기용 OG 태그.
+
+      **검색 색인보다 이쪽이 실질적이다.** 카카오톡·인스타그램 같은 링크 미리보기 봇은
+      JS를 실행하지 않으므로 서빙되는 이 HTML에 태그가 들어 있어야 한다
+      (spec 3-3 결정 8). 런타임에 document.title을 바꾸는 방식으로는 통과하지 못한다.
+
+      TODO: description과 og:description을 실제 소개 문장으로 교체한다.
+           확인되지 않은 내용을 지어 넣지 않는다 — 미리보기에 그대로 노출된다.
+      TODO: og:url을 실제 배포 도메인으로 교체한다. 도메인은 아직 미정이다
+      (spec 3-3 결정 5 — 도메인 없이 Vercel 프록시로 운영 중).
+      TODO: public/landing/og-image.png 를 넣는다. 1200x630 권장.
+           없으면 미리보기에 이미지가 비어 나온다.
+    -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="HACKER" />
+    <meta
+      property="og:description"
+      content="TODO: 동아리를 한 줄로 소개하는 문장으로 교체"
+    />
+    <meta property="og:image" content="/landing/og-image.png" />
+    <meta property="og:url" content="https://example.com/" />
     <!--
       Pretendard 동적 서브셋. 한글 웹폰트 전체는 수 MB라, unicode-range로 쪼개
       브라우저가 실제로 쓰는 조각만 받게 한다. 로딩 실패 시 index.css의 --font-sans

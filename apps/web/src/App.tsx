@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { homePath, useSession } from './auth/session'
 import { AppLayout } from './components/layout/AppLayout'
+import { LandingPage } from './features/landing/LandingPage'
 import { NoticeDetailPage } from './features/notices/NoticeDetailPage'
 import { NoticeListPage } from './features/notices/NoticeListPage'
 import { GuestOnly, PendingOnly, RequireActive } from './routes/guards'
@@ -10,17 +10,14 @@ function Placeholder({ title }: { title: string }) {
   return <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
 }
 
-/** 진입점. 로그인 상태에 따라 각자 홈으로 보낸다. */
-function Index() {
-  const session = useSession()
-  if (session.state.kind === 'loading') return <p>불러오는 중</p>
-  return <Navigate to={homePath(session)} replace />
-}
-
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<Index />} />
+      {/*
+        공개 랜딩. **가드를 붙이지 않는다** — 어느 세션 상태에서도 열려야 한다
+        (spec 5-TESTING T-21~T-25). PendingOnly나 RequireActive 아래로 옮기지 말 것.
+      */}
+      <Route path="/" element={<LandingPage />} />
 
       <Route element={<GuestOnly />}>
         <Route path="/login" element={<Placeholder title="로그인" />} />

@@ -1,0 +1,56 @@
+import { Link } from 'react-router-dom'
+import { homePath, useSession } from '@/auth/session'
+import { Button } from '@/components/ui/button'
+import { CLUB, SECTIONS } from './content'
+
+/**
+ * 랜딩 전용 헤더. `AppHeader`와 별개 컴포넌트다 — 배경이 검정이고 메뉴가 라우트가 아니라
+ * **섹션 앵커**라서 성격이 다르다. 하나로 합치면 두 성격이 조건문으로 뒤엉킨다.
+ */
+export function PublicHeader() {
+  const session = useSession()
+
+  return (
+    <header className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur">
+      <div className="mx-auto flex h-14 w-full max-w-[1152px] items-center gap-8 px-6">
+        <a href="#top" className="font-semibold tracking-tight">
+          {CLUB.name}
+        </a>
+
+        <nav className="flex items-center gap-1" aria-label="섹션 이동">
+          {SECTIONS.map((section) => (
+            <a
+              key={section.id}
+              href={`#${section.id}`}
+              className="rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            >
+              {section.label}
+            </a>
+          ))}
+        </nav>
+
+        {/*
+         * 세션을 확인하는 동안에는 아무것도 그리지 않는다. "로그인"을 먼저 그렸다가
+         * 곧바로 "공지사항 보기"로 바뀌면 깜빡인다.
+         *
+         * 로그인한 사람이 랜딩에 왔을 때 들어갈 문이 필요하다. 목적지는 `homePath`를
+         * 그대로 쓴다 — 상태별 홈 규칙이 두 벌이 되면 어긋난다.
+         */}
+        {session.state.kind !== 'loading' && (
+          <div className="ml-auto">
+            {session.state.kind === 'guest' ||
+            session.state.kind === 'suspended' ? (
+              <Button asChild variant="outline" size="sm">
+                <Link to="/login">로그인</Link>
+              </Button>
+            ) : (
+              <Button asChild variant="outline" size="sm">
+                <Link to={homePath(session)}>내 페이지</Link>
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </header>
+  )
+}
