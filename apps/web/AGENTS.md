@@ -22,7 +22,7 @@
 
 - `any`를 사용하지 않는다.
 - API 호출은 `src/api/` 아래 함수로 감싸고 컴포넌트에서 `fetch`를 직접 호출하지 않는다.
-- API base URL은 `/api`로 고정하며 절대 URL을 코드에 넣지 않는다.
+- API base URL은 `/api/v1`로 고정하며 절대 URL을 코드에 넣지 않는다. 상수는 `src/api/client.ts`의 `BASE_URL` 한 곳에만 둔다.
 - 관리자 화면과 부원 화면의 라우트를 분리한다.
 - 상태관리는 React 기본 기능으로 시작하고 외부 라이브러리는 ADR을 작성한 뒤 도입한다.
 

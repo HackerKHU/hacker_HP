@@ -15,6 +15,7 @@
 
 - Java 21, Spring Boot 3.5, Gradle Kotlin DSL을 사용한다.
 - 현재 허용된 HTTP 동작은 `/actuator/health`뿐이다.
+- 기능 API를 추가할 때 컨트롤러 경로는 `/api/v1`로 시작한다 ([`../../spec/3-2-DESIGN-CONTRACT.md`](../../spec/3-2-DESIGN-CONTRACT.md)). `/actuator`와 springdoc 경로는 버전을 붙이지 않는다.
 - 별도 이슈 없이 기능 API, DB, JPA, Flyway, Security, JWT 또는 Swagger를 추가하지 않는다.
 - 새 작업은 이슈를 먼저 만들고 최신 `origin/develop`에서 이슈 번호가 포함된 브랜치를 생성한 뒤 진행한다.
 

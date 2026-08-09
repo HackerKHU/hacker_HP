@@ -14,7 +14,7 @@ npm install
 npm run dev
 ```
 
-API base URL은 `/api`로 고정되어 있다. 로컬에서는 `vite.config.ts`의 프록시가 `http://localhost:8080`으로 넘기므로 [`apps/api`](../api)를 함께 띄운다.
+API base URL은 `/api/v1`로 고정되어 있다. 로컬에서는 `vite.config.ts`의 프록시가 `http://localhost:8080`으로 넘기므로 [`apps/api`](../api)를 함께 띄운다. 프록시 키는 `/api`라 `/api/v1`이 그대로 넘어간다.
 
 ## 백엔드 없이 실행하기
 

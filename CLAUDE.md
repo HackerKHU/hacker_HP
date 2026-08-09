@@ -55,6 +55,7 @@ docs/               운영 문서 — 어떻게 띄우고 고치는가
 - DTO와 엔티티를 분리한다. 컨트롤러가 엔티티를 직접 반환하지 않는다
 - 예외는 커스텀 예외 + `@RestControllerAdvice`로 일괄 처리한다
 - 마이그레이션은 Flyway만 쓴다. `ddl-auto`는 `validate` (create/update 금지)
+- 컨트롤러 경로는 `/api/v1`로 시작한다. `/actuator`와 springdoc 경로(`/v3/api-docs`, Swagger UI)는 예외다
 - 새 API에는 `@PreAuthorize`로 권한을 명시한다. [3-1](spec/3-1-DESIGN-ARCHITECTURE.md) 권한 매트릭스와 일치해야 한다
 - 자료 파일 바이트를 서버가 받지 않는다. presigned URL 발급만 한다 ([2-1 §2-1-2](spec/2-1-USER-STORIES.md))
 - `/actuator/health`는 `permitAll`. 빠지면 ALB 헬스체크가 401로 실패해 태스크가 무한 재시작한다
@@ -63,7 +64,7 @@ docs/               운영 문서 — 어떻게 띄우고 고치는가
 
 - `any` 금지
 - API 호출은 `src/api/` 아래 함수로 감싼다. 컴포넌트에서 fetch를 직접 부르지 않는다
-- API base URL은 `/api` 고정. 절대 URL 금지 (Vercel rewrites 프록시를 탄다)
+- API base URL은 `/api/v1` 고정. 절대 URL 금지 (Vercel rewrites 프록시를 탄다)
 - 관리자 화면과 부원 화면의 라우트를 분리한다
 - 상태관리는 `useState`/Context로 시작한다. 라이브러리 도입은 ADR로 결정한다
 
