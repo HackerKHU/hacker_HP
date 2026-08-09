@@ -16,7 +16,7 @@
       (spec 3-3 결정 8). 런타임에 document.title을 바꾸는 방식으로는 통과하지 못한다.
 
       **`og:image`와 `og:url`은 절대 URL이어야 한다.** 미리보기 봇은 대부분 상대경로를
-      읽지 못해 그림이 비어 나온다. 도메인은 `vite.config.ts`의 `SITE_ORIGIN` 한 곳에서
+      읽지 못해 그림이 비어 나온다. 도메인은 `site.config.ts`의 `SITE_ORIGIN` 한 곳에서
       주입하므로, 도메인이 정해지면 그 상수만 고치면 된다.
 
       TODO: `SITE_ORIGIN`을 실제 배포 도메인으로 교체한다 (#47). 지금은 `example.com`이다.

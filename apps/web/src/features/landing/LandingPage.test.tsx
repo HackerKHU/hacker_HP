@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
-import { CLUB, FAQS, isPlaceholder } from './content'
+import { CLUB, FAQS } from './content'
 
 const auth = vi.hoisted(() => ({
   me: (): Promise<User> =>
@@ -93,6 +93,16 @@ describe('공개 랜딩', () => {
     expect(screen.queryByRole('heading', { name: '로그인' })).toBeNull()
   })
 
+  // 주소가 없는 mailto는 빈 메일 창만 띄운다. 위와 같은 이유로 조건 분기 없이 못박는다.
+  it('후원 문의 주소가 자리표시자인 동안 버튼이 잠겨 있다', async () => {
+    renderLanding()
+
+    expect(
+      await screen.findByRole('button', { name: '후원 문의하기' }),
+    ).toBeDisabled()
+    expect(screen.queryByRole('link', { name: '후원 문의하기' })).toBeNull()
+  })
+
   it('FAQ 항목을 누르면 답이 펼쳐진다', async () => {
     renderLanding()
 
@@ -115,18 +125,14 @@ describe('랜딩 헤더 상태별 진입점', () => {
     ).toBeInTheDocument()
 
     /*
-     * 이 사이트 로그인이 아니라 동아리 가입이라 외부 폼으로 나간다. 다만 주소가 아직
-     * 자리표시자면 링크가 아니라 **잠긴 버튼**이어야 한다 — 살려두면 example.com으로 나간다.
+     * 모집 폼 주소가 **아직 자리표시자라서** 링크가 아니라 잠긴 버튼이어야 한다.
+     *
+     * `isPlaceholder(CLUB.applyUrl)`로 기대값을 분기하지 않는다 — 구현과 같은 조건을
+     * 보면 판별이 망가져 링크가 살아나도 테스트가 같이 따라가서 회귀를 못 잡는다.
+     * 지금 값 기준으로 못박아 두고, 실제 주소가 들어오는 날 이 테스트를 같이 고친다.
      */
-    if (isPlaceholder(CLUB.applyUrl)) {
-      expect(screen.getByRole('button', { name: '지원하기' })).toBeDisabled()
-      expect(screen.queryByRole('link', { name: '지원하기' })).toBeNull()
-    } else {
-      expect(screen.getByRole('link', { name: '지원하기' })).toHaveAttribute(
-        'href',
-        CLUB.applyUrl,
-      )
-    }
+    expect(screen.getByRole('button', { name: '지원하기' })).toBeDisabled()
+    expect(screen.queryByRole('link', { name: '지원하기' })).toBeNull()
     expect(screen.queryByRole('button', { name: '로그아웃' })).toBeNull()
   })
 

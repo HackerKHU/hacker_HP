@@ -19,7 +19,7 @@
 
 **`og-image.png`(1200×630)가 아직 없다.** 없으면 카카오톡·인스타그램 링크 미리보기에
 이미지가 비어 나온다. `index.html`의 `og:image`는 이미 이 파일을 절대 URL로 가리키고
-있으므로, 파일만 넣으면 된다 — 도메인은 `vite.config.ts`의 `SITE_ORIGIN` 한 곳에서
+있으므로, 파일만 넣으면 된다 — 도메인은 `site.config.ts`의 `SITE_ORIGIN` 한 곳에서
 주입한다(아직 `example.com`이다).
 
 ## 규격

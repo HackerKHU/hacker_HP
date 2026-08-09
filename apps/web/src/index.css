@@ -162,7 +162,7 @@
   animation: marquee var(--marquee-duration) linear infinite;
 }
 
-/* 사진을 보려는 사람이 멈출 수단이 있어야 한다. 키보드 포커스에도 멈춘다. */
+/* 카드를 읽으려는 사람이 멈출 수단이 있어야 한다. 키보드 포커스에도 멈춘다. */
 .marquee-viewport:hover .marquee-track,
 .marquee-viewport:focus-within .marquee-track {
   animation-play-state: paused;
