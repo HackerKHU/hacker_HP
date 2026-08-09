@@ -68,7 +68,7 @@ export function NoticeListPage() {
 
   return (
     <section>
-      <h1 className="text-2xl font-semibold tracking-tight">공지 목록</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">공지사항</h1>
 
       {data === null && !failed && (
         <p className="mt-8 text-sm text-muted-foreground">불러오는 중</p>

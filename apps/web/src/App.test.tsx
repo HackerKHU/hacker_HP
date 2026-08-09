@@ -92,7 +92,7 @@ describe('라우트 가드', () => {
     renderAt('/admin/members')
 
     expect(
-      await screen.findByRole('heading', { name: '공지 목록' }),
+      await screen.findByRole('heading', { name: '공지사항' }),
     ).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '회원 관리' })).toBeNull()
   })
@@ -134,7 +134,7 @@ describe('라우트 가드', () => {
     )
 
     expect(
-      await screen.findByRole('heading', { name: '공지 목록' }),
+      await screen.findByRole('heading', { name: '공지사항' }),
     ).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '오류 발생' }))
@@ -146,22 +146,26 @@ describe('라우트 가드', () => {
 })
 
 describe('헤더 메뉴 노출', () => {
-  it('ADMIN에게는 관리 메뉴까지 보인다', async () => {
+  it('ADMIN에게는 회원 관리가 보인다', async () => {
     auth.me = () => Promise.resolve({ ...BASE, role: 'ADMIN' })
 
     renderAt('/admin/notices')
     await screen.findByRole('heading', { name: '공지 관리' })
 
-    expect(menuLabels()).toEqual(['공지', '공지 관리', '회원 관리'])
+    expect(menuLabels()).toEqual(['공지', '회원 관리'])
+    // 공지 관리 라우트는 살아 있지만 진입 위치가 미정이라 메뉴에서 뺐다.
+    // 무심코 되살리면 여기서 잡힌다.
+    expect(menuLabels()).not.toContain('공지 관리')
   })
 
   it('ACTIVE USER에게는 공지만 보이고 관리 메뉴는 없다', async () => {
     auth.me = () => Promise.resolve(BASE)
 
     renderAt('/notices')
-    await screen.findByRole('heading', { name: '공지 목록' })
+    await screen.findByRole('heading', { name: '공지사항' })
 
     expect(menuLabels()).toEqual(['공지'])
+    expect(menuLabels()).not.toContain('회원 관리')
   })
 
   it('PENDING에게는 메뉴가 없고 로그아웃만 있다', async () => {
@@ -204,7 +208,7 @@ describe('로그아웃', () => {
       '로그아웃하지 못했습니다',
     )
     expect(
-      screen.getByRole('heading', { name: '공지 목록' }),
+      screen.getByRole('heading', { name: '공지사항' }),
     ).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '로그인' })).toBeNull()
   })
