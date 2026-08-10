@@ -43,13 +43,20 @@ type PendingAction =
  */
 function statusLabel(user: User): string {
   if (user.status === 'PENDING') {
-    return user.appliedAt === null ? '신청 전' : '승인 대기'
+    return user.appliedAt === null ? '미승인' : '승인 대기'
   }
   return user.status === 'ACTIVE' ? '활동중' : '정지'
 }
 
+/**
+ * 상태 필터의 라벨. **API 값(`PENDING` 등)과 표시 이름은 다른 층위다.**
+ *
+ * `PENDING`을 "미승인"이라 부르는 것은 이 필터가 신청 전과 승인 대기를 **둘 다** 데려오기
+ * 때문이다. 서버에 그 둘을 가르는 파라미터가 아직 없다 (spec §3-2-9 미합의) — 둘을
+ * 아우르는 이름을 쓰는 것이 임시 조치다. "승인 대기"라고 적으면 필터가 거짓말을 한다.
+ */
 const STATUS_FILTERS: Record<UserStatus, string> = {
-  PENDING: '승인 대기',
+  PENDING: '미승인',
   ACTIVE: '활동중',
   SUSPENDED: '정지',
 }
@@ -128,6 +135,13 @@ export function MemberListPage() {
    * 정지는 그냥 나가면 앞뒤가 안 맞는다.
    */
   const [pending, setPending] = useState<PendingAction | null>(null)
+  /** 조회 조건이 바뀔 때 "확인창이 열려 있었는지"를 읽으려고 둔다. `selectedRef`와 같은 이유다. */
+  const pendingRef = useRef<PendingAction | null>(null)
+
+  function setConfirm(next: PendingAction | null) {
+    pendingRef.current = next
+    setPending(next)
+  }
   const [working, setWorking] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -168,10 +182,23 @@ export function MemberListPage() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: 조회 조건은 본문에서 읽지 않고 "조건이 바뀌었다"는 신호로만 쓴다.
   useEffect(() => {
     const dropped = selectedRef.current.length
-    if (dropped === 0) return
-    selectedRef.current = []
-    setSelected([])
-    setNotice(`조회 조건이 바뀌어 선택한 ${dropped}명이 해제되었습니다.`)
+    const hadConfirm = pendingRef.current !== null
+    if (dropped === 0 && !hadConfirm) return
+
+    setSelection([])
+    /*
+     * **열려 있던 확인창도 함께 닫는다.** 확인창은 조건이 바뀌기 전 목록의 대상을 들고
+     * 있다. 그대로 두면 뒤로가기로 다른 조건으로 돌아온 뒤 확인을 눌러 **화면에 보이지도
+     * 않는 사람을 승인하게 된다.** 승인은 되돌릴 수 없다.
+     */
+    setConfirm(null)
+    setNotice(
+      hadConfirm
+        ? dropped > 0
+          ? `조회 조건이 바뀌어 진행 중이던 확인을 닫고 선택한 ${dropped}명이 해제되었습니다.`
+          : '조회 조건이 바뀌어 진행 중이던 확인을 닫았습니다.'
+        : `조회 조건이 바뀌어 선택한 ${dropped}명이 해제되었습니다.`,
+    )
   }, [page, keyword, status, role, sort])
 
   /**
@@ -278,8 +305,17 @@ export function MemberListPage() {
           : `${result.approved.length}명을 승인하고 ${result.failed.length}명은 실패했습니다.` +
               ` 신청서를 내지 않은 계정입니다: ${failedNames.join(', ')}`,
       )
-      // 승인된 사람은 더 이상 대상이 아니다. 재조회 전에 비워 안내가 덮이지 않게 한다.
-      setSelection([])
+      /*
+       * **승인된 사람만 선택에서 뺀다. 전체를 비우지 않는다.**
+       *
+       * 행 승인은 한 명만 처리하는데 선택 전체를 비우면, 조회 조건이 바뀌지도 않았고
+       * 여전히 승인 대상인 다른 선택이 안내 없이 사라진다 — 조건 변경 때 지적받은 것과
+       * 같은 일이 다른 경로에서 다시 일어난다. 실패한 사람은 선택에 남겨 둔다.
+       * 누가 실패했는지 안내와 선택이 함께 남아야 다음 조치를 할 수 있다.
+       */
+      setSelection(
+        selectedRef.current.filter((id) => !result.approved.includes(id)),
+      )
       setReloadKey((key) => key + 1)
     } catch (error: unknown) {
       reportApiError(error)
@@ -291,7 +327,7 @@ export function MemberListPage() {
       )
     } finally {
       setWorking(false)
-      setPending(null)
+      setConfirm(null)
     }
   }
 
@@ -320,7 +356,7 @@ export function MemberListPage() {
       )
     } finally {
       setWorking(false)
-      setPending(null)
+      setConfirm(null)
     }
   }
 
@@ -429,7 +465,7 @@ export function MemberListPage() {
             <Button
               type="button"
               disabled={selected.length === 0 || working}
-              onClick={() => setPending({ kind: 'approve', ids: selected })}
+              onClick={() => setConfirm({ kind: 'approve', ids: selected })}
             >
               선택한 {selected.length}명 승인
             </Button>
@@ -497,7 +533,7 @@ export function MemberListPage() {
                           size="sm"
                           disabled={working}
                           onClick={() =>
-                            setPending({ kind: 'approve', ids: [user.id] })
+                            setConfirm({ kind: 'approve', ids: [user.id] })
                           }
                         >
                           승인
@@ -510,7 +546,7 @@ export function MemberListPage() {
                           size="sm"
                           disabled={working}
                           onClick={() =>
-                            setPending({
+                            setConfirm({
                               kind: 'status',
                               user,
                               next:
@@ -571,7 +607,7 @@ export function MemberListPage() {
       <AlertDialog
         open={pending !== null}
         onOpenChange={(open) => {
-          if (!open) setPending(null)
+          if (!open) setConfirm(null)
         }}
       >
         <AlertDialogContent>

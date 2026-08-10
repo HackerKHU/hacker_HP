@@ -207,17 +207,35 @@ describe('승인 대상', () => {
    * 신청서를 내지 않은 사람은 승인을 기다리는 게 아니라 아직 신청을 안 한 것이다.
    * **그 구분을 상태 칸이 한다** — 액션 칸에 문구를 넣어 대신하지 않는다.
    */
-  it('신청 전 회원은 상태로 구분되고 선택도 액션도 없다', async () => {
+  it('미승인 회원은 상태로 구분되고 선택도 액션도 없다', async () => {
     renderAt()
     await loaded()
 
     const target = row('미신청')
     expect(within(target).getByRole('checkbox')).toBeDisabled()
-    expect(target).toHaveTextContent('신청 전')
+    expect(target).toHaveTextContent('미승인')
     expect(target).not.toHaveTextContent('승인 대기')
     // 액션 칸이 비어 있다. 왜 비었는지는 상태만 봐도 자명하다.
     expect(within(target).queryByRole('button')).toBeNull()
     expect(target).not.toHaveTextContent('신청서 미제출')
+  })
+
+  /*
+   * 필터의 "미승인"은 `status=PENDING` 전부(미승인 + 승인 대기)를 데려온다. 서버에 둘을
+   * 가르는 파라미터가 아직 없어서다 (spec §3-2-9 미합의). "승인 대기"라고 적으면 필터가
+   * 거짓말을 한다 — 둘을 아우르는 이름을 쓰는 것이 지금의 임시 조치다.
+   */
+  it('상태 필터의 PENDING 라벨은 미승인이다', async () => {
+    renderAt()
+    await loaded()
+
+    const filter = screen.getByLabelText('상태')
+    expect(within(filter).getByRole('option', { name: '미승인' })).toHaveValue(
+      'PENDING',
+    )
+    expect(
+      within(filter).queryByRole('option', { name: '승인 대기' }),
+    ).toBeNull()
   })
 
   it('신청서를 낸 PENDING은 승인 대기로 보인다', async () => {
@@ -402,6 +420,53 @@ describe('일괄 승인', () => {
       '1명을 승인했습니다.',
     )
     expect(api.approved).toEqual([[2]])
+  })
+
+  /*
+   * 회귀 — **행 승인이 무관한 선택까지 지우면 안 된다.**
+   *
+   * 재현: A를 체크한 상태에서 다른 행 B의 승인 버튼을 누르면, 조회 조건은 그대로이고
+   * A는 여전히 승인 대상인데 A의 체크가 안내 없이 풀렸다. 조건 변경 때 지적받은 것과
+   * 같은 일이 다른 경로에서 다시 일어난 것이다.
+   */
+  it('행 승인은 다른 사람의 선택을 건드리지 않는다', async () => {
+    renderAt()
+    // A(신청한하나)를 체크한다.
+    fireEvent.click(await loaded())
+    expect(screen.getByText(/이 페이지에서 1명 선택됨/)).toBeInTheDocument()
+
+    // B(신청한둘)를 행에서 승인한다.
+    fireEvent.click(
+      within(row('신청한둘')).getByRole('button', { name: '승인' }),
+    )
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '승인' }))
+
+    await screen.findByRole('status')
+    // A의 선택은 그대로다.
+    expect(screen.getByText(/이 페이지에서 1명 선택됨/)).toBeInTheDocument()
+    expect(within(row('신청한하나')).getByRole('checkbox')).toBeChecked()
+  })
+
+  it('승인된 사람은 선택에서 빠진다', async () => {
+    renderAt()
+    fireEvent.click(await loaded())
+    fireEvent.click(within(row('신청한둘')).getByRole('checkbox'))
+    expect(screen.getByText(/이 페이지에서 2명 선택됨/)).toBeInTheDocument()
+
+    // 하나만 성공하고 하나는 실패한 응답.
+    api.approveResult = {
+      approved: [1],
+      failed: [{ userId: 2, reason: 'NOT_APPLIED' }],
+    }
+    fireEvent.click(screen.getByRole('button', { name: /선택한 2명 승인/ }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '승인' }))
+
+    await screen.findByRole('status')
+    // 승인된 1번은 빠지고, 실패한 2번은 남는다 — 안내와 선택이 함께 남아야 조치가 된다.
+    expect(screen.getByText(/이 페이지에서 1명 선택됨/)).toBeInTheDocument()
+    expect(within(row('신청한둘')).getByRole('checkbox')).toBeChecked()
   })
 
   it('아무도 선택하지 않으면 승인 버튼이 잠겨 있다', async () => {
@@ -622,6 +687,42 @@ describe('검색·필터·정렬', () => {
    * `?page=999`로 들어오면 "1000 / 3"이 굳어 이전 버튼을 999번 눌러야 빠져나온다.
    * 총 페이지 수를 알게 된 뒤 마지막 유효 페이지로 되돌린다.
    */
+  /*
+   * 회귀 — **확인창이 사라진 조건의 대상을 들고 남으면 안 된다.**
+   *
+   * 재현: q=A → q=B 검색 → 회원 선택 후 확인창 열기 → 뒤로가기. 목록과 입력창은 A로
+   * 돌아오고 선택도 풀리는데 확인창만 B 조건의 대상을 들고 남아 있었다. 확인을 누르면
+   * **관리자가 화면에서 볼 수 없는 사람이 승인된다.**
+   */
+  it('조회 조건이 바뀌면 열려 있던 확인창도 닫히고 이유를 알린다', async () => {
+    renderAt('/admin/members?q=A')
+    await loaded()
+
+    fireEvent.change(screen.getByLabelText('검색'), { target: { value: 'B' } })
+    fireEvent.click(screen.getByRole('button', { name: '검색' }))
+    await waitFor(() => {
+      expect(api.queries.at(-1)?.q).toBe('B')
+    })
+
+    fireEvent.click(await loaded())
+    fireEvent.click(screen.getByRole('button', { name: /선택한 1명 승인/ }))
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
+
+    // 뒤로가기 — q=A로 돌아간다. 확인창이 모달이라 바깥은 aria-hidden이다.
+    fireEvent.click(
+      screen.getByRole('button', { name: '뒤로가기', hidden: true }),
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+    })
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '진행 중이던 확인을 닫',
+    )
+    // 승인 요청은 나가지 않았다.
+    expect(api.approved).toEqual([])
+  })
+
   it('범위를 넘은 page는 마지막 페이지로 보정된다', async () => {
     renderAt('/admin/members?page=999')
 
