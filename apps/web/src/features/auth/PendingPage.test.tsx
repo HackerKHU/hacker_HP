@@ -367,6 +367,28 @@ describe('상태를 확인하지 못하면', () => {
     ).toBeInTheDocument()
   })
 
+  /*
+   * T-115의 화면 절반 — **`refresh()` 경로로 정지가 오는 경우.**
+   *
+   * 제출 실패는 `reportApiError()`를 타지만 "다시 확인"은 `refresh()`를 탄다. 두 경로가
+   * 별개라, 한쪽만 확인하면 다른 쪽 배선이 끊겨도 안 잡힌다.
+   */
+  it('다시 확인 중 정지된 것이 드러나면 정지 안내로 간다', async () => {
+    api.me = APPLIED
+
+    renderAt()
+    await screen.findByRole('heading', { name: '승인 대기 중' })
+
+    // 그 사이 관리자가 정지시켰다.
+    api.meError = new ApiError('SUSPENDED', 403, '정지된 계정입니다.')
+    fireEvent.click(screen.getByRole('button', { name: '다시 확인' }))
+
+    await waitFor(() => {
+      expect(pathname()).toBe('/login')
+    })
+    expect(await screen.findByRole('alert')).toHaveTextContent(/정지된 계정/)
+  })
+
   it('신청 여부 확인이 실패하면 다시 시도할 길을 준다', async () => {
     api.meError = new ApiError(
       'PENDING_APPROVAL',

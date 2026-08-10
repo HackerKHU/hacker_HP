@@ -7,6 +7,9 @@ import { hasApplied, SessionProvider, useSession } from './session'
 
 const auth = vi.hoisted(() => ({ me: vi.fn() }))
 
+/** 프로브가 `reportApiError`로 넘길 오류. 테스트가 갈아끼운다. */
+const reported = vi.hoisted(() => ({ error: null as unknown }))
+
 vi.mock('../api/auth', () => ({
   getMe: () => auth.me(),
   logout: () => Promise.resolve(),
@@ -61,6 +64,12 @@ function Probe() {
       >
         새로고침
       </button>
+      <button
+        type="button"
+        onClick={() => session.reportApiError(reported.error)}
+      >
+        오류 보고
+      </button>
     </>
   )
 }
@@ -76,6 +85,118 @@ function renderProbe() {
 
 beforeEach(() => {
   auth.me.mockReset()
+})
+
+/**
+ * 세션 상태를 바꾸는 근거 (spec §3-1-5, 5-TESTING T-112~T-116).
+ *
+ * **세 경로 × 응답 종류를 표로 덮는다.** 경로마다 배선이 따로라 한 경로에서 통과한다고
+ * 다른 경로가 덮이지 않는다 — 실제로 `refresh()`의 `403` 처리가 그렇게 비어 있었다.
+ * `reportApiError()`에서 같은 코드를 테스트하고 있었지만 **다른 함수**였다.
+ */
+const RESPONSES = {
+  unknown: new ApiError('NETWORK_ERROR', 0, '서버에 연결하지 못했습니다.'),
+  serverError: new ApiError('INVALID_RESPONSE', 500, '서버 오류입니다.'),
+  unauthenticated: new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
+  suspended: new ApiError('SUSPENDED', 403, '정지된 계정입니다.'),
+  pendingApproval: new ApiError('PENDING_APPROVAL', 403, '승인 대기 중입니다.'),
+} as const
+
+/** 상태를 알려주는 응답과 그때 세션이 되어야 할 값. 세 경로가 같이 쓴다. */
+const TELLING = [
+  ['401', RESPONSES.unauthenticated, 'guest'],
+  ['403 SUSPENDED', RESPONSES.suspended, 'suspended'],
+  ['403 PENDING_APPROVAL', RESPONSES.pendingApproval, 'pending'],
+] as const
+
+/** `ACTIVE` 세션을 세우고 시작한다 — 무엇이 바뀌고 무엇이 안 바뀌는지 보려면 기준이 필요하다. */
+async function startActive() {
+  auth.me.mockResolvedValueOnce(ACTIVE)
+  await renderProbe()
+  const kind = screen.getByTestId('kind')
+  await waitFor(() => expect(kind).toHaveTextContent('active'))
+  return kind
+}
+
+describe('refresh() 경로', () => {
+  it.each(TELLING)(
+    '%s를 받으면 그 상태로 정리한다',
+    async (_l, error, expected) => {
+      const kind = await startActive()
+
+      auth.me.mockRejectedValueOnce(error)
+      fireEvent.click(screen.getByRole('button', { name: '새로고침' }))
+
+      await waitFor(() => expect(kind).toHaveTextContent(expected))
+    },
+  )
+})
+
+describe('reportApiError() 경로', () => {
+  it.each(TELLING)(
+    '%s를 받으면 그 상태로 정리한다',
+    async (_l, error, expected) => {
+      const kind = await startActive()
+
+      reported.error = error
+      fireEvent.click(screen.getByRole('button', { name: '오류 보고' }))
+
+      await waitFor(() => expect(kind).toHaveTextContent(expected))
+    },
+  )
+
+  /*
+   * `refresh()`와 같은 정책이다 — 상태를 알려주지 않는 실패로는 세션을 바꾸지 않는다.
+   * 한쪽만 테스트되어 있으면 다른 쪽이 다음 차례다.
+   */
+  it.each([
+    ['네트워크 오류', RESPONSES.unknown],
+    ['5xx', RESPONSES.serverError],
+    ['ApiError가 아닌 예외', new Error('알 수 없음')],
+  ])('%s는 세션을 바꾸지 않는다', async (_label, error) => {
+    const kind = await startActive()
+
+    reported.error = error
+    fireEvent.click(screen.getByRole('button', { name: '오류 보고' }))
+
+    await waitFor(() => expect(kind).toHaveTextContent('active'))
+    expect(kind).toHaveTextContent('active')
+  })
+})
+
+describe('최초 확인 경로', () => {
+  it.each(TELLING)(
+    '%s를 받으면 그 상태로 시작한다',
+    async (_l, error, expected) => {
+      auth.me.mockRejectedValueOnce(error)
+
+      await renderProbe()
+
+      await waitFor(() =>
+        expect(screen.getByTestId('kind')).toHaveTextContent(expected),
+      )
+    },
+  )
+
+  /*
+   * **여기만 예외다** (spec §3-1-5). 버릴 세션이 없고, 어느 쪽으로도 정하지 않으면 화면이
+   * 영영 `loading`에 갇힌다. 비로그인으로 두면 로그인 화면에서 다시 시도할 수 있다.
+   */
+  it.each([
+    ['네트워크 오류', RESPONSES.unknown],
+    ['5xx', RESPONSES.serverError],
+  ])(
+    '%s면 비로그인으로 시작한다 — loading에 갇히지 않는다',
+    async (_l, error) => {
+      auth.me.mockRejectedValueOnce(error)
+
+      await renderProbe()
+
+      await waitFor(() =>
+        expect(screen.getByTestId('kind')).toHaveTextContent('guest'),
+      )
+    },
+  )
 })
 
 describe('PENDING 세션의 신청 여부', () => {
