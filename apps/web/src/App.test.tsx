@@ -122,18 +122,22 @@ describe('라우트 가드', () => {
     ).toBeInTheDocument()
   })
 
-  // 회귀 — 가입도 구글 버튼 하나로 하므로 /signup은 없다(2-1 §2-1-8, 3-3 결정 13).
-  // #68로 `/`가 공개 랜딩이 되면서 도착지가 로그인 화면에서 랜딩으로 바뀌었다.
-  // 없는 화면을 보여주지 않고, 랜딩 헤더에 로그인 진입점이 있다는 점은 그대로다.
-  it('없어진 /signup으로 들어오면 랜딩으로 보내고 로그인 진입점을 남긴다', async () => {
-    auth.me = () => Promise.resolve({ ...BASE, status: 'SUSPENDED' })
+  /*
+   * 회귀 — 가입도 구글 버튼 하나로 하므로 `/signup`은 없다(2-1 §2-1-8, 3-3 결정 13).
+   * **저장된 링크로 들어오면 로그인으로 보낸다.** wildcard에 맡기면 랜딩으로 가는데,
+   * 가입하러 온 사람이 길을 다시 찾아야 한다.
+   */
+  it('없어진 /signup으로 들어오면 로그인 화면으로 보낸다', async () => {
+    auth.me = () =>
+      Promise.reject(
+        new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
+      )
 
     renderAt('/signup')
 
-    expect(await screen.findByRole('link', { name: '로그인' })).toHaveAttribute(
-      'href',
-      '/login',
-    )
+    expect(
+      await screen.findByRole('heading', { name: '로그인' }),
+    ).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '가입 신청' })).toBeNull()
   })
 
