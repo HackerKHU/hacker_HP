@@ -3,6 +3,7 @@ import { AppLayout } from './components/layout/AppLayout'
 import { Button } from './components/ui/button'
 import { LandingPage } from './features/landing/LandingPage'
 import { PrivacyPage } from './features/legal/PrivacyPage'
+import { MemberListPage } from './features/members/MemberListPage'
 import { NoticeDetailPage } from './features/notices/NoticeDetailPage'
 import { NoticeFormPage } from './features/notices/NoticeFormPage'
 import { NoticeListPage } from './features/notices/NoticeListPage'
@@ -74,10 +75,7 @@ function App() {
           */}
           <Route path="/admin/notices/new" element={<NoticeFormPage />} />
           <Route path="/admin/notices/:id/edit" element={<NoticeFormPage />} />
-          <Route
-            path="/admin/members"
-            element={<Placeholder title="회원 관리" />}
-          />
+          <Route path="/admin/members" element={<MemberListPage />} />
         </Route>
       </Route>
 

@@ -279,3 +279,172 @@ describe('공지 쓰기 픽스처', () => {
     )
   })
 })
+
+/**
+ * 회원 관리 픽스처.
+ *
+ * 화면 테스트는 `@/api/adminUsers`를 통째로 mock하므로 이 계층은 그 뒤에 가려져 있다.
+ * **서버 계약 재현은 여기서 본다** — 픽스처가 계약보다 무르면 오류 UI 없이도 화면이
+ * 멀쩡해 보이고, 그 회귀는 서버가 붙는 날까지 드러나지 않는다.
+ */
+describe('회원 관리 픽스처', () => {
+  it('관리자가 아니면 목록을 거부한다', async () => {
+    const { fixtureAdminUsers, ApiError } = await loadFixtures('user')
+
+    const error = await fixtureAdminUsers().catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+  })
+
+  it('명단에 신청서를 내지 않은 PENDING이 들어 있다', async () => {
+    const { fixtureAdminUsers } = await loadFixtures('admin')
+
+    const page = await fixtureAdminUsers({ status: 'PENDING', size: 100 })
+
+    // 이런 계정이 없으면 "선택되지 않는다"는 화면 규칙을 확인할 수가 없다.
+    expect(page.content.some((user) => user.appliedAt === null)).toBe(true)
+    expect(page.content.some((user) => user.appliedAt !== null)).toBe(true)
+  })
+
+  /*
+   * 계약 §3-2-6 MUST — 신청하지 않은 계정의 id가 섞여 오면 그 건은 실패로 집계하고
+   * 상태를 바꾸지 않는다. 픽스처가 통과시키면 학번 없는 ACTIVE가 만들어지는 경로를
+   * 화면에서 못 잡고, 실패 건수를 안내하는 UI도 늘 "전부 성공"이라 검증되지 않는다.
+   */
+  it('신청하지 않은 계정은 실패로 집계하고 상태를 바꾸지 않는다', async () => {
+    const { fixtureAdminUsers, fixtureApproveUsers } =
+      await loadFixtures('admin')
+
+    const pending = await fixtureAdminUsers({ status: 'PENDING', size: 100 })
+    const applied = pending.content.find((user) => user.appliedAt !== null)
+    const notApplied = pending.content.find((user) => user.appliedAt === null)
+    if (!applied || !notApplied) throw new Error('픽스처 명단이 부족하다')
+
+    const result = await fixtureApproveUsers([applied.id, notApplied.id])
+
+    expect(result.approved).toEqual([applied.id])
+    expect(result.failed).toEqual([
+      { userId: notApplied.id, reason: 'NOT_APPLIED' },
+    ])
+
+    const after = await fixtureAdminUsers({ size: 100 })
+    const stayed = after.content.find((user) => user.id === notApplied.id)
+    expect(stayed?.status).toBe('PENDING')
+    const approved = after.content.find((user) => user.id === applied.id)
+    expect(approved?.status).toBe('ACTIVE')
+    expect(approved?.approvedAt).not.toBeNull()
+  })
+
+  it('검색은 이름·학번·이메일을 함께 본다', async () => {
+    const { fixtureAdminUsers } = await loadFixtures('admin')
+
+    const all = await fixtureAdminUsers({ size: 100 })
+    const target = all.content.find((user) => user.studentNo !== null)
+    if (!target) throw new Error('학번 있는 회원이 없다')
+
+    for (const keyword of [target.name, target.studentNo ?? '', target.email]) {
+      const found = await fixtureAdminUsers({ q: keyword, size: 100 })
+      expect(
+        found.content.map((user) => user.id),
+        `"${keyword}"로 찾지 못했다`,
+      ).toContain(target.id)
+    }
+  })
+
+  it('상태·권한 필터가 실제로 걸러낸다', async () => {
+    const { fixtureAdminUsers } = await loadFixtures('admin')
+
+    const pending = await fixtureAdminUsers({ status: 'PENDING', size: 100 })
+    expect(pending.content.length).toBeGreaterThan(0)
+    expect(pending.content.every((user) => user.status === 'PENDING')).toBe(
+      true,
+    )
+
+    const admins = await fixtureAdminUsers({ role: 'ADMIN', size: 100 })
+    expect(admins.content.length).toBeGreaterThan(0)
+    expect(admins.content.every((user) => user.role === 'ADMIN')).toBe(true)
+  })
+
+  /*
+   * 기본 정렬은 **신청일(`appliedAt`) 최신순**이다 (2-2 §2-2-1 MUST). `createdAt`이 아니다.
+   * 픽스처가 두 날짜를 벌려 두었으므로 잘못된 필드로 정렬하면 순서가 달라진다.
+   */
+  it('기본 정렬은 appliedAt 최신순이고 미신청은 뒤로 간다', async () => {
+    const { fixtureAdminUsers } = await loadFixtures('admin')
+
+    const page = await fixtureAdminUsers({ size: 100 })
+    const applied = page.content.filter((user) => user.appliedAt !== null)
+
+    for (let i = 1; i < applied.length; i++) {
+      expect(
+        String(applied[i - 1].appliedAt) >= String(applied[i].appliedAt),
+      ).toBe(true)
+    }
+    const firstNull = page.content.findIndex((user) => user.appliedAt === null)
+    if (firstNull !== -1) {
+      expect(
+        page.content.slice(firstNull).every((user) => user.appliedAt === null),
+      ).toBe(true)
+    }
+  })
+
+  it('이름순 정렬이 동작한다', async () => {
+    const { fixtureAdminUsers } = await loadFixtures('admin')
+
+    const page = await fixtureAdminUsers({ sort: 'name', size: 100 })
+
+    const names = page.content.map((user) => user.name)
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b, 'ko')))
+  })
+
+  it('페이지네이션이 실제로 잘라낸다', async () => {
+    const { fixtureAdminUsers } = await loadFixtures('admin')
+
+    const first = await fixtureAdminUsers({ page: 0, size: 5 })
+    const second = await fixtureAdminUsers({ page: 1, size: 5 })
+
+    expect(first.content).toHaveLength(5)
+    expect(first.page.totalPages).toBeGreaterThan(1)
+    // 같은 사람이 두 페이지에 겹쳐 나오면 승인이 중복된다.
+    const overlap = first.content.filter((user) =>
+      second.content.some((other) => other.id === user.id),
+    )
+    expect(overlap).toEqual([])
+  })
+
+  /*
+   * 2-2 §2-2-7 MUST — 마지막 활성 관리자는 자기 자신을 정지할 수 없다. 화면은 활성
+   * 관리자가 몇 명인지 모르므로 이 판단을 하지 않는다. 픽스처가 서버처럼 거부해야
+   * 그 실패 화면을 만들 수 있다.
+   */
+  it('마지막 활성 관리자가 되면 자기 정지가 거부된다', async () => {
+    const { fixtureAdminUsers, fixtureUpdateUserStatus, ApiError } =
+      await loadFixtures('admin')
+
+    const all = await fixtureAdminUsers({ role: 'ADMIN', size: 100 })
+    const others = all.content.filter((user) => user.id !== 2)
+    // 본인 말고 다른 활성 관리자를 전부 정지시켜 "마지막 한 명" 상태를 만든다.
+    for (const other of others) {
+      await fixtureUpdateUserStatus(other.id, 'SUSPENDED')
+    }
+
+    const error = await fixtureUpdateUserStatus(2, 'SUSPENDED').catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+    const after = await fixtureAdminUsers({ size: 100 })
+    expect(after.content.find((user) => user.id === 2)?.status).toBe('ACTIVE')
+  })
+
+  it('활성 관리자가 둘 이상이면 자기 정지가 허용된다', async () => {
+    const { fixtureUpdateUserStatus } = await loadFixtures('admin')
+
+    // 명단에 활성 관리자가 셋(본인 + 둘) 있으므로 그대로 시도한다.
+    const updated = await fixtureUpdateUserStatus(2, 'SUSPENDED')
+
+    expect(updated.status).toBe('SUSPENDED')
+  })
+})

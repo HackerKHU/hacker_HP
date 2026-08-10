@@ -25,6 +25,8 @@
  * 반환 타입은 반드시 `src/api/types.ts`의 실제 계약 타입으로 선언한다.
  * 타입이 계약을 강제하는 것이 이 파일의 존재 이유다.
  */
+
+import type { AdminUserQuery, ApproveResult } from './adminUsers'
 import { ApiError } from './client'
 import type { Notice } from './notices'
 import type { Page, User } from './types'
@@ -432,4 +434,200 @@ export function fixtureRemoveNotice(id: number): Promise<void> {
   }
   NOTICES.splice(index, 1)
   return Promise.resolve()
+}
+
+// ── 회원 관리 ────────────────────────────────────────────────────────────────
+
+/**
+ * 회원 명부. 위 `USERS`(`/auth/me`용 단일 사용자)와 다른 목적이라 따로 둔다 —
+ * 그쪽은 "지금 로그인한 사람"이고 이쪽은 "관리자가 보는 명단"이다.
+ *
+ * 신청 전(`appliedAt: null`) 계정을 일부러 섞어 뒀다. 승인 대상은 신청서를 낸 계정으로
+ * 한정되므로(계약 §3-2-6 MUST) **그 계정이 화면에서 선택되지 않는 것**이 이 화면의 핵심
+ * 규칙인데, 명단에 그런 계정이 없으면 규칙이 지켜지는지 화면에서 확인할 수가 없다.
+ *
+ * 활성 관리자도 둘 이상 둔다. 한 명뿐이면 마지막 관리자 자기 정지 차단(§2-2-7)만 보이고
+ * 정상적으로 정지되는 경로를 볼 수 없다.
+ */
+const MEMBERS: User[] = []
+
+const MEMBER_NAMES = [
+  '강도현',
+  '김서연',
+  '남우진',
+  '문지호',
+  '박하늘',
+  '배준영',
+  '서민재',
+  '송예린',
+  '신동하',
+  '오세림',
+  '유가온',
+  '윤태경',
+  '이도윤',
+  '임채원',
+  '장서우',
+  '전민석',
+  '정예나',
+  '조현우',
+  '차수빈',
+  '최은서',
+  '표지훈',
+  '한소율',
+  '홍시우',
+  '황재민',
+]
+
+for (const [index, name] of MEMBER_NAMES.entries()) {
+  /*
+   * 앞의 여섯은 PENDING이다. 그중 둘(index 4·5)은 **신청서를 내지 않았다** —
+   * 구글 로그인만 마친 상태라 학번도 없다 (3-3 결정 13).
+   */
+  const pending = index < 6
+  const applied = pending ? index < 4 : true
+  const admin = index === 6 || index === 7
+  const suspended = index === 8
+
+  MEMBERS.push({
+    id: 1000 + index,
+    email: `member${index + 1}@khu.ac.kr`,
+    studentNo: applied
+      ? `20${21 + (index % 5)}${String(100000 + index)}`
+      : null,
+    name,
+    role: admin ? 'ADMIN' : 'USER',
+    status: pending ? 'PENDING' : suspended ? 'SUSPENDED' : 'ACTIVE',
+    // 계정 생성(첫 구글 로그인)은 신청보다 앞선다. 둘을 며칠 벌려 둬야 화면이 어느
+    // 날짜를 쓰는지 눈으로 구분된다 (2-2 §2-2-1 MUST — 신청일은 appliedAt이다).
+    createdAt: daysAgo(60 - index),
+    appliedAt: applied ? daysAgo(50 - index) : null,
+    approvedAt: pending ? null : daysAgo(40 - index),
+  })
+}
+
+/** 로그인한 관리자 본인. `admin` 시나리오의 `USERS.admin`과 같은 사람으로 명단에 넣는다. */
+const SELF: User = {
+  ...USERS.admin,
+  id: 2,
+}
+MEMBERS.unshift(SELF)
+
+function matchesQuery(user: User, query: AdminUserQuery): boolean {
+  if (query.status && user.status !== query.status) return false
+  if (query.role && user.role !== query.role) return false
+  const keyword = query.q?.trim().toLowerCase()
+  if (!keyword) return true
+  // 검색은 이름·학번·이메일 통합이다 (2-2 §2-2-1).
+  return [user.name, user.studentNo ?? '', user.email].some((field) =>
+    field.toLowerCase().includes(keyword),
+  )
+}
+
+/**
+ * 정렬. **기본은 신청일 최신순**이고, "가입 신청일"은 `appliedAt`이다 (2-2 §2-2-1 MUST) —
+ * `createdAt`이 아니다. 신청하지 않은 계정은 `appliedAt`이 없어 항상 뒤로 보낸다.
+ */
+function compare(a: User, b: User, sort: string | undefined): number {
+  switch (sort) {
+    case 'name':
+      return a.name.localeCompare(b.name, 'ko')
+    case 'studentNo':
+      return (a.studentNo ?? '').localeCompare(b.studentNo ?? '')
+    default:
+      if (a.appliedAt === b.appliedAt) return 0
+      if (a.appliedAt === null) return 1
+      if (b.appliedAt === null) return -1
+      return b.appliedAt.localeCompare(a.appliedAt)
+  }
+}
+
+export function fixtureAdminUsers(
+  query: AdminUserQuery = {},
+): Promise<Page<User>> {
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const matched = MEMBERS.filter((user) => matchesQuery(user, query)).sort(
+    (a, b) => compare(a, b, query.sort),
+  )
+  const size = query.size ?? FIXTURE_PAGE_SIZE
+  const page = query.page ?? 0
+  const start = page * size
+  return Promise.resolve({
+    content: matched.slice(start, start + size),
+    page: {
+      size,
+      number: page,
+      totalElements: matched.length,
+      totalPages: Math.ceil(matched.length / size),
+    },
+  })
+}
+
+/**
+ * 일괄 승인.
+ *
+ * **신청서를 내지 않은 계정은 실패로 집계하고 상태를 바꾸지 않는다** (계약 §3-2-6 MUST).
+ * 픽스처가 이걸 통과시키면 `student_no`가 빈 `ACTIVE`가 만들어지는 경로를 화면에서 못 잡고,
+ * 실패 건수를 안내하는 UI도 검증할 수 없다 — 늘 전부 성공이니까.
+ */
+export function fixtureApproveUsers(userIds: number[]): Promise<ApproveResult> {
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const result: ApproveResult = { approved: [], failed: [] }
+  for (const id of userIds) {
+    const found = MEMBERS.find((user) => user.id === id)
+    if (found?.status !== 'PENDING' || found.appliedAt === null) {
+      result.failed.push({ userId: id, reason: 'NOT_APPLIED' })
+      continue
+    }
+    found.status = 'ACTIVE'
+    found.approvedAt = new Date().toISOString()
+    result.approved.push(id)
+  }
+  return Promise.resolve(result)
+}
+
+/**
+ * 상태 전환. **마지막 활성 관리자가 자기를 정지시키는 것을 막는다** (2-2 §2-2-7 MUST).
+ *
+ * 화면은 활성 관리자가 몇 명인지 모르므로 이 판단을 하지 않는다. 픽스처가 서버처럼
+ * 거부해야 그 실패 화면을 만들 수 있다.
+ */
+export function fixtureUpdateUserStatus(
+  id: number,
+  status: 'ACTIVE' | 'SUSPENDED',
+): Promise<User> {
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const found = MEMBERS.find((user) => user.id === id)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '회원을 찾을 수 없습니다.'),
+    )
+  }
+
+  const activeAdmins = MEMBERS.filter(
+    (user) => user.role === 'ADMIN' && user.status === 'ACTIVE',
+  )
+  const isSelf = id === SELF.id
+  if (
+    status === 'SUSPENDED' &&
+    isSelf &&
+    activeAdmins.length === 1 &&
+    activeAdmins[0].id === id
+  ) {
+    return Promise.reject(
+      new ApiError(
+        'FORBIDDEN',
+        403,
+        '마지막 활성 관리자는 자기 자신을 정지할 수 없습니다.',
+      ),
+    )
+  }
+
+  found.status = status
+  return Promise.resolve(found)
 }
