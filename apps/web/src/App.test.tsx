@@ -213,6 +213,25 @@ describe('헤더 메뉴 노출', () => {
     expect(menuLabels()).not.toContain('공지 관리')
   })
 
+  /*
+   * 서버 응답도 신뢰 경계다 (`client.ts` 주석). 계약에 없는 `role`이 오면 — 특히
+   * `__proto__`처럼 **선언한 적 없는데 값을 돌려주는 프로토타입 키**면 — 메뉴 표를 직접
+   * 인덱싱하는 코드는 `Object.prototype`을 받아 `.map`에서 죽는다. 헤더가 죽으면 앱
+   * 전체가 죽는다. 메뉴가 비는 쪽으로 떨어져야 한다.
+   */
+  it('계약에 없는 role이 와도 헤더가 죽지 않는다', async () => {
+    // 계약 위반을 흉내내는 자리라 캐스트가 필요하다. 타입은 이 상황을 막지 못한다.
+    auth.me = () =>
+      Promise.resolve({ ...BASE, role: '__proto__' } as unknown as User)
+
+    renderAt('/notices')
+
+    expect(
+      await screen.findByRole('heading', { name: '공지사항' }),
+    ).toBeInTheDocument()
+    expect(menuLabels()).toEqual([])
+  })
+
   it('ACTIVE USER에게는 공지만 보이고 관리 메뉴는 없다', async () => {
     auth.me = () => Promise.resolve(BASE)
 

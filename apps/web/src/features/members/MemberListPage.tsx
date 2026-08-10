@@ -26,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { lookup } from '@/lib/lookup'
 
 const PAGE_SIZE = 20
 
@@ -516,7 +517,9 @@ export function MemberListPage() {
                     <TableCell className="text-muted-foreground">
                       {user.email}
                     </TableCell>
-                    <TableCell>{ROLE_LABEL[user.role]}</TableCell>
+                    <TableCell>
+                      {lookup(ROLE_LABEL, user.role) ?? '—'}
+                    </TableCell>
                     {/*
                      * "미승인"과 "승인 대기"가 여기서 갈린다. 그래서 액션 칸이 왜
                      * 비어 있는지 상태만 봐도 자명하다 — 문구를 덧붙이지 않는다.

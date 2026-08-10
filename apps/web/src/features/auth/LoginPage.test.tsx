@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
@@ -104,9 +110,12 @@ describe('실패 코드 안내', () => {
       renderAt(`/login?error=${code}`)
       const alert = await screen.findByRole('alert')
       messages.push(alert.textContent ?? '')
-      screen.getByTestId('pathname')
-      // 다음 렌더가 앞 화면과 섞이지 않게 지운다.
-      document.body.innerHTML = ''
+      /*
+       * **`cleanup()`으로 걷는다. DOM만 직접 비우지 않는다.**
+       * DOM을 지워도 React는 언마운트된 줄 모르고, 진행 중이던 세션 확인이 끝나며
+       * 사라진 트리에 상태를 넣는다 — 실행 순서에 따라 터지는 플레이키가 된다.
+       */
+      cleanup()
     }
 
     expect(new Set(messages).size).toBe(4)
@@ -124,14 +133,31 @@ describe('실패 코드 안내', () => {
    * **없는 문제를 알리는 셈**이다. 받은 값을 그대로 그리지도 않는다 — 계약이 쿼리에
    * 이메일·토큰을 담지 않기로 했지만(MUST), 화면이 그 약속에 기대면 깨진 날 그대로 샌다.
    */
-  it.each(['bogus', 'user@khu.ac.kr', '<script>alert(1)</script>'])(
+  /*
+   * **프로토타입 키를 반드시 넣는다.** `bogus`·이메일·스크립트 문자열은 전부 프로토타입에
+   * 없는 키라 이 경우를 못 잡는다. `__proto__`는 선언한 적 없는데도 `Object.prototype`을
+   * 돌려주고, truthy라 React가 객체를 자식으로 렌더하려다 예외를 낸다 — **URL 하나로
+   * 공개 로그인 진입점이 통째로 죽는다.**
+   */
+  it.each([
+    'bogus',
+    'user@khu.ac.kr',
+    '<script>alert(1)</script>',
+    '__proto__',
+    'constructor',
+    'toString',
+    'hasOwnProperty',
+    'valueOf',
+  ])(
     '표에 없는 %s에는 안내를 띄우지 않고 값을 그리지도 않는다',
     async (value) => {
       renderAt(`/login?error=${encodeURIComponent(value)}`)
       await loaded()
 
+      // 화면이 살아 있는지부터 본다. 크래시하면 버튼조차 없다.
       expect(screen.queryByRole('alert')).toBeNull()
       expect(document.body.textContent).not.toContain(value)
+      expect(document.body.textContent).not.toContain('[object Object]')
     },
   )
 })
@@ -158,7 +184,7 @@ describe('정지된 세션', () => {
     auth.me = () => Promise.resolve({ ...BASE, status: 'SUSPENDED' })
     renderAt('/login')
     const fromSession = (await screen.findByRole('alert')).textContent
-    document.body.innerHTML = ''
+    cleanup()
 
     auth.me = () => Promise.reject(GUEST)
     renderAt('/login?error=suspended')

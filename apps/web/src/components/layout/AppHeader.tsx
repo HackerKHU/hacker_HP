@@ -3,6 +3,7 @@ import type { Role } from '@/api/types'
 import { useSession } from '@/auth/session'
 import { useLogout } from '@/auth/useLogout'
 import { Button } from '@/components/ui/button'
+import { lookup } from '@/lib/lookup'
 import { cn } from '@/lib/utils'
 
 /**
@@ -31,7 +32,10 @@ export function AppHeader() {
   const { logout, failed } = useLogout('/login')
 
   // PENDING은 공지도 볼 수 없으므로 메뉴가 없다. 띄워봤자 눌러도 가드가 되돌린다.
-  const menus = state.kind === 'active' ? MENUS[state.user.role] : []
+  // 서버 응답도 신뢰 경계다. 계약에 없는 role이 오면 프로토타입 키에 걸려 죽지 않고
+  // 메뉴가 비는 쪽으로 떨어진다.
+  const menus =
+    state.kind === 'active' ? (lookup(MENUS, state.user.role) ?? []) : []
 
   return (
     <header className="border-b border-border bg-background">

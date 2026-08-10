@@ -2,6 +2,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { GOOGLE_LOGIN_PATH } from '@/api/auth'
 import { useSession } from '@/auth/session'
 import { Button } from '@/components/ui/button'
+import { lookup } from '@/lib/lookup'
 
 /**
  * 콜백이 되돌려 보내는 실패 코드와 화면 문구 (계약 §3-2-3 표).
@@ -49,7 +50,14 @@ export function LoginPage() {
    */
   const code =
     state.kind === 'suspended' ? 'suspended' : searchParams.get('error')
-  const message = code === null ? undefined : ERROR_MESSAGE[code]
+  /*
+   * **`lookup()`으로 꺼낸다. 직접 인덱싱하지 않는다.**
+   *
+   * `?error=__proto__`는 선언한 적 없는 키인데도 `Object.prototype`을 돌려주고, 그것이
+   * truthy라 아래에서 객체를 렌더하려다 화면이 죽는다 — **URL 하나로 공개 로그인
+   * 진입점이 통째로 멈춘다.** `constructor`·`toString`도 같다.
+   */
+  const message = lookup(ERROR_MESSAGE, code)
 
   return (
     <section className="mx-auto max-w-sm py-16">
