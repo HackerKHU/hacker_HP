@@ -19,13 +19,36 @@ import { ERROR_CODES } from './types'
  * 지키라고 우기게 된다.
  */
 
-/** 출처: `spec/3-2-DESIGN-CONTRACT.md` §3-2-8 (319~324행)의 `PagedModel` 예시. */
+/** 출처: `spec/3-2-DESIGN-CONTRACT.md` §3-2-8 "공통 페이지 응답"의 `PagedModel` 예시. */
 const PAGE_ENVELOPE = ['content', 'page'] as const
 const PAGE_META = ['size', 'number', 'totalElements', 'totalPages'] as const
 
+/** 출처: 같은 절 — "공통 요청 파라미터는 `page`(0부터 시작), `size`(기본 20)다". */
+const CONTRACT_DEFAULT_PAGE_SIZE = 20
+
 /**
- * 출처: `spec/3-2-DESIGN-CONTRACT.md` §3-2-8 (328행) — `Page`를 그대로 직렬화하지 않는다
- * (MUST). 그러면 이 내부 구현 필드들이 응답에 샌다.
+ * 출처: `spec/3-2-DESIGN-CONTRACT.md` §3-2-7 "공통 에러 코드" 표의 9행.
+ *
+ * **손으로 옮겨 적었다. `types.ts`의 `ERROR_CODES`를 가져오지 않는다** — 그것이 검사
+ * 대상이기 때문이다. 대상을 기대값으로 쓰면 구현과 픽스처가 같은 방향으로 계약을 벗어날 때
+ * 이 파일은 초록불이다. 실제로 그랬다: 계약에 없는 코드를 구현 목록과 픽스처에 함께
+ * 넣었더니 통과했다. 옮겨 적는 수고가 독립성의 값이다.
+ */
+const CONTRACT_ERROR_CODES = [
+  'VALIDATION_ERROR',
+  'UNAUTHENTICATED',
+  'PENDING_APPROVAL',
+  'SUSPENDED',
+  'FORBIDDEN',
+  'NOT_FOUND',
+  'DUPLICATE_STUDENT_NO',
+  'FILE_TOO_LARGE',
+  'UNSUPPORTED_FILE_TYPE',
+] as const
+
+/**
+ * 출처: `spec/3-2-DESIGN-CONTRACT.md` §3-2-8 — "`Page` 객체를 그대로 직렬화하지 않는다
+ * (MUST)"가 이름을 찍어 금지한 필드들이다. 그러면 이것들이 응답에 샌다.
  *
  * 키 집합을 정확히 비교하므로 이 목록이 없어도 걸리기는 한다. 그래도 남겨두는 이유는
  * 계약이 **이름을 찍어 금지한** 항목이라, 실패 메시지가 무엇을 어긴 것인지 말해줘야 하기
@@ -33,8 +56,17 @@ const PAGE_META = ['size', 'number', 'totalElements', 'totalPages'] as const
  */
 const FORBIDDEN_PAGE_FIELDS = ['pageable', 'sort', 'offset'] as const
 
-/** 출처: `spec/5-TESTING.md` §5-4 (219행)의 오류 본문 예시. */
+/** 출처: `spec/5-TESTING.md` §5-4 "오류 응답 규칙"의 응답 본문 형식. */
 const ERROR_BODY = ['code', 'message'] as const
+
+/**
+ * 클라이언트가 본문 위에 얹는 것. **계약이 아니라 `client.ts`의 표현이다.**
+ * `status`는 HTTP 상태 코드, `name`은 `Error`의 것이다.
+ *
+ * 계약 본문에 이 둘을 더한 것이 `ApiError`의 필드 전부여야 한다 — 그보다 많으면
+ * 픽스처가 계약에 없는 무언가를 흘리고 있는 것이다.
+ */
+const CLIENT_ADDED_FIELDS = ['status', 'name'] as const
 
 function keysOf(value: object): string[] {
   return Object.keys(value).sort()
@@ -108,6 +140,31 @@ describe('페이지 응답 형태', () => {
     }
   })
 
+  /*
+   * **타입만 보지 않는다. 값도 본다.**
+   *
+   * 형태가 맞아도 기본값이 다르면 픽스처와 서버가 갈린다 — 인자 없이 부르는 호출에서
+   * 픽스처는 한 페이지에 10건, 서버는 20건을 준다. 지금 공지 화면이 size를 명시해서
+   * 안 드러날 뿐이고, 명시하지 않는 화면이 하나 생기면 그때 갈린다.
+   */
+  it('size를 주지 않으면 계약의 기본값을 쓴다', async () => {
+    const { fixtureNotices } = await loadFixtures('user')
+
+    const result = await fixtureNotices()
+
+    expect(result.page.size).toBe(CONTRACT_DEFAULT_PAGE_SIZE)
+    expect(result.content.length).toBeLessThanOrEqual(
+      CONTRACT_DEFAULT_PAGE_SIZE,
+    )
+  })
+
+  it('요청한 페이지 번호가 응답에 그대로 담긴다', async () => {
+    const { fixtureNotices } = await loadFixtures('user')
+
+    expect((await fixtureNotices(0)).page.number).toBe(0)
+    expect((await fixtureNotices(2)).page.number).toBe(2)
+  })
+
   // 범위를 넘겨도 유효한 응답이다 — content만 빈다 (`NoticeListPage`의 F-2가 여기 기댄다).
   it('범위를 넘은 페이지도 빈 content를 담은 유효한 응답이다', async () => {
     const { fixtureNotices } = await loadFixtures('user')
@@ -116,6 +173,17 @@ describe('페이지 응답 형태', () => {
 
     expect(result.content).toEqual([])
     expect(result.page.totalElements).toBeGreaterThan(0)
+  })
+})
+
+describe('오류 코드 목록', () => {
+  /*
+   * **이것이 진짜 계약 검사다.** 위 상수는 계약 표에서 손으로 옮긴 것이고 여기서 구현과
+   * 맞춰본다. 구현 목록이 계약에서 벗어나면 — 코드가 늘든 줄든 이름이 바뀌든 — 여기서
+   * 잡힌다. 다른 테스트가 `ERROR_CODES`를 기대값으로 써도 되는 근거가 이 한 건이다.
+   */
+  it('types.ts의 ERROR_CODES가 계약 §3-2-7 표와 정확히 같다', () => {
+    expect([...ERROR_CODES].sort()).toEqual([...CONTRACT_ERROR_CODES].sort())
   })
 })
 
@@ -172,12 +240,21 @@ describe('오류 본문 형태', () => {
       expect(error).toBeInstanceOf(fixtures.ApiError)
 
       const api = error as InstanceType<typeof fixtures.ApiError>
-      // 계약 본문의 두 필드가 그대로 살아 있어야 한다.
-      for (const field of ERROR_BODY) {
-        expect(api, `${field}가 비어 있다`).toHaveProperty(field)
-      }
-      // 임의 문자열이 code에 들어가면 여기서 걸린다.
-      expect(ERROR_CODES).toContain(api.code)
+
+      /*
+       * **키 집합을 정확히 비교한다.** 존재만 보면 `internalSql` 같은 필드가 섞여도
+       * 통과한다 — 페이지 응답은 정확히 비교하면서 오류만 느슨하면 비대칭이다.
+       *
+       * `stack`은 계약도 클라이언트 표현도 아닌 자바스크립트 엔진의 것이라 뺀다.
+       * `message`는 `Error`가 열거되지 않는 자리에 두므로 `getOwnPropertyNames`로 읽는다.
+       */
+      const fields = Object.getOwnPropertyNames(api)
+        .filter((key) => key !== 'stack')
+        .sort()
+      expect(fields).toEqual(expected([...ERROR_BODY, ...CLIENT_ADDED_FIELDS]))
+
+      // 계약 표에서 옮겨 적은 목록으로 본다 — 구현의 ERROR_CODES를 쓰지 않는다.
+      expect(CONTRACT_ERROR_CODES).toContain(api.code)
       expect(typeof api.message).toBe('string')
       expect(api.message.length).toBeGreaterThan(0)
       // 스택 트레이스·SQL·내부 경로를 담지 않는다 (spec 5-TESTING §5-4).

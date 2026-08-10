@@ -55,7 +55,13 @@ cp .env.example .env.local
 권한(ADMIN)과 필수값·제목 200자 검사도 픽스처가 서버처럼 거부한다 — 통과시키면 오류
 화면을 만들 수 없다. 쓰기를 보려면 `VITE_FIXTURE_SCENARIO=admin`으로 둔다.
 
-**픽스처는 임시다.** [`src/api/fixtures.ts`](src/api/fixtures.ts)는 백엔드가 붙으면 통째로 지우고 `src/api/auth.ts`의 `VITE_USE_FIXTURES` 분기도 함께 제거한다.
+**픽스처는 임시다.** [`src/api/fixtures.ts`](src/api/fixtures.ts)는 백엔드가 붙으면 통째로 지운다.
+같이 지울 분기는 아래로 찾는다 — 파일 목록을 문서에 적으면 픽스처를 쓰는 파일이 늘 때마다 낡고,
+낡은 목록대로 지우면 남은 import 때문에 빌드가 깨진다.
+
+```sh
+rg -l "VITE_USE_FIXTURES|from './fixtures'" apps/web/src
+```
 
 ## 배포
 
