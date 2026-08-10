@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { clearCookies, setCookie } from '@/test/cookies'
 import { create, get, list, remove, togglePin, update } from './notices'
 
 /**
@@ -23,7 +24,18 @@ function lastCall(fetchMock: ReturnType<typeof stubFetch>): [string, string] {
   return [url, init?.method ?? 'GET']
 }
 
+/*
+ * 이 파일은 method와 경로를 본다. **쓰기 요청은 CSRF 토큰을 요구하므로**(계약 §3-2-3)
+ * 브라우저가 이미 토큰을 들고 있는 상태를 만들어 둔다 — 발급 흐름 자체는
+ * `csrf.test.ts`가 따로 본다.
+ */
+beforeEach(() => {
+  clearCookies()
+  setCookie('XSRF-TOKEN', 'test-token')
+})
+
 afterEach(() => {
+  clearCookies()
   vi.unstubAllGlobals()
 })
 
