@@ -15,7 +15,12 @@ import { ApiError, request } from './client'
  */
 const CSRF_PATH = '/api/v1/auth/csrf'
 
-type Call = { url: string; method: string; token: string | undefined }
+type Call = {
+  url: string
+  method: string
+  token: string | undefined
+  headers: Headers
+}
 
 let calls: Call[]
 
@@ -31,6 +36,7 @@ function spyFetch(options: { issue?: boolean; issueFails?: boolean } = {}) {
       url,
       method: (init.method ?? 'GET').toUpperCase(),
       token: headers.get('X-XSRF-TOKEN') ?? undefined,
+      headers,
     })
 
     if (url === CSRF_PATH) {
@@ -79,9 +85,9 @@ describe('상태를 바꾸는 요청', () => {
 
     await request('/notices', { method, body })
 
-    expect(writes()).toEqual([
-      { url: '/api/v1/notices', method, token: 'cookie-token' },
-    ])
+    expect(
+      writes().map(({ url, method, token }) => ({ url, method, token })),
+    ).toEqual([{ url: '/api/v1/notices', method, token: 'cookie-token' }])
   })
 
   // fetch는 메서드 대소문자를 가리지 않는다. 판정도 가리면 안 된다.
@@ -144,7 +150,8 @@ describe('안전한 메서드', () => {
 
     await request('/notices')
 
-    expect(writes()[0]).toEqual({
+    const { url, method, token } = writes()[0]
+    expect({ url, method, token }).toEqual({
       url: '/api/v1/notices',
       method: 'GET',
       token: undefined,
@@ -241,6 +248,84 @@ describe('토큰 발급', () => {
     await request('/notices', { method: 'POST' })
 
     expect(writes()[0].token).toBe('right')
+  })
+})
+
+describe('기존 헤더 보존', () => {
+  /*
+   * `RequestInit.headers`는 **세 형태**를 받는다 — plain object, `Headers` 인스턴스,
+   * `[string, string][]`. 객체 스프레드로 합치면 뒤의 둘을 펼치지 못해 **조용히 버린다.**
+   * 지금 호출부는 전부 plain object라 안 깨지지만, 그건 우연이지 보장이 아니다.
+   */
+  it.each([
+    ['plain object', { 'X-Custom': 'kept' }],
+    ['Headers 인스턴스', new Headers({ 'X-Custom': 'kept' })],
+    ['튜플 배열', [['X-Custom', 'kept']] as [string, string][]],
+  ])(
+    '%s로 넘긴 헤더가 살아남고 CSRF도 함께 실린다',
+    async (_label, headers) => {
+      setCookie('XSRF-TOKEN', 'cookie-token')
+      spyFetch()
+
+      await request('/notices', { method: 'POST', headers })
+
+      const sent = writes()[0].headers
+      expect(sent.get('X-Custom')).toBe('kept')
+      expect(sent.get('X-XSRF-TOKEN')).toBe('cookie-token')
+    },
+  )
+
+  it.each([
+    ['plain object', { 'X-Custom': 'kept' }],
+    ['Headers 인스턴스', new Headers({ 'X-Custom': 'kept' })],
+    ['튜플 배열', [['X-Custom', 'kept']] as [string, string][]],
+  ])('%s는 안전한 메서드에서도 그대로 간다', async (_label, headers) => {
+    spyFetch()
+
+    await request('/notices', { headers })
+
+    expect(writes()[0].headers.get('X-Custom')).toBe('kept')
+  })
+
+  it('본문이 있으면 Content-Type을 채우되 호출부가 정한 값은 존중한다', async () => {
+    setCookie('XSRF-TOKEN', 'cookie-token')
+    spyFetch()
+
+    await request('/notices', { method: 'POST', body: '{}' })
+    expect(writes()[0].headers.get('Content-Type')).toBe('application/json')
+
+    await request('/photos', {
+      method: 'POST',
+      body: '{}',
+      headers: new Headers({ 'Content-Type': 'text/plain' }),
+    })
+    expect(writes()[1].headers.get('Content-Type')).toBe('text/plain')
+  })
+
+  it('본문이 없으면 Content-Type을 붙이지 않는다', async () => {
+    setCookie('XSRF-TOKEN', 'cookie-token')
+    spyFetch()
+
+    await request('/notices/1', { method: 'DELETE' })
+
+    expect(writes()[0].headers.get('Content-Type')).toBeNull()
+  })
+
+  /*
+   * 호출부가 같은 헤더를 직접 넣어도 **쿠키에서 읽은 값이 이긴다.** 서버는 쿠키와 헤더가
+   * 같은지로 판정하므로 다른 값이 이기면 반드시 거부된다. 둘 다 살아 `a, b`로 합쳐져도
+   * 마찬가지다.
+   */
+  it('호출부가 넣은 CSRF 헤더는 쿠키 값으로 덮인다', async () => {
+    setCookie('XSRF-TOKEN', 'cookie-token')
+    spyFetch()
+
+    await request('/notices', {
+      method: 'POST',
+      headers: { 'X-XSRF-TOKEN': 'stale' },
+    })
+
+    expect(writes()[0].headers.get('X-XSRF-TOKEN')).toBe('cookie-token')
   })
 })
 

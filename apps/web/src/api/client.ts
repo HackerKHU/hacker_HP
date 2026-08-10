@@ -32,11 +32,40 @@ export function apiPath(path: string): string {
  * `adminUsers.ts`)에 쿠키·헤더 분기를 흘리지 않는다.
  */
 function withAuth(init: RequestInit, csrfToken: string | null): RequestInit {
-  const headers =
-    csrfToken === null
-      ? init.headers
-      : { ...init.headers, [CSRF_HEADER]: csrfToken }
-  return { ...init, headers, credentials: 'include' }
+  return {
+    ...init,
+    headers: buildHeaders(init, csrfToken),
+    credentials: 'include',
+  }
+}
+
+/**
+ * 나갈 헤더를 조립하는 **유일한 지점.**
+ *
+ * `RequestInit.headers`는 plain object만이 아니라 `Headers` 인스턴스와 `[string, string][]`도
+ * 받는다. 객체 스프레드(`{ ...init.headers }`)는 뒤의 둘을 펼치지 못하고 **조용히 버린다** —
+ * 호출부가 `new Headers(...)`로 넘긴 헤더가 요청에서 사라진다. `Headers`에 한 번 담으면
+ * 세 형태를 모두 받고 이름 대소문자까지 정규화된다.
+ */
+function buildHeaders(init: RequestInit, csrfToken: string | null): Headers {
+  const headers = new Headers(init.headers)
+
+  // 본문이 있으면 JSON으로 본다. 호출부가 직접 정했으면 그 값을 존중한다.
+  if (init.body !== undefined && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+
+  if (csrfToken !== null) {
+    /*
+     * **덮어쓴다. 덧붙이지 않는다.**
+     *
+     * 호출부가 같은 헤더를 직접 넣었더라도 유효한 값은 **쿠키에서 읽은 것뿐이다** —
+     * 서버는 쿠키와 헤더가 같은지로 판정하므로(§3-2-3) 다른 값이 이기면 반드시 거부된다.
+     * `append`를 쓰면 둘이 `a, b`로 합쳐져 그것도 불일치가 된다.
+     */
+    headers.set(CSRF_HEADER, csrfToken)
+  }
+  return headers
 }
 
 /** 계약 §3-2-3. 쿠키는 `httpOnly`가 아니고 헤더 이름은 여기 고정이다. */
@@ -194,16 +223,8 @@ export async function request<T>(
   try {
     response = await fetch(
       apiPath(path),
-      withAuth(
-        {
-          ...init,
-          headers:
-            init.body === undefined
-              ? init.headers
-              : { 'Content-Type': 'application/json', ...init.headers },
-        },
-        csrfToken,
-      ),
+      // 헤더 조립은 `buildHeaders()` 한 곳에서 끝난다 — 여기서 미리 합치지 않는다.
+      withAuth(init, csrfToken),
     )
   } catch (cause) {
     throw new ApiError('NETWORK_ERROR', 0, '서버에 연결하지 못했습니다.', {
