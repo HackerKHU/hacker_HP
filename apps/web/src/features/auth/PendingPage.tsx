@@ -18,6 +18,18 @@ const STUDENT_NO_MAX = 20
 const NAME_MAX = 50
 
 /**
+ * 화면 컨테이너. **로그인 화면과 같은 폭·정렬이다** — 로그인에서 여기로 넘어오는 흐름에서
+ * 화면이 좌우로 튀지 않아야 한다.
+ *
+ * 상하 여백은 주지 않는다. 이 화면은 `AppLayout` 안이고 `<main>`이 이미 `py-8`을 준다 —
+ * 로그인 화면이 `py-16`을 갖는 것은 그쪽이 레이아웃 **밖**이라 헤더도 여백도 없기 때문이다.
+ *
+ * 로딩 화면과 본 화면이 이 값을 같이 쓴다. 따로 적으면 한쪽만 바뀌어 로딩이 끝나는 순간
+ * 화면이 움직인다.
+ */
+const CONTAINER = 'mx-auto max-w-sm'
+
+/**
  * 신청·대기 화면. **한 화면이 두 모습을 가진다** (spec §3-1-6).
  *
  * `PENDING`이 접근할 수 있는 유일한 인증 화면이다. 로그아웃 버튼은 `AppLayout`의 헤더가
@@ -132,7 +144,8 @@ export function PendingPage() {
   // 신청 여부를 모르는 동안에는 폼도 안내도 띄우지 않는다.
   if (applied === null) {
     return (
-      <section>
+      // 아래 본 화면과 같은 폭·정렬이다. 다르면 로딩이 끝나는 순간 화면이 좌우로 튄다.
+      <section className={CONTAINER}>
         <h1 className="text-2xl font-semibold tracking-tight">가입 신청</h1>
         {/* 가드의 "불러오는 중"과 구분되는 문구를 쓴다 — 지금 무엇을 하는지도 드러난다. */}
         <p className="mt-6 text-sm text-muted-foreground">
@@ -145,7 +158,7 @@ export function PendingPage() {
   const showForm = applied === false || editing
 
   return (
-    <section className="max-w-md">
+    <section className={CONTAINER}>
       <h1 className="text-2xl font-semibold tracking-tight">
         {showForm ? '가입 신청' : '승인 대기 중'}
       </h1>
