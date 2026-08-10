@@ -73,20 +73,42 @@ const MEMBERS: User[] = [
 ]
 
 vi.mock('@/api/adminUsers', () => ({
-  list: (query: AdminUserQuery): Promise<Page<User>> => {
+  /*
+   * **한 틱 미룬다.** 동기적으로 응답하면 재조회 중 `data`가 `null`인 창이 사실상 사라져,
+   * "재조회가 끝나기 전에 단언하는" 경합이 실행마다 났다 안 났다 한다 — 1/12쯤으로 터지는
+   * 플레이키가 그렇게 생겼다. 실제 네트워크는 즉시 끝나지 않는다.
+   */
+  list: async (query: AdminUserQuery): Promise<Page<User>> => {
     api.queries.push(query)
     if (api.listError) return Promise.reject(api.listError)
+    await new Promise((resolve) => setTimeout(resolve, 0))
     return Promise.resolve({
-      content: MEMBERS,
+      /*
+       * **복사본을 돌려준다.** 같은 객체를 주면 `approve` mock이 명단을 고칠 때 화면이
+       * 이미 들고 있는 데이터가 함께 바뀐다 — 재조회 없이도 "승인 가능 1명"이 되어,
+       * 재조회가 끝났다는 증거가 증거 노릇을 못 한다. 실제 서버는 매번 새 응답을 준다.
+       */
+      content: MEMBERS.map((user) => ({ ...user })),
       page: { size: 20, number: 0, totalElements: 42, totalPages: 3 },
     })
   },
+  /*
+   * **서버처럼 상태를 바꾼다.** 승인된 사람은 다음 조회에서 `ACTIVE`로 온다.
+   * 바꾸지 않으면 재조회 전후의 화면이 똑같아, "재조회가 끝났다"를 증명하는 것이
+   * 화면에 하나도 없다 — 그래서 기다릴 대상이 없어진다.
+   */
   approve: (userIds: number[]): Promise<ApproveResult> => {
     if (api.approveError) return Promise.reject(api.approveError)
     api.approved.push(userIds)
-    return Promise.resolve(
-      api.approveResult ?? { approved: userIds, failed: [] },
-    )
+    const result = api.approveResult ?? { approved: userIds, failed: [] }
+    for (const id of result.approved) {
+      const found = MEMBERS.find((user) => user.id === id)
+      if (found) {
+        found.status = 'ACTIVE'
+        found.approvedAt = '2026-03-03T09:00:00Z'
+      }
+    }
+    return Promise.resolve(result)
   },
   updateStatus: (id: number, status: string): Promise<User> => {
     api.statusAttempts.push({ id, status })
@@ -170,8 +192,12 @@ beforeEach(() => {
   api.statusError = null
   api.listError = null
   auth.role = 'ADMIN'
+  // approve mock이 명단을 실제로 고치므로 매 테스트마다 처음 상태로 되돌린다.
   for (const user of MEMBERS) {
-    if (user.id <= 3) user.status = 'PENDING'
+    if (user.id <= 3) {
+      user.status = 'PENDING'
+      user.approvedAt = null
+    }
   }
 })
 
@@ -444,7 +470,17 @@ describe('일괄 승인', () => {
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: '승인' }))
 
+    /*
+     * **재조회가 끝날 때까지 기다린다.** 승인 성공은 목록을 다시 부르고, 그동안 `data`가
+     * `null`이라 선택 건수 표시 자체가 화면에서 사라진다. 안내(`status`)는 재조회보다
+     * 먼저 뜨므로 그것만 기다리면 사라진 순간에 단언하게 된다.
+     *
+     * 기다릴 대상은 **재조회 뒤에만 존재하는 것**이다 — 승인된 사람이 빠져 승인 가능
+     * 인원이 2명에서 1명으로 줄어든 표시.
+     */
     await screen.findByRole('status')
+    await screen.findByText(/승인 가능 1명/)
+
     // A의 선택은 그대로다.
     expect(screen.getByText(/이 페이지에서 1명 선택됨/)).toBeInTheDocument()
     expect(within(row('신청한하나')).getByRole('checkbox')).toBeChecked()
@@ -465,7 +501,10 @@ describe('일괄 승인', () => {
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: '승인' }))
 
+    // 위와 같은 이유로 재조회가 끝난 증거를 기다린다.
     await screen.findByRole('status')
+    await screen.findByText(/승인 가능 1명/)
+
     // 승인된 1번은 빠지고, 실패한 2번은 남는다 — 안내와 선택이 함께 남아야 조치가 된다.
     expect(screen.getByText(/이 페이지에서 1명 선택됨/)).toBeInTheDocument()
     expect(within(row('신청한둘')).getByRole('checkbox')).toBeChecked()
@@ -645,7 +684,10 @@ describe('검색·필터·정렬', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(
       '조회 조건이 바뀌어 선택한 1명이 해제되었습니다.',
     )
-    expect(screen.getByText(/이 페이지에서 0명 선택됨/)).toBeInTheDocument()
+    // 조건 변경도 재조회를 부른다. 0명 표시는 재조회가 끝나야 다시 그려진다.
+    expect(
+      await screen.findByText(/이 페이지에서 0명 선택됨/),
+    ).toBeInTheDocument()
   })
 
   // 선택이 없었으면 조용해야 한다. 빈 안내는 소음이다.
@@ -732,7 +774,8 @@ describe('검색·필터·정렬', () => {
       // totalPages가 3이므로 마지막은 0-기반 2다.
       expect(api.queries.at(-1)?.page).toBe(2)
     })
-    expect(screen.getByText('3 / 3')).toBeInTheDocument()
+    // 보정 후 다시 조회한 결과가 그려져야 페이지 표시가 나온다.
+    expect(await screen.findByText('3 / 3')).toBeInTheDocument()
   })
 
   it('목록을 불러오지 못하면 안내한다', async () => {

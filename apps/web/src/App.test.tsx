@@ -122,18 +122,22 @@ describe('라우트 가드', () => {
     ).toBeInTheDocument()
   })
 
-  // 회귀 — 가입도 구글 버튼 하나로 하므로 /signup은 없다(2-1 §2-1-8, 3-3 결정 13).
-  // #68로 `/`가 공개 랜딩이 되면서 도착지가 로그인 화면에서 랜딩으로 바뀌었다.
-  // 없는 화면을 보여주지 않고, 랜딩 헤더에 로그인 진입점이 있다는 점은 그대로다.
-  it('없어진 /signup으로 들어오면 랜딩으로 보내고 로그인 진입점을 남긴다', async () => {
-    auth.me = () => Promise.resolve({ ...BASE, status: 'SUSPENDED' })
+  /*
+   * 회귀 — 가입도 구글 버튼 하나로 하므로 `/signup`은 없다(2-1 §2-1-8, 3-3 결정 13).
+   * **저장된 링크로 들어오면 로그인으로 보낸다.** wildcard에 맡기면 랜딩으로 가는데,
+   * 가입하러 온 사람이 길을 다시 찾아야 한다.
+   */
+  it('없어진 /signup으로 들어오면 로그인 화면으로 보낸다', async () => {
+    auth.me = () =>
+      Promise.reject(
+        new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
+      )
 
     renderAt('/signup')
 
-    expect(await screen.findByRole('link', { name: '로그인' })).toHaveAttribute(
-      'href',
-      '/login',
-    )
+    expect(
+      await screen.findByRole('heading', { name: '로그인' }),
+    ).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '가입 신청' })).toBeNull()
   })
 
@@ -207,6 +211,25 @@ describe('헤더 메뉴 노출', () => {
      * 무심코 되살리면 여기서 잡힌다.
      */
     expect(menuLabels()).not.toContain('공지 관리')
+  })
+
+  /*
+   * 서버 응답도 신뢰 경계다 (`client.ts` 주석). 계약에 없는 `role`이 오면 — 특히
+   * `__proto__`처럼 **선언한 적 없는데 값을 돌려주는 프로토타입 키**면 — 메뉴 표를 직접
+   * 인덱싱하는 코드는 `Object.prototype`을 받아 `.map`에서 죽는다. 헤더가 죽으면 앱
+   * 전체가 죽는다. 메뉴가 비는 쪽으로 떨어져야 한다.
+   */
+  it('계약에 없는 role이 와도 헤더가 죽지 않는다', async () => {
+    // 계약 위반을 흉내내는 자리라 캐스트가 필요하다. 타입은 이 상황을 막지 못한다.
+    auth.me = () =>
+      Promise.resolve({ ...BASE, role: '__proto__' } as unknown as User)
+
+    renderAt('/notices')
+
+    expect(
+      await screen.findByRole('heading', { name: '공지사항' }),
+    ).toBeInTheDocument()
+    expect(menuLabels()).toEqual([])
   })
 
   it('ACTIVE USER에게는 공지만 보이고 관리 메뉴는 없다', async () => {

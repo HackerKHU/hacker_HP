@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
-import { Button } from './components/ui/button'
+import { LoginPage } from './features/auth/LoginPage'
 import { LandingPage } from './features/landing/LandingPage'
 import { PrivacyPage } from './features/legal/PrivacyPage'
 import { MemberListPage } from './features/members/MemberListPage'
@@ -8,24 +8,6 @@ import { NoticeDetailPage } from './features/notices/NoticeDetailPage'
 import { NoticeFormPage } from './features/notices/NoticeFormPage'
 import { NoticeListPage } from './features/notices/NoticeListPage'
 import { GuestOnly, PendingOnly, RequireActive } from './routes/guards'
-
-/**
- * 로그인 화면 자리. **실제 구현은 #37이다.**
- *
- * 가입도 로그인도 구글 버튼 하나로 한다 (spec §3-1-4, 3-3 결정 13). 여기서는 버튼을
- * 그려만 두고 아무 데도 연결하지 않는다 — 동작하는 척하는 가짜 로그인을 두면 검토하는
- * 사람이 진짜인지 헷갈리고, 어차피 #37이 걷어낼 자리다.
- */
-function LoginScreen() {
-  return (
-    <>
-      <Placeholder title="로그인" />
-      <Button type="button" className="mt-6">
-        구글 계정으로 로그인
-      </Button>
-    </>
-  )
-}
 
 /** 화면은 아직 없다. 이름만 렌더한다 — 각 화면은 자기 이슈에서 만든다. */
 function Placeholder({ title }: { title: string }) {
@@ -48,8 +30,14 @@ function App() {
         별도 /signup은 없다 (2-1 §2-1-8, 3-3 결정 13).
       */}
       <Route element={<GuestOnly />}>
-        <Route path="/login" element={<LoginScreen />} />
+        <Route path="/login" element={<LoginPage />} />
       </Route>
+
+      {/*
+        저장된 `/signup` 링크로 들어온 사람을 로그인으로 보낸다 (2-1 §2-1-8).
+        아래 wildcard에 맡기면 랜딩으로 가는데, 가입하러 온 사람이 길을 다시 찾아야 한다.
+      */}
+      <Route path="/signup" element={<Navigate to="/login" replace />} />
 
       {/* 여기부터 AppLayout(헤더 + 본문)을 쓴다. /login에는 붙이지 않는다. */}
       <Route element={<PendingOnly />}>
