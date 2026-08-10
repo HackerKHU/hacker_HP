@@ -295,6 +295,104 @@ describe('제출 실패', () => {
   })
 })
 
+describe('제출 중 상태가 바뀌면', () => {
+  /*
+   * T-116 — **화면이 403 코드를 세션 계층에 넘겨야 한다.**
+   *
+   * 재현: 대기 중인 사람을 관리자가 정지 → 그 사람이 제출 → 403 SUSPENDED.
+   * 넘기지 않으면 오류 문구만 뜨고 세션은 `pending`으로 남아 `/pending`에 갇힌다 —
+   * #37에서 손본 정지 안내 경로가 여기서 샌다.
+   */
+  it('제출이 403 SUSPENDED로 막히면 정지 안내로 간다', async () => {
+    api.submitError = new ApiError('SUSPENDED', 403, '정지된 계정입니다.')
+
+    renderAt()
+    fireEvent.change(await screen.findByLabelText('학번'), {
+      target: { value: '2021123456' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '제출' }))
+
+    await waitFor(() => {
+      expect(pathname()).toBe('/login')
+    })
+    expect(await screen.findByRole('alert')).toHaveTextContent(/정지된 계정/)
+  })
+
+  // 세션이 바뀌지 않는 실패(409·400)에서는 화면에 그대로 남아 사유가 보인다.
+  it('409는 세션을 건드리지 않고 화면에 사유만 남긴다', async () => {
+    api.submitError = new ApiError(
+      'DUPLICATE_STUDENT_NO',
+      409,
+      '이미 등록된 학번입니다.',
+    )
+
+    renderAt()
+    fireEvent.change(await screen.findByLabelText('학번'), {
+      target: { value: '2021123456' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '제출' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /이미 등록된 학번/,
+    )
+    expect(pathname()).toBe('/pending')
+  })
+})
+
+describe('상태를 확인하지 못하면', () => {
+  /*
+   * T-112 — 네트워크 오류로는 세션을 버리지 않는다 (spec §3-1-5). 대신 화면이 알린다 —
+   * 아무 말도 안 하면 사용자는 버튼이 고장난 줄 안다.
+   */
+  it('다시 확인이 실패해도 튕기지 않고 다시 시도할 수 있게 알린다', async () => {
+    api.me = APPLIED
+
+    renderAt()
+    await screen.findByRole('heading', { name: '승인 대기 중' })
+
+    api.meError = new ApiError(
+      'NETWORK_ERROR',
+      0,
+      '서버에 연결하지 못했습니다.',
+    )
+    fireEvent.click(screen.getByRole('button', { name: '다시 확인' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '상태를 확인하지 못했습니다',
+    )
+    // 세션은 그대로다 — 로그인 화면으로 튕기지 않는다.
+    expect(pathname()).toBe('/pending')
+    expect(
+      screen.getByRole('heading', { name: '승인 대기 중' }),
+    ).toBeInTheDocument()
+  })
+
+  it('신청 여부 확인이 실패하면 다시 시도할 길을 준다', async () => {
+    api.meError = new ApiError(
+      'PENDING_APPROVAL',
+      403,
+      '가입 승인 대기 중입니다.',
+    )
+
+    renderAt()
+    await screen.findByText('신청 정보를 확인하는 중')
+
+    // 화면이 다시 물어보는데 이번엔 네트워크가 끊겨 있다.
+    api.meError = new ApiError(
+      'NETWORK_ERROR',
+      0,
+      '서버에 연결하지 못했습니다.',
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '상태를 확인하지 못했습니다',
+    )
+    expect(
+      screen.getByRole('button', { name: '다시 확인' }),
+    ).toBeInTheDocument()
+  })
+})
+
 describe('승인 반영', () => {
   /*
    * T-109·T-110 — 승인은 이 화면에 저절로 반영되지 않는다 (spec §3-1-6).
