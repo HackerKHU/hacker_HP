@@ -370,6 +370,28 @@ describe('회원 관리 픽스처', () => {
    * 기본 정렬은 **신청일(`appliedAt`) 최신순**이다 (2-2 §2-2-1 MUST). `createdAt`이 아니다.
    * 픽스처가 두 날짜를 벌려 두었으므로 잘못된 필드로 정렬하면 순서가 달라진다.
    */
+  /*
+   * **데이터가 두 정렬을 실제로 가르는지부터 지킨다.**
+   *
+   * `createdAt` 순서와 `appliedAt` 순서가 같은 데이터에서는 정렬이 잘못된 필드를 봐도
+   * 결과가 같아, 아래 정렬 테스트가 회귀를 못 잡는다. 이 테스트가 그 전제를 고정한다.
+   */
+  it('createdAt 순서와 appliedAt 순서가 서로 다르다', async () => {
+    const { fixtureAdminUsers } = await loadFixtures('admin')
+
+    const page = await fixtureAdminUsers({ size: 100 })
+    const applied = page.content.filter((user) => user.appliedAt !== null)
+
+    const byCreated = [...applied]
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+      .map((user) => user.id)
+    const byApplied = [...applied]
+      .sort((a, b) => String(b.appliedAt).localeCompare(String(a.appliedAt)))
+      .map((user) => user.id)
+
+    expect(byApplied).not.toEqual(byCreated)
+  })
+
   it('기본 정렬은 appliedAt 최신순이고 미신청은 뒤로 간다', async () => {
     const { fixtureAdminUsers } = await loadFixtures('admin')
 
@@ -446,5 +468,37 @@ describe('회원 관리 픽스처', () => {
     const updated = await fixtureUpdateUserStatus(2, 'SUSPENDED')
 
     expect(updated.status).toBe('SUSPENDED')
+  })
+
+  /*
+   * 2-2 §2-2-3 MUST — 정지된 회원은 **이미 로그인된 세션도 다음 요청에서 차단**된다.
+   *
+   * 픽스처가 본인을 정지하고도 세션을 ACTIVE ADMIN으로 계속 돌려주면, 정지된 관리자가
+   * 관리 화면을 계속 쓰는 상태를 화면에서 확인할 수 없다 — 계약보다 무른 픽스처다.
+   */
+  it('본인을 정지하면 다음 세션 조회가 정지 상태를 돌려준다', async () => {
+    const { fixtureMe, fixtureUpdateUserStatus } = await loadFixtures('admin')
+
+    const before = await fixtureMe()
+    expect(before.status).toBe('ACTIVE')
+
+    await fixtureUpdateUserStatus(before.id, 'SUSPENDED')
+
+    const after = await fixtureMe()
+    expect(after.id).toBe(before.id)
+    expect(after.status).toBe('SUSPENDED')
+  })
+
+  it('정지된 관리자는 회원 목록도 더 볼 수 없다', async () => {
+    const { fixtureMe, fixtureUpdateUserStatus, fixtureAdminUsers, ApiError } =
+      await loadFixtures('admin')
+
+    const me = await fixtureMe()
+    await fixtureUpdateUserStatus(me.id, 'SUSPENDED')
+
+    const error = await fixtureAdminUsers().catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe('SUSPENDED')
   })
 })

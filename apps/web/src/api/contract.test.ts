@@ -94,7 +94,75 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
+/**
+ * **페이지 응답을 내는 픽스처를 스스로 찾는다.**
+ *
+ * 손으로 목록을 적으면 페이지 응답 픽스처가 늘 때마다 낡는다 — 실제로 그랬다.
+ * `fixtureNotices`만 적혀 있는 동안 `fixtureAdminUsers`가 생겼고, 그쪽에 `pageable`을
+ * 넣어도 이 파일은 초록불이었다.
+ *
+ * 그래서 모듈의 export를 전부 인자 없이 불러 보고, **`content` 키를 가진 응답을 주는
+ * 것**을 페이지 응답으로 본다. 인자가 필요한 픽스처는 실패하므로 자연히 걸러진다.
+ */
+async function pageFixtures(
+  fixtures: Record<string, unknown>,
+): Promise<[string, Record<string, unknown>][]> {
+  const found: [string, Record<string, unknown>][] = []
+  for (const [name, value] of Object.entries(fixtures)) {
+    if (typeof value !== 'function') continue
+    try {
+      const result: unknown = await value()
+      if (
+        result !== null &&
+        typeof result === 'object' &&
+        'content' in result &&
+        'page' in result
+      ) {
+        found.push([name, result as Record<string, unknown>])
+      }
+    } catch {
+      // 인자가 필요하거나 거부하는 픽스처다. 페이지 응답이 아니므로 넘어간다.
+    }
+  }
+  return found
+}
+
 describe('페이지 응답 형태', () => {
+  /*
+   * 발견 자체가 고장나면(예: 전부 예외를 던지게 되면) 아래 검사들이 0건을 돌면서 조용히
+   * 통과한다. 지금 아는 최소 개수를 못박아 그 경우를 드러낸다.
+   */
+  it('페이지 응답을 내는 픽스처를 둘 이상 찾는다', async () => {
+    const fixtures = await loadFixtures('admin')
+
+    const found = await pageFixtures(fixtures)
+
+    expect(found.map(([name]) => name).sort()).toEqual(
+      expect.arrayContaining(['fixtureAdminUsers', 'fixtureNotices']),
+    )
+  })
+
+  it('찾은 모든 페이지 응답이 계약 형태와 정확히 같다', async () => {
+    const fixtures = await loadFixtures('admin')
+
+    const found = await pageFixtures(fixtures)
+
+    expect(found.length).toBeGreaterThanOrEqual(2)
+    for (const [name, result] of found) {
+      expect(keysOf(result), `${name}의 봉투`).toEqual(expected(PAGE_ENVELOPE))
+      expect(keysOf(result.page as object), `${name}의 page 메타`).toEqual(
+        expected(PAGE_META),
+      )
+      for (const field of FORBIDDEN_PAGE_FIELDS) {
+        expect(result, `${name}에 ${field}가 샜다`).not.toHaveProperty(field)
+        expect(
+          result.page as object,
+          `${name}의 page에 ${field}가 샜다`,
+        ).not.toHaveProperty(field)
+      }
+    }
+  })
+
   /*
    * **키가 모자라도, 남아도 실패한다.** 부분 일치로 보면 서버가 `PagedModel` 대신 `Page`를
    * 직렬화해 `pageable`·`sort`·`offset`이 섞인 응답을 줘도 통과한다 — 계약이 금지한 바로

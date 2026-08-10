@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { approve, list, updateStatus } from '@/api/adminUsers'
 import { ApiError } from '@/api/client'
@@ -29,7 +29,26 @@ import {
 
 const PAGE_SIZE = 20
 
-const STATUS_LABEL: Record<UserStatus, string> = {
+/** 확인 창을 거쳐야 하는 조작. 승인은 한 명이든 여럿이든 같은 모양이다. */
+type PendingAction =
+  | { kind: 'approve'; ids: number[] }
+  | { kind: 'status'; user: User; next: 'ACTIVE' | 'SUSPENDED' }
+
+/**
+ * 상태 표시. **`PENDING`을 신청 여부로 가른다** (spec §3-1-4).
+ *
+ * 신청서를 내지 않은 사람은 승인을 기다리는 게 아니라 아직 신청을 안 한 것이다. 둘 다
+ * "승인 대기"로 쓰면 그 구분이 사라지고, 사라진 구분을 액션 칸이 문구로 대신 떠맡게 된다 —
+ * 실제로 그랬다. 상태 칸에서 갈라야 액션 칸이 버튼 하나로 통일된다.
+ */
+function statusLabel(user: User): string {
+  if (user.status === 'PENDING') {
+    return user.appliedAt === null ? '신청 전' : '승인 대기'
+  }
+  return user.status === 'ACTIVE' ? '활동중' : '정지'
+}
+
+const STATUS_FILTERS: Record<UserStatus, string> = {
   PENDING: '승인 대기',
   ACTIVE: '활동중',
   SUSPENDED: '정지',
@@ -93,7 +112,22 @@ export function MemberListPage() {
 
   /** 선택은 **id로 들고 있는다.** 인덱스로 들면 정렬·페이지가 바뀔 때 엉뚱한 사람이 남는다. */
   const [selected, setSelected] = useState<number[]>([])
-  const [confirming, setConfirming] = useState(false)
+  /**
+   * 조회 조건이 바뀔 때 "직전에 무엇이 선택돼 있었는지"를 읽으려고 둔다.
+   * `selected`를 effect의 의존성에 넣으면 선택할 때마다 목록을 다시 부른다.
+   */
+  const selectedRef = useRef<number[]>([])
+
+  function setSelection(next: number[]) {
+    selectedRef.current = next
+    setSelected(next)
+  }
+  /**
+   * 확인을 기다리는 조작. **되돌릴 수 없는 것은 전부 여기를 지난다** — 일괄 승인, 행 단위
+   * 승인, 정지·해제. 정지는 즉시 로그인을 막으므로(2-2 §2-2-3 MUST) 승인만 확인받고
+   * 정지는 그냥 나가면 앞뒤가 안 맞는다.
+   */
+  const [pending, setPending] = useState<PendingAction | null>(null)
   const [working, setWorking] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -113,11 +147,6 @@ export function MemberListPage() {
       .then((result) => {
         if (!alive) return
         setData(result)
-        /*
-         * 목록이 바뀌면 선택을 버린다. 다른 페이지·다른 조건에서 고른 사람이 남아 있으면
-         * 화면에 보이지 않는 사람을 승인하게 된다 — 되돌릴 수 없는 조작이다.
-         */
-        setSelected([])
       })
       .catch((error: unknown) => {
         if (!alive) return
@@ -128,6 +157,48 @@ export function MemberListPage() {
       alive = false
     }
   }, [page, keyword, status, role, sort, reloadKey, reportApiError])
+
+  /**
+   * 조회 조건이 바뀌면 선택을 버린다. 다른 페이지·다른 조건에서 고른 사람이 남아 있으면
+   * **화면에 보이지 않는 사람을 승인하게 된다** — 되돌릴 수 없는 조작이다.
+   *
+   * 다만 **말없이 지우지 않는다.** 관리자는 자기가 고른 것이 아직 살아 있다고 믿는다.
+   * 선택이 있었을 때만 알린다 — 없었는데 안내가 뜨면 그건 소음이다.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 조회 조건은 본문에서 읽지 않고 "조건이 바뀌었다"는 신호로만 쓴다.
+  useEffect(() => {
+    const dropped = selectedRef.current.length
+    if (dropped === 0) return
+    selectedRef.current = []
+    setSelected([])
+    setNotice(`조회 조건이 바뀌어 선택한 ${dropped}명이 해제되었습니다.`)
+  }, [page, keyword, status, role, sort])
+
+  /**
+   * URL의 검색어가 바뀌면 입력창도 따라간다.
+   *
+   * 뒤로가기로 돌아왔을 때 **목록은 A인데 입력창은 B**로 남으면, 관리자가 화면에 적힌
+   * 조건과 다른 명단을 보고 승인한다. 승인은 되돌릴 수 없다.
+   */
+  useEffect(() => {
+    setDraft(keyword)
+  }, [keyword])
+
+  /**
+   * 범위를 넘은 `page`로 들어오면 마지막 유효 페이지로 되돌린다 (`NoticeListPage`와 같은 규칙).
+   * 그냥 두면 `?page=999`가 "1000 / 3"으로 굳어 이전 버튼을 999번 눌러야 빠져나온다.
+   *
+   * `totalPages`가 0이면 되돌릴 유효 페이지가 없으므로 움직이지 않는다.
+   */
+  useEffect(() => {
+    if (!data) return
+    const { totalPages } = data.page
+    if (totalPages >= 1 && page >= totalPages) {
+      const next = new URLSearchParams(searchParams)
+      next.set('page', String(totalPages - 1))
+      setSearchParams(next, { replace: true })
+    }
+  }, [data, page, searchParams, setSearchParams])
 
   /** 파라미터를 바꾸면 언제나 첫 페이지로 돌아간다. 3페이지에서 조건을 바꾸면 빈 화면이 뜬다. */
   function setParam(key: string, value: string) {
@@ -150,21 +221,50 @@ export function MemberListPage() {
     approvableHere.length > 0 &&
     approvableHere.every((user) => selected.includes(user.id))
 
+  /** 확인 창이 물어볼 문장. 무엇을 누구에게 하는지 드러나야 한다. */
+  function describe(action: PendingAction): { title: string; body: string } {
+    if (action.kind === 'approve') {
+      const names = action.ids
+        .map((id) => rows.find((user) => user.id === id)?.name)
+        .filter(Boolean)
+        .join(', ')
+      return {
+        title: '선택한 회원을 승인할까요?',
+        body: `${action.ids.length}명을 승인합니다: ${names}`,
+      }
+    }
+    const suspending = action.next === 'SUSPENDED'
+    return {
+      title: suspending ? '회원을 정지할까요?' : '정지를 해제할까요?',
+      body: suspending
+        ? `${action.user.name} 회원을 정지합니다. 정지되면 즉시 로그인할 수 없습니다.`
+        : `${action.user.name} 회원의 정지를 해제합니다.`,
+    }
+  }
+
   function toggleAll(next: boolean) {
-    setSelected(next ? approvableHere.map((user) => user.id) : [])
+    setSelection(next ? approvableHere.map((user) => user.id) : [])
   }
 
   function toggleOne(id: number, next: boolean) {
-    setSelected((current) =>
-      next ? [...current, id] : current.filter((value) => value !== id),
+    setSelection(
+      next
+        ? [...selectedRef.current, id]
+        : selectedRef.current.filter((value) => value !== id),
     )
   }
 
-  async function runApprove() {
+  function run(action: PendingAction) {
+    return action.kind === 'approve'
+      ? runApprove(action.ids)
+      : runStatus(action.user, action.next)
+  }
+
+  async function runApprove(ids: number[]) {
     setWorking(true)
     setNotice(null)
     try {
-      const result = await approve(selected)
+      const result = await approve(ids)
       /*
        * **성공·실패 건수를 안내한다** (2-2 §2-2-2 MUST). 실패가 있으면 누구인지도 말한다 —
        * 건수만으로는 무엇을 조치해야 할지 알 수 없다.
@@ -178,6 +278,8 @@ export function MemberListPage() {
           : `${result.approved.length}명을 승인하고 ${result.failed.length}명은 실패했습니다.` +
               ` 신청서를 내지 않은 계정입니다: ${failedNames.join(', ')}`,
       )
+      // 승인된 사람은 더 이상 대상이 아니다. 재조회 전에 비워 안내가 덮이지 않게 한다.
+      setSelection([])
       setReloadKey((key) => key + 1)
     } catch (error: unknown) {
       reportApiError(error)
@@ -189,7 +291,7 @@ export function MemberListPage() {
       )
     } finally {
       setWorking(false)
-      setConfirming(false)
+      setPending(null)
     }
   }
 
@@ -200,11 +302,10 @@ export function MemberListPage() {
    * 화면은 활성 관리자가 몇 명인지 모른다. 서버가 403으로 거부하면 그 메시지를 그대로
    * 보여준다 — 막힌 것을 성공처럼 보이게 하면 관리자가 정지된 줄 알고 자리를 뜬다.
    */
-  async function toggleStatus(user: User) {
+  async function runStatus(user: User, next: 'ACTIVE' | 'SUSPENDED') {
     setWorking(true)
     setNotice(null)
     try {
-      const next = user.status === 'SUSPENDED' ? 'ACTIVE' : 'SUSPENDED'
       await updateStatus(user.id, next)
       setNotice(
         `${user.name} 회원을 ${next === 'SUSPENDED' ? '정지' : '정지 해제'}했습니다.`,
@@ -219,6 +320,7 @@ export function MemberListPage() {
       )
     } finally {
       setWorking(false)
+      setPending(null)
     }
   }
 
@@ -250,7 +352,7 @@ export function MemberListPage() {
             className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
           >
             <option value="">전체</option>
-            {Object.entries(STATUS_LABEL).map(([value, label]) => (
+            {Object.entries(STATUS_FILTERS).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
               </option>
@@ -327,7 +429,7 @@ export function MemberListPage() {
             <Button
               type="button"
               disabled={selected.length === 0 || working}
-              onClick={() => setConfirming(true)}
+              onClick={() => setPending({ kind: 'approve', ids: selected })}
             >
               선택한 {selected.length}명 승인
             </Button>
@@ -375,28 +477,48 @@ export function MemberListPage() {
                       {user.email}
                     </TableCell>
                     <TableCell>{ROLE_LABEL[user.role]}</TableCell>
-                    <TableCell>
-                      {STATUS_LABEL[user.status]}
-                      {/*
-                       * 왜 선택할 수 없는지 화면에 드러난다. 체크박스만 잠가두면
-                       * 관리자는 고장난 줄 안다.
-                       */}
-                      {user.status === 'PENDING' && !approvable && (
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          신청서 미제출
-                        </span>
-                      )}
-                    </TableCell>
+                    {/*
+                     * "신청 전"과 "승인 대기"가 여기서 갈린다. 그래서 액션 칸이 왜
+                     * 비어 있는지 상태만 봐도 자명하다 — 문구를 덧붙이지 않는다.
+                     */}
+                    <TableCell>{statusLabel(user)}</TableCell>
                     <TableCell>{formatDate(user.appliedAt)}</TableCell>
                     <TableCell>{formatDate(user.approvedAt)}</TableCell>
+                    {/*
+                     * **액션은 상태마다 버튼 하나다.** 한 명만 승인하려고 체크박스를
+                     * 거치게 하지 않는다 — 여럿은 체크박스, 한 명은 이 자리다.
+                     * "신청 전"은 할 수 있는 것이 없어 비어 있다.
+                     */}
                     <TableCell className="text-right">
+                      {approvable && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={working}
+                          onClick={() =>
+                            setPending({ kind: 'approve', ids: [user.id] })
+                          }
+                        >
+                          승인
+                        </Button>
+                      )}
                       {user.status !== 'PENDING' && (
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
                           disabled={working}
-                          onClick={() => toggleStatus(user)}
+                          onClick={() =>
+                            setPending({
+                              kind: 'status',
+                              user,
+                              next:
+                                user.status === 'SUSPENDED'
+                                  ? 'ACTIVE'
+                                  : 'SUSPENDED',
+                            })
+                          }
                         >
                           {user.status === 'SUSPENDED' ? '정지 해제' : '정지'}
                         </Button>
@@ -446,22 +568,35 @@ export function MemberListPage() {
         </>
       )}
 
-      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+      <AlertDialog
+        open={pending !== null}
+        onOpenChange={(open) => {
+          if (!open) setPending(null)
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>선택한 회원을 승인할까요?</AlertDialogTitle>
-            {/* 누구를 승인하는지 이름으로 보여준다. 건수만으로는 확인이 안 된다. */}
+            <AlertDialogTitle>
+              {pending ? describe(pending).title : ''}
+            </AlertDialogTitle>
+            {/* 누구를 어떻게 하는지 이름으로 보여준다. 건수만으로는 확인이 안 된다. */}
             <AlertDialogDescription>
-              {selected.length}명을 승인합니다:{' '}
-              {selected
-                .map((id) => rows.find((user) => user.id === id)?.name)
-                .filter(Boolean)
-                .join(', ')}
+              {pending ? describe(pending).body : ''}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction onClick={runApprove}>승인</AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => {
+                if (pending) run(pending)
+              }}
+            >
+              {pending?.kind === 'approve'
+                ? '승인'
+                : pending?.next === 'SUSPENDED'
+                  ? '정지'
+                  : '정지 해제'}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

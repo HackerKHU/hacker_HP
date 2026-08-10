@@ -5,7 +5,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import type { AdminUserQuery, ApproveResult } from '@/api/adminUsers'
@@ -26,6 +26,8 @@ const api = vi.hoisted(() => ({
   queries: [] as AdminUserQuery[],
   approved: [] as number[][],
   statusCalls: [] as { id: number; status: string }[],
+  /** 실패하든 말든 **시도한 것**. 화면이 미리 막지 않았는지 보려면 이게 필요하다. */
+  statusAttempts: [] as { id: number; status: string }[],
   approveResult: null as ApproveResult | null,
   approveError: null as ApiError | null,
   statusError: null as ApiError | null,
@@ -62,6 +64,12 @@ const MEMBERS: User[] = [
   }),
   member({ id: 4, name: '활동회원', status: 'ACTIVE' }),
   member({ id: 5, name: '정지회원', status: 'SUSPENDED' }),
+  /*
+   * **로그인한 관리자 본인.** 자기 정지(2-2 §2-2-7)를 확인하려면 명단에 본인이 있어야
+   * 하고 테스트가 **그 행**을 눌러야 한다. 다른 사람 행을 누르고 403을 주입하면
+   * "서버가 거부하면 보여준다"만 확인될 뿐 자기 정지 경로는 밟지 않는다.
+   */
+  member({ id: 99, name: '김관리', role: 'ADMIN', status: 'ACTIVE' }),
 ]
 
 vi.mock('@/api/adminUsers', () => ({
@@ -81,6 +89,7 @@ vi.mock('@/api/adminUsers', () => ({
     )
   },
   updateStatus: (id: number, status: string): Promise<User> => {
+    api.statusAttempts.push({ id, status })
     if (api.statusError) return Promise.reject(api.statusError)
     api.statusCalls.push({ id, status })
     return Promise.resolve(MEMBERS[0])
@@ -111,7 +120,16 @@ vi.mock('@/api/notices', () => ({
 
 function Address() {
   const { pathname } = useLocation()
-  return <div data-testid="pathname">{pathname}</div>
+  const navigate = useNavigate()
+  return (
+    <>
+      <div data-testid="pathname">{pathname}</div>
+      {/* MemoryRouter에는 브라우저 히스토리가 없다. 라우터의 뒤로가기를 그대로 쓴다. */}
+      <button type="button" onClick={() => navigate(-1)}>
+        뒤로가기
+      </button>
+    </>
+  )
 }
 
 function renderAt(path = '/admin/members') {
@@ -146,6 +164,7 @@ beforeEach(() => {
   api.queries = []
   api.approved = []
   api.statusCalls = []
+  api.statusAttempts = []
   api.approveResult = null
   api.approveError = null
   api.statusError = null
@@ -184,13 +203,28 @@ describe('승인 대상', () => {
    * 계약 §3-2-6 MUST — 승인 대상은 `status = PENDING AND applied_at IS NOT NULL`이다.
    * 신청서를 내지 않은 계정을 승인하면 학번이 빈 ACTIVE가 만들어진다.
    */
-  it('신청서를 내지 않은 PENDING은 선택할 수 없고 이유가 보인다', async () => {
+  /*
+   * 신청서를 내지 않은 사람은 승인을 기다리는 게 아니라 아직 신청을 안 한 것이다.
+   * **그 구분을 상태 칸이 한다** — 액션 칸에 문구를 넣어 대신하지 않는다.
+   */
+  it('신청 전 회원은 상태로 구분되고 선택도 액션도 없다', async () => {
     renderAt()
     await loaded()
 
-    const target = within(row('미신청')).getByRole('checkbox')
-    expect(target).toBeDisabled()
-    expect(row('미신청')).toHaveTextContent('신청서 미제출')
+    const target = row('미신청')
+    expect(within(target).getByRole('checkbox')).toBeDisabled()
+    expect(target).toHaveTextContent('신청 전')
+    expect(target).not.toHaveTextContent('승인 대기')
+    // 액션 칸이 비어 있다. 왜 비었는지는 상태만 봐도 자명하다.
+    expect(within(target).queryByRole('button')).toBeNull()
+    expect(target).not.toHaveTextContent('신청서 미제출')
+  })
+
+  it('신청서를 낸 PENDING은 승인 대기로 보인다', async () => {
+    renderAt()
+    await loaded()
+
+    expect(row('신청한하나')).toHaveTextContent('승인 대기')
   })
 
   it('PENDING이 아닌 회원도 선택할 수 없다', async () => {
@@ -343,6 +377,33 @@ describe('일괄 승인', () => {
     expect(status).not.toHaveTextContent('승인했습니다.')
   })
 
+  /*
+   * 한 명만 승인하려고 체크박스를 거치게 하지 않는다. **여럿은 체크박스, 한 명은 행에서.**
+   * 다만 되돌릴 수 없는 건 같으므로 확인 창은 똑같이 거친다.
+   */
+  it('행의 승인 버튼은 체크박스 없이 그 한 명만 승인한다', async () => {
+    renderAt()
+    await loaded()
+
+    // 아무것도 선택하지 않은 상태다.
+    expect(screen.getByText(/이 페이지에서 0명 선택됨/)).toBeInTheDocument()
+
+    fireEvent.click(
+      within(row('신청한둘')).getByRole('button', { name: '승인' }),
+    )
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('신청한둘')
+    expect(dialog).not.toHaveTextContent('신청한하나')
+    expect(api.approved).toEqual([])
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '승인' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '1명을 승인했습니다.',
+    )
+    expect(api.approved).toEqual([[2]])
+  })
+
   it('아무도 선택하지 않으면 승인 버튼이 잠겨 있다', async () => {
     renderAt()
     await loaded()
@@ -354,13 +415,40 @@ describe('일괄 승인', () => {
 })
 
 describe('상태 변경', () => {
-  it('활동중 회원을 정지하고 결과를 안내한다', async () => {
+  /*
+   * 정지는 **즉시 로그인을 막는** 조작이다 (2-2 §2-2-3 MUST). 일괄 승인만 확인받고
+   * 정지는 그냥 나가면 앞뒤가 안 맞는다.
+   */
+  it('정지도 확인을 거치고, 확인 전에는 요청이 나가지 않는다', async () => {
     renderAt()
     await loaded()
 
     fireEvent.click(
       within(row('활동회원')).getByRole('button', { name: '정지' }),
     )
+
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('활동회원')
+    // 무엇이 일어나는지 다이얼로그가 말한다.
+    expect(dialog).toHaveTextContent('즉시 로그인할 수 없습니다')
+    expect(api.statusAttempts).toEqual([])
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '취소' }))
+    await waitFor(() => {
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+    })
+    expect(api.statusAttempts).toEqual([])
+  })
+
+  it('확인하면 정지하고 결과를 안내한다', async () => {
+    renderAt()
+    await loaded()
+
+    fireEvent.click(
+      within(row('활동회원')).getByRole('button', { name: '정지' }),
+    )
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '정지' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent(
       '활동회원 회원을 정지했습니다.',
@@ -375,6 +463,8 @@ describe('상태 변경', () => {
     fireEvent.click(
       within(row('정지회원')).getByRole('button', { name: '정지 해제' }),
     )
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '정지 해제' }))
 
     await waitFor(() => {
       expect(api.statusCalls).toEqual([{ id: 5, status: 'ACTIVE' }])
@@ -386,7 +476,7 @@ describe('상태 변경', () => {
    * 관리자가 몇 명인지 모르므로 미리 판단하지 않고, 서버가 준 거부 사유를 그대로 보여준다.
    * 로그아웃에서 "실패인데 성공처럼 보이는" 결함이 있었다 — 같은 실수를 반복하지 않는다.
    */
-  it('서버가 막으면 그 사유를 그대로 보여준다', async () => {
+  it('로그인한 본인을 정지할 때 서버가 막으면 그 사유를 그대로 보여준다', async () => {
     api.statusError = new ApiError(
       'FORBIDDEN',
       403,
@@ -396,14 +486,17 @@ describe('상태 변경', () => {
     renderAt()
     await loaded()
 
-    fireEvent.click(
-      within(row('활동회원')).getByRole('button', { name: '정지' }),
-    )
+    // **로그인한 관리자 본인(id 99)의 행**을 누른다. 남의 행을 누르면 자기 정지가 아니다.
+    fireEvent.click(within(row('김관리')).getByRole('button', { name: '정지' }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '정지' }))
 
     const status = await screen.findByRole('status')
     expect(status).toHaveTextContent('상태를 바꾸지 못했습니다')
     expect(status).toHaveTextContent('마지막 활성 관리자')
     expect(status).not.toHaveTextContent('정지했습니다.')
+    // 화면이 미리 막지 않았다는 것 — 실제로 요청을 보냈어야 이 화면이 나온다.
+    expect(api.statusAttempts).toEqual([{ id: 99, status: 'SUSPENDED' }])
   })
 
   // PENDING에게는 정지가 의미 없다. 승인 전에는 로그인 자체가 막혀 있다.
@@ -411,7 +504,13 @@ describe('상태 변경', () => {
     renderAt()
     await loaded()
 
-    expect(within(row('신청한하나')).queryByRole('button')).toBeNull()
+    // 승인 버튼은 있고 정지 버튼은 없다. 승인 전에는 로그인 자체가 막혀 있다.
+    expect(
+      within(row('신청한하나')).getByRole('button', { name: '승인' }),
+    ).toBeInTheDocument()
+    expect(
+      within(row('신청한하나')).queryByRole('button', { name: '정지' }),
+    ).toBeNull()
   })
 })
 
@@ -461,6 +560,76 @@ describe('검색·필터·정렬', () => {
     await waitFor(() => {
       expect(api.queries.at(-1)?.page).toBe(0)
     })
+  })
+
+  /*
+   * 선택을 지우는 것 자체는 맞다 — 안 지우면 화면에 안 보이는 사람이 승인 대상에 남는다.
+   * 문제는 **말없이 지우는 것**이다. 관리자는 자기가 고른 게 아직 살아 있다고 믿는다.
+   */
+  it('조건을 바꿔 선택이 풀리면 그 사실을 알린다', async () => {
+    renderAt()
+    fireEvent.click(await loaded())
+    expect(screen.getByText(/이 페이지에서 1명 선택됨/)).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('상태'), {
+      target: { value: 'PENDING' },
+    })
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '조회 조건이 바뀌어 선택한 1명이 해제되었습니다.',
+    )
+    expect(screen.getByText(/이 페이지에서 0명 선택됨/)).toBeInTheDocument()
+  })
+
+  // 선택이 없었으면 조용해야 한다. 빈 안내는 소음이다.
+  it('선택이 없었으면 조건을 바꿔도 안내하지 않는다', async () => {
+    renderAt()
+    await loaded()
+
+    fireEvent.change(screen.getByLabelText('상태'), {
+      target: { value: 'PENDING' },
+    })
+
+    await waitFor(() => {
+      expect(api.queries.at(-1)?.status).toBe('PENDING')
+    })
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  /*
+   * 뒤로가기로 돌아왔을 때 **목록은 A인데 입력창은 B**로 남으면, 관리자가 화면에 적힌
+   * 조건과 다른 명단을 보고 승인한다. 승인은 되돌릴 수 없다.
+   */
+  it('URL의 검색어가 바뀌면 입력창도 따라간다', async () => {
+    renderAt('/admin/members?q=A')
+    await loaded()
+    expect(screen.getByLabelText('검색')).toHaveValue('A')
+
+    fireEvent.change(screen.getByLabelText('검색'), { target: { value: 'B' } })
+    fireEvent.click(screen.getByRole('button', { name: '검색' }))
+    await waitFor(() => {
+      expect(api.queries.at(-1)?.q).toBe('B')
+    })
+
+    // 뒤로가기 — URL이 q=A로 돌아가면 입력창도 A여야 한다.
+    fireEvent.click(screen.getByRole('button', { name: '뒤로가기' }))
+    await waitFor(() => {
+      expect(screen.getByLabelText('검색')).toHaveValue('A')
+    })
+  })
+
+  /*
+   * `?page=999`로 들어오면 "1000 / 3"이 굳어 이전 버튼을 999번 눌러야 빠져나온다.
+   * 총 페이지 수를 알게 된 뒤 마지막 유효 페이지로 되돌린다.
+   */
+  it('범위를 넘은 page는 마지막 페이지로 보정된다', async () => {
+    renderAt('/admin/members?page=999')
+
+    await waitFor(() => {
+      // totalPages가 3이므로 마지막은 0-기반 2다.
+      expect(api.queries.at(-1)?.page).toBe(2)
+    })
+    expect(screen.getByText('3 / 3')).toBeInTheDocument()
   })
 
   it('목록을 불러오지 못하면 안내한다', async () => {

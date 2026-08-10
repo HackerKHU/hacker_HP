@@ -138,6 +138,15 @@ export function fixtureMe(): Promise<User> {
       appliedAt: '2026-03-02T10:00:00Z',
     })
   }
+  /*
+   * **관리자는 명부의 본인 레코드를 본다.**
+   *
+   * 회원 관리 화면에서 본인을 정지하면 그 다음 `getMe()`가 `SUSPENDED`를 돌려줘야 한다 —
+   * 계약이 "이미 로그인된 세션도 다음 요청에서 차단"(2-2 §2-2-3 MUST)이기 때문이다.
+   * 여기서 `USERS.admin`(불변 복사본)을 돌려주면 본인을 정지해도 세션이 계속 살아 있어,
+   * 픽스처가 계약보다 무른 상태가 된다.
+   */
+  if (SCENARIO === 'admin') return Promise.resolve(self())
   return Promise.resolve(USERS[SCENARIO])
 }
 
@@ -315,6 +324,14 @@ function requireAdmin(): ApiError | null {
   if (SCENARIO !== 'admin') {
     return new ApiError('FORBIDDEN', 403, '권한이 없습니다.')
   }
+  /*
+   * **정지된 관리자는 더 이상 관리자가 아니다** (2-2 §2-2-3 MUST — 이미 로그인된 세션도
+   * 다음 요청에서 차단된다). 본인이 자기를 정지한 뒤에도 관리 API가 계속 통하면
+   * 픽스처가 계약보다 무른 것이고, 그 상태를 화면에서 확인할 수 없다.
+   */
+  if (self().status !== 'ACTIVE') {
+    return new ApiError('SUSPENDED', 403, '정지된 계정입니다.')
+  }
   return null
 }
 
@@ -451,6 +468,9 @@ export function fixtureRemoveNotice(id: number): Promise<void> {
  */
 const MEMBERS: User[] = []
 
+/** 가입부터 신청까지 걸린 일수. 순서를 섞으려고 일부러 들쭉날쭉하게 둔다. */
+const APPLY_DELAY = [1, 11, 3, 14, 6, 9]
+
 const MEMBER_NAMES = [
   '강도현',
   '김서연',
@@ -499,18 +519,32 @@ for (const [index, name] of MEMBER_NAMES.entries()) {
     status: pending ? 'PENDING' : suspended ? 'SUSPENDED' : 'ACTIVE',
     // 계정 생성(첫 구글 로그인)은 신청보다 앞선다. 둘을 며칠 벌려 둬야 화면이 어느
     // 날짜를 쓰는지 눈으로 구분된다 (2-2 §2-2-1 MUST — 신청일은 appliedAt이다).
+    /*
+     * **두 날짜의 순서가 서로 다르도록 만든다.**
+     *
+     * 가입(첫 구글 로그인)부터 신청서 제출까지 걸린 기간은 사람마다 다르다. 이 간격을
+     * 일정하게 두면 `createdAt` 순서와 `appliedAt` 순서가 같아져, 정렬이 잘못된 필드를
+     * 봐도 결과가 같아 회귀가 드러나지 않는다 — 실제로 그런 상태였다.
+     */
     createdAt: daysAgo(60 - index),
-    appliedAt: applied ? daysAgo(50 - index) : null,
+    appliedAt: applied ? daysAgo(60 - index - APPLY_DELAY[index % 6]) : null,
     approvedAt: pending ? null : daysAgo(40 - index),
   })
 }
 
-/** 로그인한 관리자 본인. `admin` 시나리오의 `USERS.admin`과 같은 사람으로 명단에 넣는다. */
-const SELF: User = {
-  ...USERS.admin,
-  id: 2,
+/**
+ * 로그인한 관리자 본인. `admin` 시나리오의 `USERS.admin`과 **같은 사람이고 같은 객체다.**
+ * 명부에서 상태가 바뀌면 `fixtureMe()`도 그 값을 본다.
+ */
+const SELF_ID = USERS.admin.id
+MEMBERS.unshift({ ...USERS.admin })
+
+/** 명부에 있는 본인. `MEMBERS`를 갈아끼우지 않으므로 항상 찾을 수 있다. */
+function self(): User {
+  const found = MEMBERS.find((user) => user.id === SELF_ID)
+  if (!found) throw new Error('명부에 본인이 없다')
+  return found
 }
-MEMBERS.unshift(SELF)
 
 function matchesQuery(user: User, query: AdminUserQuery): boolean {
   if (query.status && user.status !== query.status) return false
@@ -612,7 +646,7 @@ export function fixtureUpdateUserStatus(
   const activeAdmins = MEMBERS.filter(
     (user) => user.role === 'ADMIN' && user.status === 'ACTIVE',
   )
-  const isSelf = id === SELF.id
+  const isSelf = id === SELF_ID
   if (
     status === 'SUSPENDED' &&
     isSelf &&
