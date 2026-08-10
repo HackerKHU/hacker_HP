@@ -1,7 +1,21 @@
 /**
  * 백엔드가 없는 동안 화면을 만들기 위한 더미 응답 계층.
  *
- * **서버가 붙으면 이 파일을 통째로 지우고 `auth.ts`의 `VITE_USE_FIXTURES` 분기도 함께 제거한다.**
+ * **서버가 붙으면 이 파일을 통째로 지운다.** 같이 지울 곳은 파일 이름을 여기 적지 않고
+ * 찾는다 — 픽스처를 쓰는 파일이 늘 때마다 목록이 낡기 때문이다. 실제로 그랬다:
+ * `auth.ts`만 적혀 있는 동안 `notices.ts`에 분기 여섯 개가 생겼고, 적힌 대로 따르면
+ * 빌드가 깨지는 상태였다.
+ *
+ * ```sh
+ * # apps/web에서 실행한다 (저장소 루트가 아니다)
+ * rg -il "fixture" . --hidden
+ * ```
+ *
+ * `fixture`라는 낱말 하나만 대소문자 없이 찾는다. `VITE_USE_FIXTURES`·
+ * `VITE_FIXTURE_SCENARIO`·이 파일·정적 import·동적 `import('./fixtures')`·문서 안내가
+ * 전부 그 낱말을 지나가므로, 패턴을 늘리지 않아도 새 참조가 걸린다. `--hidden`이 없으면
+ * `.env.example`이 빠진다. gitignore된 각자의 `.env.local`은 검색에 안 잡히니 따로 지운다.
+ *
  * 임시 파일이므로 여기에 화면 로직을 두지 않는다 — 응답만 만든다.
  *
  * 이 파일의 값은 프로덕션 번들에 실리면 안 된다. 플래그를 상수로 export하지 않는 이유는
@@ -165,7 +179,13 @@ export function fixtureApplication(body: {
 
 // ── 공지 ────────────────────────────────────────────────────────────────────
 
-const FIXTURE_PAGE_SIZE = 10
+/**
+ * 기본 페이지 크기. **계약의 기본값과 같아야 한다** (spec §3-2-8 — `size`(기본 20)).
+ *
+ * 여기가 서버와 다르면 `size`를 명시하지 않는 호출에서 픽스처와 서버가 다른 건수를
+ * 준다. 공지 목록은 지금 10을 명시하지만 그건 화면의 선택이지 이 기본값과 무관하다.
+ */
+const FIXTURE_PAGE_SIZE = 20
 const DAY_MS = 24 * 60 * 60 * 1000
 
 /**
@@ -274,11 +294,62 @@ export function fixtureNotice(id: number): Promise<Notice> {
   return Promise.resolve(found)
 }
 
+const TITLE_MAX = 200
+
+/**
+ * 다음에 발급할 id. **배열에서 계산하지 않는다.**
+ *
+ * `Math.max(...NOTICES.map(...))`은 공지를 전부 지우면 `Math.max(...[])`가 `-Infinity`라
+ * `/notices/-Infinity` 같은 주소와 중복 key를 만든다. 지운 id를 재사용하지 않는 점도
+ * 실제 auto increment와 같다 — 배열을 고치는 구조를 골랐으면 빈 상태도 정상 상태다.
+ */
+let nextId = Math.max(...NOTICES.map((notice) => notice.id)) + 1
+
+function requireAdmin(): ApiError | null {
+  if (SCENARIO === 'guest') {
+    return new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.')
+  }
+  // 계약 §3-2-5 — 공지 쓰기는 ADMIN 전용이다 (T-04).
+  if (SCENARIO !== 'admin') {
+    return new ApiError('FORBIDDEN', 403, '권한이 없습니다.')
+  }
+  return null
+}
+
+function validate(title: string, content: string): ApiError | null {
+  // 스키마가 NOT NULL이므로 빈 값은 서버가 거부한다 (계약 §3-2-2 `notices`).
+  if (title.trim() === '' || content.trim() === '') {
+    return new ApiError('VALIDATION_ERROR', 400, '제목과 내용을 입력해주세요.')
+  }
+  // varchar(200). 넘치면 서버가 자르는 게 아니라 거부한다.
+  if (title.length > TITLE_MAX) {
+    return new ApiError(
+      'VALIDATION_ERROR',
+      400,
+      `제목은 ${TITLE_MAX}자를 넘을 수 없습니다.`,
+    )
+  }
+  return null
+}
+
+/** 서버 정렬(`is_pinned DESC, created_at DESC`)을 픽스처에서도 유일하게 구현하는 자리. */
+function sortNotices() {
+  NOTICES.sort((a, b) => {
+    if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1
+    return b.createdAt.localeCompare(a.createdAt)
+  })
+}
+
 /**
  * 고정 토글. 실제 서버처럼 상태를 바꾸고 목록을 다시 정렬한다 —
  * 고정하면 위로 올라가는 것이 화면에서 보여야 한다.
  */
 export function fixtureTogglePin(id: number): Promise<Notice> {
+  // 고정도 ADMIN 전용이다 (spec §3-1-3). 쓰기 넷 중 여기만 빠져 있으면 픽스처가
+  // 서버 계약과 어긋나고, "픽스처가 권한을 거부한다"는 말이 반만 참이 된다.
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
   const found = NOTICES.find((notice) => notice.id === id)
   if (!found) {
     return Promise.reject(
@@ -286,9 +357,79 @@ export function fixtureTogglePin(id: number): Promise<Notice> {
     )
   }
   found.isPinned = !found.isPinned
-  NOTICES.sort((a, b) => {
-    if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1
-    return b.createdAt.localeCompare(a.createdAt)
-  })
+  sortNotices()
   return Promise.resolve(found)
+}
+
+/**
+ * 쓰기 계열(등록·수정·삭제·고정)은 **위 `NOTICES` 배열을 그대로 고친다.** 넷 모두
+ * `requireAdmin()`을 탄다 — 하나라도 빠지면 계약이 비대칭이 된다.
+ *
+ * 이 배열은 모듈 수준이라 새로고침 전까지 값이 유지된다. 그래야 목록 → 작성 → 상세 →
+ * 수정 왕복이 말이 된다 — 저장했는데 목록에 없으면 화면을 확인할 수가 없다. 새로고침하면
+ * 초기값으로 돌아가는데, 그게 오히려 낫다. 브라우저 저장소에 넣으면 지우는 절차가 따로
+ * 생기고, "서버가 붙으면 이 파일을 통째로 지운다"는 원칙이 파일 밖으로 새어나간다.
+ *
+ * 서버 계약을 여기서도 지킨다 — 권한(ADMIN)과 필수값·길이 검사를 픽스처가 통과시키면
+ * 오류 UI 없이도 폼이 멀쩡해 보이고, 그 회귀가 서버 붙는 날까지 안 드러난다.
+ */
+export function fixtureCreateNotice(body: {
+  title: string
+  content: string
+}): Promise<Notice> {
+  const denied = requireAdmin() ?? validate(body.title, body.content)
+  if (denied) return Promise.reject(denied)
+
+  const now = new Date().toISOString()
+  const created: Notice = {
+    id: nextId++,
+    title: body.title.trim(),
+    content: body.content.trim(),
+    // 등록 직후에는 고정되지 않는다. 고정은 별도 토글이다.
+    isPinned: false,
+    createdAt: now,
+    updatedAt: now,
+  }
+  NOTICES.push(created)
+  sortNotices()
+  return Promise.resolve(created)
+}
+
+export function fixtureUpdateNotice(
+  id: number,
+  body: { title?: string; content?: string },
+): Promise<Notice> {
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const found = NOTICES.find((notice) => notice.id === id)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '공지를 찾을 수 없습니다.'),
+    )
+  }
+  // PATCH라 준 필드만 바뀐다. 안 준 필드는 기존 값이 그대로 검사 대상이다.
+  const title = body.title ?? found.title
+  const content = body.content ?? found.content
+  const invalid = validate(title, content)
+  if (invalid) return Promise.reject(invalid)
+
+  found.title = title.trim()
+  found.content = content.trim()
+  found.updatedAt = new Date().toISOString()
+  return Promise.resolve(found)
+}
+
+export function fixtureRemoveNotice(id: number): Promise<void> {
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const index = NOTICES.findIndex((notice) => notice.id === id)
+  if (index === -1) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '공지를 찾을 수 없습니다.'),
+    )
+  }
+  NOTICES.splice(index, 1)
+  return Promise.resolve()
 }

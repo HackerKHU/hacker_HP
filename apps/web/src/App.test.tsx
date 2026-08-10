@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { ApiError } from './api/client'
@@ -44,6 +44,12 @@ const BASE: User = {
   approvedAt: '2026-03-03T09:00:00Z',
 }
 
+/** 지금 주소를 화면에 드러내 이동 결과를 단언할 수 있게 한다. */
+function Address() {
+  const { pathname } = useLocation()
+  return <div data-testid="pathname">{pathname}</div>
+}
+
 /** 화면이 아직 없어서, 보호 API가 403을 주는 상황을 이 버튼으로 대신 일으킨다. */
 function ReportError({ error }: { error: unknown }) {
   const { reportApiError } = useSession()
@@ -58,6 +64,7 @@ function renderAt(path: string, extra?: React.ReactNode) {
   render(
     <MemoryRouter initialEntries={[path]}>
       <SessionProvider>
+        <Address />
         {extra}
         <App />
       </SessionProvider>
@@ -154,16 +161,51 @@ describe('라우트 가드', () => {
   })
 })
 
+/**
+ * **`homePath()`가 돌려주는 경로가 실재하는 라우트인지** 확인한다.
+ *
+ * 이 검사가 없어서 회귀가 났다. `/admin/notices` 라우트를 지우면서 `homePath()`가 계속
+ * 그 경로를 돌려줬고, wildcard가 `/`(공개 랜딩)로 되돌려 **관리자가 로그인해도 앱에
+ * 들어가지 못했다.** 죽은 경로를 돌려주면 여기서 잡힌다 — 도착지가 랜딩이 되기 때문이다.
+ *
+ * `homePath()`를 직접 부르지 않고 **`/login`에서 `GuestOnly`가 태우는 실제 경로**를 본다.
+ * 함수 반환값만 비교하면 그 문자열이 라우트로 존재하는지는 여전히 아무도 확인하지 않는다.
+ */
+describe('로그인 후 도착 경로', () => {
+  it.each([
+    ['ADMIN', { ...BASE, role: 'ADMIN' as const }, '/notices', '공지사항'],
+    ['USER', BASE, '/notices', '공지사항'],
+    [
+      'PENDING',
+      { ...BASE, status: 'PENDING' as const, approvedAt: null },
+      '/pending',
+      '승인 대기',
+    ],
+  ])('%s는 %s로 간다', async (_label, user, expected, heading) => {
+    auth.me = () => Promise.resolve(user)
+
+    renderAt('/login')
+
+    expect(
+      await screen.findByRole('heading', { name: heading }),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('pathname')).toHaveTextContent(expected)
+  })
+})
+
 describe('헤더 메뉴 노출', () => {
   it('ADMIN에게는 회원 관리가 보인다', async () => {
     auth.me = () => Promise.resolve({ ...BASE, role: 'ADMIN' })
 
-    renderAt('/admin/notices')
-    await screen.findByRole('heading', { name: '공지 관리' })
+    renderAt('/admin/members')
+    await screen.findByRole('heading', { name: '회원 관리' })
 
     expect(menuLabels()).toEqual(['공지사항', '회원 관리'])
-    // 공지 관리 라우트는 살아 있지만 진입 위치가 미정이라 메뉴에서 뺐다.
-    // 무심코 되살리면 여기서 잡힌다.
+    /*
+     * 목록형 "공지 관리" 화면은 없다 (spec §2-1-8). 라우트도 메뉴도 두지 않는다 —
+     * 작성·수정은 /admin/notices/new·/edit이 맡고 고정 토글은 공지 목록에 있다.
+     * 무심코 되살리면 여기서 잡힌다.
+     */
     expect(menuLabels()).not.toContain('공지 관리')
   })
 

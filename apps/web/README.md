@@ -1,6 +1,6 @@
 # hacker_HP Web
 
-React 19, TypeScript, Vite로 만든 프론트엔드 애플리케이션이다. 공개 랜딩·개인정보처리방침·공지 목록과 상세는 실제 화면이고, 로그인·신청·회원 관리는 아직 이름만 렌더하는 플레이스홀더다.
+React 19, TypeScript, Vite로 만든 프론트엔드 애플리케이션이다. 공개 랜딩·개인정보처리방침·공지 목록과 상세·공지 작성과 수정은 실제 화면이고, 로그인·신청·회원 관리는 아직 이름만 렌더하는 플레이스홀더다.
 
 ## UI 기반
 
@@ -50,7 +50,24 @@ cp .env.example .env.local
 `applying`과 `pending`을 나눈 것은 화면이 신청 폼과 대기 안내를 갈라야 하기 때문이다
 (spec §3-1-4 — 승인 대상은 신청서를 낸 계정으로 한정된다).
 
-**픽스처는 임시다.** [`src/api/fixtures.ts`](src/api/fixtures.ts)는 백엔드가 붙으면 통째로 지우고 `src/api/auth.ts`의 `VITE_USE_FIXTURES` 분기도 함께 제거한다.
+공지 쓰기(등록·수정·삭제·고정)도 픽스처가 받는다. **저장한 값이 메모리에 남아** 목록 →
+작성 → 상세 → 수정 왕복을 그대로 확인할 수 있고, 새로고침하면 초기값으로 돌아간다.
+권한(ADMIN)과 필수값·제목 200자 검사도 픽스처가 서버처럼 거부한다 — 통과시키면 오류
+화면을 만들 수 없다. 쓰기를 보려면 `VITE_FIXTURE_SCENARIO=admin`으로 둔다.
+
+**픽스처는 임시다.** [`src/api/fixtures.ts`](src/api/fixtures.ts)는 백엔드가 붙으면 통째로 지운다.
+같이 지울 곳은 아래로 찾는다 — 파일 목록을 문서에 적으면 픽스처를 쓰는 파일이 늘 때마다 낡고,
+낡은 목록대로 지우면 남은 import 때문에 빌드가 깨진다.
+
+```sh
+# apps/web에서 실행한다 (저장소 루트가 아니다)
+rg -il "fixture" . --hidden
+```
+
+`fixture`라는 낱말 하나만 대소문자 없이 찾는다. `VITE_USE_FIXTURES`·`VITE_FIXTURE_SCENARIO`·
+픽스처 파일 자체·정적 import·동적 `import('./fixtures')`·이 문서의 안내가 전부 그 낱말을
+지나가므로, 패턴을 늘리지 않아도 새 참조가 걸린다. `--hidden`이 없으면 `.env.example`이 빠진다.
+gitignore된 각자의 `.env.local`은 검색에 안 잡히니 따로 지운다.
 
 ## 배포
 

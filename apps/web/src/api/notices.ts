@@ -1,5 +1,12 @@
 import { request, toQuery } from './client'
-import { fixtureNotice, fixtureNotices, fixtureTogglePin } from './fixtures'
+import {
+  fixtureCreateNotice,
+  fixtureNotice,
+  fixtureNotices,
+  fixtureRemoveNotice,
+  fixtureTogglePin,
+  fixtureUpdateNotice,
+} from './fixtures'
 import type { Page } from './types'
 
 export interface Notice {
@@ -36,6 +43,9 @@ export interface NoticeInput {
 }
 
 export function create(body: NoticeInput): Promise<Notice> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true') {
+    return fixtureCreateNotice(body)
+  }
   return request<Notice>('/notices', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -46,6 +56,9 @@ export function update(
   id: number,
   body: Partial<NoticeInput>,
 ): Promise<Notice> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true') {
+    return fixtureUpdateNotice(id, body)
+  }
   return request<Notice>(`/notices/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
@@ -53,6 +66,8 @@ export function update(
 }
 
 export function remove(id: number): Promise<void> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true')
+    return fixtureRemoveNotice(id)
   return request(`/notices/${id}`, { method: 'DELETE' })
 }
 
