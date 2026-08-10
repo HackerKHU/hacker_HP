@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
 import { LoginPage } from './features/auth/LoginPage'
+import { PendingPage } from './features/auth/PendingPage'
 import { LandingPage } from './features/landing/LandingPage'
 import { PrivacyPage } from './features/legal/PrivacyPage'
 import { MemberListPage } from './features/members/MemberListPage'
@@ -8,11 +9,6 @@ import { NoticeDetailPage } from './features/notices/NoticeDetailPage'
 import { NoticeFormPage } from './features/notices/NoticeFormPage'
 import { NoticeListPage } from './features/notices/NoticeListPage'
 import { GuestOnly, PendingOnly, RequireActive } from './routes/guards'
-
-/** 화면은 아직 없다. 이름만 렌더한다 — 각 화면은 자기 이슈에서 만든다. */
-function Placeholder({ title }: { title: string }) {
-  return <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-}
 
 function App() {
   return (
@@ -42,7 +38,7 @@ function App() {
       {/* 여기부터 AppLayout(헤더 + 본문)을 쓴다. /login에는 붙이지 않는다. */}
       <Route element={<PendingOnly />}>
         <Route element={<AppLayout />}>
-          <Route path="/pending" element={<Placeholder title="승인 대기" />} />
+          <Route path="/pending" element={<PendingPage />} />
         </Route>
       </Route>
 
