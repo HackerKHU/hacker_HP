@@ -3,6 +3,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
@@ -19,7 +20,21 @@ const api = vi.hoisted(() => ({
   calls: [] as (number | undefined)[],
   role: 'USER' as 'USER' | 'ADMIN',
   togglePinFails: false,
+  togglePinCalls: [] as number[],
 }))
+
+/**
+ * 지금 목록에 보이는 제목 순서. 고정의 효과는 순서로만 확인할 수 있다.
+ *
+ * 공지 상세로 가는 링크만 센다 — "새 공지"(관리 진입점)나 페이지 번호가 섞이면
+ * 첫 항목이 무엇인지가 목록 순서와 무관해진다.
+ */
+function titles(): string[] {
+  return screen
+    .getAllByRole('link')
+    .filter((link) => /^\/notices\/\d+$/.test(link.getAttribute('href') ?? ''))
+    .map((link) => link.textContent ?? '')
+}
 
 /** 새글 판정이 실행 시각 기준이므로 테스트 데이터도 상대 날짜로 만든다. */
 function notice(
@@ -60,10 +75,36 @@ vi.mock('@/api/notices', () => ({
       },
     )
   },
-  togglePin: () =>
-    api.togglePinFails
-      ? Promise.reject(new ApiError('FORBIDDEN', 403, '권한이 없습니다.'))
-      : Promise.resolve(PAGES[0].content[0]),
+  /*
+   * **서버처럼 상태를 바꾼다.** 고정하면 그 글이 맨 앞으로 올라가는 것이 이 기능의 전부라,
+   * 고정된 값을 돌려주는 mock으로는 "동작한다"를 확인할 수 없다. 화면이 토글 후 목록을
+   * 다시 불러오지 않으면 순서가 그대로여서 테스트가 깨진다.
+   */
+  togglePin: (id: number) => {
+    if (api.togglePinFails) {
+      return Promise.reject(new ApiError('FORBIDDEN', 403, '권한이 없습니다.'))
+    }
+    api.togglePinCalls.push(id)
+    const found = PAGES[0].content.find((notice) => notice.id === id)
+    if (!found) return Promise.reject(new Error('없는 공지'))
+    /*
+     * **새 배열로 갈아끼운다. 제자리 정렬하지 않는다.**
+     * 화면이 들고 있는 배열을 그대로 고치면 재조회 없이도 순서가 바뀌어 보인다 —
+     * `setReloadKey`를 지워도 통과하는, 자기 자신을 검증하는 테스트가 된다.
+     * 실제 서버는 매번 새 응답을 준다.
+     */
+    const toggled = { ...found, isPinned: !found.isPinned }
+    PAGES[0] = {
+      ...PAGES[0],
+      content: PAGES[0].content
+        .map((notice) => (notice.id === id ? toggled : notice))
+        .sort((a, b) => {
+          if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1
+          return b.createdAt.localeCompare(a.createdAt)
+        }),
+    }
+    return Promise.resolve(toggled)
+  },
 }))
 
 // 세션은 이 화면의 관심사가 아니다. role과 reportApiError만 있으면 된다.
@@ -97,10 +138,24 @@ function renderList(path = '/notices') {
   )
 }
 
+/** 토글 mock이 목록을 실제로 고치므로 매 테스트마다 처음 상태로 되돌린다. */
+function resetPages() {
+  PAGES[0] = {
+    ...PAGES[0],
+    content: [
+      notice(1, '고정된 공지', true, 30),
+      notice(2, '최근 공지', false, 1),
+      notice(3, '일반 공지', false, 30),
+    ],
+  }
+}
+
 beforeEach(() => {
+  resetPages()
   api.calls = []
   api.role = 'USER'
   api.togglePinFails = false
+  api.togglePinCalls = []
 })
 
 describe('공지 목록', () => {
@@ -181,6 +236,41 @@ describe('공지 목록', () => {
     expect(screen.getByTestId('search')).toHaveTextContent('page=1')
     // 되돌린 뒤에는 page가 유효해져 조건이 다시 참이 되지 않는다 — 조회는 딱 두 번이다.
     expect(api.calls).toEqual([999, 1])
+  })
+
+  /*
+   * 완료 조건 — **고정 토글이 화면에서 동작한다** (spec 5-TESTING T-71).
+   *
+   * 호출 여부만 보지 않는다. 고정의 효과는 "그 글이 맨 앞으로 올라간다"이고, 화면이 토글
+   * 후 목록을 다시 불러오지 않으면 순서가 그대로다 — 정렬은 서버가 하므로 재조회가
+   * 곧 이 기능의 동작이다. 그래서 **화면에 보이는 순서**로 확인한다.
+   */
+  it('고정하면 그 공지가 맨 앞으로 올라간다', async () => {
+    api.role = 'ADMIN'
+
+    renderList()
+    await screen.findByRole('link', { name: /고정된 공지/ })
+    expect(titles()[0]).toMatch(/고정된 공지/)
+
+    fireEvent.click(screen.getByRole('button', { name: '관리' }))
+    /*
+     * 아직 고정되지 않은 "최근 공지"를 고정한다. 이 글이 1일 전으로 가장 최신이라
+     * 고정되면 `is_pinned DESC, created_at DESC`에서 반드시 맨 앞이다 — 같은 날짜끼리
+     * 앞뒤가 흔들리는 자리를 고르면 순서 단언이 실행마다 달라진다.
+     */
+    const row = screen.getByRole('link', { name: /최근 공지/ }).closest('li')
+    if (!row) throw new Error('목록 행을 찾지 못했다')
+    fireEvent.click(within(row).getByRole('button', { name: '고정' }))
+
+    await waitFor(() => {
+      expect(titles()[0]).toMatch(/최근 공지/)
+    })
+    expect(api.togglePinCalls).toEqual([2])
+    // 정렬은 서버가 준 순서다 — 토글 후 목록을 다시 불러왔다는 뜻이다.
+    expect(api.calls.length).toBeGreaterThan(1)
+    expect(
+      within(screen.getByRole('link', { name: /최근 공지/ })).getByText('고정'),
+    ).toBeInTheDocument()
   })
 
   // 회귀 — 토글이 실패해도 세션 계약을 지키고 화면이 남아 있어야 한다.

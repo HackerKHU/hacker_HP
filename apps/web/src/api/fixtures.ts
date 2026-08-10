@@ -274,42 +274,16 @@ export function fixtureNotice(id: number): Promise<Notice> {
   return Promise.resolve(found)
 }
 
-/** 서버 정렬(`is_pinned DESC, created_at DESC`)을 픽스처에서도 유일하게 구현하는 자리. */
-function sortNotices() {
-  NOTICES.sort((a, b) => {
-    if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1
-    return b.createdAt.localeCompare(a.createdAt)
-  })
-}
-
-/**
- * 고정 토글. 실제 서버처럼 상태를 바꾸고 목록을 다시 정렬한다 —
- * 고정하면 위로 올라가는 것이 화면에서 보여야 한다.
- */
-export function fixtureTogglePin(id: number): Promise<Notice> {
-  const found = NOTICES.find((notice) => notice.id === id)
-  if (!found) {
-    return Promise.reject(
-      new ApiError('NOT_FOUND', 404, '공지를 찾을 수 없습니다.'),
-    )
-  }
-  found.isPinned = !found.isPinned
-  sortNotices()
-  return Promise.resolve(found)
-}
-
-/**
- * 쓰기 계열(등록·수정·삭제)은 **위 `NOTICES` 배열을 그대로 고친다.**
- *
- * 이 배열은 모듈 수준이라 새로고침 전까지 값이 유지된다. 그래야 목록 → 작성 → 상세 →
- * 수정 왕복이 말이 된다 — 저장했는데 목록에 없으면 화면을 확인할 수가 없다. 새로고침하면
- * 초기값으로 돌아가는데, 그게 오히려 낫다. 브라우저 저장소에 넣으면 지우는 절차가 따로
- * 생기고, "서버가 붙으면 이 파일을 통째로 지운다"는 원칙이 파일 밖으로 새어나간다.
- *
- * 서버 계약을 여기서도 지킨다 — 권한(ADMIN)과 필수값·길이 검사를 픽스처가 통과시키면
- * 오류 UI 없이도 폼이 멀쩡해 보이고, 그 회귀가 서버 붙는 날까지 안 드러난다.
- */
 const TITLE_MAX = 200
+
+/**
+ * 다음에 발급할 id. **배열에서 계산하지 않는다.**
+ *
+ * `Math.max(...NOTICES.map(...))`은 공지를 전부 지우면 `Math.max(...[])`가 `-Infinity`라
+ * `/notices/-Infinity` 같은 주소와 중복 key를 만든다. 지운 id를 재사용하지 않는 점도
+ * 실제 auto increment와 같다 — 배열을 고치는 구조를 골랐으면 빈 상태도 정상 상태다.
+ */
+let nextId = Math.max(...NOTICES.map((notice) => notice.id)) + 1
 
 function requireAdmin(): ApiError | null {
   if (SCENARIO === 'guest') {
@@ -338,6 +312,47 @@ function validate(title: string, content: string): ApiError | null {
   return null
 }
 
+/** 서버 정렬(`is_pinned DESC, created_at DESC`)을 픽스처에서도 유일하게 구현하는 자리. */
+function sortNotices() {
+  NOTICES.sort((a, b) => {
+    if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1
+    return b.createdAt.localeCompare(a.createdAt)
+  })
+}
+
+/**
+ * 고정 토글. 실제 서버처럼 상태를 바꾸고 목록을 다시 정렬한다 —
+ * 고정하면 위로 올라가는 것이 화면에서 보여야 한다.
+ */
+export function fixtureTogglePin(id: number): Promise<Notice> {
+  // 고정도 ADMIN 전용이다 (spec §3-1-3). 쓰기 넷 중 여기만 빠져 있으면 픽스처가
+  // 서버 계약과 어긋나고, "픽스처가 권한을 거부한다"는 말이 반만 참이 된다.
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const found = NOTICES.find((notice) => notice.id === id)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '공지를 찾을 수 없습니다.'),
+    )
+  }
+  found.isPinned = !found.isPinned
+  sortNotices()
+  return Promise.resolve(found)
+}
+
+/**
+ * 쓰기 계열(등록·수정·삭제·고정)은 **위 `NOTICES` 배열을 그대로 고친다.** 넷 모두
+ * `requireAdmin()`을 탄다 — 하나라도 빠지면 계약이 비대칭이 된다.
+ *
+ * 이 배열은 모듈 수준이라 새로고침 전까지 값이 유지된다. 그래야 목록 → 작성 → 상세 →
+ * 수정 왕복이 말이 된다 — 저장했는데 목록에 없으면 화면을 확인할 수가 없다. 새로고침하면
+ * 초기값으로 돌아가는데, 그게 오히려 낫다. 브라우저 저장소에 넣으면 지우는 절차가 따로
+ * 생기고, "서버가 붙으면 이 파일을 통째로 지운다"는 원칙이 파일 밖으로 새어나간다.
+ *
+ * 서버 계약을 여기서도 지킨다 — 권한(ADMIN)과 필수값·길이 검사를 픽스처가 통과시키면
+ * 오류 UI 없이도 폼이 멀쩡해 보이고, 그 회귀가 서버 붙는 날까지 안 드러난다.
+ */
 export function fixtureCreateNotice(body: {
   title: string
   content: string
@@ -347,8 +362,7 @@ export function fixtureCreateNotice(body: {
 
   const now = new Date().toISOString()
   const created: Notice = {
-    // 기존 id와 겹치지 않게 최댓값 위로 올린다.
-    id: Math.max(...NOTICES.map((notice) => notice.id)) + 1,
+    id: nextId++,
     title: body.title.trim(),
     content: body.content.trim(),
     // 등록 직후에는 고정되지 않는다. 고정은 별도 토글이다.

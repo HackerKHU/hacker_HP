@@ -115,3 +115,167 @@ describe('신청 픽스처', () => {
     expect(me.appliedAt).not.toBeNull()
   })
 })
+
+/**
+ * 공지 쓰기 픽스처.
+ *
+ * 화면 테스트는 `@/api/notices`를 통째로 mock하므로 이 계층은 그 뒤에 가려져 있다.
+ * **상태 전이와 서버 계약 재현은 여기서 본다** — 픽스처가 계약보다 무르면 오류 UI 없이도
+ * 화면이 멀쩡해 보이고, 그 회귀는 서버가 붙는 날까지 드러나지 않는다.
+ */
+describe('공지 쓰기 픽스처', () => {
+  it('등록한 공지가 목록과 상세에 남는다', async () => {
+    const { fixtureCreateNotice, fixtureNotice, fixtureNotices } =
+      await loadFixtures('admin')
+
+    const before = await fixtureNotices()
+    const created = await fixtureCreateNotice({
+      title: '새 공지',
+      content: '새 본문',
+    })
+    const after = await fixtureNotices()
+
+    expect(created.isPinned).toBe(false)
+    expect(after.page.totalElements).toBe(before.page.totalElements + 1)
+    // 저장했는데 다시 못 읽으면 목록↔작성↔상세 왕복을 화면에서 확인할 수 없다.
+    await expect(fixtureNotice(created.id)).resolves.toMatchObject({
+      title: '새 공지',
+      content: '새 본문',
+    })
+  })
+
+  it('수정은 준 필드만 바꾸고 나머지는 그대로 둔다 — PATCH다', async () => {
+    const { fixtureCreateNotice, fixtureUpdateNotice, fixtureNotice } =
+      await loadFixtures('admin')
+
+    const created = await fixtureCreateNotice({
+      title: '원래 제목',
+      content: '원래 본문',
+    })
+    await fixtureUpdateNotice(created.id, { title: '고친 제목' })
+
+    await expect(fixtureNotice(created.id)).resolves.toMatchObject({
+      title: '고친 제목',
+      content: '원래 본문',
+    })
+  })
+
+  it('삭제한 공지는 상세에서 NOT_FOUND다', async () => {
+    const {
+      fixtureCreateNotice,
+      fixtureRemoveNotice,
+      fixtureNotice,
+      ApiError,
+    } = await loadFixtures('admin')
+
+    const created = await fixtureCreateNotice({
+      title: '지울 공지',
+      content: '본문',
+    })
+    await fixtureRemoveNotice(created.id)
+
+    const error = await fixtureNotice(created.id).catch(
+      (caught: unknown) => caught,
+    )
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe('NOT_FOUND')
+  })
+
+  it('고정하면 목록 맨 앞으로 올라간다', async () => {
+    const { fixtureNotices, fixtureTogglePin } = await loadFixtures('admin')
+
+    const before = await fixtureNotices()
+    // 고정되지 않은 것 중 하나를 고른다. 이미 고정된 것을 누르면 해제가 된다.
+    const target = before.content.find((notice) => !notice.isPinned)
+    if (!target) throw new Error('고정되지 않은 픽스처 공지가 없다')
+
+    await fixtureTogglePin(target.id)
+    const after = await fixtureNotices()
+
+    expect(after.content[0].id).toBe(target.id)
+    expect(after.content[0].isPinned).toBe(true)
+  })
+
+  /**
+   * 공지를 전부 지운 뒤 등록해도 유효한 id가 나온다.
+   *
+   * 회귀 — 예전에는 `Math.max(...NOTICES.map(...))`으로 발급해서 배열이 비면 `-Infinity`가
+   * 나왔다. `/notices/-Infinity` 주소와 중복 key가 생긴다. 배열을 고치는 구조를 골랐으면
+   * 빈 상태도 정상 상태다.
+   */
+  it('공지를 모두 지운 뒤 등록해도 id가 유효하고 서로 다르다', async () => {
+    const { fixtureNotices, fixtureRemoveNotice, fixtureCreateNotice } =
+      await loadFixtures('admin')
+
+    const all = await fixtureNotices(0, 1000)
+    for (const notice of all.content) {
+      await fixtureRemoveNotice(notice.id)
+    }
+    expect((await fixtureNotices()).page.totalElements).toBe(0)
+
+    const first = await fixtureCreateNotice({ title: '첫', content: '본문' })
+    const second = await fixtureCreateNotice({ title: '둘', content: '본문' })
+
+    for (const id of [first.id, second.id]) {
+      expect(Number.isSafeInteger(id)).toBe(true)
+      expect(id).toBeGreaterThan(0)
+    }
+    expect(first.id).not.toBe(second.id)
+  })
+
+  // 서버 계약 재현 — 빈 값과 200자 초과는 서버가 거부한다 (spec §3-2-2 notices).
+  it.each([
+    ['제목이 공백뿐', '   ', '본문'],
+    ['내용이 공백뿐', '제목', '   '],
+    ['제목이 200자 초과', 'ㄱ'.repeat(201), '본문'],
+  ])('%s이면 VALIDATION_ERROR로 거부한다', async (_label, title, content) => {
+    const { fixtureCreateNotice, ApiError } = await loadFixtures('admin')
+
+    const error = await fixtureCreateNotice({ title, content }).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe(
+      'VALIDATION_ERROR',
+    )
+  })
+
+  /*
+   * 쓰기 넷이 **모두** ADMIN 전용이다 (spec §3-1-3, 계약 §3-2-5).
+   *
+   * 회귀 — 고정 토글만 이 검사를 안 타서 `user` 시나리오에서도 성공했다. 넷을 한 표에
+   * 묶어두면 다음에 쓰기가 하나 늘 때 여기에 줄을 더하지 않고는 넘어가기 어렵다.
+   */
+  it.each(['user', 'pending', 'blocked'])(
+    '%s 시나리오는 공지 쓰기를 전부 거부한다',
+    async (scenario) => {
+      const fixtures = await loadFixtures(scenario)
+      const { ApiError } = fixtures
+
+      const attempts = [
+        fixtures.fixtureCreateNotice({ title: '제목', content: '본문' }),
+        fixtures.fixtureUpdateNotice(101, { title: '제목' }),
+        fixtures.fixtureRemoveNotice(101),
+        fixtures.fixtureTogglePin(101),
+      ]
+
+      for (const attempt of attempts) {
+        const error = await attempt.catch((caught: unknown) => caught)
+        expect(error).toBeInstanceOf(ApiError)
+        expect((error as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+      }
+    },
+  )
+
+  it('guest 시나리오는 UNAUTHENTICATED로 거부한다', async () => {
+    const { fixtureTogglePin, ApiError } = await loadFixtures('guest')
+
+    const error = await fixtureTogglePin(101).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe(
+      'UNAUTHENTICATED',
+    )
+  })
+})

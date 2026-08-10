@@ -178,8 +178,16 @@ export function homePath({ state }: Session): string {
   switch (state.kind) {
     case 'pending':
       return '/pending'
+    /*
+     * ACTIVE는 role과 무관하게 공지 목록이다. **관리자 전용 홈을 두지 않는다** —
+     * spec §2-1-8 화면 목록에 목록형 "공지 관리" 화면이 없고, 관리 기능(새 공지·고정)은
+     * 같은 공지 목록 안에 있다. 예전에 `/admin/notices`를 돌려주던 시절이 있었는데,
+     * 그 라우트를 지우면서 여기를 안 고쳐 관리자가 로그인하면 wildcard에 걸려 공개
+     * 랜딩으로 떨어졌다. **여기서 돌려주는 경로는 실재하는 라우트여야 한다** —
+     * `App.test.tsx`의 "로그인 후 도착 경로"가 그것을 지킨다.
+     */
     case 'active':
-      return state.user.role === 'ADMIN' ? '/admin/notices' : '/notices'
+      return '/notices'
     default:
       // guest·suspended·loading. 정지 안내도 로그인 화면이 띄운다.
       return '/login'
