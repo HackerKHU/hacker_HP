@@ -111,6 +111,8 @@
 | MVP | 공지 | 공지 상세 | ACTIVE |
 | MVP | 공지 | 공지 작성 / 수정 | ADMIN |
 | MVP | 관리 | 회원 관리 | ADMIN |
+
+**별도 가입 화면(`/signup`)은 없다.** 가입과 로그인이 같은 구글 버튼이기 때문이다 ([3-3 결정 13](3-3-DESIGN-DECISIONS.md#3-3-14-결정-13--가입로그인을-구글-oauth로-한다)). 이전에 안내했거나 저장된 `/signup` 주소로 들어오면 **로그인 화면으로 보낸다** — 랜딩으로 보내면 가입하러 온 사람이 다시 길을 찾아야 한다.
 | Post Launch | 자료 | 시험 정리본 목록 | ACTIVE |
 | Post Launch | 자료 | 과목 정리본 목록 | ACTIVE |
 | Post Launch | 자료 | 자료 상세 | ACTIVE |

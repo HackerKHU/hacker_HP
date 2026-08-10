@@ -304,7 +304,7 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | 400 | `VALIDATION_ERROR` | 입력값 검증 실패 |
 | 401 | `UNAUTHENTICATED` | 미로그인 |
 | 403 | `PENDING_APPROVAL` | `PENDING` 사용자의 일반 API 접근 |
-| 403 | `SUSPENDED` | 정지된 계정의 로그인 시도 |
+| 403 | `SUSPENDED` | 정지된 계정의 로그인 시도 / **정지된 계정의 보호 API 접근** — 이용 중 정지된 세션의 다음 요청도 이 코드다 ([2-2 §2-2-3](2-2-OPERATOR-REQUIREMENTS.md) MUST) |
 | 403 | `FORBIDDEN` | 권한 부족 / 마지막 활성 관리자의 본인 권한 회수·삭제·정지 시도 / 허용 도메인이 아닌 구글 계정의 로그인 |
 | 404 | `NOT_FOUND` | 리소스 없음 |
 | 409 | `DUPLICATE_STUDENT_NO` | 신청서의 학번이 다른 계정에 이미 쓰이고 있음 |
