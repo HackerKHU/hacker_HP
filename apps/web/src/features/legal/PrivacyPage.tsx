@@ -29,7 +29,7 @@ export function PrivacyPage() {
          */}
         <p
           role="note"
-          className="mt-6 max-w-3xl rounded-lg border border-border bg-card p-4 text-sm leading-7 text-muted-foreground"
+          className="mt-6 max-w-2xl rounded-lg border border-border bg-card p-4 text-sm leading-7 text-muted-foreground"
         >
           <strong className="text-foreground">
             이 문서는 초안이며 검토가 필요합니다.
@@ -38,7 +38,7 @@ export function PrivacyPage() {
           하는 항목”으로 표시해 두었으며, 정식 시행 전에 모두 채워야 합니다.
         </p>
 
-        <dl className="mt-12 max-w-3xl space-y-12">
+        <dl className="mt-12 max-w-2xl space-y-12">
           {PRIVACY_SECTIONS.map((section) => (
             <div key={section.title}>
               <dt className="text-lg font-semibold tracking-tight">

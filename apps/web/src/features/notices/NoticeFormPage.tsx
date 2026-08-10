@@ -14,6 +14,16 @@ import { Textarea } from '@/components/ui/textarea'
  */
 const TITLE_MAX = 200
 
+/**
+ * **작성 폭을 공지 상세의 읽기 폭에 맞춘다.**
+ *
+ * 폼이라고 넓히지 않는다. 여기서 쓴 본문은 상세 화면에서 이 폭으로 읽히는데, 작성 폭과
+ * 표시 폭이 다르면 **작성자가 보는 줄바꿈과 독자가 보는 줄바꿈이 달라진다** — 문단을
+ * 다듬어 놓고 저장하면 다른 모양이 된다. 제목 입력만 좁히고 본문을 넓히면 둘이 어긋나
+ * 보이기도 한다.
+ */
+const READING = 'max-w-2xl'
+
 /** 불러오기 상태. 등록 화면은 불러올 것이 없어 곧바로 `ready`다. */
 type Loading = 'loading' | 'ready' | 'notFound' | 'failed'
 
@@ -107,7 +117,7 @@ export function NoticeFormPage() {
   const backTo = editing ? `/notices/${id}` : '/notices'
 
   return (
-    <section>
+    <section className={READING}>
       <Link
         to={backTo}
         className="text-sm text-muted-foreground transition-colors hover:text-foreground"
