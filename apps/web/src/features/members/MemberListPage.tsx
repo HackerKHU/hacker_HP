@@ -51,9 +51,13 @@ function statusLabel(user: User): string {
 /**
  * 상태 필터의 라벨. **API 값(`PENDING` 등)과 표시 이름은 다른 층위다.**
  *
- * `PENDING`을 "미승인"이라 부르는 것은 이 필터가 신청 전과 승인 대기를 **둘 다** 데려오기
- * 때문이다. 서버에 그 둘을 가르는 파라미터가 아직 없다 (spec §3-2-9 미합의) — 둘을
- * 아우르는 이름을 쓰는 것이 임시 조치다. "승인 대기"라고 적으면 필터가 거짓말을 한다.
+ * `PENDING`을 "미승인"이라 부르는 것은 이 필터가 `PENDING` 전부를 데려오기 때문이다 —
+ * 행에 "미승인"으로 뜨는 계정과 "승인 대기"로 뜨는 계정이 함께 온다. 서버에 그 둘을
+ * 가르는 파라미터가 아직 없다 (spec §3-2-9 미합의). "승인 대기"라고 적으면 필터가
+ * 거짓말을 하므로 둘을 아우르는 이름을 쓰는 것이 임시 조치다.
+ *
+ * **같은 낱말이 두 범위로 쓰인다.** 여기(필터)의 "미승인"은 `PENDING` 전부이고,
+ * `statusLabel()`이 행에 붙이는 "미승인"은 그중 신청서를 내지 않은 계정만이다.
  */
 const STATUS_FILTERS: Record<UserStatus, string> = {
   PENDING: '미승인',
@@ -514,7 +518,7 @@ export function MemberListPage() {
                     </TableCell>
                     <TableCell>{ROLE_LABEL[user.role]}</TableCell>
                     {/*
-                     * "신청 전"과 "승인 대기"가 여기서 갈린다. 그래서 액션 칸이 왜
+                     * "미승인"과 "승인 대기"가 여기서 갈린다. 그래서 액션 칸이 왜
                      * 비어 있는지 상태만 봐도 자명하다 — 문구를 덧붙이지 않는다.
                      */}
                     <TableCell>{statusLabel(user)}</TableCell>
@@ -523,7 +527,7 @@ export function MemberListPage() {
                     {/*
                      * **액션은 상태마다 버튼 하나다.** 한 명만 승인하려고 체크박스를
                      * 거치게 하지 않는다 — 여럿은 체크박스, 한 명은 이 자리다.
-                     * "신청 전"은 할 수 있는 것이 없어 비어 있다.
+                     * "미승인"(신청서를 내지 않은 계정)은 할 수 있는 것이 없어 비어 있다.
                      */}
                     <TableCell className="text-right">
                       {approvable && (
