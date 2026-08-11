@@ -19,6 +19,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.security.web.context.NullSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 
@@ -43,9 +44,6 @@ public class SecurityConfig {
 
   private static final String OAUTH_REDIRECTION_BASE_URI = "/api/v1/login/oauth2/code/*";
 
-  /** SPA의 로그인 화면. 서버 경로가 아니라 프론트엔드 라우트다. */
-  private static final String LOGIN_PAGE_PATH = "/login";
-
   /**
    * 인증 없이 열리는 경로. <b>여기 없는 것은 전부 로그인이 필요하다.</b>
    *
@@ -65,20 +63,36 @@ public class SecurityConfig {
   private final ErrorResponseWriter errorResponseWriter;
   private final GoogleOidcUserService googleOidcUserService;
   private final LoginSuccessHandler loginSuccessHandler;
+  private final LoginFailureHandler loginFailureHandler;
   private final JwtProvider jwtProvider;
   private final AccessTokenCookie accessTokenCookie;
+  private final CsrfTokenRepository csrfTokenRepository;
 
   public SecurityConfig(
       ErrorResponseWriter errorResponseWriter,
       GoogleOidcUserService googleOidcUserService,
       LoginSuccessHandler loginSuccessHandler,
+      LoginFailureHandler loginFailureHandler,
       JwtProvider jwtProvider,
-      AccessTokenCookie accessTokenCookie) {
+      AccessTokenCookie accessTokenCookie,
+      CsrfTokenRepository csrfTokenRepository) {
     this.errorResponseWriter = errorResponseWriter;
     this.googleOidcUserService = googleOidcUserService;
     this.loginSuccessHandler = loginSuccessHandler;
+    this.loginFailureHandler = loginFailureHandler;
     this.jwtProvider = jwtProvider;
     this.accessTokenCookie = accessTokenCookie;
+    this.csrfTokenRepository = csrfTokenRepository;
+  }
+
+  /**
+   * CSRF 토큰 저장소. 발급 경로({@code GET /auth/csrf})도 같은 것을 써야 하므로 빈으로 노출한다.
+   *
+   * <p>쿠키 {@code XSRF-TOKEN}은 <b>{@code httpOnly}가 아니다</b> — 화면이 읽어 헤더에 실어야 한다 (spec 3-2 §3-2-3).
+   */
+  @Bean
+  public static CsrfTokenRepository csrfTokenRepository() {
+    return CookieCsrfTokenRepository.withHttpOnlyFalse();
   }
 
   @Bean
@@ -104,7 +118,7 @@ public class SecurityConfig {
                     // 모든 구글 계정이 인증된다 (3-1 §3-1-5 MUST).
                     .userInfoEndpoint(endpoint -> endpoint.oidcUserService(googleOidcUserService))
                     .successHandler(loginSuccessHandler)
-                    .failureHandler(new LoginFailureHandler(LOGIN_PAGE_PATH)))
+                    .failureHandler(loginFailureHandler))
         /*
          * SecurityContext를 세션에 저장하지 않는다. 저장하면 세션만으로 인증이 성립해 T-31(세션만 있고
          * 토큰이 없다)이 새고, 아래 필터의 대조가 무의미해진다. 인증은 매 요청 그 필터가 세운다.
@@ -142,7 +156,7 @@ public class SecurityConfig {
      */
     http.csrf(
         csrf ->
-            csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+            csrf.csrfTokenRepository(csrfTokenRepository)
                 .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()));
 
     return http.build();

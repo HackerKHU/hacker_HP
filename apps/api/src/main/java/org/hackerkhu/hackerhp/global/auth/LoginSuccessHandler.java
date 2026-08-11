@@ -5,6 +5,10 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.service.GoogleAccountService;
+import org.hackerkhu.hackerhp.global.config.LoginErrorCode;
+import org.hackerkhu.hackerhp.global.config.LoginFailureHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
@@ -24,17 +28,22 @@ public class LoginSuccessHandler implements AuthenticationSuccessHandler {
 
   private static final String SPA_ROOT = "/";
 
+  private static final Logger log = LoggerFactory.getLogger(LoginSuccessHandler.class);
+
   private final GoogleAccountService accountService;
   private final JwtProvider jwtProvider;
   private final AccessTokenCookie accessTokenCookie;
+  private final LoginFailureHandler failureHandler;
 
   public LoginSuccessHandler(
       GoogleAccountService accountService,
       JwtProvider jwtProvider,
-      AccessTokenCookie accessTokenCookie) {
+      AccessTokenCookie accessTokenCookie,
+      LoginFailureHandler failureHandler) {
     this.accountService = accountService;
     this.jwtProvider = jwtProvider;
     this.accessTokenCookie = accessTokenCookie;
+    this.failureHandler = failureHandler;
   }
 
   @Override
@@ -46,7 +55,19 @@ public class LoginSuccessHandler implements AuthenticationSuccessHandler {
      * 우리 users.id도 role·status도 없기 때문이다. 로그인 한 번에 조회 한 번이다.
      */
     OidcUser googleUser = (OidcUser) authentication.getPrincipal();
-    User user = accountService.findByGoogleSub(googleUser.getSubject());
+
+    User user;
+    try {
+      user = accountService.findByGoogleSub(googleUser.getSubject());
+    } catch (RuntimeException e) {
+      /*
+       * 여기서 터진 예외는 실패 핸들러가 받지 못한다. 인증 필터가 이미 성공 경로에 들어섰기 때문에,
+       * 그대로 두면 브라우저에 계약(3-2 §3-2-3)과 다른 500이 남고 사용자가 SPA 밖 빈 화면에 갇힌다.
+       */
+      log.warn("로그인 성공 처리 중 계정을 읽지 못했다. sub={}", googleUser.getSubject(), e);
+      failureHandler.redirect(response, LoginErrorCode.FAILED);
+      return;
+    }
 
     AuthSession.store(request.getSession(true), user);
     accessTokenCookie.write(response, jwtProvider.issue(user.getId()), jwtProvider.expiry());

@@ -11,6 +11,8 @@ import org.hackerkhu.hackerhp.global.error.ErrorCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,10 +25,34 @@ public class AuthController {
 
   private final UserRepository userRepository;
   private final AccessTokenCookie accessTokenCookie;
+  private final CsrfTokenRepository csrfTokenRepository;
 
-  public AuthController(UserRepository userRepository, AccessTokenCookie accessTokenCookie) {
+  public AuthController(
+      UserRepository userRepository,
+      AccessTokenCookie accessTokenCookie,
+      CsrfTokenRepository csrfTokenRepository) {
     this.userRepository = userRepository;
     this.accessTokenCookie = accessTokenCookie;
+    this.csrfTokenRepository = csrfTokenRepository;
+  }
+
+  /**
+   * CSRF 토큰을 쿠키로 발급한다 (spec 3-2 §3-2-3 MUST). 본문은 없다.
+   *
+   * <p>세션도 토큰도 없는 최초 진입에 필요해 <b>비로그인으로 접근할 수 있다.</b> 화면은 첫 상태 변경 요청 전에 이것을 부르고, 실패하면 그 요청 자체를 보내지
+   * 않는다 ({@code apps/web/src/api/client.ts}) — 이 경로가 없으면 로그아웃 버튼조차 동작하지 않는다.
+   *
+   * <p><b>저장소에 직접 쓴다.</b> {@code CsrfToken}을 인자로 받아 읽기만 하는 방식은 이미 발급된 토큰이 있으면 쿠키를 다시 내려주지 않아, 쿠키를
+   * 잃은 브라우저가 영영 토큰을 받지 못한다. 이 경로의 목적은 <b>호출하면 반드시 쿠키가 생기는 것</b>이다.
+   */
+  @GetMapping("/csrf")
+  public ResponseEntity<Void> csrf(HttpServletRequest request, HttpServletResponse response) {
+    CsrfToken token = csrfTokenRepository.loadToken(request);
+    if (token == null) {
+      token = csrfTokenRepository.generateToken(request);
+    }
+    csrfTokenRepository.saveToken(token, request, response);
+    return ResponseEntity.noContent().build();
   }
 
   /**

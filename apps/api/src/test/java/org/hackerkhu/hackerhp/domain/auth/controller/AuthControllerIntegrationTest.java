@@ -22,6 +22,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
@@ -143,5 +144,30 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
         .perform(get("/api/v1/auth/me").cookie(accessToken(member.getId())))
         .andExpect(status().isUnauthorized())
         .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+  }
+
+  /*
+   * 세션도 토큰도 없는 최초 진입에서 발급된다 (T-35). 화면은 첫 상태 변경 요청 전에 이것을 부르고,
+   * 실패하면 그 요청 자체를 보내지 않는다 — 이 경로가 없으면 로그아웃 버튼도 동작하지 않는다.
+   */
+  @Test
+  void csrfTokenIsIssuedToAnonymousCallers() throws Exception {
+    MvcResult result =
+        mockMvc.perform(get("/api/v1/auth/csrf")).andExpect(status().isNoContent()).andReturn();
+
+    /*
+     * Set-Cookie 헤더로 확인한다. CookieCsrfTokenRepository는 ResponseCookie를 헤더로 쓰므로
+     * getCookie()로는 잡히지 않을 수 있고, 실제로 브라우저가 보는 것도 이 헤더다.
+     */
+    String setCookie =
+        result.getResponse().getHeaders("Set-Cookie").stream()
+            .filter(header -> header.startsWith("XSRF-TOKEN="))
+            .findFirst()
+            .orElse(null);
+
+    assertThat(setCookie).isNotNull();
+    assertThat(setCookie).doesNotStartWith("XSRF-TOKEN=;");
+    // 화면이 읽어 헤더에 실어야 하므로 httpOnly가 아니다 (3-2 §3-2-3).
+    assertThat(setCookie).doesNotContainIgnoringCase("HttpOnly");
   }
 }

@@ -18,9 +18,11 @@ import org.hackerkhu.hackerhp.domain.user.entity.User;
  */
 public final class AuthSession {
 
-  private static final String USER_ID = "auth.userId";
-  private static final String ROLE = "auth.role";
-  private static final String STATUS = "auth.status";
+  /** 속성 이름을 공개해 두는 것은 테스트가 세션을 직접 만들어야 하기 때문이다. 문자열을 두 곳에 적지 않는다. */
+  public static final String USER_ID = "auth.userId";
+
+  public static final String ROLE = "auth.role";
+  public static final String STATUS = "auth.status";
 
   private AuthSession() {}
 

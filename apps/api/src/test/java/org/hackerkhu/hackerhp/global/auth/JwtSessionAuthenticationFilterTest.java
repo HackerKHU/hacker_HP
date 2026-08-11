@@ -40,9 +40,9 @@ class JwtSessionAuthenticationFilterTest {
 
   private MockHttpSession sessionFor(Long userId, Role role) {
     MockHttpSession session = new MockHttpSession();
-    session.setAttribute("auth.userId", userId);
-    session.setAttribute("auth.role", role);
-    session.setAttribute("auth.status", Status.ACTIVE);
+    session.setAttribute(AuthSession.USER_ID, userId);
+    session.setAttribute(AuthSession.ROLE, role);
+    session.setAttribute(AuthSession.STATUS, Status.ACTIVE);
     return session;
   }
 
