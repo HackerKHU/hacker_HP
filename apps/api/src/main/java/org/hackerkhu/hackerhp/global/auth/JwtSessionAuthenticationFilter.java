@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
+import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -81,12 +82,29 @@ public class JwtSessionAuthenticationFilter extends OncePerRequestFilter {
       return;
     }
 
-    Role role = session.flatMap(AuthSession::role).orElse(Role.USER);
+    Optional<Role> role = session.flatMap(AuthSession::role);
+    Optional<Status> status = session.flatMap(AuthSession::status);
+    if (role.isEmpty() || status.isEmpty()) {
+      // 로그인 성공 처리는 셋을 함께 넣는다. 하나라도 없으면 이 세션은 신뢰할 수 없다.
+      return;
+    }
+
     SecurityContextHolder.getContext()
         .setAuthentication(
             UsernamePasswordAuthenticationToken.authenticated(
-                sessionUserId.get(),
-                null,
-                List.of(new SimpleGrantedAuthority("ROLE_" + role.name()))));
+                sessionUserId.get(), null, authorities(role.get(), status.get())));
+  }
+
+  /**
+   * 권한 매트릭스(spec 3-1 §3-1-3)는 <b>Role과 Status를 함께</b> 본다. 신청서 제출은 {@code PENDING}만, 공지 등록은 {@code
+   * ACTIVE}인 {@code ADMIN}만이다.
+   *
+   * <p>둘을 모두 권한으로 내보내야 {@code @PreAuthorize}가 그 표를 그대로 옮겨 적을 수 있다. Status를 서비스 안에서 따로 검사하면 매트릭스와
+   * 코드가 갈라지고, 검사를 빠뜨린 API가 조용히 열린다.
+   */
+  private static List<SimpleGrantedAuthority> authorities(Role role, Status status) {
+    return List.of(
+        new SimpleGrantedAuthority("ROLE_" + role.name()),
+        new SimpleGrantedAuthority("STATUS_" + status.name()));
   }
 }

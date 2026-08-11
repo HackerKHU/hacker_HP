@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -72,6 +73,21 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(NoResourceFoundException.class)
   public ResponseEntity<ErrorResponse> handleNoResource(NoResourceFoundException e) {
     return respond(ErrorCode.NOT_FOUND, ErrorCode.NOT_FOUND.getMessage());
+  }
+
+  /**
+   * {@code @PreAuthorize}가 거절한 요청 (spec 3-1 §3-1-3 권한 매트릭스).
+   *
+   * <p><b>이것이 없으면 권한 부족이 500이 된다.</b> 메서드 보안은 핸들러를 부르는 도중에 예외를 던지므로 {@code DispatcherServlet}이 먼저
+   * 잡고, 시큐리티의 {@code ExceptionTranslationFilter}까지 올라가지 못한다. 그대로 두면 아래 포괄 핸들러가 삼켜 사용자 권한 문제가 서버 오류로
+   * 기록된다.
+   *
+   * <p>비로그인은 여기 오지 않는다. 필터 체인이 {@code anyRequest().authenticated()}로 먼저 막아 {@code 401
+   * UNAUTHENTICATED}를 낸다.
+   */
+  @ExceptionHandler(AccessDeniedException.class)
+  public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException e) {
+    return respond(ErrorCode.FORBIDDEN, ErrorCode.FORBIDDEN.getMessage());
   }
 
   /**

@@ -71,12 +71,33 @@ class JwtProviderTest {
     assertThat(provider.readUserId(attacker.issue(42L))).isEmpty();
   }
 
+  /*
+   * 서명의 첫 글자를 바꾼다.
+   *
+   * 끝 글자를 건드리면 안 된다. HMAC-SHA256 서명은 32바이트라 base64url로 43글자가 되는데, 마지막
+   * 글자는 유효 비트가 4개뿐이고 나머지 2비트는 버려진다 — 값을 바꿔도 같은 바이트로 디코딩되어
+   * 서명이 그대로 유효할 수 있다. 실제로 그렇게 짰다가 가끔 통과하는 테스트가 됐다.
+   */
   @Test
-  void tamperedTokenIsRejected() {
-    String token = provider.issue(42L);
-    String tampered = token.substring(0, token.length() - 2) + "xx";
+  void tamperedSignatureIsRejected() {
+    String[] parts = provider.issue(42L).split("\\.");
+    char first = parts[2].charAt(0);
+    String tampered =
+        parts[0] + "." + parts[1] + "." + (first == 'A' ? 'B' : 'A') + parts[2].substring(1);
 
     assertThat(provider.readUserId(tampered)).isEmpty();
+  }
+
+  /* 서명을 그대로 두고 payload만 바꿔도 통하지 않는다 — 다른 사용자로 위장하는 시도다. */
+  @Test
+  void tamperedPayloadIsRejected() {
+    String[] parts = provider.issue(42L).split("\\.");
+    String forgedPayload =
+        Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString("{\"sub\":\"999\"}".getBytes(StandardCharsets.UTF_8));
+
+    assertThat(provider.readUserId(parts[0] + "." + forgedPayload + "." + parts[2])).isEmpty();
   }
 
   @Test

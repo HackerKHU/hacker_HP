@@ -3,8 +3,11 @@ package org.hackerkhu.hackerhp.domain.auth.controller;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import jakarta.validation.Valid;
+import org.hackerkhu.hackerhp.domain.auth.dto.ApplicationRequest;
 import org.hackerkhu.hackerhp.domain.auth.dto.MeResponse;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.domain.user.service.UserApplicationService;
 import org.hackerkhu.hackerhp.global.auth.AccessTokenCookie;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
@@ -15,6 +18,7 @@ import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -26,14 +30,17 @@ public class AuthController {
   private final UserRepository userRepository;
   private final AccessTokenCookie accessTokenCookie;
   private final CsrfTokenRepository csrfTokenRepository;
+  private final UserApplicationService userApplicationService;
 
   public AuthController(
       UserRepository userRepository,
       AccessTokenCookie accessTokenCookie,
-      CsrfTokenRepository csrfTokenRepository) {
+      CsrfTokenRepository csrfTokenRepository,
+      UserApplicationService userApplicationService) {
     this.userRepository = userRepository;
     this.accessTokenCookie = accessTokenCookie;
     this.csrfTokenRepository = csrfTokenRepository;
+    this.userApplicationService = userApplicationService;
   }
 
   /**
@@ -69,6 +76,22 @@ public class AuthController {
         .map(MeResponse::from)
         // 세션은 살아 있는데 계정이 사라졌다. 인증이 성립할 수 없는 상태다.
         .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHENTICATED));
+  }
+
+  /**
+   * 신청서 제출·수정 (spec 3-1 §3-1-4 ②).
+   *
+   * <p><b>{@code PENDING} 전용이다</b> (권한 매트릭스 §3-1-3). 신청 전 계정도 포함해야 한다 — 막으면 아무도 신청서를 낼 수 없다. {@code
+   * ACTIVE}가 부르면 {@code 403 FORBIDDEN}이다 (T-50): 승인 후에는 이 경로로 학번을 바꿀 수 없다.
+   *
+   * <p>본문은 돌려주지 않는다. 화면은 저장을 확인한 뒤 {@code GET /auth/me}로 새 상태를 받는다.
+   */
+  @PostMapping("/application")
+  @PreAuthorize("hasAuthority('STATUS_PENDING')")
+  public ResponseEntity<Void> submitApplication(
+      @AuthenticationPrincipal Long userId, @Valid @RequestBody ApplicationRequest request) {
+    userApplicationService.submit(userId, request.studentNo(), request.name());
+    return ResponseEntity.noContent().build();
   }
 
   /**
