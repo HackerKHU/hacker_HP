@@ -1,5 +1,6 @@
 package org.hackerkhu.hackerhp.global.config;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -14,6 +15,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 /** 시큐리티 필터 체인을 실제로 태워서 본다. 필터를 우회하는 단위 테스트는 권한 버그를 잡지 못한다 (spec/5-TESTING §5-1). */
 @SpringBootTest
@@ -36,6 +38,20 @@ class SecurityConfigIntegrationTest extends AbstractIntegrationTest {
         .andExpect(status().isUnauthorized())
         .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
         .andExpect(jsonPath("$.message").value("로그인이 필요합니다."));
+  }
+
+  /*
+   * T-134 — 미인증 요청이 세션을 만들지 않는다.
+   *
+   * 기본 RequestCache는 401로 돌려보내기 전에 그 요청을 세션에 저장한다. 화면은 랜딩을 포함해
+   * 최초 렌더마다 GET /auth/me를 부르므로, 그대로 두면 비로그인 방문자 한 명당 세션 행 하나가
+   * RDS에 쌓인다. 눈에 보이는 오류가 없어 배포 후에도 모른 채 지나간다.
+   */
+  @Test
+  void unauthenticatedRequestDoesNotCreateSession() throws Exception {
+    MvcResult result = mockMvc.perform(get("/api/v1/auth/me")).andReturn();
+
+    assertThat(result.getRequest().getSession(false)).isNull();
   }
 
   /* T-129 — 로그인 시작 경로가 구글로 보낸다 (#21 완료 조건). */

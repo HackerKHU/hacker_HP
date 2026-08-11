@@ -10,8 +10,13 @@ spring:
           google:
             # 값은 각자 .env나 실행 환경변수로 넣는다. 저장소에 적지 않는다.
             # 로컬용 클라이언트는 운영용과 따로 만든다 (#82) — 로컬 시크릿이 새도 운영은 무사하다.
-            client-id: ${GOOGLE_CLIENT_ID:}
-            client-secret: ${GOOGLE_CLIENT_SECRET:}
+            #
+            # 기본값이 빈 문자열이면 안 된다. Spring Boot가 "Client id of registration 'google'
+            # must not be empty."로 컨텍스트를 통째로 죽인다. 서버를 띄워 헬스체크나 다른 API를
+            # 보려는 사람에게까지 구글 자격을 요구하게 되므로, 자리를 채우는 가짜 값을 둔다.
+            # 이 값으로 로그인을 시도하면 구글이 거부한다 — 시크릿이 아니다.
+            client-id: ${GOOGLE_CLIENT_ID:google-client-id-not-set}
+            client-secret: ${GOOGLE_CLIENT_SECRET:google-client-secret-not-set}
             # 브라우저 기준 오리진은 Vite dev 서버(5173)다. /api는 프록시가 8080으로 넘긴다.
             redirect-uri: http://localhost:5173/api/v1/login/oauth2/code/google
 

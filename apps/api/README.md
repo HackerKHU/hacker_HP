@@ -27,7 +27,9 @@ GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... \
   ./gradlew bootRun --args='--spring.profiles.active=local'
 ```
 
-`local` 프로파일은 두 값이 비어 있어도 기동은 된다. 로그인 시작 경로로 이동할 때 구글이 거부할 뿐이다. 서버를 띄워 다른 API를 보는 데는 지장이 없다.
+**`local` 프로파일은 두 값이 없어도 기동된다.** 자리를 채우는 가짜 값이 기본값으로 들어 있어서다. 그 상태로 로그인 시작 경로에 가면 구글이 거부할 뿐, 서버를 띄워 헬스체크나 다른 API를 보는 데는 지장이 없다.
+
+기본값을 빈 문자열로 두면 안 된다. Spring Boot가 `Client id of registration 'google' must not be empty.`로 컨텍스트를 통째로 죽여서, 로그인과 무관한 작업까지 구글 자격을 받아야 시작할 수 있게 된다.
 
 **`local` 프로파일 없이 `bootRun`하면 기동에 실패한다.** `GOOGLE_CLIENT_ID`·`OAUTH_REDIRECT_URI`가 기본값 없는 자리표시자이고, `app.auth.allowed-email-domain`은 비면 검증에 걸린다. 의도한 동작이다 — 허용 도메인 기본값을 코드에 심어두면 설정 누락이 조용히 지나가고 아무 구글 계정이나 가입할 수 있게 된다.
 
