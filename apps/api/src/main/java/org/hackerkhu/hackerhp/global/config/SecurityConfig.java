@@ -1,14 +1,26 @@
 package org.hackerkhu.hackerhp.global.config;
 
+import org.hackerkhu.hackerhp.global.auth.AccessTokenCookie;
+import org.hackerkhu.hackerhp.global.auth.JwtProperties;
+import org.hackerkhu.hackerhp.global.auth.JwtProvider;
+import org.hackerkhu.hackerhp.global.auth.JwtSessionAuthenticationFilter;
+import org.hackerkhu.hackerhp.global.auth.LoginSuccessHandler;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
 import org.hackerkhu.hackerhp.global.error.ErrorResponseWriter;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.context.NullSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 
 /**
@@ -19,16 +31,18 @@ import org.springframework.security.web.savedrequest.NullRequestCache;
  */
 @Configuration
 @EnableWebSecurity
-@EnableConfigurationProperties(AuthProperties.class)
+@EnableMethodSecurity
+@EnableConfigurationProperties({AuthProperties.class, JwtProperties.class})
 public class SecurityConfig {
+
+  /** 인증을 요청 사이에 보관하지 않는다. 매 요청 토큰과 세션을 대조해 새로 세운다. */
+  private static final SecurityContextRepository NO_CONTEXT_STORE =
+      new NullSecurityContextRepository();
 
   /** OAuth 경로의 base URI. 프레임워크 기본값 앞에 {@code /api/v1}을 붙인 것이다. */
   private static final String OAUTH_AUTHORIZATION_BASE_URI = "/api/v1/oauth2/authorization";
 
   private static final String OAUTH_REDIRECTION_BASE_URI = "/api/v1/login/oauth2/code/*";
-
-  /** SPA의 로그인 화면. 서버 경로가 아니라 프론트엔드 라우트다. */
-  private static final String LOGIN_PAGE_PATH = "/login";
 
   /**
    * 인증 없이 열리는 경로. <b>여기 없는 것은 전부 로그인이 필요하다.</b>
@@ -48,11 +62,37 @@ public class SecurityConfig {
 
   private final ErrorResponseWriter errorResponseWriter;
   private final GoogleOidcUserService googleOidcUserService;
+  private final LoginSuccessHandler loginSuccessHandler;
+  private final LoginFailureHandler loginFailureHandler;
+  private final JwtProvider jwtProvider;
+  private final AccessTokenCookie accessTokenCookie;
+  private final CsrfTokenRepository csrfTokenRepository;
 
   public SecurityConfig(
-      ErrorResponseWriter errorResponseWriter, GoogleOidcUserService googleOidcUserService) {
+      ErrorResponseWriter errorResponseWriter,
+      GoogleOidcUserService googleOidcUserService,
+      LoginSuccessHandler loginSuccessHandler,
+      LoginFailureHandler loginFailureHandler,
+      JwtProvider jwtProvider,
+      AccessTokenCookie accessTokenCookie,
+      CsrfTokenRepository csrfTokenRepository) {
     this.errorResponseWriter = errorResponseWriter;
     this.googleOidcUserService = googleOidcUserService;
+    this.loginSuccessHandler = loginSuccessHandler;
+    this.loginFailureHandler = loginFailureHandler;
+    this.jwtProvider = jwtProvider;
+    this.accessTokenCookie = accessTokenCookie;
+    this.csrfTokenRepository = csrfTokenRepository;
+  }
+
+  /**
+   * CSRF 토큰 저장소. 발급 경로({@code GET /auth/csrf})도 같은 것을 써야 하므로 빈으로 노출한다.
+   *
+   * <p>쿠키 {@code XSRF-TOKEN}은 <b>{@code httpOnly}가 아니다</b> — 화면이 읽어 헤더에 실어야 한다 (spec 3-2 §3-2-3).
+   */
+  @Bean
+  public static CsrfTokenRepository csrfTokenRepository() {
+    return CookieCsrfTokenRepository.withHttpOnlyFalse();
   }
 
   @Bean
@@ -77,9 +117,16 @@ public class SecurityConfig {
                     // 허용 도메인·이메일 인증을 여기서 거른다. 걸지 않으면 콜백이 성공한
                     // 모든 구글 계정이 인증된다 (3-1 §3-1-5 MUST).
                     .userInfoEndpoint(endpoint -> endpoint.oidcUserService(googleOidcUserService))
-                    // 인증에 성공해도 로그인을 성립시키지 않는다. #26이 이 줄을 지운다.
-                    .successHandler(new LoginNotReadyHandler(LOGIN_PAGE_PATH))
-                    .failureHandler(new LoginFailureHandler(LOGIN_PAGE_PATH)))
+                    .successHandler(loginSuccessHandler)
+                    .failureHandler(loginFailureHandler))
+        /*
+         * SecurityContext를 세션에 저장하지 않는다. 저장하면 세션만으로 인증이 성립해 T-31(세션만 있고
+         * 토큰이 없다)이 새고, 아래 필터의 대조가 무의미해진다. 인증은 매 요청 그 필터가 세운다.
+         */
+        .securityContext(context -> context.securityContextRepository(NO_CONTEXT_STORE))
+        .addFilterBefore(
+            new JwtSessionAuthenticationFilter(jwtProvider, accessTokenCookie),
+            UsernamePasswordAuthenticationFilter.class)
         // 기본 HttpSessionRequestCache는 401로 돌려보내기 전에 그 요청을 세션에 저장한다.
         // 화면은 랜딩을 포함해 최초 렌더마다 GET /auth/me를 부르므로(apps/web/src/auth/session.tsx),
         // 그대로 두면 비로그인 방문자마다 세션 행이 RDS에 쌓인다. 로그인 후 돌아갈 곳도
@@ -100,8 +147,18 @@ public class SecurityConfig {
                         (request, response, deniedException) ->
                             errorResponseWriter.write(response, ErrorCode.FORBIDDEN)));
 
-    // CSRF는 끄지 않는다. 토큰 발급 경로와 쿠키 이름 설정은 #83이 얹는다.
-    // 지금 끄면 그 이슈가 "다시 켜기"부터 시작해야 하고, 그 사이 상태 변경 API가 열린다.
+    /*
+     * 쿠키에 토큰을 두는 이중 제출 방식으로 바꾼다 (spec 3-2 §3-2-3). 쿠키 XSRF-TOKEN은 httpOnly가
+     * 아니어야 화면이 읽어 헤더에 실을 수 있다.
+     *
+     * 기본 XorCsrfTokenRequestAttributeHandler는 요청마다 값을 섞어, 쿠키 값과 헤더 값이 같아야 한다는
+     * 계약을 깨뜨린다. 발급 경로 GET /auth/csrf와 검증 테스트는 #83이 얹는다.
+     */
+    http.csrf(
+        csrf ->
+            csrf.csrfTokenRepository(csrfTokenRepository)
+                .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()));
+
     return http.build();
   }
 }

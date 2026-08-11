@@ -22,7 +22,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
       "GOOGLE_CLIENT_ID=test-client-id",
       "GOOGLE_CLIENT_SECRET=test-client-secret",
       "OAUTH_REDIRECT_URI=http://localhost:5173/api/v1/login/oauth2/code/google",
-      "ALLOWED_EMAIL_DOMAIN=khu.ac.kr"
+      "ALLOWED_EMAIL_DOMAIN=khu.ac.kr",
+      "JWT_SECRET=integration-test-only-jwt-secret-32bytes-or-more"
     })
 public abstract class AbstractIntegrationTest {
 

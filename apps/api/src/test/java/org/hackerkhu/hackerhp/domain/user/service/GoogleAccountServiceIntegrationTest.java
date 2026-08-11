@@ -8,6 +8,7 @@ import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +29,12 @@ class GoogleAccountServiceIntegrationTest extends AbstractIntegrationTest {
 
   @BeforeEach
   void clear() {
+    userRepository.deleteAll();
+  }
+
+  /* 롤백에 기대지 않으므로 뒤에도 지운다. 남기면 같은 이메일을 쓰는 다른 테스트가 제약에 걸린다. */
+  @AfterEach
+  void clearAfter() {
     userRepository.deleteAll();
   }
 

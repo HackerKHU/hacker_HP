@@ -14,7 +14,8 @@
 ## 현재 보일러플레이트 범위
 
 - Java 21, Spring Boot 3.5, Gradle Kotlin DSL을 사용한다.
-- 현재 허용된 HTTP 동작은 `/actuator/health`와 구글 OAuth 경로뿐이다. 기능 API는 아직 없다.
+- 현재 허용된 HTTP 동작은 `/actuator/health`, 구글 OAuth 경로, `GET /auth/me`, `POST /auth/logout`이다.
+- **인증은 `ACCESS_TOKEN`(JWT)과 세션이 함께 있어야 성립한다.** 한쪽만으로 통과시키는 코드를 넣지 않는다 ([3-1 §3-1-5](../../spec/3-1-DESIGN-ARCHITECTURE.md) MUST).
 - 기능 API를 추가할 때 컨트롤러 경로는 `/api/v1`로 시작한다 ([`../../spec/3-2-DESIGN-CONTRACT.md`](../../spec/3-2-DESIGN-CONTRACT.md)). `/actuator`와 springdoc 경로는 버전을 붙이지 않는다.
 - **인증 없이 열 경로는 `SecurityConfig`의 `PUBLIC_PATHS`에 명시한다.** 나머지는 전부 로그인이 필요하다.
 - 별도 이슈 없이 기능 API, JWT 또는 Swagger를 추가하지 않는다. DB·JPA·Flyway·Security는 이미 들어와 있다.

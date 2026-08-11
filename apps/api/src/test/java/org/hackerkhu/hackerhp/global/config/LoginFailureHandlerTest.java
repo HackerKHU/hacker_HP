@@ -14,7 +14,7 @@ import org.springframework.security.oauth2.core.OAuth2Error;
 /** 콜백 실패가 어떤 주소로 되돌아가는지 (spec 3-2 §3-2-3, T-43·T-44). */
 class LoginFailureHandlerTest {
 
-  private final LoginFailureHandler handler = new LoginFailureHandler("/login");
+  private final LoginFailureHandler handler = new LoginFailureHandler();
 
   private String redirectFor(String oauthErrorCode) throws Exception {
     MockHttpServletResponse response = new MockHttpServletResponse();

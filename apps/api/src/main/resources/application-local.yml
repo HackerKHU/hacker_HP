@@ -30,3 +30,8 @@ server:
 app:
   auth:
     allowed-email-domain: khu.ac.kr
+    jwt:
+      # 로컬 전용 고정값이다. 로컬 DB 비밀번호와 같은 취급 — 저장소에 있는 순간 비밀이 아니므로
+      # 운영에서는 절대 쓰지 않는다. 운영 값은 SSM의 /hacker/dev/JWT_SECRET에서 온다.
+      # HS256은 32바이트 이상을 요구한다.
+      secret: local-development-only-jwt-secret-do-not-use-in-production
