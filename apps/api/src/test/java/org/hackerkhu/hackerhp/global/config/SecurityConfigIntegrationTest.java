@@ -5,6 +5,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -91,6 +92,24 @@ class SecurityConfigIntegrationTest extends AbstractIntegrationTest {
     mockMvc
         .perform(get("/api/v1/oauth2/authorization/google"))
         .andExpect(header().string(HttpHeaders.LOCATION, containsString("state=")));
+  }
+
+  /*
+   * T-138 — 콜백 실패는 SPA의 로그인 화면으로 되돌린다 (3-2 §3-2-3 MUST).
+   *
+   * 저장된 인가 요청 없이 콜백에 도착한 경우다(state 불일치와 같은 경로). 기본 처리는 콜백
+   * 경로에 오류 응답을 남겨 사용자가 SPA 밖의 빈 화면에 갇힌다. 브라우저 전체가 이동한
+   * 흐름이라 프론트엔드의 공통 오류 처리도 동작하지 않는다.
+   *
+   * 쿼리에 실리는 것은 계약의 사유뿐이다. Spring의 내부 코드(authorization_request_not_found)가
+   * 그대로 나가면 주소창과 브라우저 기록에 남는다.
+   */
+  @Test
+  void failedCallbackRedirectsToLoginPageWithContractCode() throws Exception {
+    mockMvc
+        .perform(get("/api/v1/login/oauth2/code/google").param("code", "x").param("state", "y"))
+        .andExpect(status().is3xxRedirection())
+        .andExpect(redirectedUrl("/login?error=failed"));
   }
 
   /*
