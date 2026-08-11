@@ -1,0 +1,207 @@
+package org.hackerkhu.hackerhp.domain.auth.controller;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import jakarta.servlet.http.Cookie;
+import org.hackerkhu.hackerhp.AbstractIntegrationTest;
+import org.hackerkhu.hackerhp.domain.user.entity.User;
+import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.global.auth.AuthSession;
+import org.hackerkhu.hackerhp.global.auth.JwtProvider;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+
+/**
+ * {@code POST /auth/application} (spec 3-1 §3-1-4 ②, T-50·T-51·T-52·T-56).
+ *
+ * <p>세션을 직접 붙이려고 Spring Session 자동 설정을 뺀다 — 이유는 {@code AuthControllerIntegrationTest}에 적어 두었다. 실제
+ * 세션 저장소를 태우는 확인은 {@code AuthenticationBindingIntegrationTest}가 한다.
+ */
+@SpringBootTest(
+    properties =
+        "spring.autoconfigure.exclude="
+            + "org.springframework.boot.autoconfigure.session.SessionAutoConfiguration")
+@AutoConfigureMockMvc
+class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
+
+  private static final String PATH = "/api/v1/auth/application";
+
+  @Autowired private MockMvc mockMvc;
+  @Autowired private UserRepository userRepository;
+  @Autowired private JwtProvider jwtProvider;
+
+  private User applicant;
+
+  @BeforeEach
+  void signIn() {
+    userRepository.deleteAll();
+    applicant =
+        userRepository.saveAndFlush(User.createFromGoogle("sub-ap", "apply@khu.ac.kr", "구글이름"));
+  }
+
+  @AfterEach
+  void clear() {
+    userRepository.deleteAll();
+  }
+
+  /** 로그인한 브라우저가 보내는 것. 세션의 status가 곧 권한이므로 저장된 값을 그대로 담는다. */
+  private MockHttpServletRequestBuilder as(User user, String body) {
+    MockHttpSession session = new MockHttpSession();
+    AuthSession.store(session, user);
+    return post(PATH)
+        .session(session)
+        .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(user.getId())))
+        .with(csrf())
+        .contentType(MediaType.APPLICATION_JSON)
+        .content(body);
+  }
+
+  private static String body(String studentNo, String name) {
+    return "{\"studentNo\":\"%s\",\"name\":\"%s\"}".formatted(studentNo, name);
+  }
+
+  private User reload() {
+    return userRepository.findById(applicant.getId()).orElseThrow();
+  }
+
+  @Test
+  void pendingCanSubmitApplication() throws Exception {
+    mockMvc.perform(as(applicant, body("20240001", "본명"))).andExpect(status().isNoContent());
+
+    User saved = reload();
+    assertThat(saved.getStudentNo()).isEqualTo("20240001");
+    assertThat(saved.getName()).isEqualTo("본명");
+    // applied_at이 있는 것이 곧 "신청했다"는 뜻이다 — 승인 대상이 되는 기준이다 (§3-2-2).
+    assertThat(saved.getAppliedAt()).isNotNull();
+  }
+
+  /* T-51 — 승인 대기 중에는 다시 내 고칠 수 있다. */
+  @Test
+  void pendingCanResubmitToCorrectTheApplication() throws Exception {
+    mockMvc.perform(as(applicant, body("20240001", "처음"))).andExpect(status().isNoContent());
+
+    mockMvc.perform(as(reload(), body("20240099", "고친이름"))).andExpect(status().isNoContent());
+
+    User saved = reload();
+    assertThat(saved.getStudentNo()).isEqualTo("20240099");
+    assertThat(saved.getName()).isEqualTo("고친이름");
+  }
+
+  /*
+   * T-50 — ACTIVE는 거부된다. 승인 후에 이 경로로 학번을 바꿀 수 있으면 관리자가 심사한 내용과
+   * 저장된 내용이 달라진다.
+   */
+  @Test
+  void activeCannotSubmitApplication() throws Exception {
+    approve();
+
+    mockMvc
+        .perform(as(reload(), body("20240099", "다른이름")))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+    assertThat(reload().getStudentNo()).isEqualTo("20240001");
+  }
+
+  /*
+   * T-56의 관찰 가능한 결과 — 승인이 먼저 끝난 계정의 제출은 거부된다.
+   *
+   * 세션에는 아직 PENDING이 들어 있는 상태로 보낸다. 권한 검사만 통과시키고 저장할 때 상태를 다시
+   * 보지 않으면, 승인된 계정의 학번이 승인 뒤에 바뀐다. 동시 실행 자체는 UserConcurrencyIntegrationTest가
+   * 본다.
+   */
+  @Test
+  void staleSessionCannotOverwriteAnApprovedApplication() throws Exception {
+    MockHttpSession sessionFromBeforeApproval = new MockHttpSession();
+    AuthSession.store(sessionFromBeforeApproval, applicant);
+    approve();
+
+    mockMvc
+        .perform(
+            post(PATH)
+                .session(sessionFromBeforeApproval)
+                .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(applicant.getId())))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body("20249999", "덮어쓰기")))
+        .andExpect(status().isForbidden());
+
+    assertThat(reload().getStudentNo()).isEqualTo("20240001");
+    assertThat(reload().getName()).isEqualTo("본명");
+  }
+
+  /*
+   * T-52 — 공백은 신청서로 인정하지 않는다. 거부됐으면 applied_at이 남지 않아야 한다.
+   * 남으면 식별 정보 없는 계정이 승인 대상이 된다.
+   */
+  @ParameterizedTest(name = "[{index}] {0}")
+  @ValueSource(
+      strings = {
+        "{\"studentNo\":\"  \",\"name\":\"본명\"}",
+        "{\"studentNo\":\"20240001\",\"name\":\"   \"}"
+      })
+  void blankValuesAreRejectedWithoutRecordingApplication(String blankBody) throws Exception {
+    mockMvc
+        .perform(as(applicant, "PLACEHOLDER").content(blankBody))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+    assertThat(reload().getAppliedAt()).isNull();
+    assertThat(reload().getStudentNo()).isNull();
+  }
+
+  /* T-24 — 한 학번으로 여러 계정을 만들 수 없다. 화면은 이 코드로 무엇을 고쳐야 하는지 안다. */
+  @Test
+  void studentNoAlreadyUsedByAnotherAccountIsRejected() throws Exception {
+    User other =
+        userRepository.saveAndFlush(User.createFromGoogle("sub-other", "other@khu.ac.kr", "다른사람"));
+    mockMvc.perform(as(other, body("20240001", "다른사람"))).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(as(applicant, body("20240001", "본명")))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("DUPLICATE_STUDENT_NO"));
+
+    assertThat(reload().getAppliedAt()).isNull();
+  }
+
+  /* 같은 학번을 그대로 다시 내는 것은 중복이 아니다 — 자기 자신은 세지 않는다. */
+  @Test
+  void resubmittingTheSameStudentNoIsNotADuplicate() throws Exception {
+    mockMvc.perform(as(applicant, body("20240001", "처음"))).andExpect(status().isNoContent());
+
+    mockMvc.perform(as(reload(), body("20240001", "고친이름"))).andExpect(status().isNoContent());
+
+    assertThat(reload().getName()).isEqualTo("고친이름");
+  }
+
+  @Test
+  void anonymousCannotSubmitApplication() throws Exception {
+    mockMvc
+        .perform(
+            post(PATH).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body("2", "n")))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+  }
+
+  private void approve() {
+    User user = reload();
+    user.submitApplication("20240001", "본명");
+    user.approve();
+    userRepository.saveAndFlush(user);
+  }
+}

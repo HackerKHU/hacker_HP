@@ -1,8 +1,12 @@
 package org.hackerkhu.hackerhp.domain.user.repository;
 
+import jakarta.persistence.LockModeType;
 import java.util.Optional;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface UserRepository extends JpaRepository<User, Long> {
 
@@ -20,4 +24,17 @@ public interface UserRepository extends JpaRepository<User, Long> {
    * (spec 3-2 §3-2-2).
    */
   Optional<User> findByEmailAndGoogleSubNot(String email, String googleSub);
+
+  /**
+   * 행을 잠근 채 읽는다 ({@code SELECT ... FOR UPDATE}).
+   *
+   * <p><b>신청서 저장은 승인과 직렬화해야 한다</b> (spec 3-1 §3-1-4 MUST). 잠그지 않으면 두 트랜잭션이 각자 읽어둔 {@code status}를
+   * 보고 모두 통과하고, 나중에 쓰는 쪽이 앞의 변경을 덮는다 — <b>관리자가 심사한 내용과 저장된 내용이 달라진다</b> (T-56).
+   */
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("select u from User u where u.id = :id")
+  Optional<User> findByIdForUpdate(@Param("id") Long id);
+
+  /** 그 학번을 쓰는 <b>다른</b> 계정이 있는지. 한 학번으로 여러 계정을 만드는 것을 막는다 (T-24). */
+  boolean existsByStudentNoAndIdNot(String studentNo, Long id);
 }

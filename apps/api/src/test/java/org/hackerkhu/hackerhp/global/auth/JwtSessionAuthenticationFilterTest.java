@@ -69,9 +69,25 @@ class JwtSessionAuthenticationFilterTest {
 
     assertThat(authentication).isNotNull();
     assertThat(authentication.getPrincipal()).isEqualTo(7L);
+    /*
+     * 권한 매트릭스(§3-1-3)는 Role과 Status를 함께 본다. 둘을 모두 내보내야 @PreAuthorize가 그 표를
+     * 그대로 옮겨 적을 수 있다 — 신청서 제출은 PENDING만, 공지 등록은 ACTIVE인 ADMIN만이다.
+     */
     assertThat(authentication.getAuthorities())
         .extracting("authority")
-        .containsExactly("ROLE_ADMIN");
+        .containsExactlyInAnyOrder("ROLE_ADMIN", "STATUS_ACTIVE");
+  }
+
+  /* 세션에 status가 없으면 인증하지 않는다. 로그인 성공 처리는 셋을 함께 넣는다. */
+  @Test
+  void sessionWithoutStatusIsRejected() throws Exception {
+    withToken(7L);
+    MockHttpSession incomplete = new MockHttpSession();
+    incomplete.setAttribute(AuthSession.USER_ID, 7L);
+    incomplete.setAttribute(AuthSession.ROLE, Role.USER);
+    request.setSession(incomplete);
+
+    assertThat(runFilter()).isNull();
   }
 
   /*

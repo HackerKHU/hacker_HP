@@ -44,7 +44,7 @@ class GlobalExceptionHandlerTest {
 
   @Autowired private MockMvc mockMvc;
 
-  /* T-117 — BusinessException이 ErrorCode의 상태·코드·기본 메시지로 나간다. */
+  /* T-141 — BusinessException이 ErrorCode의 상태·코드·기본 메시지로 나간다. */
   @Test
   void businessExceptionUsesErrorCodeStatusAndDefaultMessage() throws Exception {
     mockMvc
@@ -54,7 +54,7 @@ class GlobalExceptionHandlerTest {
         .andExpect(jsonPath("$.message").value("승인 대기 중인 계정입니다."));
   }
 
-  /* T-118 — 응답 본문은 code·message 두 개뿐이다. 필드가 늘면 웹의 파싱 계약이 흔들린다. */
+  /* T-142 — 응답 본문은 code·message 두 개뿐이다. 필드가 늘면 웹의 파싱 계약이 흔들린다. */
   @Test
   void errorBodyHasOnlyCodeAndMessage() throws Exception {
     mockMvc.perform(get("/api/v1/__test/business")).andExpect(jsonPath("$").value(aMapWithSize(2)));
