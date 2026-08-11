@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.hackerkhu.testsupport.web.ErrorHandlingTestController;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -18,8 +19,15 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-/** advice가 실제 요청 경로에서 계약(spec/3-2 §3-2-7, spec/5-TESTING §5-4)대로 응답하는지 확인한다. */
+/**
+ * advice가 실제 요청 경로에서 계약(spec/3-2 §3-2-7, spec/5-TESTING §5-4)대로 응답하는지 확인한다.
+ *
+ * <p>{@code addFilters = false}로 시큐리티 필터를 뺀다. 여기서 볼 것은 <b>핸들러에서 터진 예외</b>가 어떤 응답이 되는가이고, 필터가 붙으면 모든
+ * 요청이 그 앞에서 401로 막혀 정작 advice를 지나지 못한다. 필터 계층이 내보내는 응답은 {@code SecurityConfigIntegrationTest}가 따로
+ * 본다.
+ */
 @WebMvcTest
+@AutoConfigureMockMvc(addFilters = false)
 @Import(GlobalExceptionHandlerTest.TestControllerConfig.class)
 class GlobalExceptionHandlerTest {
 

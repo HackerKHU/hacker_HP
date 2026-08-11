@@ -74,6 +74,8 @@ erDiagram
 
 `ddl-auto`가 `validate`이므로 이 테이블도 **Flyway 마이그레이션에 포함해야 한다** (MUST). 애플리케이션 테이블이 아니라 인증 기반이므로 위 ERD에는 넣지 않는다.
 
+`V2__session.sql`이 그 마이그레이션이며, 내용은 `spring-session-jdbc` jar의 `schema-postgresql.sql`을 그대로 옮긴 것이다. **손으로 고치지 않는다** — 컬럼 하나만 어긋나도 세션 저장이 런타임에 실패한다. Spring Session 버전을 올릴 때 그 jar의 스키마와 대조하고, 달라졌으면 새 마이그레이션을 만든다. 스키마 생성은 Flyway가 맡으므로 `spring.session.jdbc.initialize-schema`는 `never`다 — 둘 다 만들려 들면 기동이 실패한다.
+
 ### notes
 
 | 컬럼 | 타입 | 제약 | 설명 |
