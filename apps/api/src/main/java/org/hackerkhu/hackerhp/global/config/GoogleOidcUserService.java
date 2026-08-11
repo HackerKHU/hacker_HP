@@ -1,6 +1,7 @@
 package org.hackerkhu.hackerhp.global.config;
 
 import org.hackerkhu.hackerhp.domain.user.service.GoogleAccountService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
@@ -19,11 +20,21 @@ import org.springframework.stereotype.Service;
 @Service
 public class GoogleOidcUserService implements OAuth2UserService<OidcUserRequest, OidcUser> {
 
-  private final OidcUserService delegate = new OidcUserService();
+  private final OAuth2UserService<OidcUserRequest, OidcUser> delegate;
   private final GoogleAccountPolicy policy;
   private final GoogleAccountService accountService;
 
+  @Autowired
   public GoogleOidcUserService(GoogleAccountPolicy policy, GoogleAccountService accountService) {
+    this(new OidcUserService(), policy, accountService);
+  }
+
+  /** 구글과 통신하는 부분을 대역으로 바꿔 검사·계정 처리의 순서를 확인하기 위한 생성자다. */
+  GoogleOidcUserService(
+      OAuth2UserService<OidcUserRequest, OidcUser> delegate,
+      GoogleAccountPolicy policy,
+      GoogleAccountService accountService) {
+    this.delegate = delegate;
     this.policy = policy;
     this.accountService = accountService;
   }

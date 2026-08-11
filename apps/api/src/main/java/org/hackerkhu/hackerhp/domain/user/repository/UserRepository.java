@@ -13,6 +13,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
    */
   Optional<User> findByGoogleSub(String googleSub);
 
-  /** 이메일이 <b>다른</b> 계정에 이미 쓰이고 있는지 (T-55). 같은 계정은 세지 않는다. */
-  boolean existsByEmailAndGoogleSubNot(String email, String googleSub);
+  /**
+   * 그 이메일을 쓰고 있는 <b>다른</b> 계정 (T-55). 같은 계정은 찾지 않는다.
+   *
+   * <p>존재 여부가 아니라 계정을 돌려준다. 충돌이 나면 <b>두 계정의 {@code id}를 로그에 남겨야</b> 관리자가 어느 쪽이 유효한지 판단해 정리할 수 있다
+   * (spec 3-2 §3-2-2).
+   */
+  Optional<User> findByEmailAndGoogleSubNot(String email, String googleSub);
 }

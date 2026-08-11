@@ -6,7 +6,7 @@ import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.global.config.LoginErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DataAccessException;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.stereotype.Service;
@@ -71,9 +71,9 @@ public class GoogleAccountService {
 
     try {
       return userRepository.saveAndFlush(User.createFromGoogle(googleSub, email, name.trim()));
-    } catch (DataIntegrityViolationException e) {
+    } catch (DataAccessException e) {
       // 같은 계정으로 동시에 첫 로그인했거나, 그 이메일을 다른 계정이 막 가져갔다.
-      log.warn("계정 생성이 제약에 걸렸다. sub={}", googleSub, e);
+      log.warn("계정 생성이 실패했다. sub={}", googleSub, e);
       throw reject(LoginErrorCode.FAILED);
     }
   }
@@ -91,17 +91,35 @@ public class GoogleAccountService {
     if (user.getEmail().equals(email)) {
       return;
     }
-    if (userRepository.existsByEmailAndGoogleSubNot(email, user.getGoogleSub())) {
-      log.warn("이미 다른 계정이 쓰는 이메일이라 로그인을 거부했다. sub={}", user.getGoogleSub());
-      throw reject(LoginErrorCode.FAILED);
-    }
+    userRepository
+        .findByEmailAndGoogleSubNot(email, user.getGoogleSub())
+        .ifPresent(
+            conflicting -> {
+              /*
+               * 두 계정의 id를 남긴다 (spec 3-2 §3-2-2). 관리자가 어느 쪽이 유효한 계정인지 판단해
+               * 정리해야 하는 상황이고, 자동으로 해결하지 않는다. id만 남기고 이메일은 남기지 않는다 —
+               * 정리에 필요한 것은 어느 행인지이지 주소가 아니다.
+               */
+              log.warn(
+                  "이메일 충돌로 로그인을 거부했다. 로그인 계정 id={}, 그 주소를 쓰는 계정 id={}",
+                  user.getId(),
+                  conflicting.getId());
+              throw reject(LoginErrorCode.FAILED);
+            });
 
     user.updateEmail(email);
     try {
       userRepository.flush();
-    } catch (DataIntegrityViolationException e) {
-      // 위 조회와 저장 사이에 다른 트랜잭션이 같은 주소를 가져갔다. DB 제약이 마지막 방어선이다.
-      log.warn("이메일 갱신이 제약에 걸렸다. sub={}", user.getGoogleSub(), e);
+    } catch (DataAccessException e) {
+      /*
+       * 두 가지가 여기 걸린다.
+       *   ① 위 조회와 저장 사이에 다른 트랜잭션이 같은 주소를 가져갔다 — UNIQUE 제약 위반
+       *   ② 같은 계정이 두 브라우저에서 동시에 로그인했다 — @Version 낙관적 잠금 충돌
+       *
+       * ②는 DataIntegrityViolationException이 아니라 ObjectOptimisticLockingFailureException이다.
+       * DataAccessException으로 받지 않으면 필터 밖으로 빠져나가 콜백에 500 JSON이 뜬다 (T-43).
+       */
+      log.warn("이메일 갱신이 실패했다. id={}", user.getId(), e);
       throw reject(LoginErrorCode.FAILED);
     }
   }
