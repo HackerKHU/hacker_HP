@@ -18,6 +18,32 @@ const STUDENT_NO_MAX = 20
 const NAME_MAX = 50
 
 /**
+ * 입력 예시. **규칙이 아니라 예시다.**
+ *
+ * 위 주석대로 계약이 요구하는 것은 "공백이 아닐 것"뿐이고 학번 형식 제약은 없다
+ * (#38 결정 4). `xxxxxx`를 자릿수 요구로 읽지 않도록 `maxLength` 말고는 아무것도
+ * 걸지 않았다 — `pattern`도 `inputMode`도 주지 않는다. 편입·교환학생·대학원처럼
+ * 형태가 다른 학번이 실제로 있고 그것들도 그대로 받아야 한다.
+ *
+ * **연도를 문자열에 박지 않는다.** `2026xxxxxx`라고 적어두면 내년 신입생이 작년 예시를
+ * 보게 되고, 고치는 사람이 나올 때까지 아무도 모른다. 화면에 보이는 예시는 "올해 들어온
+ * 사람의 학번"이어야 뜻이 통하므로 실행 시점의 연도로 만든다.
+ *
+ * 모듈이 처음 불릴 때 한 번만 계산한다. 렌더마다 `new Date()`를 부를 이유가 없다.
+ *
+ * ⚠️ **뒤 여섯 자리는 확인된 값이 아니다.** 이대로면 총 10자리인데, 경희대 학번이
+ * 실제로 10자리인지 **우리는 모른다.** 계약에는 `student_no varchar(20)`뿐이고
+ * (spec §3-2-2) 형식 규칙이 없다. 픽스처가 10자리를 쓰지만 그건 우리가 지어낸 값이라
+ * 근거가 못 된다. 자릿수가 실제와 다르면 사용자가 "이 형식이어야 한다"고 오해할 수
+ * 있으니, **실제 자릿수를 확인하면 이 줄을 그 값으로 고친다.** 확인 전까지도 입력은
+ * 막지 않는다 — 위 주석대로 `pattern`을 걸지 않았다.
+ */
+const STUDENT_NO_PLACEHOLDER = `${new Date().getFullYear()}000000`
+
+/** 구글 프로필에서 미리 채워져 보일 일이 드물다. 비어 있을 때만 나온다. */
+const NAME_PLACEHOLDER = '홍길동'
+
+/**
  * 화면 컨테이너. **로그인 화면과 같은 폭·정렬이다** — 로그인에서 여기로 넘어오는 흐름에서
  * 화면이 좌우로 튀지 않아야 한다.
  *
@@ -220,6 +246,7 @@ export function PendingPage() {
               <Input
                 id="application-student-no"
                 value={values.studentNo}
+                placeholder={STUDENT_NO_PLACEHOLDER}
                 maxLength={STUDENT_NO_MAX}
                 onChange={(event) =>
                   setDraft({ ...values, studentNo: event.target.value })
@@ -232,6 +259,7 @@ export function PendingPage() {
               <Input
                 id="application-name"
                 value={values.name}
+                placeholder={NAME_PLACEHOLDER}
                 maxLength={NAME_MAX}
                 onChange={(event) =>
                   setDraft({ ...values, name: event.target.value })
