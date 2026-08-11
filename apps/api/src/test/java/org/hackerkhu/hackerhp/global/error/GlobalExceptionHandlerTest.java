@@ -1,8 +1,10 @@
 package org.hackerkhu.hackerhp.global.error;
 
 import static org.hamcrest.Matchers.aMapWithSize;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -105,6 +107,19 @@ class GlobalExceptionHandlerTest {
         .perform(get("/api/v1/does-not-exist"))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+  }
+
+  /*
+   * T-127 — 405는 405로 나간다. 계약에 코드가 없어 매핑하지 않지만, 그렇다고 포괄 핸들러가
+   * 삼키면 500 INTERNAL_ERROR가 되어 서버 오류로 기록된다. POST 전용 경로에 GET을 보낸다.
+   */
+  @Test
+  void methodNotAllowedIsNotSwallowedByCatchAll() throws Exception {
+    mockMvc
+        .perform(get("/api/v1/__test/validation"))
+        .andExpect(status().isMethodNotAllowed())
+        // Allow 헤더가 사라지면 클라이언트가 어떤 메서드를 써야 하는지 알 수 없다.
+        .andExpect(header().string("Allow", containsString("POST")));
   }
 
   /*

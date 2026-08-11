@@ -68,22 +68,44 @@ public class GlobalExceptionHandler {
     return respond(ErrorCode.VALIDATION_ERROR, ErrorCode.VALIDATION_ERROR.getMessage());
   }
 
-  /**
-   * 매핑된 핸들러가 없는 경로. 잡지 않으면 Spring 기본 형식이 나가고 웹이 사유를 읽지 못한다.
-   *
-   * <p>405(허용되지 않은 메서드)는 계약에 코드가 없고 프론트가 만들 수 없는 오류라 그대로 둔다.
-   */
+  /** 매핑된 핸들러가 없는 경로. 잡지 않으면 Spring 기본 형식이 나가고 웹이 사유를 읽지 못한다. */
   @ExceptionHandler(NoResourceFoundException.class)
   public ResponseEntity<ErrorResponse> handleNoResource(NoResourceFoundException e) {
     return respond(ErrorCode.NOT_FOUND, ErrorCode.NOT_FOUND.getMessage());
   }
 
-  /** 예상하지 못한 오류. 스택 트레이스는 로그에만 남기고 응답에는 일반 메시지만 담는다 (§5-4). */
+  /**
+   * 예상하지 못한 오류. 스택 트레이스는 로그에만 남기고 응답에는 일반 메시지만 담는다 (§5-4).
+   *
+   * <p><b>Spring이 상태를 정해 던진 예외를 여기서 삼키면 안 된다.</b> {@code ExceptionHandlerExceptionResolver}가 {@code
+   * DefaultHandlerExceptionResolver}보다 앞에 있어서, 이 핸들러가 먼저 잡는다. 걸러내지 않으면 POST 전용 경로에 GET을 보낸 요청이
+   * {@code 405} 대신 {@code 500 INTERNAL_ERROR}를 받고, 클라이언트 실수가 서버 오류로 기록된다.
+   */
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ErrorResponse> handleUnexpected(Exception e, HttpServletRequest request) {
+    // 이름이 같은 우리 record와 구분하려고 전체 이름을 쓴다.
+    if (e instanceof org.springframework.web.ErrorResponse framework) {
+      return frameworkStatusOnly(framework);
+    }
     log.error("처리하지 못한 예외: {} {}", request.getMethod(), request.getRequestURI(), e);
     return ResponseEntity.internalServerError()
         .body(new ErrorResponse(INTERNAL_ERROR, "서버에 문제가 발생했습니다. 잠시 후 다시 시도해 주세요."));
+  }
+
+  /**
+   * 405(허용되지 않은 메서드)·406·415처럼 Spring이 상태를 정해 주는 오류. 계약에 코드가 없고 프론트가 만들 수 없는 오류라 본문을 만들지 않고 상태와 헤더만
+   * 돌려준다 — 405의 {@code Allow} 헤더가 그 헤더에 들어 있다.
+   *
+   * <p>클래스 계층으로는 걸러낼 수 없다. {@code HttpRequestMethodNotSupportedException}은 {@code
+   * ErrorResponseException}을 상속하지 않고 {@code ErrorResponse} 인터페이스를 구현하는데, 인터페이스는
+   * {@code @ExceptionHandler}에 쓸 수 없다.
+   *
+   * <p>415를 {@code UNSUPPORTED_FILE_TYPE}으로 매핑하지 않는다. 그 코드는 자료 파일의 확장자를 가리키는 것이지 요청 본문의
+   * Content-Type이 아니다 (§3-2-7).
+   */
+  private ResponseEntity<ErrorResponse> frameworkStatusOnly(
+      org.springframework.web.ErrorResponse framework) {
+    return ResponseEntity.status(framework.getStatusCode()).headers(framework.getHeaders()).build();
   }
 
   private ResponseEntity<ErrorResponse> respond(ErrorCode errorCode, String message) {
