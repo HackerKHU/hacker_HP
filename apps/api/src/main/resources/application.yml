@@ -5,6 +5,42 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: validate
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            # 프록시가 두 겹이라(Vercel → ALB) Spring이 요청 host로 조립한 redirect_uri는
+            # 구글 등록값과 어긋난다. 환경별 절대 URI로 고정한다 (docs/ops/infra.md).
+            redirect-uri: ${OAUTH_REDIRECT_URI}
+            scope:
+              - openid
+              - email
+              - profile
+  session:
+    # 세션은 RDS에 둔다 (3-1 §3-1-5 MUST).
+    store-type: jdbc
+    jdbc:
+      # 스키마는 Flyway(V2__session.sql)가 만든다. 둘 다 만들려 들면 기동이 실패한다.
+      initialize-schema: never
+
+server:
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        # 3-1 §3-1-5 MUST. SameSite=Lax는 교차 사이트 요청만 제한할 뿐 평문 전송을 막지 못한다.
+        # 로컬(HTTP)만 application-local.yml에서 예외를 둔다.
+        secure: true
+        same-site: lax
+
+app:
+  auth:
+    # 값이 없으면 기동에 실패한다. 기본값을 심어두면 설정 누락이 조용히 지나가고
+    # 도메인 제한이 무력해진다 (docs/ops/infra.md, 3-1 §3-1-4).
+    allowed-email-domain: ${ALLOWED_EMAIL_DOMAIN:}
 
 management:
   endpoints:
