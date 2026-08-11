@@ -79,6 +79,8 @@ public class SecurityConfig {
                     // 허용 도메인·이메일 인증을 여기서 거른다. 걸지 않으면 콜백이 성공한
                     // 모든 구글 계정이 인증된다 (3-1 §3-1-5 MUST).
                     .userInfoEndpoint(endpoint -> endpoint.oidcUserService(googleOidcUserService))
+                    // 인증에 성공해도 로그인을 성립시키지 않는다. #26이 이 줄을 지운다.
+                    .successHandler(new LoginNotReadyHandler(LOGIN_PAGE_PATH))
                     .failureHandler(loginFailureHandler()))
         // 기본 HttpSessionRequestCache는 401로 돌려보내기 전에 그 요청을 세션에 저장한다.
         // 화면은 랜딩을 포함해 최초 렌더마다 GET /auth/me를 부르므로(apps/web/src/auth/session.tsx),
