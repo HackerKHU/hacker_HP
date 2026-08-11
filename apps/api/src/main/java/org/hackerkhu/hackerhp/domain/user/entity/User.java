@@ -22,17 +22,19 @@ public class User {
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
 
+  /** 구글 계정 식별자(ID 토큰의 sub). 이메일이 아니라 이 값이 계정의 신원 키다. */
+  @Column(name = "google_sub", nullable = false, unique = true)
+  private String googleSub;
+
   @Column(nullable = false, unique = true)
   private String email;
 
-  @Column(name = "student_no", nullable = false, unique = true)
+  /** 구글이 주지 않으므로 계정 생성 시점에는 비어 있다. 신청서 제출 시 채워진다. */
+  @Column(name = "student_no", unique = true)
   private String studentNo;
 
   @Column(nullable = false)
   private String name;
-
-  @Column(name = "password_hash", nullable = false)
-  private String passwordHash;
 
   @Enumerated(EnumType.STRING)
   @Column(nullable = false)
@@ -42,42 +44,70 @@ public class User {
   @Column(nullable = false)
   private Status status;
 
+  /** 계정 생성일시(첫 구글 로그인). "가입 신청일"은 {@link #appliedAt}이다. */
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
+
+  /** 신청서 제출일시. 승인 대상인지를 가르는 기준이다 — spec/3-2 §3-2-2. */
+  @Column(name = "applied_at")
+  private Instant appliedAt;
 
   @Column(name = "approved_at")
   private Instant approvedAt;
 
   protected User() {}
 
-  private User(
-      String email,
-      String studentNo,
-      String name,
-      String passwordHash,
-      Role role,
-      Status status,
-      Instant createdAt,
-      Instant approvedAt) {
+  private User(String googleSub, String email, String name, Role role, Status status) {
+    this.googleSub = googleSub;
     this.email = email;
-    this.studentNo = studentNo;
     this.name = name;
-    this.passwordHash = passwordHash;
     this.role = role;
     this.status = status;
-    this.createdAt = createdAt;
-    this.approvedAt = approvedAt;
+    this.createdAt = Instant.now();
   }
 
-  /** AUTH-01 가입 신청. USER/PENDING으로 생성한다 — spec/3-1-DESIGN-ARCHITECTURE.md §3-1-4. */
-  public static User applyForMembership(
-      String email, String studentNo, String name, String passwordHash) {
-    return new User(
-        email, studentNo, name, passwordHash, Role.USER, Status.PENDING, Instant.now(), null);
+  /**
+   * ① 첫 구글 로그인. USER/PENDING으로 생성한다 — spec/3-1-DESIGN-ARCHITECTURE.md §3-1-4.
+   *
+   * <p>학번은 구글이 주지 않으므로 여기서 채우지 않는다. {@link #submitApplication}이 채운다.
+   */
+  public static User createFromGoogle(String googleSub, String email, String name) {
+    return new User(googleSub, email, name, Role.USER, Status.PENDING);
   }
 
-  /** ADM-02 가입 승인. PENDING → ACTIVE, 승인일시를 기록한다. */
+  /**
+   * ② 신청서 제출. 승인 심사에 필요한 학번과 이름을 받는다 — §3-1-4.
+   *
+   * <p>승인 전까지 다시 제출해 고칠 수 있다. <b>ACTIVE는 이 경로로 학번을 바꿀 수 없다</b> — 관리자가 심사한 내용과 저장된 내용이 달라진다.
+   */
+  public void submitApplication(String studentNo, String name) {
+    if (this.status != Status.PENDING) {
+      throw new IllegalStateException("PENDING 상태에서만 신청서를 낼 수 있습니다: " + this.status);
+    }
+    this.studentNo = studentNo;
+    this.name = name;
+    this.appliedAt = Instant.now();
+  }
+
+  /**
+   * 구글이 준 이메일이 저장된 값과 다르면 갱신한다 (MUST) — spec/3-2 §3-2-2.
+   *
+   * <p>갱신하지 않으면 회원 목록·검색과 {@code GET /auth/me}에 옛 주소가 남는다.
+   */
+  public void updateEmail(String email) {
+    this.email = email;
+  }
+
+  /**
+   * ③ 가입 승인. PENDING → ACTIVE, 승인일시를 기록한다.
+   *
+   * <p>신청서를 낸 계정만 승인할 수 있다 — spec/3-2 §3-2-6. 이 검사가 없으면 학번이 비어 있는 ACTIVE 계정이 만들어지는데, 신청 API는
+   * PENDING 전용이라 나중에 채울 방법이 없다.
+   */
   public void approve() {
+    if (this.appliedAt == null) {
+      throw new IllegalStateException("신청서를 제출한 계정만 승인할 수 있습니다.");
+    }
     this.status = Status.ACTIVE;
     this.approvedAt = Instant.now();
   }
@@ -109,6 +139,10 @@ public class User {
     return id;
   }
 
+  public String getGoogleSub() {
+    return googleSub;
+  }
+
   public String getEmail() {
     return email;
   }
@@ -121,10 +155,6 @@ public class User {
     return name;
   }
 
-  public String getPasswordHash() {
-    return passwordHash;
-  }
-
   public Role getRole() {
     return role;
   }
@@ -135,6 +165,10 @@ public class User {
 
   public Instant getCreatedAt() {
     return createdAt;
+  }
+
+  public Instant getAppliedAt() {
+    return appliedAt;
   }
 
   public Instant getApprovedAt() {
