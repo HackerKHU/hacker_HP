@@ -17,10 +17,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class GoogleAccountPolicy {
 
-  private final String allowedSuffix;
+  private final String allowedDomain;
 
   public GoogleAccountPolicy(AuthProperties authProperties) {
-    this.allowedSuffix = "@" + authProperties.allowedEmailDomain().toLowerCase(Locale.ROOT);
+    this.allowedDomain = authProperties.allowedEmailDomain().toLowerCase(Locale.ROOT);
   }
 
   /**
@@ -31,9 +31,26 @@ public class GoogleAccountPolicy {
     if (!Boolean.TRUE.equals(emailVerified)) {
       throw reject(LoginErrorCode.UNVERIFIED);
     }
-    if (email == null || !email.toLowerCase(Locale.ROOT).endsWith(allowedSuffix)) {
+    if (!isAllowedDomain(email)) {
       throw reject(LoginErrorCode.DOMAIN);
     }
+  }
+
+  /**
+   * <b>{@code @} 뒤를 잘라 설정값과 정확히 일치하는지 본다</b> (spec 3-1 §3-1-4 MUST).
+   *
+   * <p>{@code endsWith}로 검사하면 {@code user@notkhu.ac.kr}이 통과한다. 하위 도메인({@code user@cs.khu.ac.kr})도
+   * 정확 일치가 아니므로 거부한다 — 필요해지면 허용 목록을 늘리는 것이 결정이고, 접미사 검사로 흘리는 것은 결정이 아니다.
+   *
+   * <p><b>첫 {@code @}를 기준으로 자른다.</b> 마지막 {@code @}를 쓰면 {@code a@b@khu.ac.kr}처럼 {@code @}가 여럿인 주소가
+   * 통과한다.
+   */
+  private boolean isAllowedDomain(String email) {
+    if (email == null) {
+      return false;
+    }
+    int at = email.indexOf('@');
+    return at >= 0 && email.substring(at + 1).toLowerCase(Locale.ROOT).equals(allowedDomain);
   }
 
   /*

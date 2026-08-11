@@ -8,9 +8,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 
 /**
@@ -81,7 +79,7 @@ public class SecurityConfig {
                     .userInfoEndpoint(endpoint -> endpoint.oidcUserService(googleOidcUserService))
                     // 인증에 성공해도 로그인을 성립시키지 않는다. #26이 이 줄을 지운다.
                     .successHandler(new LoginNotReadyHandler(LOGIN_PAGE_PATH))
-                    .failureHandler(loginFailureHandler()))
+                    .failureHandler(new LoginFailureHandler(LOGIN_PAGE_PATH)))
         // 기본 HttpSessionRequestCache는 401로 돌려보내기 전에 그 요청을 세션에 저장한다.
         // 화면은 랜딩을 포함해 최초 렌더마다 GET /auth/me를 부르므로(apps/web/src/auth/session.tsx),
         // 그대로 두면 비로그인 방문자마다 세션 행이 RDS에 쌓인다. 로그인 후 돌아갈 곳도
@@ -105,24 +103,5 @@ public class SecurityConfig {
     // CSRF는 끄지 않는다. 토큰 발급 경로와 쿠키 이름 설정은 #83이 얹는다.
     // 지금 끄면 그 이슈가 "다시 켜기"부터 시작해야 하고, 그 사이 상태 변경 API가 열린다.
     return http.build();
-  }
-
-  /**
-   * 콜백 실패를 SPA로 되돌린다 (3-2 §3-2-3 MUST).
-   *
-   * <p>기본 처리는 콜백 경로에 오류 응답을 남긴다. 브라우저 전체가 이동한 흐름이라 <b>사용자가 SPA 밖의 빈 화면에 갇힌다</b> — 프론트엔드의 공통 오류 처리도
-   * {@code request()}를 거치지 않아 동작하지 않는다.
-   *
-   * <p>사유는 {@link LoginErrorCode}에 있는 것만 싣는다. Spring의 내부 코드를 그대로 쓰면 주소창·브라우저 기록·리퍼러에 남고, 이용자가 스스로
-   * 고칠 수 있는 정보도 아니다.
-   */
-  private AuthenticationFailureHandler loginFailureHandler() {
-    return (request, response, exception) -> {
-      LoginErrorCode code =
-          exception instanceof OAuth2AuthenticationException oauthException
-              ? LoginErrorCode.from(oauthException.getError().getErrorCode())
-              : LoginErrorCode.FAILED;
-      response.sendRedirect(LOGIN_PAGE_PATH + "?error=" + code.value());
-    };
   }
 }

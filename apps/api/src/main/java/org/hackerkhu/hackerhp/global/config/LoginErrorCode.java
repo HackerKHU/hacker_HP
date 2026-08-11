@@ -20,6 +20,14 @@ public enum LoginErrorCode {
   /** {@code email_verified}가 거짓. 구글에서 이메일 인증을 마치라고 안내한다. */
   UNVERIFIED("unverified"),
 
+  /**
+   * 정지된 계정. 세션을 발급하지 않고 로그인 화면으로 되돌린다 (spec 3-1 §3-1-5).
+   *
+   * <p>이 화면은 <b>이용 중 정지된 세션</b>이 도착하는 경로(쿼리 없는 {@code /login})와 같은 문구를 쓴다 (MUST). 사용자에게는 같은 사실이고,
+   * 도달 경로는 구별할 수도 알 필요도 없는 내부 사정이다.
+   */
+  SUSPENDED("suspended"),
+
   /** 그 외 — state 불일치, 토큰 교환 실패 등. 원인을 자세히 알리지 않는다. */
   FAILED("failed");
 

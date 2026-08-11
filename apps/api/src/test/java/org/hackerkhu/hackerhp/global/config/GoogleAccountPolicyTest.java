@@ -27,21 +27,44 @@ class GoogleAccountPolicyTest {
   }
 
   /*
-   * T-136 — 허용 도메인이 아닌 계정은 인증되지 않는다.
+   * T-08·T-53·T-54·T-136 — 허용 도메인이 아닌 계정은 인증되지 않는다.
    *
-   * 마지막 둘이 이 검사의 핵심이다. 문자열 포함(contains)으로 짰다면 통과해 버린다 —
-   * 공격자가 도메인을 이름에 넣거나 자기 도메인의 하위에 붙이면 그만이다.
+   * 이 목록이 검사 방식을 못박는다 (spec 3-1 §3-1-4 MUST).
+   *   notkhu.ac.kr / cs.khu.ac.kr  → endsWith(도메인)로 짜면 통과한다
+   *   khu.ac.kr.evil.com           → 공격자가 자기 도메인의 하위에 붙인 것이다
+   *   khu.ac.kr@gmail.com          → contains로 짜면 통과한다
+   *   a@b@khu.ac.kr                → 마지막 @를 기준으로 자르면 통과한다
    */
-  @ParameterizedTest(name = "{0}")
+  @ParameterizedTest(name = "[{index}] {0}")
   @ValueSource(
       strings = {
         "someone@gmail.com",
+        "someone@notkhu.ac.kr",
+        "someone@cs.khu.ac.kr",
         "someone@khu.ac.kr.evil.com",
         "someone@evilkhu.ac.kr",
-        "khu.ac.kr@gmail.com"
+        "khu.ac.kr@gmail.com",
+        "a@b@khu.ac.kr",
+        "khu.ac.kr",
+        "@khu.ac.kr.",
+        ""
       })
   void rejectsAccountOutsideAllowedDomain(String email) {
     assertThatThrownBy(() -> policy.verify(email, true))
+        .isInstanceOf(OAuth2AuthenticationException.class)
+        .hasMessage(LoginErrorCode.DOMAIN.value());
+  }
+
+  /*
+   * T-42 — hd 주장만 khu.ac.kr이고 email이 다르면 거부한다.
+   *
+   * 이 검사에는 hd가 아예 들어오지 않는다. 구글의 hd는 로그인 화면에서 계정을 좁혀주는 힌트일 뿐
+   * 위조를 막지 못하므로, 서버는 ID 토큰의 email만 본다 (spec 3-1 §3-1-4 MUST).
+   * 판단 근거를 email 하나로 좁혀두는 것이 곧 이 요구사항을 만족시키는 방법이다.
+   */
+  @Test
+  void decisionRestsOnEmailAlone() {
+    assertThatThrownBy(() -> policy.verify("someone@gmail.com", true))
         .isInstanceOf(OAuth2AuthenticationException.class)
         .hasMessage(LoginErrorCode.DOMAIN.value());
   }
