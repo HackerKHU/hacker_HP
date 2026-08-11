@@ -297,9 +297,26 @@ describe('구글 버튼', () => {
     await loaded()
 
     const svg = document.querySelector('svg[aria-hidden="true"]')
-    expect(canonical(svg?.innerHTML ?? '')).toBe(
+    /*
+     * **`toBe`가 아니라 `toEqual`이다.** 문자열 한 덩이가 아니라 중첩 배열을 비교하므로,
+     * 값 안의 공백이나 `=`가 요소·속성의 경계를 넘지 못한다.
+     */
+    expect(canonical(svg?.innerHTML ?? '')).toEqual(
       canonical(OFFICIAL_LOGO_MARKUP),
     )
+
+    /*
+     * **`viewBox`는 위 비교에 안 들어간다.** `innerHTML`을 견주므로 바깥 `<svg>` 자신의
+     * 속성은 빠진다 — 그런데 이 값이 공식 40x40 그림에서 **로고 부분만 잘라내는 창**이라,
+     * 바뀌면 걷어낸 버튼 껍데기가 다시 보이거나 로고가 잘린다. 여기서 따로 못 박는다.
+     */
+    expect(svg?.getAttribute('viewBox')).toBe('10 10 20 20')
+    /*
+     * `fill="none"`도 같은 이유로 여기 있다. 그라디언트를 그리는 path에는 `fill`이 없어
+     * **바깥에서 물려받는데**, 이 값이 바뀌면 그 자리가 단색으로 덮인다. 공식 파일의
+     * 바깥 `<svg>`가 갖고 있던 값 그대로다.
+     */
+    expect(svg?.getAttribute('fill')).toBe('none')
   })
 
   /*
@@ -561,7 +578,7 @@ const OFFICIAL_LOGO_MARKUP = `<mask id="mask0_1298_12516" style="mask-type:alpha
 </defs>`
 
 /**
- * 마크업을 **정규 형태**로 바꾼다. 그림이 같으면 같은 문자열이 나와야 한다.
+ * 로고 마크업의 **정규 형태**. 그림이 같으면 같은 자료구조가 나와야 한다.
  *
  * 무엇이 그림을 정하는가로 갈랐다.
  *
@@ -571,34 +588,51 @@ const OFFICIAL_LOGO_MARKUP = `<mask id="mask0_1298_12516" style="mask-type:alpha
  * | 속성 **이름과 값** | 속성이 적힌 **순서** |
  * | 눈에 보이는 텍스트 | 자기 닫는 태그 표기(`<path/>` vs `<path></path>`) |
  *
- * 속성은 이름으로 정렬해 이어 붙이므로 `cx cy`를 `cy cx`로 적어도 같은 값이 나온다.
- * 공백뿐인 텍스트 노드는 버리므로 줄바꿈을 넣고 빼도 같다. **정당한 소스 정리나 포매터가
- * SVG를 다시 정렬하는 것까지 브랜딩 회귀로 오인하지 않게** 하려는 것이다.
+ * **문자열로 잇지 않는다. 경계를 자료구조가 갖는다.**
  *
- * 반대로 속성 **값**은 한 글자도 손대지 않는다 — `d`의 좌표, `fill`의 색,
- * `stdDeviation`의 흐림 세기가 전부 값이라 바뀌면 그대로 드러난다.
+ * 전에는 속성을 `이름=값`으로 만들어 공백으로 이었는데, 그러면 **값 안에 구분자를 넣어
+ * 경계를 위조할 수 있다.** 예를 들어 `cx="20.0496" cy="20.2413"`를
+ * `cx="20.0496 cy=20.2413"` 한 개로 바꾸면 — `cy`가 사라지고 `cx`도 무효값이 되어 타원이
+ * 딴 데로 가는데 — 이어 붙인 문자열은 원본과 **똑같아진다.**
+ *
+ * escape로는 못 막는다. 무엇을 escape 문자로 정하든 그 문자로 다시 위조할 수 있다.
+ * 태그·속성 튜플·자식 배열을 중첩 배열로 두고 `toEqual()`로 비교하면 값 안의 공백·`=`·`,`가
+ * 경계를 넘지 못한다 — 경계가 문자열이 아니라 배열의 칸이기 때문이다.
+ *
+ * 속성 **값**은 한 글자도 손대지 않는다 — `d`의 좌표, `fill`의 색, `stdDeviation`의 흐림
+ * 세기, `style` 안의 그라디언트가 전부 값이라 바뀌면 그대로 드러난다.
  *
  * 양쪽을 같은 파서에 태우므로 jsdom이 판올림돼도 둘이 같이 달라져 거짓 실패가 없다.
  */
-function canonical(markup: string): string {
+type LogoNode =
+  | { text: string }
+  | { tag: string; attributes: [string, string][]; children: LogoNode[] }
+
+function canonical(markup: string): LogoNode[] {
   const host = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   host.innerHTML = markup
 
-  const walk = (node: Node): string => {
+  const walk = (node: Node): LogoNode | null => {
     if (node.nodeType === Node.TEXT_NODE) {
+      // 공백뿐인 줄바꿈·들여쓰기는 그림을 바꾸지 않는다.
       const text = node.textContent?.trim() ?? ''
-      return text === '' ? '' : `#${text}`
+      return text === '' ? null : { text }
     }
-    if (node.nodeType !== Node.ELEMENT_NODE) return ''
+    if (node.nodeType !== Node.ELEMENT_NODE) return null
 
-    const el = node as Element
-    const attributes = [...el.attributes]
-      .map((attribute) => `${attribute.name}=${attribute.value}`)
-      .sort()
-      .join(' ')
-    const children = [...el.childNodes].map(walk).filter(Boolean).join(',')
-    return `<${el.tagName} ${attributes}>[${children}]`
+    const element = node as Element
+    return {
+      tag: element.tagName,
+      attributes: [...element.attributes]
+        .map((attribute): [string, string] => [attribute.name, attribute.value])
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
+      children: [...element.childNodes].map(walk).filter(isNode),
+    }
   }
 
-  return [...host.childNodes].map(walk).filter(Boolean).join(',')
+  return [...host.childNodes].map(walk).filter(isNode)
+}
+
+function isNode(node: LogoNode | null): node is LogoNode {
+  return node !== null
 }
