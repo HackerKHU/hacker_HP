@@ -110,12 +110,12 @@ beforeEach(() => {
 })
 
 describe('관리자 진입점 노출', () => {
-  it('ADMIN에게는 목록에 새 공지가 보인다', async () => {
+  it('ADMIN에게는 목록에 글쓰기가 보인다', async () => {
     renderAt('/notices')
 
     // 목록이 도착했는지부터 확인한다 — 진입점 유무는 그 뒤에 본다.
     await screen.findByRole('link', { name: /지울 공지/ })
-    expect(screen.getByRole('link', { name: '새 공지' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: '글쓰기' })).toHaveAttribute(
       'href',
       '/admin/notices/new',
     )
@@ -138,13 +138,13 @@ describe('관리자 진입점 노출', () => {
    * 한 테스트에서 두 화면을 이어 렌더하지 않는다. 앞 화면이 마운트된 채로 남아 다음
    * 조회가 어느 쪽을 집었는지 흐려지고, 부재 단언은 그런 상태에서 특히 못 미덥다.
    */
-  it('USER에게는 목록에 새 공지가 없다', async () => {
+  it('USER에게는 목록에 글쓰기가 없다', async () => {
     auth.role = 'USER'
 
     renderAt('/notices')
 
     await screen.findByRole('link', { name: /지울 공지/ })
-    expect(screen.queryByRole('link', { name: '새 공지' })).toBeNull()
+    expect(screen.queryByRole('link', { name: '글쓰기' })).toBeNull()
   })
 
   it('USER에게는 상세에 수정·삭제가 없다', async () => {

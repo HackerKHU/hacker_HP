@@ -210,7 +210,7 @@ export function NoticeListPage() {
         {isAdmin && (
           <div className="flex shrink-0 gap-2">
             <Button variant="outline" size="sm" asChild>
-              <Link to="/admin/notices/new">새 공지</Link>
+              <Link to="/admin/notices/new">글쓰기</Link>
             </Button>
             <Button
               variant={managing ? 'secondary' : 'outline'}
