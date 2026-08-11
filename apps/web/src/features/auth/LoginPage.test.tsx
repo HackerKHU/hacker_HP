@@ -373,6 +373,72 @@ describe('구글 버튼', () => {
     ])
   })
 
+  /*
+   * T-118 — **마크업이 공식 그대로여도 CSS로 그림을 바꿀 수 있다** (spec 5-TESTING:275·283).
+   * 위 비교는 `innerHTML`만 보므로 바깥에서 씌우는 투명도·필터가 안 잡힌다. 실제로 이 PR의
+   * 초기 커밋에 버튼 `hover:opacity-90`이 있었다 — 가정이 아니라 있었던 회귀다.
+   *
+   * **경계는 "보이는 그림 자체를 바꾸는가"다.** 색·투명도·필터·블렌드는 금지고, **크기는
+   * 아니다** — 가이드라인이 비율 유지 확대를 허용한다(§3-1-5). 크기까지 막으면 정당한
+   * 변경을 막는 셈이다.
+   *
+   * **두 갈래로 본다. 한 갈래로는 절반만 잡힌다.**
+   *
+   * | 무엇을 | 어떻게 | 왜 |
+   * |---|---|---|
+   * | 인라인 `style`·물려받은 값 | `getComputedStyle` | 계산값에 그대로 나온다 |
+   * | Tailwind 클래스 | 클래스 목록 | 이 환경에는 스타일시트가 없어 **계산값이 늘 기본값**이다 |
+   *
+   * 두 번째를 재서 확인했다 — `className="opacity-50"`을 붙여도 jsdom의 계산값은 `1`이다.
+   * 클래스를 따로 보지 않으면 그 회귀가 통째로 지나간다.
+   */
+  it('로고에 색·투명도·필터를 걸지 않는다', async () => {
+    renderAt('/login')
+    const button = await loaded()
+    const svg = document.querySelector('svg[aria-hidden="true"]')
+    if (svg === null) throw new Error('로고가 없다')
+
+    // ① 최종 계산값. 버튼도 함께 본다 — 로고가 버튼의 투명도를 물려받는다.
+    for (const element of [svg, button]) {
+      const style = getComputedStyle(element)
+      expect(style.opacity).toBe('1')
+      expect(style.filter).toBe('none')
+      expect(style.mixBlendMode).toBe('normal')
+    }
+
+    /*
+     * ② 로고의 클래스는 **크기 유틸리티만** 허용한다.
+     *
+     * 금지 목록이 아니라 허용 목록이다. 금지 목록은 새 유틸리티가 생길 때마다 새고,
+     * 그 사이에 들어온 것은 영영 안 잡힌다. 나중에 크기 아닌 클래스가 정말 필요해지면
+     * 이 단언이 깨지는 것이 맞다 — 그때 **그 클래스가 그림을 바꾸지 않는지 확인하고**
+     * 여기 적으면 된다.
+     */
+    const logoClasses = (svg.getAttribute('class') ?? '')
+      .split(/\s+/)
+      .filter(Boolean)
+    expect(logoClasses).toEqual([expect.stringMatching(/^size-/)])
+
+    /*
+     * 버튼은 레이아웃·규격 클래스를 여럿 갖는다. 허용 목록을 만들 자리가 아니라,
+     * **그림을 바꾸는 것만** 막는다. 색(`border-[#747775]`·`text-[#1f1f1f]`)은 가이드라인이
+     * 정한 값이라 금지 대상이 아니다.
+     *
+     * **`disabled:`만 뺀다.** shadcn `Button`이 모든 버튼에 `disabled:opacity-50`을 주는데,
+     * 이 버튼은 `disabled`로 그려지는 경로가 없고(누르면 브라우저가 이동할 뿐이다) 막으려면
+     * 공용 컴포넌트를 갈라야 한다. 실제로 있었던 회귀는 `hover:opacity-90`이고 그쪽은
+     * 그대로 걸린다 — 평소 보이는 상태에서 로고가 흐려지는 것이 금지 대상이다.
+     */
+    const appearance =
+      /(^|:)(opacity|grayscale|invert|sepia|saturate|brightness|contrast|hue-rotate|blur|mix-blend|backdrop)-/
+    const risky = button.className
+      .split(/\s+/)
+      .filter(
+        (token) => appearance.test(token) && !token.startsWith('disabled:'),
+      )
+    expect(risky).toEqual([])
+  })
+
   // 자체 제작 아이콘·단색화 금지. 색은 공식 그라디언트에서 온다.
   it('로고를 단색으로 칠하지 않는다', async () => {
     renderAt('/login')
