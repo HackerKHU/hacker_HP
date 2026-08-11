@@ -1,7 +1,6 @@
 import { Link, useSearchParams } from 'react-router-dom'
 import { GOOGLE_LOGIN_PATH } from '@/api/auth'
 import { useSession } from '@/auth/session'
-import { Button } from '@/components/ui/button'
 import { lookup } from '@/lib/lookup'
 
 /**
@@ -16,6 +15,12 @@ import { lookup } from '@/lib/lookup'
  * 둘, `?error=bogus`처럼 주소를 잘못 친 사람에게 일반 오류를 띄우면 **없는 문제를
  * 알리는 셈**이다. 아무 일도 없었으니 아무것도 말하지 않는다.
  */
+/**
+ * 구글 공식 로그인 버튼 그림. `public/google/`에 원본 그대로 두고 출처는 그 폴더의
+ * README에 있다 (spec §3-1-5 — 수정 없이 쓴다).
+ */
+const GOOGLE_BUTTON_ASSET = '/google/signin-light-square.svg'
+
 const ERROR_MESSAGE: Record<string, string> = {
   domain: '경희대 구글 계정(@khu.ac.kr)으로 로그인해 주세요.',
   unverified:
@@ -83,15 +88,39 @@ export function LoginPage() {
        * 떠야 하는데 응답만 받아오게 된다. 그래서 `api/auth.ts`에도 함수가 없고 경로
        * 상수만 있다.
        */}
-      <Button
+      <button
         type="button"
-        className="mt-8 w-full"
+        /*
+         * **`Button`으로 감싸지 않는다.** 공식 에셋은 배경·테두리·글씨가 다 들어간
+         * **완성된 버튼 그림**이라, shadcn 버튼 안에 넣으면 버튼 안에 버튼이 그려진다.
+         * 여기서는 배경 없는 `<button>`이 그림을 감싸기만 한다.
+         *
+         * 포커스 표시는 남긴다 — 키보드 사용자에게 이것이 유일한 단서다. 호버는
+         * 투명도만 살짝 바꾼다. **그림 자체는 변형하지 않는다** (가이드라인 MUST).
+         */
+        className="mt-8 block rounded-[4px] transition-opacity outline-none hover:opacity-90 focus-visible:ring-[3px] focus-visible:ring-ring/50"
         onClick={() => {
           window.location.assign(GOOGLE_LOGIN_PATH)
         }}
       >
-        구글 계정으로 로그인
-      </Button>
+        <img
+          src={GOOGLE_BUTTON_ASSET}
+          /*
+           * **버튼의 접근 가능한 이름이 여기서 나온다** (spec §3-1-5 MUST). 글씨가 그림
+           * 안에 있어 이름이 없으면 스크린리더가 "버튼"이라고만 읽는다.
+           *
+           * 화면에 보이는 영어 문구를 함께 담는다 — 음성 입력 사용자는 **보이는 대로**
+           * 말하므로, 한글만 두면 "Sign in with Google"이라고 말했을 때 맞지 않는다.
+           */
+          alt="구글 계정으로 로그인 (Sign in with Google)"
+          /*
+           * **폭·높이를 따로 주지 않는다** (가이드라인 MUST — 로고가 늘어나면 안 된다).
+           * 원본 비율(180×40)이 그대로 쓰이고, 좁은 화면에서는 `max-w-full`이 가로세로를
+           * 함께 줄인다. 높이를 고정하고 폭만 줄이면 찌그러진다.
+           */
+          className="block h-auto max-w-full"
+        />
+      </button>
 
       <p className="mt-6 text-sm text-muted-foreground">
         <Link to="/" className="transition-colors hover:text-foreground">

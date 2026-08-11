@@ -12,6 +12,15 @@ shadcn/ui + Tailwind CSS를 쓴다 ([3-3 결정 10](../../spec/3-3-DESIGN-DECISI
 
 폰트 Pretendard는 `index.html`에서 jsDelivr CDN으로 받으며 버전을 고정해 두었다. CDN이 실패하면 `--font-sans`의 시스템 폰트로 저하될 뿐 화면은 깨지지 않는다 — 외부 의존이므로 CSP를 걸 때 이 호스트를 빠뜨리지 않는다.
 
+## 정적 자산
+
+`public/`은 **린트·포맷 대상이 아니다** (`biome.json`의 `!!public`). 그 안에는 우리가 쓴
+코드가 아니라 **바깥에서 받은 파일**이 들어간다 — 구글 로그인 버튼 SVG가 그렇다. 규칙에
+맞추려고 손대면 사전 승인된 형태가 깨진다 (spec [3-1 §3-1-5](../../spec/3-1-DESIGN-ARCHITECTURE.md)).
+
+받아온 파일은 그 폴더에 README를 함께 두어 **출처와 손대면 안 되는 이유**를 남긴다
+(`public/google/`, `public/landing/`).
+
 ## 화면 폭과 여백
 
 화면마다 폭을 새로 정하지 않는다. **세 갈래뿐이고 각각 이유가 있다.**

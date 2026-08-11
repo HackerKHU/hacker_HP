@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -76,9 +77,16 @@ function pathname(): string {
   return screen.getByTestId('pathname').textContent ?? ''
 }
 
-/** 로그인 화면이 그려졌다는 증거. 세션 확인이 끝난 뒤에만 존재한다. */
+/**
+ * 로그인 화면이 그려졌다는 증거. 세션 확인이 끝난 뒤에만 존재한다.
+ *
+ * 이름에 **화면에 보이는 영어 문구**가 들어간다 — 버튼이 구글 공식 에셋(그림)이라
+ * 글씨가 이미지 안에 있다 (spec §3-1-5, T-117).
+ */
+const BUTTON_NAME = '구글 계정으로 로그인 (Sign in with Google)'
+
 function loaded() {
-  return screen.findByRole('button', { name: '구글 계정으로 로그인' })
+  return screen.findByRole('button', { name: BUTTON_NAME })
 }
 
 const GUEST = new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.')
@@ -232,6 +240,55 @@ describe('로그인 버튼', () => {
   })
 })
 
+describe('구글 공식 버튼', () => {
+  /*
+   * T-117 — **글씨가 그림 안에 있다.** 이름이 없으면 스크린리더가 "버튼"이라고만 읽는다.
+   * 보이는 영어 문구를 포함해야 음성 입력 사용자가 보이는 대로 말했을 때 맞는다.
+   */
+  it('접근 가능한 이름이 있고 보이는 영어 문구를 포함한다', async () => {
+    renderAt('/login')
+
+    const button = await loaded()
+    expect(button).toHaveAccessibleName(BUTTON_NAME)
+    expect(button).toHaveAccessibleName(/Sign in with Google/)
+  })
+
+  /*
+   * T-118 — 경로만 맞고 파일이 없으면 화면에는 깨진 그림이 뜨는데 마크업 검사는 통과한다.
+   * `import.meta.glob`은 빌드 시점에 파일 목록으로 펼쳐진다 — node:fs가 필요 없다.
+   */
+  it('쓰는 에셋이 public에 실제로 있다', async () => {
+    renderAt('/login')
+    const image = within(await loaded()).getByRole('img', { hidden: true })
+    const src = image.getAttribute('src') ?? ''
+
+    const files = Object.keys(
+      import.meta.glob('../../../public/**/*', { eager: false }),
+    ).map((key) => key.replace('../../../public', ''))
+
+    expect(src).not.toBe('')
+    expect(files, `${src}가 public/에 없다`).toContain(src)
+  })
+
+  // 비율을 바꾸지 않는다 (가이드라인 MUST). 폭·높이를 따로 박으면 로고가 늘어난다.
+  it('폭과 높이를 따로 지정하지 않는다', async () => {
+    renderAt('/login')
+    const image = within(await loaded()).getByRole('img', { hidden: true })
+
+    expect(image).not.toHaveAttribute('width')
+    expect(image).not.toHaveAttribute('height')
+    expect(image.className).toContain('h-auto')
+  })
+
+  // 완성된 버튼 그림이라 다른 버튼으로 감싸면 버튼 안에 버튼이 된다.
+  it('버튼이 하나뿐이다 — 버튼 안에 버튼을 넣지 않는다', async () => {
+    renderAt('/login')
+    await loaded()
+
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+  })
+})
+
 describe('이미 로그인한 사용자', () => {
   it.each([
     ['ACTIVE', BASE, '/notices'],
@@ -248,9 +305,7 @@ describe('이미 로그인한 사용자', () => {
     await waitFor(() => {
       expect(pathname()).toBe(expected)
     })
-    expect(
-      screen.queryByRole('button', { name: '구글 계정으로 로그인' }),
-    ).toBeNull()
+    expect(screen.queryByRole('button', { name: BUTTON_NAME })).toBeNull()
   })
 
   it('없어진 /signup은 로그인 화면으로 보낸다', async () => {
