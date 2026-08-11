@@ -14,16 +14,6 @@ import { Textarea } from '@/components/ui/textarea'
  */
 const TITLE_MAX = 200
 
-/**
- * **작성 폭을 공지 상세의 읽기 폭에 맞춘다.**
- *
- * 폼이라고 넓히지 않는다. 여기서 쓴 본문은 상세 화면에서 이 폭으로 읽히는데, 작성 폭과
- * 표시 폭이 다르면 **작성자가 보는 줄바꿈과 독자가 보는 줄바꿈이 달라진다** — 문단을
- * 다듬어 놓고 저장하면 다른 모양이 된다. 제목 입력만 좁히고 본문을 넓히면 둘이 어긋나
- * 보이기도 한다.
- */
-const READING = 'max-w-2xl'
-
 /** 불러오기 상태. 등록 화면은 불러올 것이 없어 곧바로 `ready`다. */
 type Loading = 'loading' | 'ready' | 'notFound' | 'failed'
 
@@ -117,7 +107,17 @@ export function NoticeFormPage() {
   const backTo = editing ? `/notices/${id}` : '/notices'
 
   return (
-    <section className={READING}>
+    /*
+     * **작성 폭을 공지 상세의 표시 폭에 맞춘다 — 그 근거는 그대로고 값만 바뀌었다.**
+     *
+     * 여기서 쓴 본문은 상세 화면에서 같은 폭으로 읽힌다. 작성 폭과 표시 폭이 다르면
+     * **작성자가 보는 줄바꿈과 독자가 보는 줄바꿈이 달라진다** — 문단을 다듬어 놓고
+     * 저장하면 다른 모양이 된다.
+     *
+     * 둘 다 `max-w-2xl`(672px)이었는데 상세를 전체폭으로 되돌리면서(2026-08-11) 여기도
+     * 함께 풀었다. **이제 둘 다 `AppLayout`의 1152px이다** — 한쪽만 고치면 어긋난다.
+     */
+    <section>
       <Link
         to={backTo}
         className="text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -185,12 +185,13 @@ export function NoticeFormPage() {
             </p>
           )}
 
-          <div className="flex gap-2">
-            <Button type="submit" disabled={saving}>
-              {saving ? '저장 중' : '저장'}
-            </Button>
+          {/* 오른쪽 정렬 + 주 동작이 맨 끝 (`apps/web/README.md` "폼 버튼"). */}
+          <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" asChild>
               <Link to={backTo}>취소</Link>
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? '저장 중' : '저장'}
             </Button>
           </div>
         </form>
