@@ -58,6 +58,10 @@ interface Session {
    * `pending`이면서 `user`가 `null`인 상태(403으로만 알아낸 경우)를 푸는 유일한 경로다.
    * 그대로 두면 신청 화면이 폼과 대기 안내 중 무엇을 보일지 영영 정하지 못한다.
    * 신청서를 제출한 뒤 화면을 다시 그릴 때도 쓴다.
+   *
+   * **상태를 알아내지 못하면 거부한다** (spec §3-1-5). 네트워크 오류·5xx처럼 상태를
+   * 알려주지 않는 실패에서는 세션을 바꾸지 않고 오류를 그대로 올린다 — 호출부가
+   * "다시 시도해 달라"를 보여줄 수 있어야 한다.
    */
   refresh: () => Promise<void>
 }
@@ -137,8 +141,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       getMe()
         .then((me) => setState(fromUser(me)))
         .catch((error: unknown) => {
-          // 실패는 곧 비로그인이다. 코드가 상태를 알려주면 그쪽을 쓴다.
-          setState(fromApiError(error) ?? { kind: 'guest' })
+          /*
+           * **상태를 알려주는 실패만 세션을 바꾼다** (spec §3-1-5 MUST).
+           *
+           * "서버에 못 닿았다"에서 "로그아웃됐다"를 추론하지 않는다. 네트워크가 잠깐
+           * 끊긴 것만으로 세션을 버리면, 승인을 기다리며 "다시 확인"을 누르던 지원자가
+           * 로그인 화면으로 튕기고 자기가 무엇을 잘못했는지 알 수 없다.
+           *
+           * 알 수 없는 실패는 **호출부로 올린다.** 세션은 그대로 두고 화면이 "다시
+           * 시도해 달라"를 보여준다 — 여기서 삼키면 화면은 아무 일도 없었다고 믿는다.
+           */
+          const next = fromApiError(error)
+          if (!next) throw error
+          setState(next)
         }),
     [],
   )
@@ -150,6 +165,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (alive) setState(fromUser(me))
       })
       .catch((error: unknown) => {
+        /*
+         * **최초 확인만 예외다** (spec §3-1-5). 여기서는 버릴 세션이 없고, 어느 쪽으로도
+         * 정해지지 않으면 화면이 영영 `loading`에 갇힌다. 알 수 없는 실패면 비로그인으로
+         * 두되 이는 "로그아웃됐다"가 아니라 **"아직 로그인으로 확인된 바 없다"**는 뜻이고,
+         * 사용자는 로그인 화면에서 다시 시도할 수 있다.
+         */
         if (alive) setState(fromApiError(error) ?? { kind: 'guest' })
       })
     return () => {

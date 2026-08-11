@@ -123,6 +123,86 @@ describe('신청 픽스처', () => {
  * **상태 전이와 서버 계약 재현은 여기서 본다** — 픽스처가 계약보다 무르면 오류 UI 없이도
  * 화면이 멀쩡해 보이고, 그 회귀는 서버가 붙는 날까지 드러나지 않는다.
  */
+/**
+ * 신청 픽스처가 서버 계약을 그대로 거부하는지.
+ *
+ * 화면 테스트는 `@/api/auth`를 통째로 mock하고 임의의 오류를 주입하므로 **이 계층은 그
+ * 뒤에 가려져 있다.** mock 사용 자체는 맞다(검증 대상이 다르다) — 빠진 것은 여기다.
+ * 픽스처가 계약보다 무르면 오류 UI 없이도 폼이 멀쩡해 보이고, 그 회귀는 서버가 붙는
+ * 날까지 드러나지 않는다.
+ */
+describe('신청 픽스처', () => {
+  /*
+   * 학번 중복 거부 (§3-1-4, T-07). 통과시키면 한 학번으로 여러 계정이 만들어지는 경로를
+   * 화면에서 못 잡고, 409를 보여주는 UI도 검증할 수 없다.
+   */
+  it('이미 쓰이고 있는 학번이면 DUPLICATE_STUDENT_NO로 거부한다', async () => {
+    /*
+     * 명부는 `admin`으로 읽고 신청은 `applying`으로 한다 — 신청 API는 PENDING 전용이라
+     * `admin`으로 내면 학번을 보기도 전에 FORBIDDEN이다. 두 시나리오는 같은 모듈 상태를
+     * 공유하지 않으므로(매번 `resetModules`) 명부 값을 옮겨 쓴다.
+     */
+    const admin = await loadFixtures('admin')
+    const page = await admin.fixtureAdminUsers({ size: 100 })
+    const taken = page.content.find((user) => user.studentNo !== null)
+    if (!taken?.studentNo) throw new Error('학번을 가진 회원이 없다')
+
+    const { fixtureApplication, ApiError } = await loadFixtures('applying')
+    const error = await fixtureApplication({
+      studentNo: taken.studentNo,
+      name: '김신입',
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe(
+      'DUPLICATE_STUDENT_NO',
+    )
+  })
+
+  it('쓰이지 않는 학번은 통과한다', async () => {
+    const { fixtureApplication, fixtureMe } = await loadFixtures('applying')
+
+    await fixtureApplication({ studentNo: '9999999999', name: '김신입' })
+
+    const me = await fixtureMe()
+    expect(me.studentNo).toBe('9999999999')
+    expect(me.appliedAt).not.toBeNull()
+  })
+
+  // 공백 검증 (§3-2-3 MUST, T-52) — 빈 신청서가 승인 대상이 되면 안 된다.
+  it.each([
+    ['학번이 공백', ' ', '김신입'],
+    ['이름이 공백', '9999999999', '  '],
+  ])('%s이면 VALIDATION_ERROR로 거부한다', async (_label, studentNo, name) => {
+    const { fixtureApplication, ApiError } = await loadFixtures('applying')
+
+    const error = await fixtureApplication({ studentNo, name }).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe(
+      'VALIDATION_ERROR',
+    )
+  })
+
+  // 신청 API는 PENDING 전용이다 (§3-1-6 MUST, T-50).
+  it.each(['user', 'admin'])(
+    '%s 시나리오는 FORBIDDEN으로 거부한다',
+    async (scenario) => {
+      const { fixtureApplication, ApiError } = await loadFixtures(scenario)
+
+      const error = await fixtureApplication({
+        studentNo: '9999999999',
+        name: '김신입',
+      }).catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(ApiError)
+      expect((error as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+    },
+  )
+})
+
 describe('공지 쓰기 픽스처', () => {
   it('등록한 공지가 목록과 상세에 남는다', async () => {
     const { fixtureCreateNotice, fixtureNotice, fixtureNotices } =

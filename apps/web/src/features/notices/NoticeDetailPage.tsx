@@ -27,6 +27,16 @@ function formatDateTime(iso: string): string {
   })
 }
 
+/**
+ * 읽는 글의 폭. **랜딩 소개·후원이 이미 쓰는 값이다** (`max-w-2xl` = 672px) — 새 숫자를
+ * 만들지 않는다.
+ *
+ * 한글은 전각이라 글자 폭이 폰트 크기와 비슷하다. 672px이면 16px 본문에서 42자, 14px
+ * 본문에서 48자다. 읽기 좋은 줄 길이(40~50자 안팎) 안에 든다. 1152px을 그대로 쓰면 82자가
+ * 되어 **눈이 다음 줄 시작을 못 찾는다.**
+ */
+const READING = 'max-w-2xl'
+
 type Status = 'loading' | 'loaded' | 'notFound' | 'failed'
 
 export function NoticeDetailPage() {
@@ -81,7 +91,8 @@ export function NoticeDetailPage() {
   }
 
   return (
-    <article>
+    // 제목·메타·본문이 같은 폭을 쓴다. 본문만 좁히면 제목이 붕 뜬다.
+    <article className={READING}>
       {/* 목록으로 돌아가는 진입점. 뒤로가기만 믿지 않는다. */}
       <Link
         to="/notices"

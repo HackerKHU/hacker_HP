@@ -184,6 +184,21 @@ export function fixtureApplication(body: {
       new ApiError('VALIDATION_ERROR', 400, '학번과 이름을 입력해주세요.'),
     )
   }
+  /*
+   * 학번 중복 거부도 서버 계약이다 (§3-1-4, T-07). 픽스처가 통과시키면 한 학번으로 여러
+   * 계정이 만들어지는 경로를 화면에서 못 잡고, 409를 보여주는 UI도 검증할 수 없다.
+   * 명부(`MEMBERS`)에 이미 쓰이고 있는 학번인지 본다 — 관리자 화면이 보는 그 명단이다.
+   */
+  if (MEMBERS.some((user) => user.studentNo === studentNo)) {
+    return Promise.reject(
+      new ApiError(
+        'DUPLICATE_STUDENT_NO',
+        409,
+        '이미 등록된 학번입니다. 본인 학번이 맞다면 운영진에게 문의해 주세요.',
+      ),
+    )
+  }
+
   application = { studentNo, name }
   return Promise.resolve()
 }

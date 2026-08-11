@@ -95,7 +95,7 @@ describe('라우트 가드', () => {
     renderAt('/notices')
 
     expect(
-      await screen.findByRole('heading', { name: '승인 대기' }),
+      await screen.findByRole('heading', { name: '승인 대기 중' }),
     ).toBeInTheDocument()
   })
 
@@ -183,7 +183,7 @@ describe('로그인 후 도착 경로', () => {
       'PENDING',
       { ...BASE, status: 'PENDING' as const, approvedAt: null },
       '/pending',
-      '승인 대기',
+      '승인 대기 중',
     ],
   ])('%s는 %s로 간다', async (_label, user, expected, heading) => {
     auth.me = () => Promise.resolve(user)
@@ -247,7 +247,7 @@ describe('헤더 메뉴 노출', () => {
       Promise.resolve({ ...BASE, status: 'PENDING', approvedAt: null })
 
     renderAt('/pending')
-    await screen.findByRole('heading', { name: '승인 대기' })
+    await screen.findByRole('heading', { name: '승인 대기 중' })
 
     expect(menuLabels()).toEqual([])
     expect(screen.getByRole('button', { name: '로그아웃' })).toBeInTheDocument()
@@ -292,7 +292,15 @@ describe('화면에서 올린 API 오류', () => {
   // 회귀 — 권한이 바뀐 사용자가 공지 화면에 남아 요청만 계속 실패하면 안 된다.
   // 목록 API의 403 PENDING_APPROVAL이 세션 계약을 타고 가드까지 이어져야 한다.
   it('목록 조회가 403 PENDING_APPROVAL이면 대기 화면으로 보낸다', async () => {
-    auth.me = () => Promise.resolve(BASE)
+    /*
+     * 403으로만 알아낸 `PENDING`은 **신청 여부를 모르는 상태**라, 대기 화면이 서버에
+     * 다시 물어 무엇을 보일지 정한다 (spec §3-1-6). 그래서 `getMe`도 같은 사실을
+     * 말해야 한다 — 여기서 `ACTIVE`를 주면 재확인이 세션을 풀어 화면이 도로 나간다.
+     * 그건 그것대로 옳은 동작이지만 이 테스트가 보려는 것은 **403이 대기 화면으로
+     * 보내는가**다.
+     */
+    auth.me = () =>
+      Promise.resolve({ ...BASE, status: 'PENDING', approvedAt: null })
     auth.listRejects = new ApiError(
       'PENDING_APPROVAL',
       403,
@@ -302,7 +310,7 @@ describe('화면에서 올린 API 오류', () => {
     renderAt('/notices')
 
     expect(
-      await screen.findByRole('heading', { name: '승인 대기' }),
+      await screen.findByRole('heading', { name: '승인 대기 중' }),
     ).toBeInTheDocument()
   })
 })
