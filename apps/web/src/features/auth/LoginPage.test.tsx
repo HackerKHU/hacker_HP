@@ -287,18 +287,18 @@ describe('구글 버튼', () => {
    * `#747775` 테두리 path)과 `<svg>` 껍데기만 걷어낸 나머지 전부다 — 공식 파일에서 그대로
    * 뽑았고 **컴포넌트에서 가져오지 않았다.**
    *
-   * 양쪽을 **같은 파서·직렬화기에 한 번씩 태워** 비교한다. 원본은 `<path .../>`처럼 자기
-   * 닫는 표기인데 DOM이 다시 뱉을 때는 `<path ...></path>`가 된다 — 문자열을 그대로
-   * 비교하면 그 차이 때문에 늘 빨갛다. 한 번씩 태우면 표기 차이가 상쇄되고, jsdom이
-   * 판올림돼 직렬화가 달라져도 양쪽이 같이 달라지므로 거짓 실패가 나지 않는다.
+   * **문자열로 비교하지 않고 정규 형태로 비교한다** (`canonical()`). 그림을 정하는 것만
+   * 본다 — 요소 이름과 중첩, 속성 이름과 값. 요소 사이의 공백과 속성이 적힌 순서는 그림을
+   * 바꾸지 않으므로 버린다. 문자열 그대로 비교하면 **속성 순서만 바꾼 소스 정리나 포매터의
+   * 재정렬까지 브랜딩 회귀로 오인한다.**
    */
   it('로고 마크업이 공식 배포본 그대로다', async () => {
     renderAt('/login')
     await loaded()
 
     const svg = document.querySelector('svg[aria-hidden="true"]')
-    expect(reserialize(svg?.innerHTML ?? '')).toBe(
-      reserialize(OFFICIAL_LOGO_MARKUP),
+    expect(canonical(svg?.innerHTML ?? '')).toBe(
+      canonical(OFFICIAL_LOGO_MARKUP),
     )
   })
 
@@ -560,9 +560,45 @@ const OFFICIAL_LOGO_MARKUP = `<mask id="mask0_1298_12516" style="mask-type:alpha
 </filter>
 </defs>`
 
-/** 같은 파서·직렬화기를 한 번 태운다. 자기 닫는 태그 표기 차이를 상쇄한다. */
-function reserialize(markup: string): string {
-  const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  el.innerHTML = markup
-  return el.innerHTML
+/**
+ * 마크업을 **정규 형태**로 바꾼다. 그림이 같으면 같은 문자열이 나와야 한다.
+ *
+ * 무엇이 그림을 정하는가로 갈랐다.
+ *
+ * | 정한다 → 비교한다 | 안 정한다 → 버린다 |
+ * |---|---|
+ * | 요소 이름과 중첩 순서 | 요소 **사이의 공백**(줄바꿈·들여쓰기) |
+ * | 속성 **이름과 값** | 속성이 적힌 **순서** |
+ * | 눈에 보이는 텍스트 | 자기 닫는 태그 표기(`<path/>` vs `<path></path>`) |
+ *
+ * 속성은 이름으로 정렬해 이어 붙이므로 `cx cy`를 `cy cx`로 적어도 같은 값이 나온다.
+ * 공백뿐인 텍스트 노드는 버리므로 줄바꿈을 넣고 빼도 같다. **정당한 소스 정리나 포매터가
+ * SVG를 다시 정렬하는 것까지 브랜딩 회귀로 오인하지 않게** 하려는 것이다.
+ *
+ * 반대로 속성 **값**은 한 글자도 손대지 않는다 — `d`의 좌표, `fill`의 색,
+ * `stdDeviation`의 흐림 세기가 전부 값이라 바뀌면 그대로 드러난다.
+ *
+ * 양쪽을 같은 파서에 태우므로 jsdom이 판올림돼도 둘이 같이 달라져 거짓 실패가 없다.
+ */
+function canonical(markup: string): string {
+  const host = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  host.innerHTML = markup
+
+  const walk = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent?.trim() ?? ''
+      return text === '' ? '' : `#${text}`
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return ''
+
+    const el = node as Element
+    const attributes = [...el.attributes]
+      .map((attribute) => `${attribute.name}=${attribute.value}`)
+      .sort()
+      .join(' ')
+    const children = [...el.childNodes].map(walk).filter(Boolean).join(',')
+    return `<${el.tagName} ${attributes}>[${children}]`
+  }
+
+  return [...host.childNodes].map(walk).filter(Boolean).join(',')
 }
