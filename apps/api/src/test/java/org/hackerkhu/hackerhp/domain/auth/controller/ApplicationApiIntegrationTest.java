@@ -189,6 +189,84 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
     assertThat(reload().getName()).isEqualTo("고친이름");
   }
 
+  /*
+   * ACTIVE의 거부는 본문과 무관하다 (T-50).
+   *
+   * MVC는 컨트롤러 메서드를 부르기 전에 본문을 역직렬화하고 @Valid를 돌린다. 그래서 @PreAuthorize에만
+   * 기대면 깨진 본문을 보낸 ACTIVE가 403이 아니라 400을 받는다 — 계약이 본문에 따라 달라진다.
+   */
+  @Test
+  void activeIsRejectedRegardlessOfTheRequestBody() throws Exception {
+    approve();
+    User active = reload();
+
+    mockMvc
+        .perform(as(active, "PLACEHOLDER").content("{\"studentNo\":\"\",\"name\":\"\"}"))
+        .andExpect(status().isForbidden());
+    mockMvc
+        .perform(as(active, "PLACEHOLDER").content("{\"studentNo\":"))
+        .andExpect(status().isForbidden());
+  }
+
+  /* 길이는 컬럼과 맞춘다 — student_no varchar(20), name varchar(50) (§3-2-2). */
+  @Test
+  void valuesLongerThanTheColumnAreRejected() throws Exception {
+    mockMvc
+        .perform(as(applicant, body("1".repeat(21), "본명")))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+    mockMvc
+        .perform(as(applicant, body("20240001", "가".repeat(51))))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+    assertThat(reload().getAppliedAt()).isNull();
+  }
+
+  /*
+   * 보이지 않는 공백만 담아 보내면 거부된다.
+   *
+   * NBSP(U+00A0)는 @NotBlank도 String.isBlank()도 공백으로 보지 않는다. 걸러내지 않으면 식별 정보가
+   * 없는 계정이 applied_at을 얻어 승인 대상이 된다 (T-52와 같은 사고).
+   */
+  @Test
+  void invisibleWhitespaceOnlyIsRejected() throws Exception {
+    mockMvc
+        .perform(as(applicant, body(" ​", "본명")))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+    assertThat(reload().getAppliedAt()).isNull();
+    assertThat(reload().getStudentNo()).isNull();
+  }
+
+  /*
+   * 학번 사이에 보이지 않는 공백을 끼워 유일성을 피해 갈 수 없다.
+   *
+   * 정규화하지 않으면 DB는 "2024 0001"과 "20240001"을 다른 값으로 보아, 같은 학번으로 계정을
+   * 하나 더 만들 수 있다.
+   */
+  @Test
+  void invisibleWhitespaceCannotSmuggleADuplicateStudentNo() throws Exception {
+    User other =
+        userRepository.saveAndFlush(User.createFromGoogle("sub-other", "other@khu.ac.kr", "다른사람"));
+    mockMvc.perform(as(other, body("20240001", "다른사람"))).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(as(applicant, body("2024 0001", "본명")))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("DUPLICATE_STUDENT_NO"));
+  }
+
+  /* 이름 안쪽의 공백은 정당하다. 앞뒤만 털고 보이지 않는 문자를 보통 공백으로 바꾼다. */
+  @Test
+  void nameKeepsItsInnerSpacing() throws Exception {
+    mockMvc.perform(as(applicant, body("20240001", "  홍 길동  "))).andExpect(status().isNoContent());
+
+    assertThat(reload().getName()).isEqualTo("홍 길동");
+  }
+
   @Test
   void anonymousCannotSubmitApplication() throws Exception {
     mockMvc

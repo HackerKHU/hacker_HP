@@ -104,6 +104,14 @@ public class SecurityConfig {
                     // 세션도 토큰도 없는 최초 진입에 필요하다 (3-2 §3-2-3 MUST).
                     .requestMatchers(HttpMethod.GET, "/api/v1/auth/csrf")
                     .permitAll()
+                    /*
+                     * 신청서 제출은 PENDING만이다 (권한 매트릭스 §3-1-3). 컨트롤러의 @PreAuthorize와
+                     * 겹쳐 보이지만 둘 다 필요하다 — MVC는 메서드를 부르기 전에 본문을 역직렬화하고
+                     * @Valid를 돌리므로, ACTIVE가 깨진 본문을 보내면 @PreAuthorize에 닿기도 전에
+                     * 400이 나간다. 그러면 "ACTIVE는 403"이라는 계약(T-50)이 본문에 따라 달라진다.
+                     */
+                    .requestMatchers(HttpMethod.POST, "/api/v1/auth/application")
+                    .hasAuthority("STATUS_PENDING")
                     .anyRequest()
                     .authenticated())
         .oauth2Login(

@@ -7,7 +7,7 @@ import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserApplicationService {
 
   private static final Logger log = LoggerFactory.getLogger(UserApplicationService.class);
+
+  /** PostgreSQL이 {@code student_no}의 UNIQUE에 붙이는 이름 ({@code V1__init.sql}). */
+  private static final String STUDENT_NO_UNIQUE_CONSTRAINT = "users_student_no_key";
 
   private final UserRepository userRepository;
 
@@ -48,18 +51,38 @@ public class UserApplicationService {
       throw new BusinessException(ErrorCode.FORBIDDEN, "이미 승인된 계정입니다. 학번을 바꾸려면 운영진에게 문의해 주세요.");
     }
 
-    String trimmedStudentNo = studentNo.trim();
-    if (userRepository.existsByStudentNoAndIdNot(trimmedStudentNo, userId)) {
+    if (userRepository.existsByStudentNoAndIdNot(studentNo, userId)) {
       throw new BusinessException(ErrorCode.DUPLICATE_STUDENT_NO);
     }
 
     user.submitApplication(studentNo, name);
     try {
       userRepository.flush();
-    } catch (DataAccessException e) {
+    } catch (DataIntegrityViolationException e) {
+      if (!violatesStudentNoUniqueness(e)) {
+        /*
+         * 학번 중복이 아닌 무결성 위반이다. 409로 바꾸면 사용자는 학번을 고치라는 엉뚱한 안내를 받고,
+         * 서버 문제가 4xx에 묻혀 감시에서도 빠진다. 그대로 올려 500으로 처리한다.
+         */
+        throw e;
+      }
       // 위 조회와 저장 사이에 다른 계정이 같은 학번을 가져갔다. DB 제약이 마지막 방어선이다.
-      log.warn("학번 저장이 제약에 걸렸다. userId={}", userId, e);
+      log.warn("학번이 제약에 걸렸다. userId={}", userId, e);
       throw new BusinessException(ErrorCode.DUPLICATE_STUDENT_NO);
     }
+  }
+
+  /**
+   * 이 위반이 <b>학번 유일성</b>인지 본다.
+   *
+   * <p>{@code DataIntegrityViolationException}은 길이 초과·다른 제약 위반도 함께 나른다. 구분하지 않고 전부 409로 바꾸면 원인과 안내가
+   * 어긋난다.
+   *
+   * <p>제약 이름으로 판단한다. {@code student_no}에 걸린 UNIQUE는 PostgreSQL이 {@code users_student_no_key}로 이름
+   * 짓는다 ({@code V1__init.sql}).
+   */
+  private static boolean violatesStudentNoUniqueness(DataIntegrityViolationException e) {
+    String cause = String.valueOf(e.getMostSpecificCause().getMessage());
+    return cause.contains(STUDENT_NO_UNIQUE_CONSTRAINT);
   }
 }
