@@ -51,6 +51,7 @@ docs/               운영 문서 — 어떻게 띄우고 고치는가
 ## apps/api 규칙
 
 - 패키지는 도메인별로: `domain/notice/{controller,service,repository,entity,dto}`
+- 도메인에 속하지 않는 횡단 관심사는 `global/` 아래에 둔다 (`global/error` 등)
 - 엔티티에 `@Setter`를 두지 않는다. 생성자·정적 팩토리로 만들고, 상태 변경은 의도가 드러나는 메서드로 한다
 - DTO와 엔티티를 분리한다. 컨트롤러가 엔티티를 직접 반환하지 않는다
 - 예외는 커스텀 예외 + `@RestControllerAdvice`로 일괄 처리한다
