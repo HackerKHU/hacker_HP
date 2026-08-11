@@ -18,6 +18,18 @@ DB가 준비되면 `local` 프로파일로 API를 기동한다. `application-loc
 
 기동 로그에서 Flyway가 `V1__init.sql`을 자동 적용하는 것을 확인할 수 있다.
 
+### `Migration checksum mismatch`로 기동이 실패하면
+
+배포된 환경이 없는 동안에는 `V1__init.sql`을 직접 고친다. 새 컬럼을 만들었다 지우는 `ALTER TABLE` 이력을 첫 배포 전부터 남기지 않기 위해서다. 대신 **이미 옛 `V1`을 적용한 로컬 DB는 다시 만들어야 한다.**
+
+```bash
+docker compose down -v && docker compose up -d
+```
+
+**`flyway repair`로는 부족하다.** 체크섬 기록만 맞춰줄 뿐 이미 만들어진 테이블은 그대로라, 새 컬럼이 없는 상태로 `ddl-auto=validate`가 실패한다. 볼륨을 지우고 다시 만들어야 한다.
+
+로컬 DB의 데이터는 사라진다. 아직 API에 데이터를 넣는 엔드포인트가 없어 손으로 넣은 것이 아니면 잃을 것이 없다.
+
 ## 실행
 
 ```bash
