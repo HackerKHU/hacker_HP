@@ -59,6 +59,24 @@ public class GoogleAccountService {
     return existing;
   }
 
+  /**
+   * 로그인 성공 처리에서 세션에 담을 계정을 읽는다.
+   *
+   * <p>구글이 준 신원에는 우리 {@code users.id}도 {@code role}·{@code status}도 없다. 콜백에서 이미 만들어졌거나 갱신된 행을 여기서
+   * 다시 읽는다.
+   */
+  @Transactional(readOnly = true)
+  public User findByGoogleSub(String googleSub) {
+    return userRepository
+        .findByGoogleSub(googleSub)
+        .orElseThrow(
+            () -> {
+              // 콜백이 방금 만든 계정이 사라졌다. 사용자가 할 수 있는 일이 없으므로 일반 실패로 돌린다.
+              log.warn("로그인 직후 계정을 찾지 못했다. sub={}", googleSub);
+              return reject(LoginErrorCode.FAILED);
+            });
+  }
+
   private User create(String googleSub, String email, String name) {
     /*
      * profile 스코프면 구글이 이름을 준다. 그래도 없으면 이름이 빈 계정을 만드는 대신 로그인을 거부한다 —

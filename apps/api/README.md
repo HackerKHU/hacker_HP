@@ -31,6 +31,8 @@ GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... \
 
 기본값을 빈 문자열로 두면 안 된다. Spring Boot가 `Client id of registration 'google' must not be empty.`로 컨텍스트를 통째로 죽여서, 로그인과 무관한 작업까지 구글 자격을 받아야 시작할 수 있게 된다.
 
+`JWT_SECRET`은 로컬용 고정값이 `application-local.yml`에 들어 있어 따로 넣지 않아도 된다. **운영에서는 없으면 기동에 실패한다** — 기본값을 심어두면 누구나 아는 키로 토큰을 위조할 수 있다.
+
 **`local` 프로파일 없이 `bootRun`하면 기동에 실패한다.** `GOOGLE_CLIENT_ID`·`OAUTH_REDIRECT_URI`가 기본값 없는 자리표시자이고, `app.auth.allowed-email-domain`은 비면 검증에 걸린다. 의도한 동작이다 — 허용 도메인 기본값을 코드에 심어두면 설정 누락이 조용히 지나가고 아무 구글 계정이나 가입할 수 있게 된다.
 
 ### `Migration checksum mismatch`로 기동이 실패하면
@@ -58,6 +60,15 @@ curl http://localhost:8080/actuator/health
 ```json
 { "code": "UNAUTHENTICATED", "message": "로그인이 필요합니다." }
 ```
+
+**인증은 쿠키 두 개가 함께 있어야 성립한다** ([3-3 결정 12](../../spec/3-3-DESIGN-DECISIONS.md)). 하나만으로는 통과하지 못하므로, `curl`로 보호된 경로를 부르려면 브라우저로 로그인해 받은 두 쿠키를 모두 실어야 한다.
+
+| 쿠키 | 담는 것 | 특징 |
+|---|---|---|
+| `ACCESS_TOKEN` | 누구인지 (JWT `sub`) | `httpOnly` |
+| `SESSION` | 지금 무엇을 할 수 있는지 (`role`·`status`) | 값은 RDS에 있다 |
+
+**로그아웃은 세션을 지우는 것으로 성립한다.** 쿠키에 토큰이 남아 있어도 세션이 없으면 다음 요청은 `401`이다.
 
 ## 검증
 
