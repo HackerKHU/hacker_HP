@@ -4,7 +4,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -80,10 +79,17 @@ function pathname(): string {
 /**
  * 로그인 화면이 그려졌다는 증거. 세션 확인이 끝난 뒤에만 존재한다.
  *
- * 이름에 **화면에 보이는 영어 문구**가 들어간다 — 버튼이 구글 공식 에셋(그림)이라
- * 글씨가 이미지 안에 있다 (spec §3-1-5, T-117).
+ * 문구는 **승인된 CTA `Continue with Google`의 한글판**이다 (spec §3-1-5, T-117).
+ * 글씨가 실제 텍스트라 버튼 이름이 여기서 그대로 나온다.
  */
-const BUTTON_NAME = '구글 계정으로 로그인 (Sign in with Google)'
+const BUTTON_NAME = 'Google로 계속하기'
+
+/**
+ * 공식 배포본의 G 글리프 path. **테스트가 값을 들고 있어야** 누가 로고를 바꿔도 잡힌다 —
+ * 컴포넌트에서 읽어오면 컴포넌트가 틀려도 같이 틀린 값을 비교하게 된다.
+ */
+const OFFICIAL_G_PATH =
+  'M29.3987 18.1814H19.9849V22.0445H25.3598C25.1286 23.294 24.4294 24.3596 23.3676 25.0712C22.4746 25.6716 21.3266 26.0211 19.9849 26.0211C17.3864 26.0211 15.1823 24.2666 14.3947 21.9004C14.1952 21.2989 14.0853 20.6599 14.0853 19.9983C14.0853 19.3367 14.1952 18.6966 14.3947 18.0962C15.1823 15.7311 17.3864 13.9755 19.9849 13.9755C21.4524 13.9755 22.767 14.4816 23.8039 15.4713L26.6653 12.6057C24.936 10.9908 22.6786 10 19.9849 10C16.0832 10 12.705 12.2414 11.0618 15.5076C10.383 16.8592 10 18.3834 10 19.9994C10 21.6155 10.383 23.1396 11.0618 24.4913C12.705 27.7597 16.0832 30 19.9849 30C22.6797 30 24.9485 29.1137 26.6018 27.5861C28.4887 25.8452 29.5732 23.2702 29.5732 20.2275C29.5732 19.5182 29.5131 18.835 29.3987 18.1825V18.1814Z'
 
 function loaded() {
   return screen.findByRole('button', { name: BUTTON_NAME })
@@ -240,52 +246,64 @@ describe('로그인 버튼', () => {
   })
 })
 
-describe('구글 공식 버튼', () => {
+describe('구글 버튼', () => {
   /*
-   * T-117 — **글씨가 그림 안에 있다.** 이름이 없으면 스크린리더가 "버튼"이라고만 읽는다.
-   * 보이는 영어 문구를 포함해야 음성 입력 사용자가 보이는 대로 말했을 때 맞는다.
+   * T-117 — 가이드라인이 승인한 CTA는 셋뿐이고 그 현지화가 허용된다. 임의 표현을 쓰면
+   * 승인 범위 밖이다. 이 버튼은 로그인과 가입을 겸하므로 `Continue with Google`의
+   * 한글판을 쓴다 (spec §3-1-5, 3-3 결정 13).
    */
-  it('접근 가능한 이름이 있고 보이는 영어 문구를 포함한다', async () => {
+  it('문구가 승인된 CTA의 한글판이다', async () => {
     renderAt('/login')
 
     const button = await loaded()
-    expect(button).toHaveAccessibleName(BUTTON_NAME)
-    expect(button).toHaveAccessibleName(/Sign in with Google/)
+    expect(button).toHaveAccessibleName('Google로 계속하기')
+    // 승인 목록에 없는 표현이나 `Google` 단독은 쓰지 않는다.
+    expect(button.textContent).not.toMatch(/시작하기|로그인하기/)
+    expect(button.textContent?.trim()).not.toBe('Google')
   })
 
   /*
-   * T-118 — 경로만 맞고 파일이 없으면 화면에는 깨진 그림이 뜨는데 마크업 검사는 통과한다.
-   * `import.meta.glob`은 빌드 시점에 파일 목록으로 펼쳐진다 — node:fs가 필요 없다.
+   * T-118 — **로고는 우리가 그리는 것이 아니다.** 공식 배포본에서 뽑은 모양 그대로여야
+   * 하고, 값이 바뀌었다는 것은 누가 손댔다는 뜻이다. 눈으로는 알기 어려워 값으로 박는다.
+   *
+   * 아래 `d`는 `signin-assets.zip`의 `Theme=Light, Show text=No, Shape=Square`에 있는
+   * G 글리프 path다.
    */
-  it('쓰는 에셋이 public에 실제로 있다', async () => {
-    renderAt('/login')
-    const image = within(await loaded()).getByRole('img', { hidden: true })
-    const src = image.getAttribute('src') ?? ''
-
-    const files = Object.keys(
-      import.meta.glob('../../../public/**/*', { eager: false }),
-    ).map((key) => key.replace('../../../public', ''))
-
-    expect(src).not.toBe('')
-    expect(files, `${src}가 public/에 없다`).toContain(src)
-  })
-
-  // 비율을 바꾸지 않는다 (가이드라인 MUST). 폭·높이를 따로 박으면 로고가 늘어난다.
-  it('폭과 높이를 따로 지정하지 않는다', async () => {
-    renderAt('/login')
-    const image = within(await loaded()).getByRole('img', { hidden: true })
-
-    expect(image).not.toHaveAttribute('width')
-    expect(image).not.toHaveAttribute('height')
-    expect(image.className).toContain('h-auto')
-  })
-
-  // 완성된 버튼 그림이라 다른 버튼으로 감싸면 버튼 안에 버튼이 된다.
-  it('버튼이 하나뿐이다 — 버튼 안에 버튼을 넣지 않는다', async () => {
+  it('로고 모양이 공식 배포본 값 그대로다', async () => {
     renderAt('/login')
     await loaded()
 
-    expect(screen.getAllByRole('button')).toHaveLength(1)
+    const path = document.querySelector('svg[aria-hidden="true"] mask path')
+    expect(path?.getAttribute('d')).toBe(OFFICIAL_G_PATH)
+  })
+
+  // 자체 제작 아이콘·단색화 금지. 색은 공식 그라디언트에서 온다.
+  it('로고를 단색으로 칠하지 않는다', async () => {
+    renderAt('/login')
+    await loaded()
+
+    const svg = document.querySelector('svg[aria-hidden="true"]')
+    expect(svg?.querySelector('foreignObject')).not.toBeNull()
+    expect(svg?.querySelectorAll('ellipse').length).toBeGreaterThan(0)
+  })
+
+  // 이름은 버튼 텍스트가 담당한다. 로고가 이름에 끼면 스크린리더가 두 번 읽는다.
+  it('로고는 접근성 트리에서 숨긴다', async () => {
+    renderAt('/login')
+    await loaded()
+
+    expect(
+      document.querySelector('svg[aria-hidden="true"]'),
+    ).toBeInTheDocument()
+  })
+
+  // 테두리·문구 없이 로고만 두지 않는다 (가이드라인 금지 사항).
+  it('버튼에 테두리와 문구가 함께 있다', async () => {
+    renderAt('/login')
+    const button = await loaded()
+
+    expect(button.className).toContain('border-[#747775]')
+    expect(button).toHaveTextContent('Google로 계속하기')
   })
 })
 

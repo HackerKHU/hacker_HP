@@ -1,7 +1,9 @@
 import { Link, useSearchParams } from 'react-router-dom'
 import { GOOGLE_LOGIN_PATH } from '@/api/auth'
 import { useSession } from '@/auth/session'
+import { Button } from '@/components/ui/button'
 import { lookup } from '@/lib/lookup'
+import { GoogleLogo } from './GoogleLogo'
 
 /**
  * 콜백이 되돌려 보내는 실패 코드와 화면 문구 (계약 §3-2-3 표).
@@ -16,10 +18,11 @@ import { lookup } from '@/lib/lookup'
  * 알리는 셈**이다. 아무 일도 없었으니 아무것도 말하지 않는다.
  */
 /**
- * 구글 공식 로그인 버튼 그림. `public/google/`에 원본 그대로 두고 출처는 그 폴더의
- * README에 있다 (spec §3-1-5 — 수정 없이 쓴다).
+ * 버튼 문구. **승인된 CTA 셋 중 `Continue with Google`의 한글판이다** (spec §3-1-5).
+ * 이 버튼이 로그인과 가입을 겸하므로(3-3 결정 13) 뜻도 정확하다. 임의 표현이나
+ * `Google` 단독은 승인 범위 밖이다.
  */
-const GOOGLE_BUTTON_ASSET = '/google/signin-light-square.svg'
+const GOOGLE_BUTTON_LABEL = 'Google로 계속하기'
 
 const ERROR_MESSAGE: Record<string, string> = {
   domain: '경희대 구글 계정(@khu.ac.kr)으로 로그인해 주세요.',
@@ -88,39 +91,27 @@ export function LoginPage() {
        * 떠야 하는데 응답만 받아오게 된다. 그래서 `api/auth.ts`에도 함수가 없고 경로
        * 상수만 있다.
        */}
-      <button
+      {/*
+       * **로고는 공식 것, 버튼과 문구는 우리 것이다** (spec §3-1-5).
+       *
+       * 색·테두리·글씨색을 가이드라인 Light 값으로 이 버튼에서만 맞춘다. 전역 토큰을
+       * 건드리지 않는다 — 사이트의 다른 버튼까지 구글 규격이 될 이유가 없다.
+       * `--border`(#e5e5e5)와 `--foreground`(#262626)가 규격(#747775, #1f1f1f)과 달라
+       * 여기서만 덮어쓴다.
+       *
+       * 여백은 공식 배포본(180×40)에서 잰 값이다 — 좌우 12px, 로고와 글씨 사이 14px.
+       */}
+      <Button
         type="button"
-        /*
-         * **`Button`으로 감싸지 않는다.** 공식 에셋은 배경·테두리·글씨가 다 들어간
-         * **완성된 버튼 그림**이라, shadcn 버튼 안에 넣으면 버튼 안에 버튼이 그려진다.
-         * 여기서는 배경 없는 `<button>`이 그림을 감싸기만 한다.
-         *
-         * 포커스 표시는 남긴다 — 키보드 사용자에게 이것이 유일한 단서다. 호버는
-         * 투명도만 살짝 바꾼다. **그림 자체는 변형하지 않는다** (가이드라인 MUST).
-         */
-        className="mt-8 block rounded-[4px] transition-opacity outline-none hover:opacity-90 focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        variant="outline"
+        className="mt-8 h-10 gap-[14px] border-[#747775] px-3 text-sm text-[#1f1f1f]"
         onClick={() => {
           window.location.assign(GOOGLE_LOGIN_PATH)
         }}
       >
-        <img
-          src={GOOGLE_BUTTON_ASSET}
-          /*
-           * **버튼의 접근 가능한 이름이 여기서 나온다** (spec §3-1-5 MUST). 글씨가 그림
-           * 안에 있어 이름이 없으면 스크린리더가 "버튼"이라고만 읽는다.
-           *
-           * 화면에 보이는 영어 문구를 함께 담는다 — 음성 입력 사용자는 **보이는 대로**
-           * 말하므로, 한글만 두면 "Sign in with Google"이라고 말했을 때 맞지 않는다.
-           */
-          alt="구글 계정으로 로그인 (Sign in with Google)"
-          /*
-           * **폭·높이를 따로 주지 않는다** (가이드라인 MUST — 로고가 늘어나면 안 된다).
-           * 원본 비율(180×40)이 그대로 쓰이고, 좁은 화면에서는 `max-w-full`이 가로세로를
-           * 함께 줄인다. 높이를 고정하고 폭만 줄이면 찌그러진다.
-           */
-          className="block h-auto max-w-full"
-        />
-      </button>
+        <GoogleLogo className="size-5" />
+        {GOOGLE_BUTTON_LABEL}
+      </Button>
 
       <p className="mt-6 text-sm text-muted-foreground">
         <Link to="/" className="transition-colors hover:text-foreground">
