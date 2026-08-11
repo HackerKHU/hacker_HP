@@ -1,5 +1,6 @@
 package org.hackerkhu.hackerhp.global.config;
 
+import org.hackerkhu.hackerhp.domain.user.service.GoogleAccountService;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
@@ -20,15 +21,25 @@ public class GoogleOidcUserService implements OAuth2UserService<OidcUserRequest,
 
   private final OidcUserService delegate = new OidcUserService();
   private final GoogleAccountPolicy policy;
+  private final GoogleAccountService accountService;
 
-  public GoogleOidcUserService(GoogleAccountPolicy policy) {
+  public GoogleOidcUserService(GoogleAccountPolicy policy, GoogleAccountService accountService) {
     this.policy = policy;
+    this.accountService = accountService;
   }
 
+  /**
+   * <b>검사가 계정 생성보다 먼저다.</b> 순서가 바뀌면 거부할 계정의 행이 먼저 만들어져, 도메인이 다른 사람도 {@code users}에 남는다 (T-08·T-41은
+   * "계정이 생성되지 않는다"까지 요구한다).
+   *
+   * <p>{@code hd} 클레임은 읽지 않는다. 로그인 화면에서 계정을 좁혀주는 <b>힌트일 뿐 위조를 막지 못하므로</b>, 서버는 ID 토큰의 {@code
+   * email}과 {@code email_verified}만 본다 (spec 3-1 §3-1-4 MUST, T-42).
+   */
   @Override
   public OidcUser loadUser(OidcUserRequest userRequest) throws OAuth2AuthenticationException {
     OidcUser user = delegate.loadUser(userRequest);
     policy.verify(user.getEmail(), user.getEmailVerified());
+    accountService.login(user.getSubject(), user.getEmail(), user.getFullName());
     return user;
   }
 }
