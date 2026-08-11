@@ -14,7 +14,10 @@ CREATE TABLE users (
     -- 계정 생성일시(첫 구글 로그인). "가입 신청일"은 applied_at이다.
     created_at  TIMESTAMP    NOT NULL,
     applied_at  TIMESTAMP,
-    approved_at TIMESTAMP
+    approved_at TIMESTAMP,
+    -- 낙관적 잠금. 신청서 제출과 관리자 승인이 같은 행을 동시에 고치면 한쪽만 성공해야
+    -- 한다 (spec 3-1 §3-1-4). 인메모리 status 검사만으로는 두 트랜잭션이 모두 통과한다.
+    version     BIGINT       NOT NULL DEFAULT 0
 );
 
 CREATE TABLE notices (

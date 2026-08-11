@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class UserTest {
 
@@ -71,6 +73,45 @@ class UserTest {
     User user = loggedInWithGoogle();
 
     assertThatThrownBy(user::approve).isInstanceOf(IllegalStateException.class);
+  }
+
+  /*
+   * T-52 — 공백 신청서는 거부하고 applied_at을 남기지 않는다 (spec §3-2-3).
+   *
+   * DB의 NOT NULL·UNIQUE는 빈 문자열을 거르지 않는다. 여기서 통과시키면 식별 정보가 없는
+   * 계정이 applied_at을 얻어 approve()의 검사까지 통과한다.
+   */
+  @ParameterizedTest(name = "학번={0} 이름={1}")
+  @CsvSource(
+      value = {
+        "'', 김신입",
+        "'   ', 김신입",
+        "20240003, ''",
+        "20240003, '   '",
+        "null, 김신입",
+        "20240003, null"
+      },
+      nullValues = "null")
+  void submitApplicationRejectsBlankValues(String studentNo, String name) {
+    User user = loggedInWithGoogle();
+
+    assertThatThrownBy(() -> user.submitApplication(studentNo, name))
+        .isInstanceOf(IllegalArgumentException.class);
+
+    // 거부됐으면 신청 상태가 남아서는 안 된다 — 남으면 승인 대상이 된다.
+    assertThat(user.getAppliedAt()).isNull();
+    assertThat(user.getStudentNo()).isNull();
+    assertThatThrownBy(user::approve).isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  void submitApplicationTrimsSurroundingWhitespace() {
+    User user = loggedInWithGoogle();
+
+    user.submitApplication("  20240003  ", "  본명  ");
+
+    assertThat(user.getStudentNo()).isEqualTo("20240003");
+    assertThat(user.getName()).isEqualTo("본명");
   }
 
   @Test

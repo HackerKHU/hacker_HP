@@ -8,6 +8,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 
 /**
@@ -55,6 +56,16 @@ public class User {
   @Column(name = "approved_at")
   private Instant approvedAt;
 
+  /**
+   * 낙관적 잠금 — spec/3-1-DESIGN-ARCHITECTURE.md §3-1-4의 직렬화 요구.
+   *
+   * <p>아래 상태 검사들은 <b>각 트랜잭션이 읽어둔 인메모리 값</b>만 본다. 신청서 제출과 관리자 승인이 같은 행을 동시에 읽으면 둘 다 통과하고, 나중에
+   * flush되는 쪽이 앞의 변경을 덮어쓴다 — 승인된 계정의 학번이 승인 뒤에 바뀐다. 버전 충돌로 한쪽을 실패시켜야 막을 수 있다.
+   */
+  @Version
+  @Column(nullable = false)
+  private Long version;
+
   protected User() {}
 
   private User(String googleSub, String email, String name, Role role, Status status) {
@@ -84,9 +95,27 @@ public class User {
     if (this.status != Status.PENDING) {
       throw new IllegalStateException("PENDING 상태에서만 신청서를 낼 수 있습니다: " + this.status);
     }
-    this.studentNo = studentNo;
-    this.name = name;
+    String trimmedStudentNo = requireNotBlank(studentNo, "학번");
+    String trimmedName = requireNotBlank(name, "이름");
+
+    this.studentNo = trimmedStudentNo;
+    this.name = trimmedName;
     this.appliedAt = Instant.now();
+  }
+
+  /**
+   * 공백은 신청서로 인정하지 않는다 — spec/3-2 §3-2-3, T-52.
+   *
+   * <p>DB의 {@code NOT NULL}·{@code UNIQUE}는 빈 문자열을 거르지 않는다. 여기서 막지 않으면 {@code ""}를 낸 계정이 {@code
+   * applied_at}을 얻어 {@link #approve()}의 신청 여부 검사를 통과하고, 식별 정보가 없는 계정이 승인된다.
+   *
+   * <p><b>상태를 바꾸기 전에 검사한다.</b> 저장한 뒤 거부하면 계약과 달리 {@code applied_at}이 남는다.
+   */
+  private static String requireNotBlank(String value, String label) {
+    if (value == null || value.isBlank()) {
+      throw new IllegalArgumentException(label + "을(를) 입력해주세요.");
+    }
+    return value.trim();
   }
 
   /**
