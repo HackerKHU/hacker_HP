@@ -277,6 +277,60 @@ describe('구글 버튼', () => {
     expect(path?.getAttribute('d')).toBe(OFFICIAL_G_PATH)
   })
 
+  /*
+   * T-118 — **가이드라인이 이름을 지어 금지하는 것이 색 변경이다.** 구조만 보면
+   * (`foreignObject`가 있다 / 타원이 하나 이상이다) 타원 하나를 검정으로 칠해도 통과한다.
+   * 실제로 그 변이가 초록으로 지나갔다.
+   *
+   * 그래서 **색 값 자체를 고정한다.** 아래 두 목록은 `signin-assets.zip`의
+   * `Theme=Light, Show text=No, Shape=Square`에서 그대로 뽑은 것이다 — **컴포넌트에서
+   * import하지 않는다.** 가져다 쓰면 컴포넌트가 틀려도 같이 틀린 값을 비교하게 된다
+   * (`OFFICIAL_G_PATH`를 테스트가 들고 있는 것과 같은 이유다).
+   */
+  it('로고 색이 공식 배포본 값 그대로다', async () => {
+    renderAt('/login')
+    await loaded()
+
+    const svg = document.querySelector('svg[aria-hidden="true"]')
+
+    /*
+     * 칠해진 도형의 색. 문서 순서까지 본다 — 순서가 달라졌다는 것은 도형이 바뀌었다는
+     * 뜻이다. 첫 값은 mask path이고 나머지 여섯은 흐림 타원이다.
+     */
+    const fills = [...(svg?.querySelectorAll('[fill]') ?? [])].map((el) =>
+      el.getAttribute('fill'),
+    )
+    expect(fills).toEqual([
+      '#E94FFF',
+      '#3186FF',
+      '#3186FF',
+      '#FF4641',
+      '#FF5B8B',
+      '#3186FF',
+      '#FF4641',
+    ])
+
+    /*
+     * 2025 개편판의 본체는 단색이 아니라 `foreignObject` 안 CSS 원뿔 그라디언트다.
+     * 정지점 색이 여기서 온다 — `style` 속성을 문자열 그대로 읽는다(jsdom이 파싱하지
+     * 못하는 `conic-gradient`라 `.style.background`로는 비어 있다).
+     */
+    const gradient =
+      svg?.querySelector('foreignObject div')?.getAttribute('style') ?? ''
+    const stops = [...new Set(gradient.match(/rgba\([^)]*\)/g) ?? [])]
+    expect(stops).toEqual([
+      'rgba(255, 70, 65, 1)',
+      'rgba(49, 134, 255, 1)',
+      'rgba(0, 165, 183, 1)',
+      'rgba(14, 188, 95, 1)',
+      'rgba(108, 196, 0, 1)',
+      'rgba(255, 204, 0, 1)',
+      'rgba(255, 211, 20, 1)',
+      'rgba(255, 106, 43, 1)',
+      'rgba(253, 70, 65, 1)',
+    ])
+  })
+
   // 자체 제작 아이콘·단색화 금지. 색은 공식 그라디언트에서 온다.
   it('로고를 단색으로 칠하지 않는다', async () => {
     renderAt('/login')
@@ -304,6 +358,68 @@ describe('구글 버튼', () => {
 
     expect(button.className).toContain('border-[#747775]')
     expect(button).toHaveTextContent('Google로 계속하기')
+  })
+
+  /*
+   * 버튼을 키우더라도 **비율은 하나의 배율로 지킨다** (spec §3-1-5 MUST). 치수를 px로
+   * 적으면 항목마다 반올림이 갈려 조용히 어긋난다 — 실제로 로고만 ×1.15, 간격은 ×1.143로
+   * 어긋나 있었다. `em`으로 적으면 배율이 글씨 크기 한 곳에만 남는다.
+   *
+   * 규격 글씨가 14px이므로 각 값은 `규격 ÷ 14`다. 여기 적힌 수는 규격표에서 나온 것이지
+   * 코드에서 가져온 것이 아니다.
+   */
+  it('버튼 치수가 글씨 크기에 상대다 — 한 배율로만 커진다', async () => {
+    renderAt('/login')
+    const button = await loaded()
+
+    // 20/14, 40/14, 12/14, 14/14 — 전부 같은 기준(글씨 14px)에서 나온 비율이다.
+    expect(button.className).toContain('leading-[1.4286]')
+    expect(button.className).toContain('h-[2.8571em]')
+    expect(button.className).toContain('px-[0.8571em]')
+    /*
+     * shadcn `Button`이 아이콘 든 버튼에 `has-[>svg]:px-3`을 건다. 같은 변이로 덮지
+     * 않으면 특이도로 그쪽이 이겨 여백만 규격 1배(12px)로 남는다.
+     */
+    expect(button.className).toContain('has-[>svg]:px-[0.8571em]')
+    expect(button.className).toContain('gap-[1em]')
+    expect(
+      document.querySelector('svg[aria-hidden="true"]')?.getAttribute('class'),
+    ).toContain('size-[1.4286em]')
+
+    // 한 곳(글씨 크기)만 배율을 정한다. px로 박아두면 나머지가 따라오지 않는다.
+    expect(button.className).not.toMatch(/h-\[\d+px\]|px-\[\d+px\]|gap-\d/)
+  })
+})
+
+describe('화면 세로 정렬', () => {
+  /*
+   * **`items-center`로 가운데를 잡지 않는다.** 자식이 화면보다 커지는 순간 위쪽이
+   * 컨테이너 밖으로 밀려나는데 그 영역은 `scrollHeight`에 잡히지 않아 **스크롤로 닿을
+   * 수 없다.** 창이 낮거나 브라우저 글꼴을 키우면 제목이 잘린 채 복구가 안 된다.
+   * `margin: auto`는 남는 공간이 있을 때만 나눠 갖고 없으면 0이 되어 위에서 시작한다.
+   *
+   * **이것은 클래스 단언이고, 그 사실을 숨기지 않는다.** jsdom에는 레이아웃 엔진이 없어
+   * `getBoundingClientRect()`가 전부 0이라 "위쪽이 잘렸다"를 여기서 잴 수 없다. 실제
+   * 기하는 프로덕션 빌드를 띄워 쟀다(1280×420에서 닿을 수 없는 위쪽 0px, 125px 스크롤).
+   * 이 테스트가 막는 것은 **그 측정 없이 조용히 옛 구조로 되돌아가는 것**이다.
+   */
+  it('가운데 정렬을 정렬 속성이 아니라 자식의 auto 여백으로 잡는다', async () => {
+    renderAt('/login')
+    await loaded()
+
+    const card = document.querySelector('.max-w-4xl')
+    const outer = card?.parentElement
+
+    expect(outer?.className).toContain('min-h-screen')
+    /*
+     * 가로 가운데(`justify-center`)는 그대로 둔다 — 가로 축은 넘쳐도 잘리지 않는다.
+     * 막는 것은 **세로(교차 축) 정렬**이다. 이 컨테이너가 `flex` 행이라 세로를 잡는 것은
+     * `align-items` 쪽이고, 그것이 넘칠 때 위쪽을 스크롤 밖으로 밀어내는 속성이다.
+     */
+    expect(outer?.className).not.toMatch(
+      /items-center|place-items-center|content-center/,
+    )
+    expect(card?.className).toContain('my-auto')
   })
 })
 
