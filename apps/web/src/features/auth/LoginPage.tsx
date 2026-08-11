@@ -2,6 +2,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { GOOGLE_LOGIN_PATH } from '@/api/auth'
 import { useSession } from '@/auth/session'
 import { Button } from '@/components/ui/button'
+import { CLUB } from '@/features/landing/content'
 import { lookup } from '@/lib/lookup'
 import { GoogleLogo } from './GoogleLogo'
 
@@ -23,6 +24,55 @@ import { GoogleLogo } from './GoogleLogo'
  * `Google` 단독은 승인 범위 밖이다.
  */
 const GOOGLE_BUTTON_LABEL = 'Google로 계속하기'
+
+/**
+ * 허용 도메인. 원본은 서버 설정(`app.auth.allowed-email-domain`, spec §3-1-4)이고 화면은
+ * 안내만 한다 — 검증은 서버가 한다. 값이 바뀌면 이 한 줄을 고친다.
+ */
+const ALLOWED_EMAIL_DOMAIN = 'khu.ac.kr'
+
+/** 표기용 연도. 렌더에서 `new Date()`를 부르면 테스트가 실행 시점에 따라 달라진다. */
+const COPYRIGHT_YEAR = 2026
+
+/**
+ * 왼쪽 패널 — **로고 자리다. 글자를 두지 않는다.**
+ *
+ * 랜딩과 같은 방식으로 `.dark`를 씌워 토큰을 뒤집는다 — 새 색을 만들지 않는다.
+ *
+ * 자리는 **정사각형**이다. 이 사이트가 마크를 필요로 하는 자리가 둘인데 요구 비율이
+ * 서로 다르다 — 헤더(`PublicHeader`)는 가로로 긴 워드마크, 파비콘·앱 아이콘은
+ * 정사각형이다. 정사각형 자리는 둘 다 받는다(가로형 마크는 폭을 채우고 가운데 정렬하면
+ * 된다). 반대로 가로로 긴 자리는 정사각형 마크를 넣으면 좌우가 남는다. 아직 로고
+ * 파일이 없어 실물을 잴 수 없으므로, **더 넓은 쪽을 전제로 잡아 두는 편이 안전하다.**
+ *
+ * **비어 있는 것은 빠뜨린 것이 아니다.** 동아리 로고는 **공모전이 진행 중이라 아직
+ * 확정되지 않았다** — 우리가 정할 수 있는 것이 아니라 외부 일정을 기다리는 상태다.
+ * 그러니 **임시 로고나 텍스트 워드마크로 채우지 마라.** 확정본이 오면 비율과 여백이
+ * 달라져서 임시로 넣은 것을 다시 걷어내야 하고, 그사이 임시 마크가 다른 화면으로
+ * 퍼지면 걷어낼 자리가 늘어난다.
+ *
+ * TODO: 공모전이 끝나 로고가 확정되면 `public/`에 넣고 아래 자리표시자 `<div>`를 그
+ * 이미지로 바꾼다. 같은 파일을 좁은 화면용으로도 쓴다 — 아래 `lg:hidden` eyebrow
+ * 자리에 작은 크기로 넣으면 좁은 화면에서도 마크가 보인다. **파비콘·OG 이미지
+ * (`/landing/og-image.png`)·앱 헤더 워드마크도 같은 때 한 번에 처리한다** — 지금
+ * 비어 있는 것은 전부 같은 이유다.
+ */
+function LogoPanel() {
+  return (
+    <div className="dark hidden w-[22rem] shrink-0 items-center justify-center rounded-xl bg-background p-10 text-foreground lg:flex">
+      {/*
+       * 비어 있는 것이 아니라 **비워 둔 것**임이 화면에 드러나야 한다 (#68에서 통계
+       * `00명`을 자리표시자로 남긴 것과 같은 원칙). 점선 테두리 하나와 작은 글자면
+       * 충분하다 — 이 패널의 주인공은 나중에 들어올 로고지 이 안내가 아니다.
+       */}
+      <div className="flex aspect-square w-full items-center justify-center rounded-xl border border-dashed border-muted-foreground/40">
+        <span className="text-xs tracking-[0.2em] text-muted-foreground/70">
+          LOGO
+        </span>
+      </div>
+    </div>
+  )
+}
 
 const ERROR_MESSAGE: Record<string, string> = {
   domain: '경희대 구글 계정(@khu.ac.kr)으로 로그인해 주세요.',
@@ -68,56 +118,151 @@ export function LoginPage() {
   const message = lookup(ERROR_MESSAGE, code)
 
   return (
-    <section className="mx-auto max-w-sm py-16">
-      <h1 className="text-2xl font-semibold tracking-tight">로그인</h1>
-      <p className="mt-3 text-sm text-muted-foreground">
-        구글 계정으로 로그인합니다. 처음이라면 이 버튼으로 가입이 함께
-        진행됩니다.
-      </p>
-
-      {message && (
-        <p
-          role="alert"
-          className="mt-6 rounded-md border border-border px-4 py-3 text-sm text-foreground"
-        >
-          {message}
-        </p>
-      )}
-
+    /*
+     * 두 장 배치 — 왼쪽은 로고, 오른쪽은 할 일.
+     *
+     * 좁은 화면에서는 **왼쪽을 숨긴다.** 세로로 쌓으면 정사각형 로고 패널이 화면 폭만큼
+     * 높아져(420px 폭이면 340px 넘는 검정 덩어리다) 버튼이 접힌 아래로 내려간다 —
+     * 로그인하러 온 사람이 스크롤을 해야 한다.
+     *
+     * 로고가 들어와도 이 판단은 유지된다. 좁은 화면에서 마크가 사라지는 것이 문제인데,
+     * 그건 패널을 되살리는 대신 **오른쪽 카드 맨 위 자리로 해결한다** — 아래 `lg:hidden`
+     * 줄이 그 자리이고, 지금은 글자로 채워져 있다. 같은 마크를 폭에 맞는 크기로 보이는
+     * 것이지 정보가 없어지는 것이 아니다.
+     */
+    <div className="flex min-h-screen justify-center bg-muted p-6">
       {/*
-       * **브라우저 전체를 이동시킨다. `fetch`가 아니다.**
+       * 세로 가운데는 **`items-center`가 아니라 자식의 `my-auto`로 맞춘다.**
        *
-       * OAuth는 리다이렉트 흐름이라 `fetch`로는 성립하지 않는다 — 구글 로그인 화면이
-       * 떠야 하는데 응답만 받아오게 된다. 그래서 `api/auth.ts`에도 함수가 없고 경로
-       * 상수만 있다.
+       * `items-center`는 자식이 화면보다 커지는 순간 위쪽을 컨테이너 밖으로 밀어내는데,
+       * 그 영역은 `scrollHeight`에 잡히지 않아 **스크롤로 닿을 수 없다.** 창 높이가
+       * 낮거나(노트북 가로 모드) 브라우저 글꼴을 키우면 제목이 잘린 채 복구가 안 된다.
+       *
+       * `margin: auto`는 남는 공간이 있을 때만 나눠 갖고 없으면 0이 된다 — 여유가 있으면
+       * 가운데, 모자라면 위에서 시작해 아래로 흐른다. 같은 가운데 정렬인데 잘리지 않는다.
        */}
-      {/*
-       * **로고는 공식 것, 버튼과 문구는 우리 것이다** (spec §3-1-5).
-       *
-       * 색·테두리·글씨색을 가이드라인 Light 값으로 이 버튼에서만 맞춘다. 전역 토큰을
-       * 건드리지 않는다 — 사이트의 다른 버튼까지 구글 규격이 될 이유가 없다.
-       * `--border`(#e5e5e5)와 `--foreground`(#262626)가 규격(#747775, #1f1f1f)과 달라
-       * 여기서만 덮어쓴다.
-       *
-       * 여백은 공식 배포본(180×40)에서 잰 값이다 — 좌우 12px, 로고와 글씨 사이 14px.
-       */}
-      <Button
-        type="button"
-        variant="outline"
-        className="mt-8 h-10 gap-[14px] border-[#747775] px-3 text-sm text-[#1f1f1f]"
-        onClick={() => {
-          window.location.assign(GOOGLE_LOGIN_PATH)
-        }}
-      >
-        <GoogleLogo className="size-5" />
-        {GOOGLE_BUTTON_LABEL}
-      </Button>
+      <div className="my-auto flex w-full max-w-4xl gap-6">
+        <LogoPanel />
 
-      <p className="mt-6 text-sm text-muted-foreground">
-        <Link to="/" className="transition-colors hover:text-foreground">
-          ← 동아리 소개로 돌아가기
-        </Link>
-      </p>
-    </section>
+        <section className="flex-1 rounded-xl border border-border bg-background p-8 shadow-sm sm:p-10">
+          {/*
+           * **넓은 화면에서는 제목부터 시작한다.** 왼쪽 패널이 이 화면의 정체를
+           * 말하므로 서비스명을 여기 또 적으면 한 화면에서 같은 말을 두 번 한다.
+           *
+           * 다만 `lg` 미만에서는 그 왼쪽 패널이 통째로 사라지므로 여기가 **유일한
+           * 정체 표시**가 된다. 그래서 좁은 화면에서만 나오게 하고, 제목이 아니라
+           * eyebrow 꼴로 둔다 — 어느 폭에서든 첫 제목은 `로그인`이다.
+           *
+           * TODO: 공모전이 끝나 로고가 확정되면 이 줄을 그 이미지(작은 크기)로 바꾼다.
+           * 그때까지는 글자로 둔다 — 임시 마크를 만들지 않는다.
+           */}
+          <p className="text-xs tracking-[0.2em] text-muted-foreground lg:hidden">
+            {CLUB.eyebrow}
+          </p>
+
+          {/*
+           * **`tracking-tight`를 쓰지 않는다.** `로그인`은 세 글자의 아래 가로획
+           * (`로`의 ㅗ, `그`의 ㅡ, `인`의 ㄴ 밑변)이 같은 높이에 놓인다. 자간을 좁히면
+           * 그 사이 틈이 메워져 **밑줄 하나로 읽히고 링크처럼 보인다.** 32px·600으로
+           * 키운 뒤 더 뚜렷해졌다. 기본 자간이면 틈이 남아 세 글자로 읽힌다.
+           */}
+          <h1 className="mt-6 text-[32px] leading-tight font-semibold lg:mt-0">
+            로그인
+          </h1>
+          <p className="mt-3 text-base leading-7 text-muted-foreground">
+            구글 계정으로 로그인합니다. 처음이라면 이 버튼으로 가입이 함께
+            진행됩니다.
+          </p>
+
+          {message && (
+            <p
+              role="alert"
+              className="mt-6 rounded-md border border-border px-4 py-3 text-base leading-7 text-foreground"
+            >
+              {message}
+            </p>
+          )}
+
+          {/*
+           * 허용 도메인을 **미리** 알린다. 지금은 눌러본 뒤 `?error=domain`을 받아야
+           * 아는데, 그때는 이미 구글 화면까지 갔다 온 뒤다 (spec §3-1-4 MUST).
+           */}
+          {/*
+           * `?error=domain`일 때는 숨긴다. 그 안내가 이미 같은 말을 하고 있어서,
+           * 둘을 함께 두면 화면이 같은 문장을 두 번 반복한다.
+           */}
+          {code !== 'domain' && (
+            <div className="mt-6 rounded-md bg-muted px-4 py-3">
+              <p className="text-base font-medium text-foreground">
+                @{ALLOWED_EMAIL_DOMAIN} 계정만 가입할 수 있습니다
+              </p>
+              {/* 딸린 설명은 한 단 아래(14)로 둔다 — 상자 안에서도 위계가 있어야 한다. */}
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                개인 구글 계정으로는 로그인되지 않습니다. 학교 계정으로 로그인해
+                주세요.
+              </p>
+            </div>
+          )}
+
+          {/*
+           * **브라우저 전체를 이동시킨다. `fetch`가 아니다.**
+           *
+           * OAuth는 리다이렉트 흐름이라 `fetch`로는 성립하지 않는다 — 구글 로그인 화면이
+           * 떠야 하는데 응답만 받아오게 된다. 그래서 `api/auth.ts`에도 함수가 없고 경로
+           * 상수만 있다.
+           */}
+          {/*
+           * **로고는 공식 것, 버튼과 문구는 우리 것이다** (spec §3-1-5).
+           *
+           * 색·테두리·글씨색을 가이드라인 Light 값으로 이 버튼에서만 맞춘다. 전역 토큰을
+           * 건드리지 않는다 — 사이트의 다른 버튼까지 구글 규격이 될 이유가 없다.
+           * 여백은 공식 배포본(180×40)에서 잰 값이다 — 좌우 12px, 로고와 글씨 사이 14px.
+           *
+           * 폭만 채운다. 로고 비율은 그대로다 (가이드라인 MUST).
+           *
+           * **크기는 버튼 전체를 한 배율로 키운 것이다.** 가이드라인은 글씨를 `14/20`으로
+           * 고정하되 비율을 지키는 확대는 허용한다. 본문을 16으로 올렸으니 같은 배율
+           * `16/14 ≈ 1.143`을 **모든 치수에 똑같이** 곱했다 — 글씨만 키운 것이 아니다.
+           *
+           * | 치수 | 규격 | ×1.143 |
+           * |---|---|---|
+           * | 글씨/줄간격 | 14/20 | 16/23 |
+           * | 높이 | 40 | 46 |
+           * | 로고 | 20 | 23 |
+           * | 좌우 여백 | 12 | 14 |
+           * | 로고-글씨 사이 | 14 | 16 |
+           */}
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-6 h-[46px] w-full gap-4 border-[#747775] px-[14px] text-base leading-[23px] text-[#1f1f1f]"
+            onClick={() => {
+              window.location.assign(GOOGLE_LOGIN_PATH)
+            }}
+          >
+            <GoogleLogo className="size-[23px]" />
+            {GOOGLE_BUTTON_LABEL}
+          </Button>
+
+          <p className="mt-6 text-center text-sm text-muted-foreground">
+            <Link to="/" className="transition-colors hover:text-foreground">
+              ← 동아리 소개로 돌아가기
+            </Link>
+          </p>
+
+          <div className="mt-8 flex items-center justify-between border-t border-border pt-5 text-xs text-muted-foreground">
+            <span>
+              © {COPYRIGHT_YEAR} {CLUB.name}
+            </span>
+            <Link
+              to="/privacy"
+              className="transition-colors hover:text-foreground"
+            >
+              개인정보처리방침
+            </Link>
+          </div>
+        </section>
+      </div>
+    </div>
   )
 }
