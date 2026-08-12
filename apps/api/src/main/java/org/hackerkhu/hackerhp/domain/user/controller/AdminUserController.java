@@ -6,10 +6,14 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.hackerkhu.hackerhp.domain.user.dto.AdminUserResponse;
 import org.hackerkhu.hackerhp.domain.user.dto.AdminUserSearch;
+import org.hackerkhu.hackerhp.domain.user.dto.ApproveRequest;
+import org.hackerkhu.hackerhp.domain.user.dto.ApproveResponse;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
+import org.hackerkhu.hackerhp.domain.user.service.AdminUserApprovalService;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserService;
 import org.hackerkhu.hackerhp.global.error.ErrorResponse;
 import org.springdoc.core.annotations.ParameterObject;
@@ -18,12 +22,14 @@ import org.springframework.data.web.PagedModel;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 회원 관리 (spec 3-2 §3-2-6). 지금은 목록 조회 하나다 — 승인은 #30, 상태 변경은 #31이다.
+ * 회원 관리 (spec 3-2 §3-2-6). 지금은 목록 조회와 일괄 승인이다 — 상태 변경은 #31, 거부·제거·권한 변경은 #58이다.
  *
  * <p><b>권한은 {@code hasRole('ADMIN')}만 적는다.</b> 매트릭스의 {@code ADMIN} 열은 "{@code ADMIN}이면서 {@code
  * ACTIVE}"지만 {@code ACTIVE} 조건은 {@code AccountStatusFilter}가 인가보다 먼저 보장한다 — 같은 규칙을 두 곳에 두면 한쪽만 고쳐진다
@@ -32,15 +38,18 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>{@code /api/v1/admin/**}에는 필터 체인에도 같은 규칙이 걸려 있다. 본문을 읽기 전에 끊어야 권한 부족이 {@code 400}으로 둔갑하지 않는다
  * (T-148).
  */
-@Tag(name = "회원 관리", description = "관리자 전용. 누가 있는지 검색·필터로 확인한다")
+@Tag(name = "회원 관리", description = "관리자 전용. 누가 있는지 확인하고 쌓인 가입 신청을 한 번에 처리한다")
 @RestController
 @RequestMapping("/api/v1/admin/users")
 public class AdminUserController {
 
   private final AdminUserService adminUserService;
+  private final AdminUserApprovalService adminUserApprovalService;
 
-  public AdminUserController(AdminUserService adminUserService) {
+  public AdminUserController(
+      AdminUserService adminUserService, AdminUserApprovalService adminUserApprovalService) {
     this.adminUserService = adminUserService;
+    this.adminUserApprovalService = adminUserApprovalService;
   }
 
   @Operation(
@@ -86,5 +95,46 @@ public class AdminUserController {
       @ParameterObject Pageable pageable) {
     return new PagedModel<>(
         adminUserService.search(new AdminUserSearch(status, role, q, applied), pageable));
+  }
+
+  /**
+   * 가입 일괄 승인 (spec 2-2 §2-2-2).
+   *
+   * <p><b>일부가 실패해도 {@code 200}이다.</b> 실패는 예외가 아니라 결과로 돌려준다 — 한 건 때문에 되돌리면 성공한 승인까지 사라진다. 화면은 성공·실패
+   * 건수를 안내해야 한다 (2-2 §2-2-2 MUST).
+   */
+  @Operation(
+      summary = "가입 일괄 승인",
+      description =
+          """
+          고른 계정을 한 번에 `PENDING` → `ACTIVE`로 바꾸고 승인일시를 기록한다.
+
+          **승인 대상은 신청서를 낸 `PENDING`뿐이다.** 목록에서 걸렀더라도 이 API를 직접
+          부르는 경로가 남아 있으므로 서버가 다시 확인한다 — 신청하지 않은 계정을 승인하면
+          학번이 빈 `ACTIVE`가 만들어지는데, 신청 API는 `PENDING` 전용이라 나중에 채울
+          방법이 없다.
+
+          **일부가 실패해도 상태 코드는 `200`이다.** 실패한 건은 `failed`에 사유와 함께 담기고
+          그 계정의 상태는 바뀌지 않는다.
+          """)
+  @ApiResponse(responseCode = "200", description = "처리됨. 일부 실패가 섞여 있을 수 있다")
+  @ApiResponse(
+      responseCode = "400",
+      description = "`VALIDATION_ERROR` — 선택이 비었거나 100명을 넘었다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description = "`FORBIDDEN` — `ADMIN`이 아니거나 CSRF 토큰이 없다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @PostMapping("/approve")
+  @PreAuthorize("hasRole('ADMIN')")
+  public ApproveResponse approve(@Valid @RequestBody ApproveRequest request) {
+    return adminUserApprovalService.approve(request.userIds());
   }
 }
