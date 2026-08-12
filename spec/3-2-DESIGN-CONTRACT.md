@@ -287,12 +287,30 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 
 | Method | Path | 권한 | 설명 |
 |---|---|---|---|
-| GET | `/admin/users` | ADMIN | 목록 — `status`, `role`, `q`, `sort`, `page`, `size` |
+| GET | `/admin/users` | ADMIN | 목록 — `status`, `role`, `q`, `applied`, `sort`, `page`, `size` |
 | POST | `/admin/users/approve` | ADMIN | 일괄 승인 — body: `{ "userIds": [1,2,3] }` |
 | POST | `/admin/users/reject` | ADMIN | 일괄 거부 — body: `{ "userIds": [1,2,3] }` |
 | PATCH | `/admin/users/{id}/status` | ADMIN | `ACTIVE` ↔ `SUSPENDED` (본인을 `SUSPENDED`로: 마지막 활성 관리자면 차단) |
 | PATCH | `/admin/users/{id}/role` | ADMIN | 권한 부여/회수 (본인 대상: 마지막 활성 관리자면 차단) |
 | DELETE | `/admin/users/{id}` | ADMIN | 회원 제거 (본인 대상: 마지막 활성 관리자면 차단) |
+
+### 목록 파라미터
+
+`GET /admin/users`의 파라미터는 아래로 확정한다 (2026-08-12, #29). 프론트엔드가 먼저 구현하고 §3-2-9에 확인을 요청했던 두 항목이 여기에 흡수됐다.
+
+| 파라미터 | 값 | 비고 |
+|---|---|---|
+| `status` | `PENDING` \| `ACTIVE` \| `SUSPENDED` | |
+| `role` | `USER` \| `ADMIN` | |
+| `q` | 문자열 | 이름·학번·이메일 통합 검색. **대소문자를 가리지 않는 부분 일치**다. 공백뿐이면 거르지 않는다 |
+| `applied` | `true` \| `false` | **신청서 제출 여부** (`applied_at`의 유무) |
+| `sort` | `name` \| `studentNo` \| `appliedAt` | Spring Data 형식이다 — `sort=name`은 `name` 오름차순, `sort=appliedAt,desc`도 받는다 |
+
+**`sort`에 그 밖의 값이 오면 `400 VALIDATION_ERROR`다** (MUST). 조용히 무시하지 않는다 — 관리자는 정렬이 적용된 줄 알고 그 순서를 신뢰해 승인·정지를 누른다. 정렬을 보내지 않으면 **가입 신청일 최신순**이고, **값이 없는 행은 언제나 뒤로 간다** (MUST). PostgreSQL은 `DESC`에서 널을 맨 앞에 올리므로, 그대로 두면 신청조차 하지 않은 계정이 승인 대기자보다 위에 온다.
+
+**`applied`가 필요한 이유는 `status=PENDING`만으로는 승인 대기를 고를 수 없기 때문이다.** 구글 로그인만 해보고 신청서를 내지 않은 계정도 `PENDING`이다. **승인 대상 집합은 `status=PENDING&applied=true`다** — 아래 절이 말하는 `status = 'PENDING' AND applied_at IS NOT NULL`과 같다.
+
+화면에서 거르는 것은 답이 아니다. 서버가 20건을 주고 화면이 그중 일부를 버리면 페이지마다 보이는 건수가 들쭉날쭉하고, 총 건수와 총 페이지 수가 실제와 어긋난다 — 관리자가 "12명 남았다"고 읽는 숫자가 틀리게 된다.
 
 ### 신청일과 승인 대상
 
@@ -324,7 +342,7 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 
 목록 API는 모두 페이지 응답을 쓴다. MVP는 `GET /notices`, `GET /admin/users`, `Post Launch`는 `GET /notes`, `GET /bookmarks`, `GET /photos`가 대상이다.
 
-공통 요청 파라미터는 `page`(0부터 시작), `size`(기본 20)다.
+공통 요청 파라미터는 `page`(0부터 시작), `size`(기본 20, **상한 100**)다. 상한을 두지 않으면 Spring 기본값인 2000까지 한 번에 요청할 수 있다.
 
 응답 형태는 Spring Data `PagedModel`로 고정한다 (MUST).
 
@@ -335,7 +353,9 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 }
 ```
 
-서버는 `@EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO)`를 전역에 한 번 적용한다 (MUST).
+서버는 `spring.data.web.pageable.serialization-mode: via-dto`를 전역에 한 번 설정한다 (MUST).
+
+**같은 뜻의 `@EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO)`를 쓰지 않는다** (2026-08-12, #29에서 확인). 그 애너테이션을 붙이는 순간 Spring Boot의 자동설정이 통째로 물러나 `default-page-size`·`max-page-size` 설정이 **조용히 무시된다** — 응답 형태는 맞는데 `size=2000`이 그대로 통과한다.
 
 `Page` 객체를 그대로 직렬화하지 않는다 (MUST). Spring 3.3+는 이 방식의 구조 안정성을 보장하지 않고 경고를 남기며, `pageable`·`sort`·`offset` 같은 내부 구현 필드가 응답에 노출된다.
 
@@ -396,42 +416,6 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 **`reason`이 부담이면 `"failed": [3]`처럼 id 배열만 주셔도 된다.** 그 경우 화면은 사유를 일반 문구로 안내한다. 형태를 정하는 것이 목적이지 이 형태를 고집하는 것이 아니다.
 
 확인이 필요한 것: **이 응답 형태로 구현하는가, 아니면 다른 형태를 쓰는가.**
-
-### 회원 목록 정렬 파라미터 — 프론트엔드가 쓰는 값
-
-[§3-2-6](#3-2-6-api--회원-관리)은 `GET /admin/users`의 파라미터 이름(`status`, `role`, `q`, `sort`, `page`, `size`)만 적고 **`sort`에 어떤 값이 오는지 말하지 않는다.** [2-2 §2-2-1](2-2-OPERATOR-REQUIREMENTS.md#2-2-1-회원-목록)이 "정렬: 이름, 학번, 가입 신청일"을 요구하므로 프론트엔드는 아래로 구현했다.
-
-| 화면 | 보내는 값 |
-|---|---|
-| 이름순 | `sort=name` |
-| 학번순 | `sort=studentNo` |
-| 신청일 최신순 (기본) | `sort`를 보내지 않는다 |
-
-**서버가 Spring Data 기본 형식(`sort=appliedAt,desc`)을 기대하면 어긋난다.** 값이 다르면 400이 나거나, 조용히 무시되고 다른 순서의 명단이 온다. 후자가 더 위험하다 — 관리자는 정렬이 적용된 줄 알고 그 순서를 신뢰한다.
-
-기본 정렬을 신청일 최신순으로 잡은 것도 가정이다. 승인 대기자를 먼저 처리하는 화면이라 그렇게 두었다.
-
-확인이 필요한 것: **`sort` 값의 형식과 기본 정렬.** Spring 식으로 가면 프론트엔드가 `sort=name,asc` 형태로 맞춘다.
-
-### `PENDING`을 신청 여부로 가르는 방법이 없다
-
-[§3-2-6](#3-2-6-api--회원-관리)의 `GET /admin/users` 필터는 `status`·`role`·`q`뿐이다. **`status=PENDING`으로 거르면 신청서를 낸 계정과 내지 않은 계정이 함께 온다.**
-
-그런데 [§3-1-4](3-1-DESIGN-ARCHITECTURE.md#3-1-4-auth-01-가입-신청)는 이 상황을 이렇게 걱정한다.
-
-> 구글 로그인만 해보고 신청하지 않은 계정이 관리자의 승인 목록에 섞이면 운영이 어려워진다
-
-**"승인 대기만 보여줘"가 이 화면에서 제일 잦은 작업인데 지금은 할 수 없다.**
-
-클라이언트에서 거르는 것은 답이 아니다. 페이지네이션과 맞지 않는다 — 서버가 20건을 주고 화면이 그중 일부를 버리면 페이지마다 보이는 건수가 들쭉날쭉하고, 총 건수와 총 페이지 수가 실제와 어긋난다. 관리자가 "12명 남았다"고 읽는 숫자가 틀리게 된다.
-
-**요청은 "`PENDING`을 신청 여부로 가를 수 있는 방법"이다.** 파라미터 이름과 형태는 서버가 정하면 된다 — `applied=true` 같은 별도 파라미터든, `status=PENDING_APPLIED` 같은 값이든, 정렬·필터 규약에 맞는 쪽이면 무엇이든 화면이 맞춘다.
-
-그때까지의 임시 조치: 화면은 상태 필터의 `PENDING` 라벨을 **"미승인"**으로 쓴다. 이 필터는 `PENDING` 전부를 데려오므로 — 목록에서 "미승인"으로 표시되는 계정과 "승인 대기"로 표시되는 계정을 함께 — 둘을 아우르는 이름이어야 한다. "승인 대기"라고 적으면 필터가 거짓말을 한다.
-
-**같은 낱말이 두 범위로 쓰인다는 점에 주의한다.** 필터의 "미승인"은 `PENDING` 전부이고, 목록 상태 칸의 "미승인"은 그중 **신청서를 내지 않은 계정**만이다 (`applied_at IS NULL`). 상태 칸은 여전히 "미승인"과 "승인 대기"를 가른다.
-
-확인이 필요한 것: **`PENDING`을 신청 여부로 가르는 파라미터를 추가할 수 있는가.**
 
 ---
 [← 이전: 아키텍처](3-1-DESIGN-ARCHITECTURE.md) · [다음: 결정 기록 →](3-3-DESIGN-DECISIONS.md)
