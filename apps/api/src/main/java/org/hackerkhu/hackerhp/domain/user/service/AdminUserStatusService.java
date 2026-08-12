@@ -17,7 +17,8 @@ import org.hackerkhu.hackerhp.global.error.ErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** 회원 상태 변경 — 정지와 해제 (spec 2-2 §2-2-3). */
 @Service
@@ -27,11 +28,15 @@ public class AdminUserStatusService {
 
   private final UserRepository userRepository;
   private final SessionSynchronizer sessionSynchronizer;
+  private final TransactionTemplate transaction;
 
   public AdminUserStatusService(
-      UserRepository userRepository, SessionSynchronizer sessionSynchronizer) {
+      UserRepository userRepository,
+      SessionSynchronizer sessionSynchronizer,
+      PlatformTransactionManager transactionManager) {
     this.userRepository = userRepository;
     this.sessionSynchronizer = sessionSynchronizer;
+    this.transaction = new TransactionTemplate(transactionManager);
   }
 
   /**
@@ -42,12 +47,24 @@ public class AdminUserStatusService {
    *
    * @param requesterId 요청한 관리자. <b>잠근 뒤 다시 확인한다</b> — 인가는 세션 값으로 이루어지므로 그 사이에 이 사람이 정지됐을 수 있다
    */
-  @Transactional
   public AdminUserResponse change(Long requesterId, Long targetId, Target target) {
+    AdminUserResponse changed =
+        transaction.execute(ignored -> apply(requesterId, targetId, target));
+
+    /*
+     * 세션 반영은 커밋 뒤다 (3-1 §3-1-5). @Transactional 대신 템플릿을 쓰는 이유가 이것이다 —
+     * execute가 돌아온 시점에는 커밋도 끝나고 커넥션도 반납돼 있어, 갱신이 커넥션을 겹쳐 잡지
+     * 않는다. 트랜잭션 안에서 부르면 되돌아간 변경이 세션에만 남는다.
+     */
+    sessionSynchronizer.refresh(List.of(changed.id()));
+    return changed;
+  }
+
+  private AdminUserResponse apply(Long requesterId, Long targetId, Target target) {
     Status desired = target == Target.SUSPENDED ? Status.SUSPENDED : Status.ACTIVE;
     Map<Long, User> locked = lockRowsInIdOrder(requesterId, targetId, desired);
 
-    requireStillAdmin(locked.get(requesterId), requesterId);
+    RequesterCheck.requireActiveAdmin(locked.get(requesterId), requesterId);
 
     User user =
         locked.containsKey(targetId) ? locked.get(targetId) : orElseNotFound(); // 잠글 때 없던 행이다.
@@ -78,16 +95,7 @@ public class AdminUserStatusService {
           desired);
     }
 
-    /*
-     * 이미 그 상태였더라도 세션을 다시 맞춘다.
-     *
-     * 세션 갱신 실패는 예외로 올리지 않고 기록만 한다(SessionSynchronizer). 그러면 같은 요청을
-     * 다시 보내는 것이 유일한 복구 수단인데, 여기서 일찍 돌아가 버리면 그 재시도가 아무 일도
-     * 하지 않는다 — 정지된 사람이 만료까지 계속 쓰게 된다.
-     *
-     * 정지는 세션을 지우지 않고 갱신한다. 지우면 401이 되어 화면이 정지 안내를 띄우지 못한다.
-     */
-    sessionSynchronizer.refreshAfterCommit(List.of(user));
+    // 이미 그 상태였더라도 위에서 세션을 다시 맞춘다 — 재요청이 갱신 실패의 복구 수단이다.
     return AdminUserResponse.from(user);
   }
 
@@ -108,30 +116,6 @@ public class AdminUserStatusService {
     Map<Long, User> locked = new LinkedHashMap<>();
     ids.forEach(id -> userRepository.findByIdForUpdate(id).ifPresent(user -> locked.put(id, user)));
     return locked;
-  }
-
-  /**
-   * <b>인가는 세션 값으로 이루어진다.</b> 요청이 인증을 통과한 뒤에도 다른 관리자가 이 사람을 정지하거나 권한을 회수할 수 있고, 잠금을 기다리는 동안이면 그 사이가
-   * 더 길다.
-   *
-   * <p>다시 확인하지 않으면 <b>이미 정지된 관리자의 대기 중 요청이 그대로 커밋된다.</b>
-   */
-  private static void requireStillAdmin(User requester, Long requesterId) {
-    if (requester == null) {
-      // 세션은 살아 있는데 계정이 사라졌다. 인증이 성립할 수 없는 상태다.
-      throw new BusinessException(ErrorCode.UNAUTHENTICATED);
-    }
-    // 코드를 상태별로 가른다 — 필터가 막았을 때와 같은 사유가 나가야 화면이 안내를 고른다 (§3-2-7).
-    if (requester.getStatus() == Status.SUSPENDED) {
-      throw new BusinessException(ErrorCode.SUSPENDED);
-    }
-    if (requester.getStatus() == Status.PENDING) {
-      throw new BusinessException(ErrorCode.PENDING_APPROVAL);
-    }
-    if (requester.getRole() != Role.ADMIN) {
-      log.info("권한이 회수된 관리자의 대기 중 요청을 거절했다: requesterId={}", requesterId);
-      throw new BusinessException(ErrorCode.FORBIDDEN);
-    }
   }
 
   private static boolean isActiveAdmin(User user) {

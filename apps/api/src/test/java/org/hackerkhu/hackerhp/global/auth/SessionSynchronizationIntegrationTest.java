@@ -33,7 +33,6 @@ import org.springframework.session.Session;
 import org.springframework.session.SessionRepository;
 import org.springframework.session.web.http.CookieSerializer;
 import org.springframework.session.web.http.DefaultCookieSerializer;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -230,9 +229,8 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
     ahead.setAttribute(AuthSession.VERSION, Long.MAX_VALUE);
     save(ahead);
 
-    // 그 뒤에 옛 트랜잭션의 콜백이 도착한다 — 회원은 아직 ACTIVE이고 버전이 낮다.
-    sessionSynchronizer.refreshAfterCommit(
-        List.of(userRepository.findById(member.getId()).orElseThrow()));
+    // 그 뒤에 갱신이 도착한다 — DB의 회원은 아직 ACTIVE이고 버전이 낮다.
+    sessionSynchronizer.refresh(List.of(member.getId()));
 
     mockMvc
         .perform(as(signedIn, get(DOCS)))
@@ -243,42 +241,38 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
   /**
    * 앞뒤 콜백이 <b>동시에</b> 도착해도 새 값이 남는다.
    *
-   * <p>버전을 비교하는 것만으로는 부족하다 — 둘이 같은 옛 세션을 함께 읽으면 <b>둘 다 비교를 통과하고</b> 나중에 저장하는 쪽이 이긴다. 읽기부터 저장까지를 그
-   * 사람의 계정 행으로 한 줄로 세워야 한다.
+   * <p>계정을 읽는 것부터 세션에 쓰는 것까지를 그 사람의 계정 행으로 한 줄로 세운다. 값을 미리 읽어 들고 오는 방식이면 <b>둘이 같은 옛 값을 함께 들고 와</b>
+   * 나중에 저장하는 쪽이 이긴다.
+   *
+   * <p><b>이 사례가 잠금이 빠진 구현을 언제나 잡아내지는 않는다</b> — 두 작업이 실제로 겹치지 않으면 그대로 통과한다. 타이밍에 기대지 않는 확인은 T-173이
+   * 한다.
    */
   @Test
   void concurrentRefreshesLeaveTheNewerValue() throws Exception {
     SignedIn signedIn = signIn(member);
 
-    User newer = userRepository.findById(member.getId()).orElseThrow();
     transactionTemplate.executeWithoutResult(
         ignored -> userRepository.findById(member.getId()).orElseThrow().suspend());
-    User olderSnapshot = userRepository.findById(member.getId()).orElseThrow();
-    // 버전만 되돌린 옛 스냅샷 — 앞선 트랜잭션의 콜백이 늦게 도착한 상황이다.
-    ReflectionTestUtils.setField(olderSnapshot, "version", 0L);
-    ReflectionTestUtils.setField(olderSnapshot, "status", Status.ACTIVE);
-    User newerSnapshot = userRepository.findById(member.getId()).orElseThrow();
 
     CyclicBarrier ready = new CyclicBarrier(2);
     ExecutorService pool = Executors.newFixedThreadPool(2);
     try {
-      pool.invokeAll(List.of(push(olderSnapshot, ready), push(newerSnapshot, ready)));
+      pool.invokeAll(List.of(push(member.getId(), ready), push(member.getId(), ready)));
     } finally {
       pool.shutdownNow();
       pool.awaitTermination(10, TimeUnit.SECONDS);
     }
 
-    assertThat(newer.getId()).isEqualTo(member.getId());
     mockMvc
         .perform(as(signedIn, get(DOCS)))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("SUSPENDED"));
   }
 
-  private Callable<Boolean> push(User snapshot, CyclicBarrier ready) {
+  private Callable<Boolean> push(Long userId, CyclicBarrier ready) {
     return () -> {
       ready.await(10, TimeUnit.SECONDS);
-      sessionSynchronizer.refreshAfterCommit(List.of(snapshot));
+      sessionSynchronizer.refresh(List.of(userId));
       return true;
     };
   }
@@ -325,11 +319,8 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
     mockMvc.perform(as(adminSession, get(ADMIN_USERS))).andExpect(status().isOk());
 
     transactionTemplate.executeWithoutResult(
-        ignored -> {
-          User target = userRepository.findById(admin.getId()).orElseThrow();
-          target.demoteToUser();
-          sessionSynchronizer.refreshAfterCommit(List.of(target));
-        });
+        ignored -> userRepository.findById(admin.getId()).orElseThrow().demoteToUser());
+    sessionSynchronizer.refresh(List.of(admin.getId()));
 
     mockMvc
         .perform(as(adminSession, get(ADMIN_USERS)))
@@ -351,11 +342,11 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
 
     transactionTemplate.executeWithoutResult(
         status -> {
-          User target = userRepository.findById(member.getId()).orElseThrow();
-          target.suspend();
-          sessionSynchronizer.refreshAfterCommit(List.of(target));
+          userRepository.findById(member.getId()).orElseThrow().suspend();
           status.setRollbackOnly();
         });
+    // 커밋되지 않았으므로 갱신을 부르지 않는다. 불러도 잠근 채 읽은 값은 여전히 ACTIVE다.
+    sessionSynchronizer.refresh(List.of(member.getId()));
 
     mockMvc.perform(as(signedIn, get(DOCS))).andExpect(status().isOk());
   }

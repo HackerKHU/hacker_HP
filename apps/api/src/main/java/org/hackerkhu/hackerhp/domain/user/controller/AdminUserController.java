@@ -163,8 +163,9 @@ public class AdminUserController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @PostMapping("/approve")
   @PreAuthorize("hasRole('ADMIN')")
-  public ApproveResponse approve(@Valid @RequestBody ApproveRequest request) {
-    return adminUserApprovalService.approve(request.userIds());
+  public ApproveResponse approve(
+      @AuthenticationPrincipal Long requesterId, @Valid @RequestBody ApproveRequest request) {
+    return adminUserApprovalService.approve(requesterId, request.userIds());
   }
 
   /**

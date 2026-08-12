@@ -1,6 +1,7 @@
 package org.hackerkhu.hackerhp.domain.user;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -12,8 +13,11 @@ import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.domain.user.service.AdminUserApprovalService;
 import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
+import org.hackerkhu.hackerhp.global.error.BusinessException;
+import org.hackerkhu.hackerhp.global.error.ErrorCode;
 import org.hackerkhu.testsupport.session.InMemorySessionConfig;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
@@ -47,6 +51,7 @@ class AdminUserApprovalIntegrationTest extends AbstractIntegrationTest {
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository userRepository;
   @Autowired private JwtProvider jwtProvider;
+  @Autowired private AdminUserApprovalService approvalService;
 
   private User admin;
   private User applicant;
@@ -295,6 +300,26 @@ class AdminUserApprovalIntegrationTest extends AbstractIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(ids(applicant.getId())))
         .andExpect(status().isForbidden());
+
+    assertThat(statusOf(applicant)).isEqualTo(Status.PENDING);
+  }
+
+  /**
+   * 요청이 인가를 지난 <b>뒤에</b> 요청자가 정지되면 그 승인은 커밋되지 않는다 (T-172).
+   *
+   * <p>인가는 세션 값으로 이루어지므로, 대상 행을 기다리는 동안 다른 관리자가 이 사람을 정지시켰을 수 있다. 다시 확인하지 않으면 <b>정지된 관리자가 회원을
+   * 활성화한다.</b>
+   */
+  @Test
+  void suspendedRequesterCannotFinishAPendingApproval() {
+    User toSuspend = userRepository.findById(admin.getId()).orElseThrow();
+    toSuspend.suspend();
+    userRepository.saveAndFlush(toSuspend);
+
+    assertThatThrownBy(() -> approvalService.approve(admin.getId(), List.of(applicant.getId())))
+        .isInstanceOf(BusinessException.class)
+        .satisfies(
+            e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.SUSPENDED));
 
     assertThat(statusOf(applicant)).isEqualTo(Status.PENDING);
   }
