@@ -1,8 +1,11 @@
 package org.hackerkhu.hackerhp.domain.notice.service;
 
+import org.hackerkhu.hackerhp.domain.notice.dto.NoticeRequest;
 import org.hackerkhu.hackerhp.domain.notice.dto.NoticeResponse;
 import org.hackerkhu.hackerhp.domain.notice.entity.Notice;
 import org.hackerkhu.hackerhp.domain.notice.repository.NoticeRepository;
+import org.hackerkhu.hackerhp.domain.user.entity.User;
+import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
 import org.springframework.data.domain.Page;
@@ -12,7 +15,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 공지 조회. 등록·수정·삭제·고정 토글은 ADMIN 전용 API가 맡는다 (spec/2-1 §2-1-6) — 여기서 다루지 않는다. */
+/** 공지 조회·등록·수정·삭제 (spec 2-1 §2-1-6, 2-2 §2-2-6). 고정 토글은 별도 API(#34)가 맡는다. */
 @Service
 @Transactional(readOnly = true)
 public class NoticeService {
@@ -22,9 +25,11 @@ public class NoticeService {
       Sort.by(Sort.Order.desc("pinned"), Sort.Order.desc("createdAt"));
 
   private final NoticeRepository noticeRepository;
+  private final UserRepository userRepository;
 
-  public NoticeService(NoticeRepository noticeRepository) {
+  public NoticeService(NoticeRepository noticeRepository, UserRepository userRepository) {
     this.noticeRepository = noticeRepository;
+    this.userRepository = userRepository;
   }
 
   /**
@@ -41,5 +46,34 @@ public class NoticeService {
     Notice notice =
         noticeRepository.findById(id).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
     return NoticeResponse.from(notice);
+  }
+
+  /**
+   * 작성자는 인증 주체의 id로만 정한다 — 요청 본문으로 받지 않는다. 그러면 다른 사람 이름으로 공지를 등록할 수 있다.
+   *
+   * <p>참조만 필요하므로 {@code getReferenceById}를 쓴다. 작성자 정보를 이 요청에서 쓰지 않는데 굳이 조회할 이유가 없다.
+   */
+  @Transactional
+  public NoticeResponse create(Long authorId, NoticeRequest request) {
+    User author = userRepository.getReferenceById(authorId);
+    Notice notice = Notice.write(request.title(), request.content(), author);
+    noticeRepository.save(notice);
+    return NoticeResponse.from(notice);
+  }
+
+  @Transactional
+  public NoticeResponse update(Long id, NoticeRequest request) {
+    Notice notice =
+        noticeRepository.findById(id).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+    notice.edit(request.title(), request.content());
+    return NoticeResponse.from(notice);
+  }
+
+  @Transactional
+  public void delete(Long id) {
+    if (!noticeRepository.existsById(id)) {
+      throw new BusinessException(ErrorCode.NOT_FOUND);
+    }
+    noticeRepository.deleteById(id);
   }
 }
