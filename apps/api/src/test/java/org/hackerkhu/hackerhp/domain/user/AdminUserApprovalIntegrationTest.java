@@ -309,6 +309,9 @@ class AdminUserApprovalIntegrationTest extends AbstractIntegrationTest {
    *
    * <p>인가는 세션 값으로 이루어지므로, 대상 행을 기다리는 동안 다른 관리자가 이 사람을 정지시켰을 수 있다. 다시 확인하지 않으면 <b>정지된 관리자가 회원을
    * 활성화한다.</b>
+   *
+   * <p><b>확인하는 것은 계약이지 타이밍이 아니다</b> — "이미 정지된 요청자의 요청은 커밋되지 않는다". 잠금을 기다리는 그 순간에 정지가 끼어드는 장면까지
+   * 재현하려면 서비스 안에 latch를 심어야 하는데, 그것은 확인하려는 계약이 아니라 구현의 한 지점을 고정하는 일이다.
    */
   @Test
   void suspendedRequesterCannotFinishAPendingApproval() {

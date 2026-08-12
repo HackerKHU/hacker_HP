@@ -2,6 +2,7 @@ package org.hackerkhu.hackerhp.global.auth;
 
 import java.util.Collection;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.slf4j.Logger;
@@ -38,9 +39,21 @@ public class SessionSynchronizer {
    * 한 사람의 세션 갱신을 <b>인스턴스 사이에서도</b> 한 줄로 세우는 트랜잭션.
    *
    * <p>전파는 기본값이다. 이 클래스는 <b>바깥 트랜잭션이 끝난 뒤</b> 불리므로 새로 열 것이 없고, {@code REQUIRES_NEW}로 겹쳐 열면 아직 반납되지
-   * 않은 커넥션 위에 하나를 더 잡는다 — 세션 저장소가 또 자기 것을 열므로 스레드마다 셋이 되어 풀이 마른다.
+   * 않은 커넥션 위에 하나를 더 잡는다.
    */
   private final TransactionTemplate serialize;
+
+  /**
+   * 동시에 갱신하는 스레드 수의 상한.
+   *
+   * <p><b>이 작업은 커넥션을 두 개 겹쳐 잡는다</b> — 계정 행을 잠근 트랜잭션이 하나를 쥔 채, 세션 저장소가 자기 트랜잭션으로 하나를 더 연다({@code
+   * JdbcIndexedSessionRepository}는 그 전파 방식을 생성자에서만 받아 바깥에서 바꿀 수 없다). 겹쳐 잡는 스레드가 풀 크기만큼 모이면 <b>모두가 두
+   * 번째 커넥션을 기다리며 서로를 막는다.</b>
+   *
+   * <p>기다림은 아래 {@code catch}가 삼키므로 <b>정지 API는 성공하고 세션만 옛 값으로 남는다</b> — 조용히 틀리는 쪽이라 상한을 둔다. 풀 기본값이
+   * 10이므로 둘이면 넉넉하다. 관리자 조작은 초당 몇 건이 아니어서 이 상한이 병목이 되지 않는다.
+   */
+  private static final Semaphore NESTED_CONNECTIONS = new Semaphore(2);
 
   /**
    * 저장소의 실제 세션 타입({@code JdbcSession})은 공개되어 있지 않아 와일드카드로 주입받고 여기서 좁힌다. {@code save(S)}가 {@code
@@ -82,7 +95,15 @@ public class SessionSynchronizer {
    */
   private void refresh(Long userId) {
     try {
-      serialize.executeWithoutResult(ignored -> refreshLocked(userId));
+      NESTED_CONNECTIONS.acquire();
+      try {
+        serialize.executeWithoutResult(ignored -> refreshLocked(userId));
+      } finally {
+        NESTED_CONNECTIONS.release();
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      log.error("세션 갱신이 중단됐다: userId={}", userId, e);
     } catch (RuntimeException e) {
       /*
        * 여기서 던지면 이미 커밋된 변경까지 실패한 것처럼 보인다. 세션은 옛 값으로 남고
