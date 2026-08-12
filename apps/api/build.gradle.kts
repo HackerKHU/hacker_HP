@@ -25,6 +25,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-oauth2-client")
+    // Boot BOM이 관리하지 않아 버전을 직접 적는다. Boot 3.5는 springdoc 2.8.x다.
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.9")
     // 세션은 RDS에 둔다. Fargate Spot이라 메모리에 두면 회수 시 전원 로그아웃된다 (3-1 §3-1-5).
     implementation("org.springframework.session:spring-session-jdbc")
     implementation("org.flywaydb:flyway-core")

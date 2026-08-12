@@ -70,6 +70,17 @@ curl http://localhost:8080/actuator/health
 
 **로그아웃은 세션을 지우는 것으로 성립한다.** 쿠키에 토큰이 남아 있어도 세션이 없으면 다음 요청은 `401`이다.
 
+## API 문서
+
+```
+http://localhost:8080/swagger-ui/index.html
+http://localhost:8080/v3/api-docs
+```
+
+**로그인해야 열린다** — 승인제 사이트라 명세를 공개하지 않는다 (#23). 같은 브라우저에서 구글 로그인을 마친 뒤 열면 된다.
+
+Swagger UI의 "Try it out"은 **조회만 동작한다.** 인증 쿠키가 `httpOnly`라 화면이 넣어줄 수 없고, 쓰기에 필요한 `X-XSRF-TOKEN` 헤더도 UI가 채우지 못한다. 쓰기 확인은 화면과 테스트가 한다.
+
 ## 검증
 
 ```bash

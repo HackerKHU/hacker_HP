@@ -14,7 +14,9 @@
 ## 현재 보일러플레이트 범위
 
 - Java 21, Spring Boot 3.5, Gradle Kotlin DSL을 사용한다.
-- 현재 허용된 HTTP 동작은 `/actuator/health`, 구글 OAuth 경로, `GET /auth/csrf`, `GET /auth/me`, `POST /auth/logout`, `POST /auth/application`이다.
+- 현재 허용된 HTTP 동작은 `/actuator/health`, 구글 OAuth 경로, `GET /auth/csrf`, `GET /auth/me`, `POST /auth/logout`, `POST /auth/application`, 그리고 API 문서(`/v3/api-docs`, Swagger UI)다.
+- **API 문서는 로그인해야 볼 수 있다** (#23에서 정했다). `permitAll`에 문서 경로를 더하지 않는다 — 승인제 사이트라 명세가 공개되면 엔드포인트·필드·검증 규칙이 전부 드러난다.
+- **새 API에는 `@Operation`과 `@ApiResponse`를 붙인다.** 응답 코드 설명에는 계약의 에러 코드를 적는다 (`AuthController`가 본보기다).
 - **인증은 `ACCESS_TOKEN`(JWT)과 세션이 함께 있어야 성립한다.** 한쪽만으로 통과시키는 코드를 넣지 않는다 ([3-1 §3-1-5](../../spec/3-1-DESIGN-ARCHITECTURE.md) MUST).
 - **권한은 `ROLE_*`와 `STATUS_*` 두 축이다.** 권한 매트릭스([3-1 §3-1-3](../../spec/3-1-DESIGN-ARCHITECTURE.md))가 Role과 Status를 함께 보므로 `@PreAuthorize`도 둘을 함께 쓴다 — 신청서 제출은 `hasAuthority('STATUS_PENDING')`, 공지 등록은 `hasRole('ADMIN') and hasAuthority('STATUS_ACTIVE')`. **Status를 서비스 안에서 따로 검사하지 않는다.** 매트릭스와 코드가 갈라지고, 검사를 빠뜨린 API가 조용히 열린다.
 - 권한 판단은 세션 값이다. **저장 직전에 상태가 바뀔 수 있는 작업은 행을 잠그고 다시 확인한다** ([3-1 §3-1-4](../../spec/3-1-DESIGN-ARCHITECTURE.md) MUST).
