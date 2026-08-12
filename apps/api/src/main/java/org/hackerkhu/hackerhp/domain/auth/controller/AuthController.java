@@ -15,6 +15,7 @@ import org.hackerkhu.hackerhp.domain.auth.dto.MeResponse;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.domain.user.service.UserApplicationService;
 import org.hackerkhu.hackerhp.global.auth.AccessTokenCookie;
+import org.hackerkhu.hackerhp.global.auth.PublicApi;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
 import org.hackerkhu.hackerhp.global.error.ErrorResponse;
@@ -85,6 +86,7 @@ public class AuthController {
    */
   @SecurityRequirements
   @ApiResponse(responseCode = "204", description = "쿠키 발급됨")
+  @PublicApi(reason = "세션도 토큰도 없는 최초 진입에 필요하다 (3-2 §3-2-3 MUST)")
   @GetMapping("/csrf")
   public ResponseEntity<Void> csrf(HttpServletRequest request, HttpServletResponse response) {
     CsrfToken token = csrfTokenRepository.loadToken(request);

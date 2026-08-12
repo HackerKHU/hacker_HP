@@ -18,7 +18,11 @@
 - **API 문서는 로그인해야 볼 수 있다** (#23에서 정했다). `permitAll`에 문서 경로를 더하지 않는다 — 승인제 사이트라 명세가 공개되면 엔드포인트·필드·검증 규칙이 전부 드러난다.
 - **새 API에는 `@Operation`과 `@ApiResponse`를 붙인다.** 응답 코드 설명에는 계약의 에러 코드를 적는다 (`AuthController`가 본보기다).
 - **인증은 `ACCESS_TOKEN`(JWT)과 세션이 함께 있어야 성립한다.** 한쪽만으로 통과시키는 코드를 넣지 않는다 ([3-1 §3-1-5](../../spec/3-1-DESIGN-ARCHITECTURE.md) MUST).
-- **권한은 `ROLE_*`와 `STATUS_*` 두 축이다.** 권한 매트릭스([3-1 §3-1-3](../../spec/3-1-DESIGN-ARCHITECTURE.md))가 Role과 Status를 함께 보므로 `@PreAuthorize`도 둘을 함께 쓴다 — 신청서 제출은 `hasAuthority('STATUS_PENDING')`, 공지 등록은 `hasRole('ADMIN') and hasAuthority('STATUS_ACTIVE')`. **Status를 서비스 안에서 따로 검사하지 않는다.** 매트릭스와 코드가 갈라지고, 검사를 빠뜨린 API가 조용히 열린다.
+- **모든 엔드포인트는 접근 규칙을 선언한다.** `@PreAuthorize`로 권한을 적거나, 인증 없이 열 것이면 `@PublicApi(reason = "...")`로 그렇게 말한다. 빠뜨리면 `EndpointAuthorizationGuardTest`가 실패한다 (T-146).
+- **관리자 API에는 `hasRole('ADMIN')`만 적는다.** `ACTIVE` 조건은 `AccountStatusFilter`가 인가보다 먼저 보장한다 — 같은 규칙을 두 곳에 두면 한쪽만 고쳐진다 (T-147).
+- **권한은 `ROLE_*`와 `STATUS_*` 두 축이다.** 세션이 둘 다 authority로 내보내므로 `@PreAuthorize`가 매트릭스([3-1 §3-1-3](../../spec/3-1-DESIGN-ARCHITECTURE.md))를 그대로 옮겨 적을 수 있다 — 신청서 제출은 `hasAuthority('STATUS_PENDING')`, 관리자 API는 `hasRole('ADMIN')`. **Status를 서비스 안에서 따로 검사하지 않는다.** 매트릭스와 코드가 갈라지고, 검사를 빠뜨린 API가 조용히 열린다.
+
+  `STATUS_*`를 인가에 직접 쓰는 것은 **`PENDING` 전용 경로뿐이다.** 나머지는 `AccountStatusFilter`가 이미 `ACTIVE`만 통과시키므로 다시 적지 않는다.
 - **상태 차단은 인가보다 먼저다.** `AccountStatusFilter`가 `PENDING`·`SUSPENDED`를 각각의 코드로 막는다 — `@PreAuthorize`에 맡기면 사유가 `FORBIDDEN` 하나로 뭉개져 화면이 안내를 고르지 못한다. **인증 영역에 API를 더하면 기본적으로 막히므로**, 신청·대기에 필요한 경로만 그 필터의 통과 목록에 넣는다.
 - 권한 판단은 세션 값이다. **저장 직전에 상태가 바뀔 수 있는 작업은 행을 잠그고 다시 확인한다** ([3-1 §3-1-4](../../spec/3-1-DESIGN-ARCHITECTURE.md) MUST).
 - 기능 API를 추가할 때 컨트롤러 경로는 `/api/v1`로 시작한다 ([`../../spec/3-2-DESIGN-CONTRACT.md`](../../spec/3-2-DESIGN-CONTRACT.md)). `/actuator`와 springdoc 경로는 버전을 붙이지 않는다.

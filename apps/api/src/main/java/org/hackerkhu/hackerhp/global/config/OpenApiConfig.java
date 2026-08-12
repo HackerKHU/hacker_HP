@@ -10,9 +10,12 @@ import io.swagger.v3.oas.models.security.SecurityScheme;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import org.hackerkhu.hackerhp.global.auth.PublicApi;
 import org.springdoc.core.customizers.OpenApiCustomizer;
+import org.springdoc.core.customizers.OperationCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 /**
  * API 명세. 구현된 계약을 프론트엔드가 문서로 확인하는 자리다.
@@ -31,6 +34,9 @@ public class OpenApiConfig {
 
   /** 상태를 바꾸는 요청에 필요한 CSRF 토큰 (spec 3-2 §3-2-3). */
   static final String CSRF_SCHEME = "csrfToken";
+
+  /** 설명 끝에 붙는 줄. 화면이 알아야 할 것은 "무엇을 실어 보내는가"가 아니라 "누가 부를 수 있는가"다. */
+  private static final String ACCESS_HEADING = System.lineSeparator() + "**접근 권한** — ";
 
   private static final Set<PathItem.HttpMethod> WRITE_METHODS =
       EnumSet.of(
@@ -112,6 +118,33 @@ public class OpenApiConfig {
                 .addList(ACCESS_TOKEN_SCHEME)
                 .addList(SESSION_SCHEME)
                 .addList(CSRF_SCHEME)));
+  }
+
+  /**
+   * 각 엔드포인트의 <b>접근 권한</b>을 설명에 적는다 (#28).
+   *
+   * <p>보안 스킴은 "무엇을 실어 보내야 하는가"만 말한다 — 쿠키 두 개와 CSRF 토큰. 그런데 화면이 알아야 할 것은 <b>누가 부를 수 있는가</b>이고, 그것은
+   * 권한 매트릭스(spec 3-1 §3-1-3)에 있다.
+   *
+   * <p>{@code @PreAuthorize}의 식을 그대로 옮긴다. 사람이 다시 적으면 <b>코드와 문서가 갈라진다</b> — 표가 원본이라는 규칙을 지키려고 만든 문서가
+   * 거짓이 되는 것이 가장 나쁘다.
+   */
+  @Bean
+  public OperationCustomizer documentAccessRules() {
+    return (operation, handlerMethod) -> {
+      PreAuthorize rule = handlerMethod.getMethodAnnotation(PreAuthorize.class);
+      String access =
+          rule != null
+              ? "`" + rule.value() + "`"
+              : handlerMethod.hasMethodAnnotation(PublicApi.class)
+                  ? "인증 없이 호출한다. " + handlerMethod.getMethodAnnotation(PublicApi.class).reason()
+                  : null;
+      if (access == null) {
+        return operation;
+      }
+      String description = operation.getDescription() == null ? "" : operation.getDescription();
+      return operation.description(description + System.lineSeparator() + ACCESS_HEADING + access);
+    };
   }
 
   private static SecurityScheme cookie(String name) {
