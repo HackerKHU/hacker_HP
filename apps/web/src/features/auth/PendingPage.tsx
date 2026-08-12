@@ -207,9 +207,14 @@ export function PendingPage() {
             <p role="alert" className="mt-6 text-sm text-muted-foreground">
               {error}
             </p>
+            {/*
+              아래 대기 화면의 "다시 확인"과 같은 동작·같은 라벨이므로 모양도 같다.
+              여기서만 좁으면, 다시 확인이 성공해 대기 화면으로 넘어가는 순간 같은
+              버튼이 전체폭으로 늘어난다.
+            */}
             <Button
               type="button"
-              className="mt-4"
+              className="mt-4 w-full"
               disabled={checking}
               onClick={handleRecheck}
             >
