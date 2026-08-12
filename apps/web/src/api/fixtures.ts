@@ -627,7 +627,16 @@ export function fixtureApproveUsers(userIds: number[]): Promise<ApproveResult> {
   const result: ApproveResult = { approved: [], failed: [] }
   for (const id of userIds) {
     const found = MEMBERS.find((user) => user.id === id)
-    if (found?.status !== 'PENDING' || found.appliedAt === null) {
+    // 사유를 서버와 같이 가른다. 하나로 뭉개면 화면이 거짓 원인을 안내한다.
+    if (!found) {
+      result.failed.push({ userId: id, reason: 'NOT_FOUND' })
+      continue
+    }
+    if (found.status !== 'PENDING') {
+      result.failed.push({ userId: id, reason: 'NOT_PENDING' })
+      continue
+    }
+    if (found.appliedAt === null) {
       result.failed.push({ userId: id, reason: 'NOT_APPLIED' })
       continue
     }

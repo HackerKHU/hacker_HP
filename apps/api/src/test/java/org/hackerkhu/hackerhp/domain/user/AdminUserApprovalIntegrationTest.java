@@ -239,6 +239,24 @@ class AdminUserApprovalIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
   }
 
+  /**
+   * <b>중복으로 상한을 우회할 수 없다.</b>
+   *
+   * <p>요청 DTO에서 중복을 걸러내면 {@code @Size}가 원본이 아니라 줄어든 목록을 보게 되어, 같은 id를 101번 담은 요청이 한 건으로 줄어 상한을 그냥
+   * 통과한다. 상한은 원본 배열에 걸어야 뜻이 있다.
+   */
+  @Test
+  void repeatingOneIdDoesNotSlipPastTheLimit() throws Exception {
+    Long[] repeated = new Long[101];
+    java.util.Arrays.fill(repeated, applicant.getId());
+    mockMvc
+        .perform(approve(ids(repeated)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+    assertThat(statusOf(applicant)).isEqualTo(Status.PENDING);
+  }
+
   /* ---------------------------------------------------------------- 권한 */
 
   /** T-05의 형태. 승인은 관리자만 할 수 있다. */

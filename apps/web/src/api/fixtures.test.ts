@@ -413,6 +413,12 @@ describe('회원 관리 픽스처', () => {
     expect(stayed?.status).toBe('PENDING')
     const approved = after.content.find((user) => user.id === applied.id)
     expect(approved?.status).toBe('ACTIVE')
+
+    // 방금 승인된 계정을 다시 보내면 사유가 다르다. 뭉개면 화면이 거짓 원인을 안내한다.
+    const again = await fixtureApproveUsers([applied.id])
+    expect(again.failed).toEqual([
+      { userId: applied.id, reason: 'NOT_PENDING' },
+    ])
     expect(approved?.approvedAt).not.toBeNull()
   })
 

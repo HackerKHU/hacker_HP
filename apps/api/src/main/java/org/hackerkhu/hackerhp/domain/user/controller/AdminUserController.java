@@ -37,6 +37,10 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>{@code /api/v1/admin/**}에는 필터 체인에도 같은 규칙이 걸려 있다. 본문을 읽기 전에 끊어야 권한 부족이 {@code 400}으로 둔갑하지 않는다
  * (T-148).
+ *
+ * <p><b>거절은 세 갈래다.</b> {@code AccountStatusFilter}가 인가보다 먼저 {@code SUSPENDED}·{@code
+ * PENDING_APPROVAL}을 각각의 코드로 막고, 권한이 모자란 경우만 {@code FORBIDDEN}이다 (§3-2-7). 셋 다 {@code 403}이라 <b>화면이
+ * 가르는 근거는 코드뿐이므로</b> 명세에도 셋을 적는다.
  */
 @Tag(name = "회원 관리", description = "관리자 전용. 누가 있는지 확인하고 쌓인 가입 신청을 한 번에 처리한다")
 @RestController
@@ -75,8 +79,16 @@ public class AdminUserController {
               mediaType = MediaType.APPLICATION_JSON_VALUE,
               schema = @Schema(implementation = ErrorResponse.class)))
   @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
       responseCode = "403",
-      description = "`FORBIDDEN` — `ADMIN`이 아니다 (T-05)",
+      description =
+          "`FORBIDDEN` — `ADMIN`이 아니다 (T-05) · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -126,8 +138,16 @@ public class AdminUserController {
               mediaType = MediaType.APPLICATION_JSON_VALUE,
               schema = @Schema(implementation = ErrorResponse.class)))
   @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
       responseCode = "403",
-      description = "`FORBIDDEN` — `ADMIN`이 아니거나 CSRF 토큰이 없다",
+      description =
+          "`FORBIDDEN` — `ADMIN`이 아니거나 CSRF 토큰이 없다 · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,

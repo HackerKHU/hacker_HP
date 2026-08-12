@@ -34,13 +34,16 @@ public class AdminUserApprovalService {
    *
    * <p><b>id 오름차순으로 잠근다.</b> 두 관리자가 겹치는 목록을 서로 다른 순서로 보내면 각자 상대가 쥔 행을 기다려 교착한다. 순서를 하나로 정해 두면 그런 짝이
    * 생기지 않는다.
+   *
+   * <p><b>중복은 여기서 걸러낸다.</b> 요청 DTO에서 걸러내면 {@code @Size} 상한이 원본이 아니라 줄어든 목록을 보게 되어, 같은 id를 101번 담은
+   * 요청이 상한을 그냥 통과한다. 거르지 않고 두면 응답의 건수가 부풀려진다 — 화면은 배열 길이를 그대로 "N명을 승인했습니다"로 읽는다.
    */
   @Transactional
   public ApproveResponse approve(List<Long> userIds) {
     List<Long> approved = new ArrayList<>();
     List<Failure> failed = new ArrayList<>();
 
-    for (Long userId : userIds.stream().sorted().toList()) {
+    for (Long userId : userIds.stream().distinct().sorted().toList()) {
       /*
        * 잠근 채로 다시 읽는다. 화면이 목록을 그린 뒤 관리자가 확인 창을 누르기까지의 사이에
        * 상태가 바뀔 수 있고, 신청서 제출도 같은 행을 노린다 (T-56). 잠그지 않으면 각자
