@@ -9,6 +9,7 @@ import org.hackerkhu.hackerhp.domain.user.dto.ApproveResponse.Reason;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.global.auth.SessionSynchronizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -21,9 +22,12 @@ public class AdminUserApprovalService {
   private static final Logger log = LoggerFactory.getLogger(AdminUserApprovalService.class);
 
   private final UserRepository userRepository;
+  private final SessionSynchronizer sessionSynchronizer;
 
-  public AdminUserApprovalService(UserRepository userRepository) {
+  public AdminUserApprovalService(
+      UserRepository userRepository, SessionSynchronizer sessionSynchronizer) {
     this.userRepository = userRepository;
+    this.sessionSynchronizer = sessionSynchronizer;
   }
 
   /**
@@ -41,6 +45,7 @@ public class AdminUserApprovalService {
   @Transactional
   public ApproveResponse approve(List<Long> userIds) {
     List<Long> approved = new ArrayList<>();
+    List<User> approvedUsers = new ArrayList<>();
     List<Failure> failed = new ArrayList<>();
 
     for (Long userId : userIds.stream().distinct().sorted().toList()) {
@@ -66,7 +71,16 @@ public class AdminUserApprovalService {
       }
       user.approve();
       approved.add(userId);
+      approvedUsers.add(user);
     }
+
+    /*
+     * 승인은 기존 세션에도 반영해야 한다 (3-1 §3-1-4 — "재로그인 없이 바로 이용할 수 있다").
+     * 빠뜨리면 승인된 회원이 세션 만료까지 403 PENDING_APPROVAL에 갇힌다 (T-33).
+     *
+     * 선택된 전원을 넘긴다 (2-2 §2-2-2 — 한 명이라도 빠지지 않는다).
+     */
+    sessionSynchronizer.refreshAfterCommit(approvedUsers);
 
     log.info("가입 승인: 성공 {}건, 실패 {}건 {}", approved.size(), failed.size(), failed);
     return new ApproveResponse(approved, failed);

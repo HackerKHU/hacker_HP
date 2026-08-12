@@ -10,6 +10,7 @@ import jakarta.servlet.http.Cookie;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.testsupport.session.InMemorySessionConfig;
 import org.hackerkhu.testsupport.web.AdminOnlyTestController;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
@@ -43,7 +44,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
         "spring.autoconfigure.exclude="
             + "org.springframework.boot.autoconfigure.session.SessionAutoConfiguration")
 @AutoConfigureMockMvc
-@Import(AdminAuthorizationIntegrationTest.AdminEndpointConfig.class)
+@Import({InMemorySessionConfig.class, AdminAuthorizationIntegrationTest.AdminEndpointConfig.class})
 class AdminAuthorizationIntegrationTest extends AbstractIntegrationTest {
 
   /* 실제 관리자 API가 올 자리다. SecurityConfig가 이 접두사에 거는 규칙을 함께 확인하려면 그 아래여야 한다. */

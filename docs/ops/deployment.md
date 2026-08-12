@@ -366,6 +366,23 @@ Settings → Secrets and variables → Actions:
 - [ ] `vercel.json` rewrites에 ALB DNS
 - [ ] 프론트에서 `/api/v1/...` 호출 성공 → **최초 배포(도메인 없는 dev 환경) 완료**
 
+**배포 직후 30분 동안 알아둘 것**
+
+배포 시점에 이미 로그인해 있던 세션은 **정지·승인이 반영되지 않는다.** 세션을 사용자로 찾으려면 `SPRING_SESSION.PRINCIPAL_NAME`이 채워져 있어야 하는데, 그 값은 로그인할 때 들어간다 ([3-1 §3-1-5](../../spec/3-1-DESIGN-ARCHITECTURE.md)).
+
+- 세션 수명이 30분이라 **그냥 두면 사라진다.** 마이그레이션은 필요 없다.
+- 그 사이에 **급히 정지해야 하는 계정**이 있으면 DB에서 그 사람의 세션을 직접 지운다. 지우면 다음 요청이 `401`이 되어 정지 안내 대신 로그인 화면으로 가지만, 접근은 즉시 끊긴다.
+
+```sql
+-- 급할 때만. 평소에는 관리자 화면의 정지를 쓴다.
+DELETE FROM spring_session WHERE primary_id IN (
+  SELECT session_primary_id FROM spring_session_attributes
+  WHERE attribute_name = 'auth.userId'
+);
+```
+
+위 질의는 **로그인한 세션 전부**를 지운다 — 배포 직후 특정 계정만 골라낼 방법이 없기 때문이다(그래서 이 창이 문제다). 전원이 다시 로그인하면 된다.
+
 **공개 전 (필수)**
 - [ ] 도메인 구매 → ACM 인증서 → ALB 443 리스너
 - [ ] `vercel.json` 프록시 정리
