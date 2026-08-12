@@ -13,6 +13,7 @@ import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
+import org.hackerkhu.testsupport.session.InMemorySessionConfig;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -37,6 +39,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
         "spring.autoconfigure.exclude="
             + "org.springframework.boot.autoconfigure.session.SessionAutoConfiguration")
 @AutoConfigureMockMvc
+@Import(InMemorySessionConfig.class)
 class AuthControllerIntegrationTest extends AbstractIntegrationTest {
 
   @Autowired private MockMvc mockMvc;

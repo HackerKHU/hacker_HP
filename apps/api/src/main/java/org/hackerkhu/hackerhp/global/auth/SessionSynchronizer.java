@@ -1,0 +1,118 @@
+package org.hackerkhu.hackerhp.global.auth;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import org.hackerkhu.hackerhp.domain.user.entity.Role;
+import org.hackerkhu.hackerhp.domain.user.entity.Status;
+import org.hackerkhu.hackerhp.domain.user.entity.User;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.session.FindByIndexNameSessionRepository;
+import org.springframework.session.Session;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+/**
+ * 바뀐 {@code role}·{@code status}를 <b>그 사람의 기존 세션에</b> 반영한다 (spec 3-1 §3-1-5 MUST, #85).
+ *
+ * <p>DB만 바꾸고 세션을 그대로 두면 <b>정지해도 계속 쓰고, 승인해도 계속 막힌다.</b> 인가는 매 요청 세션 값으로 판단하기 때문이다 ({@link
+ * JwtSessionAuthenticationFilter}).
+ *
+ * <p><b>지우지 않고 갱신한다</b> (3-1 §3-1-5 MUST). 세션을 지우면 다음 요청이 {@code 401}이 되어 클라이언트가 정지인지 단순 만료인지 구별하지
+ * 못하고, 정지 직후 그 화면에서 안내를 띄울 수 없다 (T-32는 {@code 403 SUSPENDED}를 요구한다). 승인·권한 변경은 둘 다 허용되지만 경로를 하나로 두면
+ * 세 경우가 같은 코드를 밟는다.
+ */
+@Component
+public class SessionSynchronizer {
+
+  private static final Logger log = LoggerFactory.getLogger(SessionSynchronizer.class);
+
+  private final FindByIndexNameSessionRepository<Session> sessions;
+
+  /**
+   * 저장소의 실제 세션 타입({@code JdbcSession})은 공개되어 있지 않아 와일드카드로 주입받고 여기서 좁힌다. {@code save(S)}가 {@code
+   * Session}을 받으려면 타입이 정해져 있어야 한다.
+   */
+  @SuppressWarnings("unchecked")
+  public SessionSynchronizer(FindByIndexNameSessionRepository<? extends Session> sessions) {
+    this.sessions = (FindByIndexNameSessionRepository<Session>) sessions;
+  }
+
+  /**
+   * <b>DB 커밋이 끝난 뒤에</b> 세션을 갱신한다.
+   *
+   * <p>세션 저장소는 자기 트랜잭션으로 커밋한다. 변경 트랜잭션 안에서 그냥 부르면 <b>DB가 되돌아가도 세션만 새 값으로 남는다</b> — 롤백된 정지 때문에 멀쩡한
+   * 회원이 막히는 쪽이 훨씬 나쁘다. 반대로 갱신이 실패하면 세션은 옛 값(권한이 더 좁은 쪽)으로 남고 만료까지 기다리면 된다.
+   *
+   * <p><b>값은 지금 읽어 둔다.</b> 커밋 뒤에는 영속성 컨텍스트가 닫혀 있어 엔티티를 다시 읽을 수 없고, 그 자리에서 새 트랜잭션을 여는 것은 커밋 직후의 정리
+   * 단계와 얽힌다.
+   *
+   * <p><b>여기에 트랜잭션을 덧대지 않는다.</b> {@code afterCommit}은 바깥 트랜잭션의 자원이 정리되기 전에 돌지만, 세션 저장소는 자기 템플릿을
+   * {@code PROPAGATION_REQUIRES_NEW}로 열어 저장한다 ({@code
+   * JdbcHttpSessionConfiguration#createTransactionTemplate}) — 이미 커밋된 트랜잭션에 얹히지 않고 새 커넥션에서 따로 커밋한다.
+   * 여기서 {@code REQUIRES_NEW}를 한 겹 더 두르면 커넥션만 하나 더 잡는다.
+   *
+   * <p>그 전제가 깨지면 <b>승인은 되는데 세션만 옛 값으로 남는다.</b> T-33이 실제 API와 실제 저장소로 그 경로를 밟으므로, 라이브러리가 전파 방식을 바꾸면
+   * 그 테스트가 먼저 깨진다.
+   */
+  public void refreshAfterCommit(Collection<User> users) {
+    List<Snapshot> snapshots = users.stream().map(Snapshot::of).toList();
+    if (snapshots.isEmpty()) {
+      return;
+    }
+    if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+      refresh(snapshots);
+      return;
+    }
+    TransactionSynchronizationManager.registerSynchronization(
+        new TransactionSynchronization() {
+          @Override
+          public void afterCommit() {
+            refresh(snapshots);
+          }
+        });
+  }
+
+  private void refresh(List<Snapshot> snapshots) {
+    snapshots.forEach(this::refresh);
+  }
+
+  /**
+   * 그 사람의 세션을 <b>전부</b> 갱신한다.
+   *
+   * <p>한 사람이 PC와 휴대폰에 각각 로그인해 있을 수 있다. 하나라도 남기면 <b>정지된 사람이 그 브라우저로 계속 쓴다.</b>
+   */
+  private void refresh(Snapshot snapshot) {
+    try {
+      Map<String, Session> found = sessions.findByPrincipalName(String.valueOf(snapshot.userId()));
+      found.values().forEach(session -> save(session, snapshot));
+      log.info(
+          "세션 갱신: userId={} status={} role={} 세션 {}개",
+          snapshot.userId(),
+          snapshot.status(),
+          snapshot.role(),
+          found.size());
+    } catch (RuntimeException e) {
+      /*
+       * 여기서 던지면 이미 커밋된 변경까지 실패한 것처럼 보인다. 세션은 옛 값으로 남고
+       * 만료(30분)까지 기다리면 되므로, 알리고 넘어간다 — 다만 정지가 늦어지는 것이므로
+       * 조용히 삼키지 않고 error로 남긴다.
+       */
+      log.error("세션 갱신 실패: userId={}", snapshot.userId(), e);
+    }
+  }
+
+  private void save(Session session, Snapshot snapshot) {
+    AuthSession.store(session, snapshot.userId(), snapshot.role(), snapshot.status());
+    sessions.save(session);
+  }
+
+  /** 커밋 전에 읽어 둔 값. 세션에 옮겨 적을 것은 이 셋뿐이다. */
+  private record Snapshot(Long userId, Role role, Status status) {
+    static Snapshot of(User user) {
+      return new Snapshot(user.getId(), user.getRole(), user.getStatus());
+    }
+  }
+}
