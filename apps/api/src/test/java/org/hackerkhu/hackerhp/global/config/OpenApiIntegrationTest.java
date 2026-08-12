@@ -98,6 +98,9 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
    *
    * PENDING의 인증 영역은 신청·대기 화면뿐이고 SUSPENDED는 접근 범위가 없다 (spec §3-1-2).
    * anyRequest().authenticated()에 맡기면 그 둘이 내부 명세를 그대로 읽는다.
+   *
+   * 사유는 상태별로 갈린다 (#27). FORBIDDEN 하나로 뭉개면 화면이 승인 대기 안내와 정지 안내를
+   * 고르지 못한다.
    */
   @Test
   void pendingCannotReadTheSpecification() throws Exception {
@@ -108,7 +111,7 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
     mockMvc
         .perform(signedInAs(get(API_DOCS), pending))
         .andExpect(status().isForbidden())
-        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        .andExpect(jsonPath("$.code").value("PENDING_APPROVAL"));
   }
 
   @Test
@@ -120,7 +123,7 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
     mockMvc
         .perform(signedInAs(get(API_DOCS), suspended))
         .andExpect(status().isForbidden())
-        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        .andExpect(jsonPath("$.code").value("SUSPENDED"));
   }
 
   @Test
