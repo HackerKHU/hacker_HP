@@ -200,6 +200,16 @@ public class User {
     return appliedAt;
   }
 
+  /**
+   * 낙관적 잠금 버전.
+   *
+   * <p>응답에는 담지 않는다 — 사용자에게 보여줄 값이 아니다. <b>세션 반영이 어느 변경에서 온 것인지 가리는 데 쓴다</b> ({@code
+   * SessionSynchronizer}): 커밋 순서와 세션 저장 순서가 어긋날 수 있어, 늦게 도착한 옛 값이 새 값을 덮지 않게 해야 한다.
+   */
+  public Long getVersion() {
+    return version;
+  }
+
   public Instant getApprovedAt() {
     return approvedAt;
   }

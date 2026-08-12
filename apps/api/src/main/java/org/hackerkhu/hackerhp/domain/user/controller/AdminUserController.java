@@ -11,17 +11,22 @@ import org.hackerkhu.hackerhp.domain.user.dto.AdminUserResponse;
 import org.hackerkhu.hackerhp.domain.user.dto.AdminUserSearch;
 import org.hackerkhu.hackerhp.domain.user.dto.ApproveRequest;
 import org.hackerkhu.hackerhp.domain.user.dto.ApproveResponse;
+import org.hackerkhu.hackerhp.domain.user.dto.StatusChangeRequest;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserApprovalService;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserService;
+import org.hackerkhu.hackerhp.domain.user.service.AdminUserStatusService;
 import org.hackerkhu.hackerhp.global.error.ErrorResponse;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,7 +34,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 회원 관리 (spec 3-2 §3-2-6). 지금은 목록 조회와 일괄 승인이다 — 상태 변경은 #31, 거부·제거·권한 변경은 #58이다.
+ * 회원 관리 (spec 3-2 §3-2-6). 목록 조회·일괄 승인·상태 변경이다 — 거부·제거·권한 변경은 #58이다.
  *
  * <p><b>권한은 {@code hasRole('ADMIN')}만 적는다.</b> 매트릭스의 {@code ADMIN} 열은 "{@code ADMIN}이면서 {@code
  * ACTIVE}"지만 {@code ACTIVE} 조건은 {@code AccountStatusFilter}가 인가보다 먼저 보장한다 — 같은 규칙을 두 곳에 두면 한쪽만 고쳐진다
@@ -49,11 +54,15 @@ public class AdminUserController {
 
   private final AdminUserService adminUserService;
   private final AdminUserApprovalService adminUserApprovalService;
+  private final AdminUserStatusService adminUserStatusService;
 
   public AdminUserController(
-      AdminUserService adminUserService, AdminUserApprovalService adminUserApprovalService) {
+      AdminUserService adminUserService,
+      AdminUserApprovalService adminUserApprovalService,
+      AdminUserStatusService adminUserStatusService) {
     this.adminUserService = adminUserService;
     this.adminUserApprovalService = adminUserApprovalService;
+    this.adminUserStatusService = adminUserStatusService;
   }
 
   @Operation(
@@ -154,7 +163,69 @@ public class AdminUserController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @PostMapping("/approve")
   @PreAuthorize("hasRole('ADMIN')")
-  public ApproveResponse approve(@Valid @RequestBody ApproveRequest request) {
-    return adminUserApprovalService.approve(request.userIds());
+  public ApproveResponse approve(
+      @AuthenticationPrincipal Long requesterId, @Valid @RequestBody ApproveRequest request) {
+    return adminUserApprovalService.approve(requesterId, request.userIds());
+  }
+
+  /**
+   * 회원 상태 변경 — 정지와 해제 (spec 2-2 §2-2-3).
+   *
+   * <p><b>정지는 즉시 차단이다</b> (MUST). 이미 로그인해 있는 세션도 다음 요청에서 막힌다 (T-32).
+   *
+   * <p>요청자를 받는 이유는 <b>마지막 활성 관리자가 자기 자신을 정지하는 것을 막기 위해서다</b> (§2-2-7 MUST). 화면은 활성 관리자가 몇 명인지 모르므로
+   * 이 판단을 하지 않는다 (T-80).
+   */
+  @Operation(
+      summary = "회원 상태 변경",
+      description =
+          """
+          `ACTIVE` ↔ `SUSPENDED`. 갱신된 회원을 돌려준다.
+
+          **정지는 즉시 차단이다.** 이미 로그인해 있는 세션도 다음 요청부터 `403 SUSPENDED`가
+          된다 — 세션을 지우지 않고 갱신하므로 `401`이 아니다.
+
+          **승인 대기(`PENDING`) 계정은 이 경로의 대상이 아니다.** 승인은
+          `POST /admin/users/approve`가 한다.
+
+          **이미 그 상태면 아무것도 하지 않고 현재 상태를 돌려준다.**
+          """)
+  @ApiResponse(responseCode = "200", description = "변경됨. 본문은 갱신된 회원이다")
+  @ApiResponse(
+      responseCode = "400",
+      description = "`VALIDATION_ERROR` — `status`가 없거나 `ACTIVE`·`SUSPENDED`가 아니거나, 대상이 승인 대기 계정이다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description =
+          "`FORBIDDEN` — `ADMIN`이 아니거나, CSRF 토큰이 없거나, **마지막 활성 관리자가 자기 자신을 정지하려 했다** · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "404",
+      description = "`NOT_FOUND` — 그 id의 회원이 없다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @PatchMapping("/{id}/status")
+  @PreAuthorize("hasRole('ADMIN')")
+  public AdminUserResponse changeStatus(
+      @AuthenticationPrincipal Long requesterId,
+      @PathVariable Long id,
+      @Valid @RequestBody StatusChangeRequest request) {
+    return adminUserStatusService.change(requesterId, id, request.status());
   }
 }
