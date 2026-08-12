@@ -104,15 +104,37 @@ public class SessionSynchronizer {
     }
   }
 
+  /**
+   * <b>더 낮은 버전으로는 덮어쓰지 않는다.</b>
+   *
+   * <p>행 잠금은 DB 변경만 직렬화한다 — 커밋과 함께 잠금이 풀리고 세션 저장은 그 뒤에 각자 일어나므로, <b>순서가 뒤집힐 수 있다.</b> 해제가 먼저 커밋된 뒤
+   * 세션 저장이 늦어지고 그 사이 정지가 커밋·저장까지 마치면, 뒤늦게 도착한 해제가 세션을 {@code ACTIVE}로 되돌려 <b>정지된 사람이 계속 이용하게
+   * 된다.</b>
+   *
+   * <p>버전은 계정 행의 낙관적 잠금 값이라 <b>변경 순서를 그대로 따른다</b> — 나중 변경은 반드시 더 큰 값을 읽는다(앞의 변경이 커밋될 때까지 행 잠금에
+   * 막히므로). 인스턴스가 여럿이어도 통한다.
+   *
+   * <p>같은 버전은 덮어쓴다. 상태가 바뀌지 않은 재요청이 <b>갱신 실패의 복구 수단</b>이기 때문이다.
+   */
   private void save(Session session, Snapshot snapshot) {
-    AuthSession.store(session, snapshot.userId(), snapshot.role(), snapshot.status());
+    Long current = AuthSession.version(session).orElse(null);
+    if (current != null && snapshot.version() != null && snapshot.version() < current) {
+      log.info(
+          "세션 갱신 건너뜀 — 더 새 값이 이미 반영돼 있다: userId={} 도착={} 세션={}",
+          snapshot.userId(),
+          snapshot.version(),
+          current);
+      return;
+    }
+    AuthSession.store(
+        session, snapshot.userId(), snapshot.role(), snapshot.status(), snapshot.version());
     sessions.save(session);
   }
 
-  /** 커밋 전에 읽어 둔 값. 세션에 옮겨 적을 것은 이 셋뿐이다. */
-  private record Snapshot(Long userId, Role role, Status status) {
+  /** 커밋 전에 읽어 둔 값. 세션에 옮겨 적을 것은 이것뿐이다. */
+  private record Snapshot(Long userId, Role role, Status status, Long version) {
     static Snapshot of(User user) {
-      return new Snapshot(user.getId(), user.getRole(), user.getStatus());
+      return new Snapshot(user.getId(), user.getRole(), user.getStatus(), user.getVersion());
     }
   }
 }

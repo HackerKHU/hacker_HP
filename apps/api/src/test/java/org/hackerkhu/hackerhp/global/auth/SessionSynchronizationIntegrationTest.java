@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import jakarta.servlet.http.Cookie;
 import java.util.List;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
+import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.testsupport.web.Csrf;
@@ -192,12 +193,40 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
 
     // 갱신이 실패해 세션만 옛 값으로 남은 상태를 만든다.
     Session stale = sessionRepository.findById(signedIn.id());
-    stale.setAttribute(AuthSession.STATUS, org.hackerkhu.hackerhp.domain.user.entity.Status.ACTIVE);
+    stale.setAttribute(AuthSession.STATUS, Status.ACTIVE);
     save(stale);
     mockMvc.perform(as(signedIn, get(DOCS))).andExpect(status().isOk());
 
     // 관리자가 같은 정지를 다시 누른다.
     suspendThroughTheApi(member);
+
+    mockMvc
+        .perform(as(signedIn, get(DOCS)))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("SUSPENDED"));
+  }
+
+  /**
+   * <b>늦게 도착한 옛 값이 새 값을 덮지 않는다.</b>
+   *
+   * <p>행 잠금은 DB 변경만 직렬화한다 — 커밋과 함께 잠금이 풀리고 세션 저장은 그 뒤에 각자 일어나므로 순서가 뒤집힐 수 있다. 해제가 먼저 커밋된 뒤 세션 저장이
+   * 늦어지고 그 사이 정지가 커밋·저장까지 마치면, 뒤늦게 도착한 해제가 세션을 {@code ACTIVE}로 되돌린다 — <b>정지된 사람이 계속 이용하게 된다.</b>
+   *
+   * <p>타이밍을 재현하는 대신 <b>규칙</b>을 확인한다 — 세션이 더 새 버전을 들고 있으면 낮은 버전의 갱신은 아무 일도 하지 않아야 한다.
+   */
+  @Test
+  void aLateArrivingOldValueDoesNotOverwriteTheNewOne() throws Exception {
+    SignedIn signedIn = signIn(member);
+
+    // 더 새 변경이 이미 세션까지 반영된 상태를 만든다.
+    Session ahead = sessionRepository.findById(signedIn.id());
+    ahead.setAttribute(AuthSession.STATUS, Status.SUSPENDED);
+    ahead.setAttribute(AuthSession.VERSION, Long.MAX_VALUE);
+    save(ahead);
+
+    // 그 뒤에 옛 트랜잭션의 콜백이 도착한다 — 회원은 아직 ACTIVE이고 버전이 낮다.
+    sessionSynchronizer.refreshAfterCommit(
+        List.of(userRepository.findById(member.getId()).orElseThrow()));
 
     mockMvc
         .perform(as(signedIn, get(DOCS)))
