@@ -14,7 +14,7 @@
 ## 현재 보일러플레이트 범위
 
 - Java 21, Spring Boot 3.5, Gradle Kotlin DSL을 사용한다.
-- 현재 허용된 HTTP 동작은 `/actuator/health`, 구글 OAuth 경로, `GET /auth/csrf`, `GET /auth/me`, `POST /auth/logout`, `POST /auth/application`, `GET /admin/users`, `POST /admin/users/approve`, 그리고 API 문서(`/v3/api-docs`, Swagger UI)다.
+- 현재 허용된 HTTP 동작은 `/actuator/health`, 구글 OAuth 경로, `GET /auth/csrf`, `GET /auth/me`, `POST /auth/logout`, `POST /auth/application`, `GET /admin/users`, `POST /admin/users/approve`, `PATCH /admin/users/{id}/status`, 그리고 API 문서(`/v3/api-docs`, Swagger UI)다.
 - **API 문서는 로그인해야 볼 수 있다** (#23에서 정했다). `permitAll`에 문서 경로를 더하지 않는다 — 승인제 사이트라 명세가 공개되면 엔드포인트·필드·검증 규칙이 전부 드러난다.
 - **새 API에는 `@Operation`과 `@ApiResponse`를 붙인다.** 응답 코드 설명에는 계약의 에러 코드를 적는다 (`AuthController`가 본보기다).
 - **인증은 `ACCESS_TOKEN`(JWT)과 세션이 함께 있어야 성립한다.** 한쪽만으로 통과시키는 코드를 넣지 않는다 ([3-1 §3-1-5](../../spec/3-1-DESIGN-ARCHITECTURE.md) MUST).
@@ -30,6 +30,7 @@
 - **검색어를 `LIKE`에 넣기 전에 `%`·`_`를 escape한다.** 하지 않으면 `_`가 "아무 글자 하나"로 해석되어 찾지 않은 행이 결과에 섞인다.
 - **여러 건을 한 번에 처리하는 API는 실패를 예외로 던지지 않는다.** 한 건 때문에 트랜잭션이 되돌아가면 성공한 것까지 사라진다. 실패는 사유와 함께 결과로 돌려주고 전체는 `200`이다 (§3-2-6 일괄 승인).
 - **`role`·`status`를 바꾸는 서비스는 `SessionSynchronizer.refreshAfterCommit`을 부른다** ([3-1 §3-1-5](../../spec/3-1-DESIGN-ARCHITECTURE.md) MUST). 빠뜨리면 정지해도 계속 쓰고 승인해도 계속 막힌다 — DB만 보면 멀쩡해 보여서 알아채기 어렵다. 세션을 지우지 않고 갱신한다.
+- **여러 행을 함께 봐야 하는 검사는 그 행들을 잠그고 센다** ([2-2 §2-2-7](../../spec/2-2-OPERATOR-REQUIREMENTS.md) MUST). 세는 것과 바꾸는 것이 따로면 동시에 들어온 두 요청이 둘 다 통과한다 — 활성 관리자가 0명이 되는 식이다. **잠그는 순서를 하나로 정한다**(넓은 집합 → 대상 행). 반대로 하면 서로가 쥔 행을 기다려 교착한다.
 - 권한 판단은 세션 값이다. **저장 직전에 상태가 바뀔 수 있는 작업은 행을 잠그고 다시 확인한다** ([3-1 §3-1-4](../../spec/3-1-DESIGN-ARCHITECTURE.md) MUST).
 - 기능 API를 추가할 때 컨트롤러 경로는 `/api/v1`로 시작한다 ([`../../spec/3-2-DESIGN-CONTRACT.md`](../../spec/3-2-DESIGN-CONTRACT.md)). `/actuator`와 springdoc 경로는 버전을 붙이지 않는다.
 - **인증 없이 열 경로는 `SecurityConfig`의 `PUBLIC_PATHS`에 명시한다.** 나머지는 전부 로그인이 필요하다.

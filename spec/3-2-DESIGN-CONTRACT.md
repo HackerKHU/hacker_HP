@@ -341,6 +341,30 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 
 요청의 `userIds`는 **최대 100개**이고 빈 배열은 `400 VALIDATION_ERROR`다. 상한은 회원 목록의 페이지 크기와 같다 — 화면이 한 번에 고를 수 있는 최대가 "현재 페이지 전부"이기 때문이다 ([5-TESTING T-75](5-TESTING.md#5-2-필수-테스트-사례)). 같은 id가 두 번 오면 한 번만 센다.
 
+### 상태 변경
+
+`PATCH /admin/users/{id}/status`의 동작을 아래로 확정한다 (2026-08-13, #31).
+
+```json
+요청  { "status": "SUSPENDED" }
+응답  200 — 갱신된 회원 (목록의 한 행과 같은 형태)
+```
+
+**본문으로 갱신된 회원을 돌려준다** (MUST). 화면이 재조회 없이 그 행을 고칠 수 있어야 한다.
+
+| 요청 | |
+|---|---|
+| `ACTIVE` → `SUSPENDED`, `SUSPENDED` → `ACTIVE` | 허용 |
+| **이미 그 상태** | 아무것도 하지 않고 `200` + 현재 상태. 확인 창을 두 번 지나거나 낡은 목록에서 눌러도 오류가 아니다 |
+| **대상이 `PENDING`** | `400 VALIDATION_ERROR`. 계약이 정한 전이는 `ACTIVE` ↔ `SUSPENDED`뿐이다 ([2-2 §2-2-3](2-2-OPERATOR-REQUIREMENTS.md)) — 이 경로로 승인시키면 승인일시가 기록되지 않고 신청 여부도 확인하지 않는다 |
+| `status`가 `ACTIVE`·`SUSPENDED`가 아님 | `400 VALIDATION_ERROR` |
+| 없는 `id` | `404 NOT_FOUND` |
+| **마지막 활성 관리자의 자기 정지** | `403 FORBIDDEN` ([§2-2-7](2-2-OPERATOR-REQUIREMENTS.md) MUST) |
+
+**정지는 기존 세션에 즉시 반영된다** (MUST) — 세션을 지우지 않고 갱신하므로 다음 요청이 `403 SUSPENDED`다 ([3-1 §3-1-5](3-1-DESIGN-ARCHITECTURE.md), T-32).
+
+**활성 관리자 수 확인과 변경은 한 연산이다** (§2-2-7 MUST). 활성 관리자 행을 잠근 채 세므로, 두 관리자가 동시에 각자 자기 자신을 정지해도 나중 쪽이 줄어든 수를 보고 막힌다 ([5-TESTING T-15](5-TESTING.md#5-2-필수-테스트-사례)).
+
 ### 신청일과 승인 대상
 
 **`GET /admin/users`의 "가입 신청일"은 `applied_at`이다** (MUST). `created_at`(첫 구글 로그인)이 아니다 — 표시·정렬 모두 `applied_at`을 쓴다 ([2-2 §2-2-1](2-2-OPERATOR-REQUIREMENTS.md)). 응답에는 두 값을 모두 담되 화면이 무엇을 "신청일"로 부르는지 어긋나지 않게 한다.

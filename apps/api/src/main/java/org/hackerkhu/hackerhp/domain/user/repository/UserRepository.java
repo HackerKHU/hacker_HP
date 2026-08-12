@@ -1,7 +1,10 @@
 package org.hackerkhu.hackerhp.domain.user.repository;
 
 import jakarta.persistence.LockModeType;
+import java.util.List;
 import java.util.Optional;
+import org.hackerkhu.hackerhp.domain.user.entity.Role;
+import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
@@ -38,4 +41,16 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 
   /** 그 학번을 쓰는 <b>다른</b> 계정이 있는지. 한 학번으로 여러 계정을 만드는 것을 막는다 (T-24). */
   boolean existsByStudentNoAndIdNot(String studentNo, Long id);
+
+  /**
+   * 활성 관리자를 <b>잠근 채</b> 읽는다.
+   *
+   * <p><b>세는 것과 바꾸는 것이 한 연산이어야 한다</b> (spec 2-2 §2-2-7 MUST). 잠그지 않으면 두 관리자가 동시에 각자 자기 자신을 정지할 때 둘
+   * 다 "활성 관리자 2명"을 보고 통과해 <b>0명이 된다</b> — 아무도 로그인해서 운영할 수 없는 상태다 (T-15).
+   *
+   * <p>{@code SUSPENDED}인 관리자는 세지 않는다 (MUST). 로그인할 수 없으므로 DB에 role만 남아 있어도 운영을 보장하지 못한다.
+   */
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("select u from User u where u.role = :role and u.status = :status")
+  List<User> lockAll(@Param("role") Role role, @Param("status") Status status);
 }

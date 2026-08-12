@@ -2,6 +2,7 @@ package org.hackerkhu.hackerhp.global.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -140,13 +141,15 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
    *
    * <p><b>{@code 401}이 아니라 {@code 403 SUSPENDED}여야 한다.</b> 세션을 지우면 클라이언트가 정지인지 단순 만료인지 구별하지 못하고, 정지
    * 직후 그 화면에서 안내를 띄울 수 없다 (3-1 §3-1-5 MUST).
+   *
+   * <p>실제 API로 정지한다 (#31). 관리자가 화면에서 누르는 것과 같은 경로다.
    */
   @Test
   void suspensionReachesTheLiveSession() throws Exception {
     SignedIn signedIn = signIn(member);
     mockMvc.perform(as(signedIn, get(DOCS))).andExpect(status().isOk());
 
-    suspend(member);
+    suspendThroughTheApi(member);
 
     mockMvc
         .perform(as(signedIn, get(DOCS)))
@@ -164,7 +167,7 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
     SignedIn onDesktop = signIn(member);
     SignedIn onPhone = signIn(member);
 
-    suspend(member);
+    suspendThroughTheApi(member);
 
     for (SignedIn signedIn : List.of(onDesktop, onPhone)) {
       mockMvc
@@ -251,12 +254,15 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
     mockMvc.perform(as(signedIn, get(DOCS))).andExpect(status().isOk());
   }
 
-  private void suspend(User user) {
-    transactionTemplate.executeWithoutResult(
-        ignored -> {
-          User target = userRepository.findById(user.getId()).orElseThrow();
-          target.suspend();
-          sessionSynchronizer.refreshAfterCommit(List.of(target));
-        });
+  /** 관리자가 화면에서 정지를 누르는 것과 같은 경로 (#31). */
+  private void suspendThroughTheApi(User user) throws Exception {
+    SignedIn adminSession = signIn(admin);
+    mockMvc
+        .perform(
+            Csrf.with(as(adminSession, patch(ADMIN_USERS + "/" + user.getId() + "/status")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\":\"SUSPENDED\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("SUSPENDED"));
   }
 }
