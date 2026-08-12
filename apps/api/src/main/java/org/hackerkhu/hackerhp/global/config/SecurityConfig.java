@@ -49,9 +49,8 @@ public class SecurityConfig {
    *
    * <p>{@code /actuator/health}가 빠지면 ALB 헬스체크가 401로 실패해 태스크가 무한 재시작한다.
    *
-   * <p>springdoc 경로는 넣지 않았다. 지금 열어 두면 #23에서 의존성을 더하는 순간 <b>API 명세와 Swagger UI가 비로그인에게 공개된다</b> —
-   * 아무도 그것을 결정한 적이 없는데 설정만 먼저 가 있는 셈이다. 그 이슈의 작업 항목에 "Security permitAll 경로에 문서 경로 포함 확인"이 있으므로, 공개
-   * 여부는 거기서 정한다.
+   * <p><b>springdoc 경로는 넣지 않는다</b> (#23에서 정했다). 승인제 사이트라 명세가 공개되면 엔드포인트·필드·검증 규칙이 전부 드러난다. 팀원은 로그인한
+   * 브라우저로 열면 되고, 로컬 개발에서는 각자 서버를 띄운다 — 문서를 열어서 얻는 편의보다 잃는 것이 크다.
    */
   private static final String[] PUBLIC_PATHS = {
     "/actuator/health",
