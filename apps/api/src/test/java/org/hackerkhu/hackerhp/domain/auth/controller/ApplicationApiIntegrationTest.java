@@ -1,7 +1,6 @@
 package org.hackerkhu.hackerhp.domain.auth.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -12,6 +11,7 @@ import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
+import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -62,10 +62,10 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   private MockHttpServletRequestBuilder as(User user, String body) {
     MockHttpSession session = new MockHttpSession();
     AuthSession.store(session, user);
-    return post(PATH)
-        .session(session)
-        .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(user.getId())))
-        .with(csrf())
+    return Csrf.with(
+            post(PATH)
+                .session(session)
+                .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(user.getId()))))
         .contentType(MediaType.APPLICATION_JSON)
         .content(body);
   }
@@ -132,10 +132,10 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
 
     mockMvc
         .perform(
-            post(PATH)
-                .session(sessionFromBeforeApproval)
-                .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(applicant.getId())))
-                .with(csrf())
+            Csrf.with(
+                    post(PATH)
+                        .session(sessionFromBeforeApproval)
+                        .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(applicant.getId()))))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body("20249999", "덮어쓰기")))
         .andExpect(status().isForbidden());
@@ -271,7 +271,7 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   void anonymousCannotSubmitApplication() throws Exception {
     mockMvc
         .perform(
-            post(PATH).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body("2", "n")))
+            Csrf.with(post(PATH)).contentType(MediaType.APPLICATION_JSON).content(body("2", "n")))
         .andExpect(status().isUnauthorized())
         .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
   }

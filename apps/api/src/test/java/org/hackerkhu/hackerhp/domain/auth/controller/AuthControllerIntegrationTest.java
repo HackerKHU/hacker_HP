@@ -2,7 +2,6 @@ package org.hackerkhu.hackerhp.domain.auth.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.aMapWithSize;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -14,6 +13,7 @@ import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
+import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -128,7 +128,7 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
   @Test
   void logoutInvalidatesTheSession() throws Exception {
     mockMvc
-        .perform(asMember(post("/api/v1/auth/logout")).with(csrf()))
+        .perform(Csrf.with(asMember(post("/api/v1/auth/logout"))))
         .andExpect(status().isNoContent());
 
     assertThat(session.isInvalid()).isTrue();
