@@ -1,6 +1,8 @@
 package org.hackerkhu.hackerhp.global.auth;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -9,6 +11,7 @@ import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.testsupport.web.AdminOnlyTestController;
+import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +21,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -30,6 +34,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  *
  * <p>확인하는 것은 <b>{@code hasRole('ADMIN')}만 적어도 안전한가</b>이다. 매트릭스의 {@code ADMIN} 열은 "{@code ADMIN}이면서
  * {@code ACTIVE}"인데, {@code ACTIVE} 조건을 인가에 적지 않고 {@link AccountStatusFilter}에 맡겼기 때문이다.
+ *
+ * <p><b>쓰기도 함께 본다.</b> 조회만 확인하면 규칙이 반쪽만 증명된다 — MVC는 메서드를 부르기 전에 본문을 역직렬화하고 {@code @Valid}를 돌리므로,
+ * {@code @PreAuthorize}에만 기대면 깨진 본문을 보낸 비관리자가 {@code 403}이 아니라 {@code 400}을 받는다.
  */
 @SpringBootTest(
     properties =
@@ -39,7 +46,13 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 @Import(AdminAuthorizationIntegrationTest.AdminEndpointConfig.class)
 class AdminAuthorizationIntegrationTest extends AbstractIntegrationTest {
 
-  private static final String ADMIN_PATH = "/api/v1/__test/admin";
+  /* 실제 관리자 API가 올 자리다. SecurityConfig가 이 접두사에 거는 규칙을 함께 확인하려면 그 아래여야 한다. */
+  private static final String ADMIN_PATH = "/api/v1/admin/__test";
+
+  private static final String VALID_BODY = "{\"value\":\"ok\"}";
+
+  /* 본문 검증이 인가보다 먼저 돌면 400이 나가는 입력. 그 순서가 뒤집혔는지 보는 미끼다. */
+  private static final String BROKEN_BODY = "{\"value\":";
 
   @TestConfiguration
   static class AdminEndpointConfig {
@@ -141,5 +154,43 @@ class AdminAuthorizationIntegrationTest extends AbstractIntegrationTest {
         .perform(get(ADMIN_PATH))
         .andExpect(status().isUnauthorized())
         .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+  }
+
+  @Test
+  void activeAdminCanWrite() throws Exception {
+    mockMvc
+        .perform(write(admin, VALID_BODY))
+        .andExpect(status().isOk())
+        .andExpect(content().string("ok"));
+  }
+
+  /*
+   * 여기가 요점이다.
+   *
+   * 인가를 @PreAuthorize에만 맡기면, 본문이 깨졌을 때 Jackson이 먼저 걸려 400 INVALID_INPUT이 나간다.
+   * 권한이 없다는 사실이 본문 모양에 가려지는 것이다. SecurityConfig가 /api/v1/admin/** 에 거는 규칙은
+   * 그보다 앞에 있어 본문을 읽기 전에 끊는다.
+   */
+  @Test
+  void activeUserIsForbiddenBeforeTheBodyIsRead() throws Exception {
+    mockMvc
+        .perform(write(member, BROKEN_BODY))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+  }
+
+  /* 상태 차단도 본문보다 먼저다. 정지된 관리자는 권한이 아니라 상태 때문에 막힌다. */
+  @Test
+  void suspendedAdminIsBlockedBeforeTheBodyIsRead() throws Exception {
+    mockMvc
+        .perform(write(suspendedAdmin, BROKEN_BODY))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("SUSPENDED"));
+  }
+
+  private MockHttpServletRequestBuilder write(User user, String body) {
+    return Csrf.with(as(user, post(ADMIN_PATH)))
+        .contentType(MediaType.APPLICATION_JSON)
+        .content(body);
   }
 }

@@ -132,19 +132,24 @@ public class OpenApiConfig {
   @Bean
   public OperationCustomizer documentAccessRules() {
     return (operation, handlerMethod) -> {
-      PreAuthorize rule = handlerMethod.getMethodAnnotation(PreAuthorize.class);
-      String access =
-          rule != null
-              ? "`" + rule.value() + "`"
-              : handlerMethod.hasMethodAnnotation(PublicApi.class)
-                  ? "인증 없이 호출한다. " + handlerMethod.getMethodAnnotation(PublicApi.class).reason()
-                  : null;
-      if (access == null) {
-        return operation;
+      PublicApi open = handlerMethod.getMethodAnnotation(PublicApi.class);
+      if (open != null) {
+        /*
+         * 설명만 고치면 명세가 자기 모순에 빠진다 — "인증 없이 호출한다"고 적어 놓고 전역
+         * 요구사항(쿠키 두 개)을 그대로 상속하기 때문이다. 여는 것을 선언한 자리에서 요구사항도
+         * 비운다. 빈 목록은 "인증이 필요 없다"는 뜻이고, 키가 없는 것은 "전역을 상속"이라 다르다.
+         */
+        operation.setSecurity(List.of());
+        return describeAccess(operation, "인증 없이 호출한다. " + open.reason());
       }
-      String description = operation.getDescription() == null ? "" : operation.getDescription();
-      return operation.description(description + System.lineSeparator() + ACCESS_HEADING + access);
+      PreAuthorize rule = handlerMethod.getMethodAnnotation(PreAuthorize.class);
+      return rule == null ? operation : describeAccess(operation, "`" + rule.value() + "`");
     };
+  }
+
+  private static Operation describeAccess(Operation operation, String access) {
+    String description = operation.getDescription() == null ? "" : operation.getDescription();
+    return operation.description(description + System.lineSeparator() + ACCESS_HEADING + access);
   }
 
   private static SecurityScheme cookie(String name) {

@@ -4,7 +4,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -77,14 +76,6 @@ public class AuthController {
           상태를 바꾸는 요청은 이 값을 `X-XSRF-TOKEN` 헤더에 실어야 한다. 쿠키가
           `httpOnly`가 아닌 이유가 그것이다 — 화면이 읽어 헤더에 넣는다.
           """)
-  /*
-   * 세션도 토큰도 없는 최초 진입에 필요하다. 전역 요구사항을 여기서만 비운다.
-   *
-   * @Operation(security = {})로는 안 된다 — 그러면 springdoc이 security 키를 아예 빼는데,
-   * OpenAPI에서 키가 없는 것은 "전역 설정을 상속"이라 뜻이 정반대가 된다. 빈 목록을 실제로
-   * 내보내야 "인증이 필요 없다"로 읽힌다.
-   */
-  @SecurityRequirements
   @ApiResponse(responseCode = "204", description = "쿠키 발급됨")
   @PublicApi(reason = "세션도 토큰도 없는 최초 진입에 필요하다 (3-2 §3-2-3 MUST)")
   @GetMapping("/csrf")
