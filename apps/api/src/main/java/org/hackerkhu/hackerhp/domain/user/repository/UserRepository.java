@@ -43,14 +43,21 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
   boolean existsByStudentNoAndIdNot(String studentNo, Long id);
 
   /**
-   * 활성 관리자를 <b>잠근 채</b> 읽는다.
+   * 그 역할·상태인 계정의 id.
    *
-   * <p><b>세는 것과 바꾸는 것이 한 연산이어야 한다</b> (spec 2-2 §2-2-7 MUST). 잠그지 않으면 두 관리자가 동시에 각자 자기 자신을 정지할 때 둘
-   * 다 "활성 관리자 2명"을 보고 통과해 <b>0명이 된다</b> — 아무도 로그인해서 운영할 수 없는 상태다 (T-15).
+   * <p><b>잠그지 않고 읽는다.</b> 무엇을 잠글지 정하려고 미리 훑는 용도다 — 실제 잠금은 여기서 얻은 id를 요청자·대상과 합쳐 <b>오름차순으로</b> 하나씩
+   * 건다. 범위째 잠그면 행을 id 순으로 잠그는 다른 서비스와 순서가 어긋나 교착한다.
+   */
+  @Query("select u.id from User u where u.role = :role and u.status = :status")
+  List<Long> findIdsByRoleAndStatus(@Param("role") Role role, @Param("status") Status status);
+
+  /**
+   * 활성 관리자 수.
+   *
+   * <p><b>세는 것과 바꾸는 것이 한 연산이어야 한다</b> (spec 2-2 §2-2-7 MUST). 잠그지 않고 세면 두 정지 요청이 둘 다 "활성 관리자 2명"을
+   * 보고 통과해 <b>0명이 된다</b> — 아무도 로그인해서 운영할 수 없는 상태다 (T-15). <b>해당 행들을 먼저 잠근 뒤에 부른다.</b>
    *
    * <p>{@code SUSPENDED}인 관리자는 세지 않는다 (MUST). 로그인할 수 없으므로 DB에 role만 남아 있어도 운영을 보장하지 못한다.
    */
-  @Lock(LockModeType.PESSIMISTIC_WRITE)
-  @Query("select u from User u where u.role = :role and u.status = :status")
-  List<User> lockAll(@Param("role") Role role, @Param("status") Status status);
+  long countByRoleAndStatus(Role role, Status status);
 }

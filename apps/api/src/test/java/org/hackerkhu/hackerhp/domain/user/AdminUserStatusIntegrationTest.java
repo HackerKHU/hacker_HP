@@ -23,6 +23,7 @@ import org.hackerkhu.hackerhp.domain.user.service.AdminUserStatusService;
 import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
+import org.hackerkhu.hackerhp.global.error.ErrorCode;
 import org.hackerkhu.testsupport.session.InMemorySessionConfig;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
@@ -273,16 +274,66 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
         .isNotEmpty();
   }
 
-  /** 사유 문구가 자기 정지와 갈린다. 화면이 서버 문구를 그대로 보여주므로(T-80) 상황에 맞아야 한다. */
+  /**
+   * 사유 문구가 자기 정지와 갈린다. 화면이 서버 문구를 그대로 보여주므로(T-80) 상황에 맞아야 한다.
+   *
+   * <p>관리자 둘 중 하나를 먼저 정지시켜 "남은 활성 관리자가 한 명"인 상태를 만들고, 남은 관리자가 <b>자기가 아닌</b> 그 한 명을 정지하려 한다.
+   */
   @Test
   void suspendingTheOnlyRemainingActiveAdminIsBlocked() throws Exception {
-    // 요청자만 활성 관리자다. 자기 자신이 아닌 대상으로는 이 경로를 만들 수 없으므로,
-    // 먼저 자기 자신을 대상으로 확인한 문구와 다른 쪽을 서비스로 직접 확인한다.
-    assertThatThrownBy(() -> statusService.change(member.getId(), admin.getId(), Target.SUSPENDED))
-        .isInstanceOf(BusinessException.class)
-        .hasMessageContaining("다른 관리자를 먼저 활성화해 주세요");
+    User other =
+        userRepository.saveAndFlush(promoted(approved("sub-ad7", "a7@khu.ac.kr", "20200007")));
+    suspendDirectly(admin);
 
-    assertThat(statusOf(admin)).isEqualTo(Status.ACTIVE);
+    assertThatThrownBy(() -> statusService.change(other.getId(), other.getId(), Target.SUSPENDED))
+        .isInstanceOf(BusinessException.class)
+        .hasMessageContaining("자기 자신을 정지할 수 없습니다");
+
+    // 남을 대상으로 하는 문구는 관리자가 둘 이상이어야 재현되므로 정지를 되돌린 뒤 확인한다.
+    statusService.change(other.getId(), admin.getId(), Target.ACTIVE);
+    suspendDirectly(other);
+
+    assertThatThrownBy(() -> statusService.change(admin.getId(), admin.getId(), Target.SUSPENDED))
+        .isInstanceOf(BusinessException.class)
+        .hasMessageContaining("자기 자신을 정지할 수 없습니다");
+  }
+
+  /* --------------------------------------------------------- 요청자 재검증 */
+
+  /**
+   * <b>인가는 세션 값으로 이루어진다.</b> 요청이 인증을 통과한 뒤 다른 관리자가 이 사람을 정지하면, 그 대기 중인 요청은 <b>정지된 관리자의 쓰기</b>가 된다.
+   *
+   * <p>필터는 이미 지나갔으므로 여기서 다시 확인하지 않으면 그대로 커밋된다.
+   */
+  @Test
+  void suspendedRequesterCannotFinishAPendingWrite() {
+    User other =
+        userRepository.saveAndFlush(promoted(approved("sub-ad6", "a6@khu.ac.kr", "20200006")));
+    suspendDirectly(other);
+
+    assertThatThrownBy(() -> statusService.change(other.getId(), member.getId(), Target.SUSPENDED))
+        .isInstanceOf(BusinessException.class)
+        .satisfies(
+            e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.SUSPENDED));
+
+    assertThat(statusOf(member)).isEqualTo(Status.ACTIVE);
+  }
+
+  /** 권한이 회수된 경우도 같다. 사유는 상태가 아니라 권한이므로 코드가 다르다 (§3-2-7). */
+  @Test
+  void demotedRequesterCannotFinishAPendingWrite() {
+    assertThatThrownBy(() -> statusService.change(member.getId(), suspended.getId(), Target.ACTIVE))
+        .isInstanceOf(BusinessException.class)
+        .satisfies(
+            e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FORBIDDEN));
+
+    assertThat(statusOf(suspended)).isEqualTo(Status.SUSPENDED);
+  }
+
+  private void suspendDirectly(User user) {
+    User found = userRepository.findById(user.getId()).orElseThrow();
+    found.suspend();
+    userRepository.saveAndFlush(found);
   }
 
   /**
