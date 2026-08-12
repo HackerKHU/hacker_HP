@@ -191,6 +191,28 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.paths['" + path + "'].post.security[1]").doesNotExist());
   }
 
+  /*
+   * 각 엔드포인트에 접근 권한이 적힌다 (#28).
+   *
+   * 보안 스킴은 "무엇을 실어 보내는가"만 말한다. 화면이 알아야 할 것은 "누가 부를 수 있는가"이고
+   * 그것은 권한 매트릭스에 있다. @PreAuthorize의 식을 그대로 옮기므로 코드와 갈라지지 않는다.
+   */
+  @Test
+  void everyOperationDocumentsWhoMayCallIt() throws Exception {
+    mockMvc
+        .perform(signedIn(get(API_DOCS)))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/auth/application'].post.description")
+                .value(org.hamcrest.Matchers.containsString("hasAuthority('STATUS_PENDING')")))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/auth/me'].get.description")
+                .value(org.hamcrest.Matchers.containsString("isAuthenticated()")))
+        // 공개 경로는 왜 열었는지까지 적는다 — 매트릭스에 없는 경로를 여는 것은 결정이다.
+        .andExpect(
+            jsonPath("$.paths['/api/v1/auth/csrf'].get.description")
+                .value(org.hamcrest.Matchers.containsString("인증 없이 호출한다")));
+  }
+
   /* 오류 응답도 본문 형태를 알려준다. 화면과 코드 생성기가 무엇을 받을지 알아야 한다. */
   @Test
   void errorResponsesDocumentTheContractBody() throws Exception {

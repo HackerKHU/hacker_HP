@@ -126,6 +126,14 @@ public class SecurityConfig {
                     .hasAuthority("STATUS_PENDING")
                     .requestMatchers(API_DOCS_PATHS)
                     .hasAuthority("STATUS_ACTIVE")
+                    /*
+                     * 관리자 영역은 접두사로도 막는다. 컨트롤러의 @PreAuthorize와 겹쳐 보이지만
+                     * 둘 다 필요하다 — MVC는 메서드를 부르기 전에 본문을 역직렬화하고 @Valid를
+                     * 돌리므로, 권한 없는 사람이 깨진 본문을 보내면 @PreAuthorize에 닿기도 전에
+                     * 400이 나간다. 그러면 "권한이 없으면 403"이 본문에 따라 달라진다.
+                     */
+                    .requestMatchers("/api/v1/admin/**")
+                    .hasRole("ADMIN")
                     .anyRequest()
                     .authenticated())
         .oauth2Login(
