@@ -4,11 +4,12 @@ import jakarta.persistence.LockModeType;
 import java.util.Optional;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface UserRepository extends JpaRepository<User, Long> {
+public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificationExecutor<User> {
 
   /**
    * 계정의 신원 키는 이메일이 아니라 {@code google_sub}다 (spec 3-2 §3-2-2).
