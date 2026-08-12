@@ -177,6 +177,34 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
     }
   }
 
+  /**
+   * <b>같은 요청을 다시 보내는 것이 복구 수단이어야 한다.</b>
+   *
+   * <p>세션 갱신 실패는 예외로 올리지 않고 기록만 한다 — 이미 커밋된 변경까지 실패한 것처럼 보이면 안 되기 때문이다. 그래서 관리자가 할 수 있는 일은 다시 누르는
+   * 것뿐인데, 대상이 이미 그 상태라고 일찍 돌아가 버리면 <b>그 재시도가 아무 일도 하지 않는다.</b>
+   *
+   * <p>여기서는 갱신이 실패한 상황을 만든다 — DB는 {@code SUSPENDED}인데 세션만 {@code ACTIVE}로 되돌려 놓고, 같은 정지를 다시 보낸다.
+   */
+  @Test
+  void repeatingTheSameChangeReSyncsAStaleSession() throws Exception {
+    SignedIn signedIn = signIn(member);
+    suspendThroughTheApi(member);
+
+    // 갱신이 실패해 세션만 옛 값으로 남은 상태를 만든다.
+    Session stale = sessionRepository.findById(signedIn.id());
+    stale.setAttribute(AuthSession.STATUS, org.hackerkhu.hackerhp.domain.user.entity.Status.ACTIVE);
+    save(stale);
+    mockMvc.perform(as(signedIn, get(DOCS))).andExpect(status().isOk());
+
+    // 관리자가 같은 정지를 다시 누른다.
+    suspendThroughTheApi(member);
+
+    mockMvc
+        .perform(as(signedIn, get(DOCS)))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("SUSPENDED"));
+  }
+
   /* ------------------------------------------------------------------ T-33 */
 
   /**

@@ -1,6 +1,7 @@
 package org.hackerkhu.hackerhp.domain.user;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -21,6 +22,7 @@ import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserStatusService;
 import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
+import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.testsupport.session.InMemorySessionConfig;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
@@ -239,6 +241,51 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
   }
 
   /**
+   * <b>자기 정지만 막는 것으로는 부족하다.</b>
+   *
+   * <p>둘이 서로를 정지하면 두 요청 모두 "남을 정지시키는 것"이라 자기 검사에 걸리지 않는다. 잠근 집합을 세지 않으면 각자 다른 행만 잠근 채 커밋해 <b>0명이
+   * 된다.</b>
+   */
+  @Test
+  void twoAdminsSuspendingEachOtherAtOnceCannotBothSucceed() throws Exception {
+    User other =
+        userRepository.saveAndFlush(promoted(approved("sub-ad5", "a5@khu.ac.kr", "20200005")));
+
+    CyclicBarrier ready = new CyclicBarrier(2);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      // 서로를 정지시킨다 — 요청자와 대상이 엇갈린다.
+      List<Future<Boolean>> results =
+          pool.invokeAll(
+              List.of(
+                  suspend(admin.getId(), other.getId(), ready),
+                  suspend(other.getId(), admin.getId(), ready)));
+
+      assertThat(results.stream().filter(AdminUserStatusIntegrationTest::succeeded).count())
+          .isLessThanOrEqualTo(1);
+    } finally {
+      pool.shutdownNow();
+      pool.awaitTermination(10, TimeUnit.SECONDS);
+    }
+
+    assertThat(
+            userRepository.findAll().stream().filter(AdminUserStatusIntegrationTest::activeAdmin))
+        .isNotEmpty();
+  }
+
+  /** 사유 문구가 자기 정지와 갈린다. 화면이 서버 문구를 그대로 보여주므로(T-80) 상황에 맞아야 한다. */
+  @Test
+  void suspendingTheOnlyRemainingActiveAdminIsBlocked() throws Exception {
+    // 요청자만 활성 관리자다. 자기 자신이 아닌 대상으로는 이 경로를 만들 수 없으므로,
+    // 먼저 자기 자신을 대상으로 확인한 문구와 다른 쪽을 서비스로 직접 확인한다.
+    assertThatThrownBy(() -> statusService.change(member.getId(), admin.getId(), Target.SUSPENDED))
+        .isInstanceOf(BusinessException.class)
+        .hasMessageContaining("다른 관리자를 먼저 활성화해 주세요");
+
+    assertThat(statusOf(admin)).isEqualTo(Status.ACTIVE);
+  }
+
+  /**
    * T-15 — 활성 관리자 둘이 <b>동시에</b> 각자 자기 자신을 정지한다.
    *
    * <p>세는 것과 바꾸는 것이 한 연산이 아니면 둘 다 "관리자 2명"을 보고 통과해 <b>0명이 된다.</b> 최소 한쪽은 실패해야 한다 (§2-2-7 MUST).
@@ -253,7 +300,9 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
     try {
       List<Future<Boolean>> results =
           pool.invokeAll(
-              List.of(selfSuspend(admin.getId(), ready), selfSuspend(other.getId(), ready)));
+              List.of(
+                  suspend(admin.getId(), admin.getId(), ready),
+                  suspend(other.getId(), other.getId(), ready)));
 
       long succeeded = results.stream().filter(AdminUserStatusIntegrationTest::succeeded).count();
       assertThat(succeeded).isLessThanOrEqualTo(1);
@@ -268,10 +317,10 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
         .isNotEmpty();
   }
 
-  private Callable<Boolean> selfSuspend(Long adminId, CyclicBarrier ready) {
+  private Callable<Boolean> suspend(Long requesterId, Long targetId, CyclicBarrier ready) {
     return () -> {
       ready.await(10, TimeUnit.SECONDS);
-      statusService.change(adminId, adminId, Target.SUSPENDED);
+      statusService.change(requesterId, targetId, Target.SUSPENDED);
       return true;
     };
   }
