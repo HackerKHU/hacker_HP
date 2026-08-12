@@ -2,8 +2,8 @@ package org.hackerkhu.hackerhp.domain.auth.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -15,9 +15,10 @@ import org.hackerkhu.hackerhp.domain.auth.dto.MeResponse;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.domain.user.service.UserApplicationService;
 import org.hackerkhu.hackerhp.global.auth.AccessTokenCookie;
-import org.hackerkhu.hackerhp.global.config.OpenApiConfig;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
+import org.hackerkhu.hackerhp.global.error.ErrorResponse;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -29,7 +30,13 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 로그인한 뒤의 신원 조회와 로그아웃 (spec 3-2 §3-2-3). */
+/**
+ * 로그인한 뒤의 신원 조회와 로그아웃 (spec 3-2 §3-2-3).
+ *
+ * <p>오류 응답은 전부 {@code { "code", "message" }}다 (5-TESTING §5-4). 그래서 각 오류 응답에 {@link ErrorResponse}
+ * 스키마를 붙인다 — {@code @Content}만 적으면 <b>본문이 없는 응답</b>으로 명세되어 화면과 코드 생성기가 무엇을 받을지 알 수 없다. 401은 필터의
+ * {@code ErrorResponseWriter}가, 나머지는 {@code GlobalExceptionHandler}가 같은 형태로 낸다.
+ */
 @Tag(name = "인증", description = "신원 조회·로그아웃·신청서 제출. 로그인 자체는 구글 OAuth 리다이렉트다")
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -107,7 +114,10 @@ public class AuthController {
   @ApiResponse(
       responseCode = "401",
       description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
-      content = @Content)
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
   @GetMapping("/me")
   @PreAuthorize("isAuthenticated()")
   public MeResponse me(@AuthenticationPrincipal Long userId) {
@@ -134,25 +144,29 @@ public class AuthController {
 
           **`PENDING` 전용이다.** 승인 후에는 이 경로로 학번을 바꿀 수 없다. 승인 전까지는
           다시 제출해 고칠 수 있다.
-          """,
-      security = {
-        @SecurityRequirement(name = OpenApiConfig.CSRF_SCHEME),
-        @SecurityRequirement(name = "accessToken"),
-        @SecurityRequirement(name = "session")
-      })
+          """)
   @ApiResponse(responseCode = "204", description = "저장됨. 화면은 `GET /auth/me`로 새 상태를 받는다")
   @ApiResponse(
       responseCode = "400",
       description = "`VALIDATION_ERROR` — 공백이거나 컬럼 길이를 넘었다",
-      content = @Content)
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
   @ApiResponse(
       responseCode = "403",
       description = "`FORBIDDEN` — `PENDING`이 아니거나 CSRF 토큰이 없다",
-      content = @Content)
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
   @ApiResponse(
       responseCode = "409",
       description = "`DUPLICATE_STUDENT_NO` — 다른 계정이 그 학번을 쓰고 있다",
-      content = @Content)
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
   @PostMapping("/application")
   @PreAuthorize("hasAuthority('STATUS_PENDING')")
   public ResponseEntity<Void> submitApplication(
@@ -172,14 +186,15 @@ public class AuthController {
       description =
           """
           세션을 지운다. **세션이 사라지면 쿠키에 남은 신원 토큰은 더 이상 인증에 쓰이지 못한다.**
-          """,
-      security = {
-        @SecurityRequirement(name = OpenApiConfig.CSRF_SCHEME),
-        @SecurityRequirement(name = "accessToken"),
-        @SecurityRequirement(name = "session")
-      })
+          """)
   @ApiResponse(responseCode = "204", description = "로그아웃됨")
-  @ApiResponse(responseCode = "401", description = "`UNAUTHENTICATED`", content = @Content)
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED`",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
   @PostMapping("/logout")
   @PreAuthorize("isAuthenticated()")
   public ResponseEntity<Void> logout(HttpServletRequest request, HttpServletResponse response) {

@@ -49,14 +49,25 @@ public class SecurityConfig {
    *
    * <p>{@code /actuator/health}가 빠지면 ALB 헬스체크가 401로 실패해 태스크가 무한 재시작한다.
    *
-   * <p><b>springdoc 경로는 넣지 않는다</b> (#23에서 정했다). 승인제 사이트라 명세가 공개되면 엔드포인트·필드·검증 규칙이 전부 드러난다. 팀원은 로그인한
-   * 브라우저로 열면 되고, 로컬 개발에서는 각자 서버를 띄운다 — 문서를 열어서 얻는 편의보다 잃는 것이 크다.
+   * <p><b>springdoc 경로는 넣지 않는다</b> (#23에서 정했다). 승인제 사이트라 명세가 공개되면 엔드포인트·필드·검증 규칙이 전부 드러난다. 문서는 아래
+   * {@link #API_DOCS_PATHS}가 {@code ACTIVE}에게만 연다.
    */
   private static final String[] PUBLIC_PATHS = {
     "/actuator/health",
     "/actuator/health/**",
     OAUTH_AUTHORIZATION_BASE_URI + "/**",
     "/api/v1/login/oauth2/code/**"
+  };
+
+  /**
+   * API 문서. <b>{@code ACTIVE} 회원만 볼 수 있다</b> (#23).
+   *
+   * <p>{@code anyRequest().authenticated()}에 맡기면 <b>인증만 되면 누구나 읽는다</b> — 승인을 기다리는 계정도, 이용 중 정지된 세션도
+   * 통과한다. 그러나 {@code PENDING}의 인증 영역은 신청·대기 화면뿐이고 {@code SUSPENDED}는 접근 범위가 없다 (spec 3-1 §3-1-2).
+   * 내부 명세는 그 둘에게 열 것이 아니다.
+   */
+  private static final String[] API_DOCS_PATHS = {
+    "/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**"
   };
 
   private final ErrorResponseWriter errorResponseWriter;
@@ -111,6 +122,8 @@ public class SecurityConfig {
                      */
                     .requestMatchers(HttpMethod.POST, "/api/v1/auth/application")
                     .hasAuthority("STATUS_PENDING")
+                    .requestMatchers(API_DOCS_PATHS)
+                    .hasAuthority("STATUS_ACTIVE")
                     .anyRequest()
                     .authenticated())
         .oauth2Login(

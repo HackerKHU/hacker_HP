@@ -2,17 +2,23 @@ package org.hackerkhu.hackerhp.global.config;
 
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.Operation;
+import io.swagger.v3.oas.models.PathItem;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
+import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
  * API 명세. 구현된 계약을 프론트엔드가 문서로 확인하는 자리다.
  *
- * <p><b>이 문서는 로그인해야 볼 수 있다.</b> {@code SecurityConfig}의 {@code permitAll}에 문서 경로를 넣지 않았다 — 승인제 사이트라
- * 명세가 공개되면 엔드포인트·필드·검증 규칙이 전부 드러난다. 팀원은 로그인한 브라우저로 열면 되고, 로컬 개발에서는 각자 서버를 띄운다.
+ * <p><b>이 문서는 `ACTIVE` 회원만 볼 수 있다.</b> {@code SecurityConfig}가 문서 경로에 그 조건을 건다 — 승인제 사이트라 명세가 공개되면
+ * 엔드포인트·필드·검증 규칙이 전부 드러나고, 승인을 기다리거나 정지된 계정은 인증 영역의 다른 것을 볼 수 없다 (spec 3-1 §3-1-2).
  */
 @Configuration
 public class OpenApiConfig {
@@ -24,7 +30,14 @@ public class OpenApiConfig {
   static final String SESSION_SCHEME = "session";
 
   /** 상태를 바꾸는 요청에 필요한 CSRF 토큰 (spec 3-2 §3-2-3). */
-  public static final String CSRF_SCHEME = "csrfToken";
+  static final String CSRF_SCHEME = "csrfToken";
+
+  private static final Set<PathItem.HttpMethod> WRITE_METHODS =
+      EnumSet.of(
+          PathItem.HttpMethod.POST,
+          PathItem.HttpMethod.PUT,
+          PathItem.HttpMethod.PATCH,
+          PathItem.HttpMethod.DELETE);
 
   @Bean
   public OpenAPI hackerHpOpenApi() {
@@ -60,6 +73,45 @@ public class OpenApiConfig {
          */
         .addSecurityItem(
             new SecurityRequirement().addList(ACCESS_TOKEN_SCHEME).addList(SESSION_SCHEME));
+  }
+
+  /**
+   * 상태를 바꾸는 요청에 CSRF 토큰 요구를 더한다.
+   *
+   * <p><b>애너테이션으로는 AND를 만들 수 없다.</b> {@code @SecurityRequirement}는 하나가 곧 요구사항 객체 하나이고, 배열에 나열하면 OR가
+   * 된다 — "셋 중 하나만 있으면 된다"로 읽혀 실제 서버 동작과 반대가 된다. 세 스킴을 <b>한 객체에</b> 담으려면 만들어진 명세를 여기서 고쳐야 한다.
+   *
+   * <p>경로마다 적지 않고 메서드로 판단하는 이유는, 앞으로 더할 쓰기 API가 <b>적는 것을 잊어도</b> 자동으로 붙게 하기 위해서다.
+   */
+  @Bean
+  public OpenApiCustomizer csrfOnWriteOperations() {
+    return openApi ->
+        openApi
+            .getPaths()
+            .values()
+            .forEach(
+                pathItem ->
+                    pathItem
+                        .readOperationsMap()
+                        .forEach(
+                            (method, operation) -> {
+                              if (WRITE_METHODS.contains(method)) {
+                                requireCsrf(operation);
+                              }
+                            }));
+  }
+
+  private static void requireCsrf(Operation operation) {
+    // 인증이 필요 없다고 명시한 경로(빈 목록)는 건드리지 않는다.
+    if (operation.getSecurity() != null && operation.getSecurity().isEmpty()) {
+      return;
+    }
+    operation.setSecurity(
+        List.of(
+            new SecurityRequirement()
+                .addList(ACCESS_TOKEN_SCHEME)
+                .addList(SESSION_SCHEME)
+                .addList(CSRF_SCHEME)));
   }
 
   private static SecurityScheme cookie(String name) {
