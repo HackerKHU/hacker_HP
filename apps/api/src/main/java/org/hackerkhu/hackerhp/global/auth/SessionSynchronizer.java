@@ -48,6 +48,14 @@ public class SessionSynchronizer {
    *
    * <p><b>값은 지금 읽어 둔다.</b> 커밋 뒤에는 영속성 컨텍스트가 닫혀 있어 엔티티를 다시 읽을 수 없고, 그 자리에서 새 트랜잭션을 여는 것은 커밋 직후의 정리
    * 단계와 얽힌다.
+   *
+   * <p><b>여기에 트랜잭션을 덧대지 않는다.</b> {@code afterCommit}은 바깥 트랜잭션의 자원이 정리되기 전에 돌지만, 세션 저장소는 자기 템플릿을
+   * {@code PROPAGATION_REQUIRES_NEW}로 열어 저장한다 ({@code
+   * JdbcHttpSessionConfiguration#createTransactionTemplate}) — 이미 커밋된 트랜잭션에 얹히지 않고 새 커넥션에서 따로 커밋한다.
+   * 여기서 {@code REQUIRES_NEW}를 한 겹 더 두르면 커넥션만 하나 더 잡는다.
+   *
+   * <p>그 전제가 깨지면 <b>승인은 되는데 세션만 옛 값으로 남는다.</b> T-33이 실제 API와 실제 저장소로 그 경로를 밟으므로, 라이브러리가 전파 방식을 바꾸면
+   * 그 테스트가 먼저 깨진다.
    */
   public void refreshAfterCommit(Collection<User> users) {
     List<Snapshot> snapshots = users.stream().map(Snapshot::of).toList();

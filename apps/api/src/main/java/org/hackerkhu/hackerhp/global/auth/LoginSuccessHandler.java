@@ -69,6 +69,19 @@ public class LoginSuccessHandler implements AuthenticationSuccessHandler {
       return;
     }
 
+    /*
+     * 알려진 경쟁 — 로그인과 상태 변경이 겹치는 아주 좁은 창이 있다 (#85 리뷰).
+     *
+     * 여기서 읽은 값으로 세션을 채우는데, 이 세션이 DB에 쓰이는 것은 요청이 끝날 때
+     * SessionRepositoryFilter가 커밋하는 시점이다. 그 사이에 관리자가 이 사람을 승인·정지하면
+     * SessionSynchronizer의 조회가 아직 없는 세션을 놓치고, 뒤이어 저장된 세션은 옛 값을 들고
+     * 남는다 — DB는 ACTIVE인데 세션만 PENDING인 상태가 만료(30분)까지 간다.
+     *
+     * 여기서 한 번 더 읽는 것으로는 닫히지 않는다. 창의 끝은 "다시 읽는 시점"이 아니라 "세션이
+     * 실제로 저장되는 시점"이라, 조회를 늘려도 창이 조금 줄 뿐이다. 닫으려면 세션을 저장소로
+     * 직접 만들어 먼저 쓰고 그 뒤에 대조해야 하는데, 그것은 로그인 경로의 구조를 바꾸는 일이라
+     * 별도 이슈로 둔다.
+     */
     AuthSession.store(request.getSession(true), user);
     accessTokenCookie.write(response, jwtProvider.issue(user.getId()), jwtProvider.expiry());
 
