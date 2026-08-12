@@ -1,6 +1,11 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { approve, list, updateStatus } from '@/api/adminUsers'
+import {
+  type ApproveFailureReason,
+  approve,
+  list,
+  updateStatus,
+} from '@/api/adminUsers'
 import { ApiError } from '@/api/client'
 import type { Page, Role, User, UserStatus } from '@/api/types'
 import { useSession } from '@/auth/session'
@@ -29,6 +34,50 @@ import {
 import { lookup } from '@/lib/lookup'
 
 const PAGE_SIZE = 20
+
+/**
+ * 실패 사유별 문구 (§3-2-6).
+ *
+ * **하나로 뭉치면 거짓 안내가 된다.** 두 관리자가 같은 신청을 연달아 처리하거나 오래된
+ * 선택에 이미 승인된 계정이 섞이면 서버는 `NOT_PENDING`을 주는데, 그것을 "신청서를 내지
+ * 않았다"고 옮기면 운영자가 그 사람에게 신청서를 내라고 연락하게 된다.
+ */
+const FAILURE_TEXT: Record<ApproveFailureReason, string> = {
+  NOT_APPLIED: '신청서를 내지 않은 계정',
+  NOT_PENDING: '이미 승인되었거나 정지된 계정',
+  NOT_FOUND: '찾을 수 없는 계정',
+}
+
+const FAILURE_ORDER: ApproveFailureReason[] = [
+  'NOT_APPLIED',
+  'NOT_PENDING',
+  'NOT_FOUND',
+]
+
+/**
+ * 실패를 사유별로 묶어 "무엇이 왜 실패했는지"를 한 줄로 만든다.
+ *
+ * 이름을 찾지 못하면 id로 적는다. 지워진 계정(`NOT_FOUND`)은 목록에 없어 이름을 알 수
+ * 없는데, 그렇다고 빼 버리면 **건수와 나열된 사람 수가 어긋난다.**
+ */
+function describeFailures(
+  failed: { userId: number; reason: ApproveFailureReason }[],
+  rows: User[],
+): string {
+  return FAILURE_ORDER.filter((reason) =>
+    failed.some((failure) => failure.reason === reason),
+  )
+    .map((reason) => {
+      const who = failed
+        .filter((failure) => failure.reason === reason)
+        .map(
+          ({ userId }) =>
+            rows.find((user) => user.id === userId)?.name ?? `#${userId}`,
+        )
+      return `${FAILURE_TEXT[reason]}: ${who.join(', ')}`
+    })
+    .join(' / ')
+}
 
 /** 확인 창을 거쳐야 하는 조작. 승인은 한 명이든 여럿이든 같은 모양이다. */
 type PendingAction =
@@ -301,26 +350,30 @@ export function MemberListPage() {
        * **성공·실패 건수를 안내한다** (2-2 §2-2-2 MUST). 실패가 있으면 누구인지도 말한다 —
        * 건수만으로는 무엇을 조치해야 할지 알 수 없다.
        */
-      const failedNames = result.failed
-        .map(({ userId }) => rows.find((user) => user.id === userId)?.name)
-        .filter((name): name is string => name !== undefined)
       setNotice(
         result.failed.length === 0
           ? `${result.approved.length}명을 승인했습니다.`
           : `${result.approved.length}명을 승인하고 ${result.failed.length}명은 실패했습니다.` +
-              ` 신청서를 내지 않은 계정입니다: ${failedNames.join(', ')}`,
+              ` ${describeFailures(result.failed, rows)}`,
       )
       /*
-       * **승인된 사람만 선택에서 뺀다. 전체를 비우지 않는다.**
+       * **보낸 사람만 선택에서 뺀다. 전체를 비우지 않는다.**
        *
        * 행 승인은 한 명만 처리하는데 선택 전체를 비우면, 조회 조건이 바뀌지도 않았고
        * 여전히 승인 대상인 다른 선택이 안내 없이 사라진다 — 조건 변경 때 지적받은 것과
-       * 같은 일이 다른 경로에서 다시 일어난다. 실패한 사람은 선택에 남겨 둔다.
-       * 누가 실패했는지 안내와 선택이 함께 남아야 다음 조치를 할 수 있다.
+       * 같은 일이 다른 경로에서 다시 일어난다.
+       *
+       * **실패한 사람도 뺀다.** 세 사유 모두 재조회 뒤에는 승인 대상이 아니다
+       * (`isApprovable`) — 체크박스가 잠기거나 행이 아예 사라진다. 선택에만 남으면
+       * 관리자는 그것을 **해제할 수도 없는데** 버튼은 계속 "선택한 N명 승인"으로 살아
+       * 있어, 언제나 실패하는 요청을 다시 보내게 된다. 누가 왜 실패했는지는 위 안내가
+       * 이미 말했고, 다시 보내려면 다시 고르면 된다.
        */
-      setSelection(
-        selectedRef.current.filter((id) => !result.approved.includes(id)),
-      )
+      const settled = [
+        ...result.approved,
+        ...result.failed.map(({ userId }) => userId),
+      ]
+      setSelection(selectedRef.current.filter((id) => !settled.includes(id)))
       setReloadKey((key) => key + 1)
     } catch (error: unknown) {
       reportApiError(error)

@@ -23,12 +23,7 @@ export function list(query: AdminUserQuery = {}): Promise<Page<User>> {
 }
 
 /**
- * 일괄 승인 결과.
- *
- * ⚠️ **계약에 없는 형태다** (spec §3-2-9 미합의). 계약은 "신청하지 않은 계정의 id가 섞여
- * 오면 그 건은 실패로 집계한다"(§3-2-6 MUST)까지만 정하고 응답 형태를 말하지 않는데,
- * 화면은 성공·실패 건수를 안내해야 한다(2-2 §2-2-2 MUST). 그래서 프론트가 형태를 제안하고
- * 여기에 맞춰 만들었다 — 서버와 합의되면 §3-2-9를 지우고 계약 본문에 넣는다.
+ * 일괄 승인 결과. 형태는 계약 §3-2-6이 원본이다 (2026-08-13 확정).
  *
  * **건수를 따로 받지 않는다.** 배열 길이가 곧 건수라 두 값이 어긋날 자리가 없다.
  */
@@ -39,8 +34,14 @@ export interface ApproveResult {
   failed: { userId: number; reason: ApproveFailureReason }[]
 }
 
-/** 지금 계약이 정의하는 실패는 하나뿐이다 (§3-2-6 — 신청서를 내지 않은 계정). */
-export type ApproveFailureReason = 'NOT_APPLIED'
+/**
+ * 승인 실패 사유 (§3-2-6).
+ *
+ * **셋을 하나로 뭉개면 안 된다.** 전부 `NOT_APPLIED`로 안내하면 신청서를 내고 이미
+ * 승인까지 받은 사람에게 "신청서를 내지 않았다"고 말하게 된다 — 두 관리자가 같은
+ * 신청을 연달아 처리하면 실제로 밟는 경로다.
+ */
+export type ApproveFailureReason = 'NOT_FOUND' | 'NOT_PENDING' | 'NOT_APPLIED'
 
 /** 일괄 승인. `PENDING` → `ACTIVE`. */
 export function approve(userIds: number[]): Promise<ApproveResult> {

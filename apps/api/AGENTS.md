@@ -14,7 +14,7 @@
 ## 현재 보일러플레이트 범위
 
 - Java 21, Spring Boot 3.5, Gradle Kotlin DSL을 사용한다.
-- 현재 허용된 HTTP 동작은 `/actuator/health`, 구글 OAuth 경로, `GET /auth/csrf`, `GET /auth/me`, `POST /auth/logout`, `POST /auth/application`, `GET /admin/users`, 그리고 API 문서(`/v3/api-docs`, Swagger UI)다.
+- 현재 허용된 HTTP 동작은 `/actuator/health`, 구글 OAuth 경로, `GET /auth/csrf`, `GET /auth/me`, `POST /auth/logout`, `POST /auth/application`, `GET /admin/users`, `POST /admin/users/approve`, 그리고 API 문서(`/v3/api-docs`, Swagger UI)다.
 - **API 문서는 로그인해야 볼 수 있다** (#23에서 정했다). `permitAll`에 문서 경로를 더하지 않는다 — 승인제 사이트라 명세가 공개되면 엔드포인트·필드·검증 규칙이 전부 드러난다.
 - **새 API에는 `@Operation`과 `@ApiResponse`를 붙인다.** 응답 코드 설명에는 계약의 에러 코드를 적는다 (`AuthController`가 본보기다).
 - **인증은 `ACCESS_TOKEN`(JWT)과 세션이 함께 있어야 성립한다.** 한쪽만으로 통과시키는 코드를 넣지 않는다 ([3-1 §3-1-5](../../spec/3-1-DESIGN-ARCHITECTURE.md) MUST).
@@ -28,6 +28,7 @@
 - **정렬할 수 있는 필드는 화이트리스트로 검사하고, 목록에 없으면 거절한다.** 무시하면 화면은 정렬된 줄 알고 틀린 순서를 신뢰한다. 값이 없는 행은 언제나 뒤로 보낸다 — PostgreSQL은 `DESC`에서 널을 맨 앞에 올린다.
 - **`Pageable`에 `NULLS LAST`를 실을 수 없다.** Spring Data는 Criteria 질의에 그것을 적용하지 못하고 `UnsupportedOperationException`을 던진다. 순서가 널의 위치까지 정해야 하면 `Specification` 안에서 `query.orderBy(...)`로 만든다(건수 질의에는 붙이지 않는다).
 - **검색어를 `LIKE`에 넣기 전에 `%`·`_`를 escape한다.** 하지 않으면 `_`가 "아무 글자 하나"로 해석되어 찾지 않은 행이 결과에 섞인다.
+- **여러 건을 한 번에 처리하는 API는 실패를 예외로 던지지 않는다.** 한 건 때문에 트랜잭션이 되돌아가면 성공한 것까지 사라진다. 실패는 사유와 함께 결과로 돌려주고 전체는 `200`이다 (§3-2-6 일괄 승인).
 - 권한 판단은 세션 값이다. **저장 직전에 상태가 바뀔 수 있는 작업은 행을 잠그고 다시 확인한다** ([3-1 §3-1-4](../../spec/3-1-DESIGN-ARCHITECTURE.md) MUST).
 - 기능 API를 추가할 때 컨트롤러 경로는 `/api/v1`로 시작한다 ([`../../spec/3-2-DESIGN-CONTRACT.md`](../../spec/3-2-DESIGN-CONTRACT.md)). `/actuator`와 springdoc 경로는 버전을 붙이지 않는다.
 - **인증 없이 열 경로는 `SecurityConfig`의 `PUBLIC_PATHS`에 명시한다.** 나머지는 전부 로그인이 필요하다.

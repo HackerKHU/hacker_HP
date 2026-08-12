@@ -406,6 +406,52 @@ describe('일괄 승인', () => {
     const status = await screen.findByRole('status')
     expect(status).toHaveTextContent('1명을 승인하고 1명은 실패했습니다')
     expect(status).toHaveTextContent('신청한둘')
+    expect(status).toHaveTextContent('신청서를 내지 않은 계정')
+  })
+
+  /*
+   * 사유를 하나로 뭉치면 **거짓 원인을 안내한다.** 두 관리자가 같은 신청을 연달아 처리하면
+   * 서버는 `NOT_PENDING`을 주는데, 그것을 "신청서를 내지 않았다"고 옮기면 운영자가 이미
+   * 승인된 사람에게 신청서를 내라고 연락하게 된다 (계약 §3-2-6).
+   */
+  it('실패 사유를 뭉치지 않고 각각의 문구로 안내한다', async () => {
+    api.approveResult = {
+      approved: [],
+      failed: [
+        { userId: 1, reason: 'NOT_PENDING' },
+        { userId: 2, reason: 'NOT_APPLIED' },
+      ],
+    }
+
+    renderAt()
+    fireEvent.click(await loaded())
+    fireEvent.click(within(row('신청한둘')).getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: /선택한 2명 승인/ }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '승인' }))
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent(
+      '이미 승인되었거나 정지된 계정: 신청한하나',
+    )
+    expect(status).toHaveTextContent('신청서를 내지 않은 계정: 신청한둘')
+  })
+
+  /** 지워진 계정은 목록에 없어 이름을 알 수 없다. 그렇다고 빼면 건수와 나열이 어긋난다. */
+  it('이름을 찾지 못한 실패도 id로 안내한다', async () => {
+    api.approveResult = {
+      approved: [],
+      failed: [{ userId: 999, reason: 'NOT_FOUND' }],
+    }
+
+    renderAt()
+    fireEvent.click(await loaded())
+    fireEvent.click(screen.getByRole('button', { name: /선택한 1명 승인/ }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '승인' }))
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent('찾을 수 없는 계정: #999')
   })
 
   it('승인이 실패하면 성공한 것처럼 보이지 않는다', async () => {
@@ -486,7 +532,7 @@ describe('일괄 승인', () => {
     expect(within(row('신청한하나')).getByRole('checkbox')).toBeChecked()
   })
 
-  it('승인된 사람은 선택에서 빠진다', async () => {
+  it('처리된 사람은 성공이든 실패든 선택에서 빠진다', async () => {
     renderAt()
     fireEvent.click(await loaded())
     fireEvent.click(within(row('신청한둘')).getByRole('checkbox'))
@@ -505,9 +551,14 @@ describe('일괄 승인', () => {
     await screen.findByRole('status')
     await screen.findByText(/승인 가능 1명/)
 
-    // 승인된 1번은 빠지고, 실패한 2번은 남는다 — 안내와 선택이 함께 남아야 조치가 된다.
-    expect(screen.getByText(/이 페이지에서 1명 선택됨/)).toBeInTheDocument()
-    expect(within(row('신청한둘')).getByRole('checkbox')).toBeChecked()
+    /*
+     * 둘 다 빠진다. 실패한 사람을 남겨 두면 **관리자가 해제할 수도 없는 선택**이 된다 —
+     * 재조회 뒤 그 행은 승인 대상이 아니라 체크박스가 잠기거나 아예 사라지는데, 버튼은
+     * 계속 살아 있어 언제나 실패하는 요청을 다시 보내게 된다. 누가 왜 실패했는지는
+     * 안내가 이미 말했다.
+     */
+    expect(screen.getByText(/이 페이지에서 0명 선택됨/)).toBeInTheDocument()
+    expect(within(row('신청한둘')).getByRole('checkbox')).not.toBeChecked()
   })
 
   it('아무도 선택하지 않으면 승인 버튼이 잠겨 있다', async () => {
