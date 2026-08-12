@@ -30,7 +30,7 @@ import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-/** GET/POST/PATCH/DELETE /notices — spec/3-2 §3-2-5. */
+/** GET/POST/PATCH/DELETE /notices, PATCH /notices/{id}/pin — spec/3-2 §3-2-5. */
 @SpringBootTest(
     properties =
         "spring.autoconfigure.exclude="
@@ -235,6 +235,45 @@ class NoticeApiIntegrationTest extends AbstractIntegrationTest {
 
     mockMvc
         .perform(Csrf.with(as(member, delete("/api/v1/notices/{id}", notice.getId()))))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void adminCanToggleNoticePinOn() throws Exception {
+    Notice notice = noticeRepository.saveAndFlush(Notice.write("제목", "내용", admin));
+
+    mockMvc
+        .perform(Csrf.with(as(admin, patch("/api/v1/notices/{id}/pin", notice.getId()))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.isPinned").value(true));
+  }
+
+  @Test
+  void adminCanToggleNoticePinOff() throws Exception {
+    Notice notice = noticeRepository.save(Notice.write("제목", "내용", admin));
+    notice.pin();
+    noticeRepository.saveAndFlush(notice);
+
+    mockMvc
+        .perform(Csrf.with(as(admin, patch("/api/v1/notices/{id}/pin", notice.getId()))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.isPinned").value(false));
+  }
+
+  @Test
+  void togglePinWithUnknownIdReturns404() throws Exception {
+    mockMvc
+        .perform(Csrf.with(as(admin, patch("/api/v1/notices/{id}/pin", 999_999L))))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+  }
+
+  @Test
+  void memberCannotTogglePin() throws Exception {
+    Notice notice = noticeRepository.saveAndFlush(Notice.write("제목", "내용", admin));
+
+    mockMvc
+        .perform(Csrf.with(as(member, patch("/api/v1/notices/{id}/pin", notice.getId()))))
         .andExpect(status().isForbidden());
   }
 }

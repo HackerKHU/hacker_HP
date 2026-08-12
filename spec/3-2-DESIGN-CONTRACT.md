@@ -285,7 +285,7 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 
 ### 성공 응답 본문
 
-`POST /notices`, `PATCH /notices/{id}`는 저장된 공지를 본문으로 돌려준다 (확정, 2026-08-13, #33) — `POST`는 `201`, `PATCH`는 `200`이다. 화면은 등록·수정 응답 본문의 `id`로 상세 화면으로 이동한다. `DELETE /notices/{id}`는 본문 없이 `204`다.
+`POST /notices`, `PATCH /notices/{id}`, `PATCH /notices/{id}/pin`은 저장된 공지를 본문으로 돌려준다 (확정, 2026-08-13, #33·#34) — `POST`는 `201`, 두 `PATCH`는 `200`이다. 화면은 등록·수정 응답 본문의 `id`로 상세 화면으로 이동한다. `DELETE /notices/{id}`는 본문 없이 `204`다.
 
 ## 3-2-6 API — 회원 관리
 

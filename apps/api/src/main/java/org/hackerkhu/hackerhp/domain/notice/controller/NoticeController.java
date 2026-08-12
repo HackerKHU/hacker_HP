@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 공지 조회·등록·수정·삭제 (spec 3-2 §3-2-5). 고정 토글은 별도 API(#34)가 맡는다.
+ * 공지 조회·등록·수정·삭제·고정 토글 (spec 3-2 §3-2-5).
  *
  * <p><b>조회는 {@code isAuthenticated()}, 쓰기는 {@code hasRole('ADMIN')}만 적는다.</b> 매트릭스의 {@code ACTIVE}
  * 조건은 {@code AccountStatusFilter}가 인가보다 먼저 보장하므로 여기서 다시 적지 않는다 — 같은 규칙을 두 곳에 두면 한쪽만 고쳐진다 ({@code
@@ -127,5 +127,20 @@ public class NoticeController {
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void delete(@PathVariable Long id) {
     noticeService.delete(id);
+  }
+
+  @Operation(summary = "공지 고정 토글", description = "고정된 공지는 해제하고, 해제된 공지는 고정한다. 고정 개수 상한은 없다.")
+  @ApiResponse(responseCode = "200", description = "토글됨. 본문은 저장된 공지")
+  @ApiResponse(
+      responseCode = "404",
+      description = "`NOT_FOUND` — 없는 공지",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @PatchMapping("/{id}/pin")
+  @PreAuthorize("hasRole('ADMIN')")
+  public NoticeResponse togglePin(@PathVariable Long id) {
+    return noticeService.togglePin(id);
   }
 }
