@@ -1,6 +1,7 @@
 package org.hackerkhu.hackerhp.global.config;
 
 import org.hackerkhu.hackerhp.global.auth.AccessTokenCookie;
+import org.hackerkhu.hackerhp.global.auth.AccountStatusFilter;
 import org.hackerkhu.hackerhp.global.auth.JwtProperties;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
 import org.hackerkhu.hackerhp.global.auth.JwtSessionAuthenticationFilter;
@@ -15,6 +16,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.context.NullSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
@@ -147,6 +149,11 @@ public class SecurityConfig {
         .addFilterBefore(
             new JwtSessionAuthenticationFilter(jwtProvider, accessTokenCookie),
             UsernamePasswordAuthenticationFilter.class)
+        /*
+         * 상태 차단은 인가보다 먼저다. @PreAuthorize가 거부하면 사유가 FORBIDDEN 하나로 뭉개지는데,
+         * 계약은 승인 대기(PENDING_APPROVAL)와 정지(SUSPENDED)를 따로 알려주라고 한다 (§3-2-7).
+         */
+        .addFilterBefore(new AccountStatusFilter(errorResponseWriter), AuthorizationFilter.class)
         // 기본 HttpSessionRequestCache는 401로 돌려보내기 전에 그 요청을 세션에 저장한다.
         // 화면은 랜딩을 포함해 최초 렌더마다 GET /auth/me를 부르므로(apps/web/src/auth/session.tsx),
         // 그대로 두면 비로그인 방문자마다 세션 행이 RDS에 쌓인다. 로그인 후 돌아갈 곳도

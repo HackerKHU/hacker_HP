@@ -19,6 +19,7 @@
 - **새 API에는 `@Operation`과 `@ApiResponse`를 붙인다.** 응답 코드 설명에는 계약의 에러 코드를 적는다 (`AuthController`가 본보기다).
 - **인증은 `ACCESS_TOKEN`(JWT)과 세션이 함께 있어야 성립한다.** 한쪽만으로 통과시키는 코드를 넣지 않는다 ([3-1 §3-1-5](../../spec/3-1-DESIGN-ARCHITECTURE.md) MUST).
 - **권한은 `ROLE_*`와 `STATUS_*` 두 축이다.** 권한 매트릭스([3-1 §3-1-3](../../spec/3-1-DESIGN-ARCHITECTURE.md))가 Role과 Status를 함께 보므로 `@PreAuthorize`도 둘을 함께 쓴다 — 신청서 제출은 `hasAuthority('STATUS_PENDING')`, 공지 등록은 `hasRole('ADMIN') and hasAuthority('STATUS_ACTIVE')`. **Status를 서비스 안에서 따로 검사하지 않는다.** 매트릭스와 코드가 갈라지고, 검사를 빠뜨린 API가 조용히 열린다.
+- **상태 차단은 인가보다 먼저다.** `AccountStatusFilter`가 `PENDING`·`SUSPENDED`를 각각의 코드로 막는다 — `@PreAuthorize`에 맡기면 사유가 `FORBIDDEN` 하나로 뭉개져 화면이 안내를 고르지 못한다. **인증 영역에 API를 더하면 기본적으로 막히므로**, 신청·대기에 필요한 경로만 그 필터의 통과 목록에 넣는다.
 - 권한 판단은 세션 값이다. **저장 직전에 상태가 바뀔 수 있는 작업은 행을 잠그고 다시 확인한다** ([3-1 §3-1-4](../../spec/3-1-DESIGN-ARCHITECTURE.md) MUST).
 - 기능 API를 추가할 때 컨트롤러 경로는 `/api/v1`로 시작한다 ([`../../spec/3-2-DESIGN-CONTRACT.md`](../../spec/3-2-DESIGN-CONTRACT.md)). `/actuator`와 springdoc 경로는 버전을 붙이지 않는다.
 - **인증 없이 열 경로는 `SecurityConfig`의 `PUBLIC_PATHS`에 명시한다.** 나머지는 전부 로그인이 필요하다.
