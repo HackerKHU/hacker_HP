@@ -532,7 +532,7 @@ describe('일괄 승인', () => {
     expect(within(row('신청한하나')).getByRole('checkbox')).toBeChecked()
   })
 
-  it('승인된 사람은 선택에서 빠진다', async () => {
+  it('처리된 사람은 성공이든 실패든 선택에서 빠진다', async () => {
     renderAt()
     fireEvent.click(await loaded())
     fireEvent.click(within(row('신청한둘')).getByRole('checkbox'))
@@ -551,9 +551,14 @@ describe('일괄 승인', () => {
     await screen.findByRole('status')
     await screen.findByText(/승인 가능 1명/)
 
-    // 승인된 1번은 빠지고, 실패한 2번은 남는다 — 안내와 선택이 함께 남아야 조치가 된다.
-    expect(screen.getByText(/이 페이지에서 1명 선택됨/)).toBeInTheDocument()
-    expect(within(row('신청한둘')).getByRole('checkbox')).toBeChecked()
+    /*
+     * 둘 다 빠진다. 실패한 사람을 남겨 두면 **관리자가 해제할 수도 없는 선택**이 된다 —
+     * 재조회 뒤 그 행은 승인 대상이 아니라 체크박스가 잠기거나 아예 사라지는데, 버튼은
+     * 계속 살아 있어 언제나 실패하는 요청을 다시 보내게 된다. 누가 왜 실패했는지는
+     * 안내가 이미 말했다.
+     */
+    expect(screen.getByText(/이 페이지에서 0명 선택됨/)).toBeInTheDocument()
+    expect(within(row('신청한둘')).getByRole('checkbox')).not.toBeChecked()
   })
 
   it('아무도 선택하지 않으면 승인 버튼이 잠겨 있다', async () => {

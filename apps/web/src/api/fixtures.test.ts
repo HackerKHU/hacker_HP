@@ -419,6 +419,15 @@ describe('회원 관리 픽스처', () => {
     expect(again.failed).toEqual([
       { userId: applied.id, reason: 'NOT_PENDING' },
     ])
+
+    // 같은 id를 두 번 보내도 한 건이다. 서버가 중복을 지우므로 부분 실패가 나올 수 없다.
+    const other = pending.content.find(
+      (user) => user.appliedAt !== null && user.id !== applied.id,
+    )
+    if (!other) throw new Error('픽스처 명단이 부족하다')
+    const twice = await fixtureApproveUsers([other.id, other.id])
+    expect(twice.approved).toEqual([other.id])
+    expect(twice.failed).toEqual([])
     expect(approved?.approvedAt).not.toBeNull()
   })
 

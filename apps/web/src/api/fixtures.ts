@@ -625,7 +625,9 @@ export function fixtureApproveUsers(userIds: number[]): Promise<ApproveResult> {
   if (denied) return Promise.reject(denied)
 
   const result: ApproveResult = { approved: [], failed: [] }
-  for (const id of userIds) {
+  // 서버와 같이 중복을 먼저 지운다. 그대로 두면 [id, id]가 성공 1건 + NOT_PENDING 1건이
+  // 되어, 실제로는 나올 수 없는 부분 실패를 픽스처 화면에서만 보게 된다 (계약 §3-2-6).
+  for (const id of [...new Set(userIds)]) {
     const found = MEMBERS.find((user) => user.id === id)
     // 사유를 서버와 같이 가른다. 하나로 뭉개면 화면이 거짓 원인을 안내한다.
     if (!found) {

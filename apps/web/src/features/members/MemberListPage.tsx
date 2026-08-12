@@ -357,16 +357,23 @@ export function MemberListPage() {
               ` ${describeFailures(result.failed, rows)}`,
       )
       /*
-       * **승인된 사람만 선택에서 뺀다. 전체를 비우지 않는다.**
+       * **보낸 사람만 선택에서 뺀다. 전체를 비우지 않는다.**
        *
        * 행 승인은 한 명만 처리하는데 선택 전체를 비우면, 조회 조건이 바뀌지도 않았고
        * 여전히 승인 대상인 다른 선택이 안내 없이 사라진다 — 조건 변경 때 지적받은 것과
-       * 같은 일이 다른 경로에서 다시 일어난다. 실패한 사람은 선택에 남겨 둔다.
-       * 누가 실패했는지 안내와 선택이 함께 남아야 다음 조치를 할 수 있다.
+       * 같은 일이 다른 경로에서 다시 일어난다.
+       *
+       * **실패한 사람도 뺀다.** 세 사유 모두 재조회 뒤에는 승인 대상이 아니다
+       * (`isApprovable`) — 체크박스가 잠기거나 행이 아예 사라진다. 선택에만 남으면
+       * 관리자는 그것을 **해제할 수도 없는데** 버튼은 계속 "선택한 N명 승인"으로 살아
+       * 있어, 언제나 실패하는 요청을 다시 보내게 된다. 누가 왜 실패했는지는 위 안내가
+       * 이미 말했고, 다시 보내려면 다시 고르면 된다.
        */
-      setSelection(
-        selectedRef.current.filter((id) => !result.approved.includes(id)),
-      )
+      const settled = [
+        ...result.approved,
+        ...result.failed.map(({ userId }) => userId),
+      ]
+      setSelection(selectedRef.current.filter((id) => !settled.includes(id)))
       setReloadKey((key) => key + 1)
     } catch (error: unknown) {
       reportApiError(error)
