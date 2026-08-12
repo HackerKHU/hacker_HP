@@ -138,6 +138,24 @@ class AccountStatusAccessIntegrationTest extends AbstractIntegrationTest {
         .andExpect(status().isNoContent());
   }
 
+  /*
+   * 신청 API는 PENDING에게만 열린다.
+   *
+   * 상태와 무관하게 열면, 정지된 사람이 제출했을 때 인가 규칙이 거절해 FORBIDDEN이 나간다.
+   * 그러면 화면은 정지를 알아채지 못하고 "권한이 없습니다"만 띄운 채 남는다 (T-116) —
+   * 대기 중에 정지당한 사람이 딱 이 경로를 밟는다.
+   */
+  @Test
+  void suspendedSubmittingTheApplicationLearnsItIsSuspended() throws Exception {
+    mockMvc
+        .perform(
+            Csrf.with(as(suspended, post("/api/v1/auth/application")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"studentNo\":\"20249998\",\"name\":\"본명\"}"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("SUSPENDED"));
+  }
+
   /* 화면은 이 값으로 신청 폼과 대기 안내 중 무엇을 보일지 가른다 (§3-1-6). */
   @Test
   void pendingCanStillReadItsOwnProfile() throws Exception {

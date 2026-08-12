@@ -40,13 +40,14 @@ public class AccountStatusFilter extends OncePerRequestFilter {
    * <p>각 항목이 없으면 무엇이 깨지는지:
    *
    * <ul>
-   *   <li>{@code POST /auth/application} — <b>아무도 신청서를 낼 수 없다.</b> 신청 전 계정도 {@code PENDING}이다
-   *       (§3-1-2 MUST)
    *   <li>{@code GET /auth/me} — 화면이 상태를 몰라 신청 폼도 정지 안내도 띄우지 못한다. <b>정지된 사람에게도 열어야 한다</b> — 막으면
    *       {@code 401}로 보여 "로그아웃됨"과 구별되지 않는다 (3-3 결정 12)
    *   <li>{@code POST /auth/logout} — 정지된 사람이 안내 화면에서 나갈 방법이 없다
-   *   <li>{@code GET /auth/csrf} — 위 두 쓰기 요청에 필요한 토큰을 받지 못한다
+   *   <li>{@code GET /auth/csrf} — 위 쓰기 요청에 필요한 토큰을 받지 못한다
+   *   <li>{@code /actuator/**} — ALB 헬스체크가 막혀 태스크가 무한 재시작한다
    * </ul>
+   *
+   * <p>신청 API는 여기 없다. <b>상태와 무관하게 열면 안 되기 때문이다</b> — {@link #PENDING_ONLY}를 보라.
    */
   private static final RequestMatcher ALWAYS_OPEN =
       new OrRequestMatcher(
@@ -56,8 +57,17 @@ public class AccountStatusFilter extends OncePerRequestFilter {
               matcher(null, "/api/v1/login/oauth2/code/**"),
               matcher(HttpMethod.GET, "/api/v1/auth/csrf"),
               matcher(HttpMethod.GET, "/api/v1/auth/me"),
-              matcher(HttpMethod.POST, "/api/v1/auth/application"),
               matcher(HttpMethod.POST, "/api/v1/auth/logout")));
+
+  /**
+   * {@code PENDING}에게만 여는 경로.
+   *
+   * <p>신청 API를 막으면 <b>아무도 신청서를 낼 수 없다</b> — 신청 전 계정도 {@code PENDING}이다 (§3-1-2 MUST). 그렇다고 {@link
+   * #ALWAYS_OPEN}에 두면 <b>정지된 사람이 제출했을 때 {@code FORBIDDEN}이 나간다</b> — 인가 규칙({@code
+   * hasAuthority("STATUS_PENDING")})이 거절하기 때문이다. 그러면 화면은 정지를 알아채지 못하고 "권한이 없습니다"만 띄운 채 남는다 (T-116).
+   */
+  private static final RequestMatcher PENDING_ONLY =
+      matcher(HttpMethod.POST, "/api/v1/auth/application");
 
   private final ErrorResponseWriter errorResponseWriter;
 
@@ -101,10 +111,13 @@ public class AccountStatusFilter extends OncePerRequestFilter {
      * 여기서 DB를 다시 읽지 않아도 다음 요청부터 새 값이 적용된다 (3-1 §3-1-5 MUST).
      */
     if (hasStatus(authentication, Status.SUSPENDED)) {
+      // 정지는 예외가 없다. 신청 API도 여기서 걸려야 화면이 정지를 알아챈다.
       return Optional.of(ErrorCode.SUSPENDED);
     }
     if (hasStatus(authentication, Status.PENDING)) {
-      return Optional.of(ErrorCode.PENDING_APPROVAL);
+      return PENDING_ONLY.matches(request)
+          ? Optional.empty()
+          : Optional.of(ErrorCode.PENDING_APPROVAL);
     }
     return Optional.empty();
   }
