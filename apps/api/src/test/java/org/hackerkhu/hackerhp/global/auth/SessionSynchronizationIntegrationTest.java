@@ -9,6 +9,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import jakarta.servlet.http.Cookie;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
@@ -28,6 +33,7 @@ import org.springframework.session.Session;
 import org.springframework.session.SessionRepository;
 import org.springframework.session.web.http.CookieSerializer;
 import org.springframework.session.web.http.DefaultCookieSerializer;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -232,6 +238,49 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
         .perform(as(signedIn, get(DOCS)))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("SUSPENDED"));
+  }
+
+  /**
+   * 앞뒤 콜백이 <b>동시에</b> 도착해도 새 값이 남는다.
+   *
+   * <p>버전을 비교하는 것만으로는 부족하다 — 둘이 같은 옛 세션을 함께 읽으면 <b>둘 다 비교를 통과하고</b> 나중에 저장하는 쪽이 이긴다. 읽기부터 저장까지를 그
+   * 사람의 계정 행으로 한 줄로 세워야 한다.
+   */
+  @Test
+  void concurrentRefreshesLeaveTheNewerValue() throws Exception {
+    SignedIn signedIn = signIn(member);
+
+    User newer = userRepository.findById(member.getId()).orElseThrow();
+    transactionTemplate.executeWithoutResult(
+        ignored -> userRepository.findById(member.getId()).orElseThrow().suspend());
+    User olderSnapshot = userRepository.findById(member.getId()).orElseThrow();
+    // 버전만 되돌린 옛 스냅샷 — 앞선 트랜잭션의 콜백이 늦게 도착한 상황이다.
+    ReflectionTestUtils.setField(olderSnapshot, "version", 0L);
+    ReflectionTestUtils.setField(olderSnapshot, "status", Status.ACTIVE);
+    User newerSnapshot = userRepository.findById(member.getId()).orElseThrow();
+
+    CyclicBarrier ready = new CyclicBarrier(2);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      pool.invokeAll(List.of(push(olderSnapshot, ready), push(newerSnapshot, ready)));
+    } finally {
+      pool.shutdownNow();
+      pool.awaitTermination(10, TimeUnit.SECONDS);
+    }
+
+    assertThat(newer.getId()).isEqualTo(member.getId());
+    mockMvc
+        .perform(as(signedIn, get(DOCS)))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("SUSPENDED"));
+  }
+
+  private Callable<Boolean> push(User snapshot, CyclicBarrier ready) {
+    return () -> {
+      ready.await(10, TimeUnit.SECONDS);
+      sessionSynchronizer.refreshAfterCommit(List.of(snapshot));
+      return true;
+    };
   }
 
   /* ------------------------------------------------------------------ T-33 */

@@ -6,13 +6,17 @@ import java.util.Map;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
+import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 바뀐 {@code role}·{@code status}를 <b>그 사람의 기존 세션에</b> 반영한다 (spec 3-1 §3-1-5 MUST, #85).
@@ -30,14 +34,29 @@ public class SessionSynchronizer {
   private static final Logger log = LoggerFactory.getLogger(SessionSynchronizer.class);
 
   private final FindByIndexNameSessionRepository<Session> sessions;
+  private final UserRepository userRepository;
+
+  /**
+   * 한 사람의 세션 갱신을 <b>인스턴스 사이에서도</b> 한 줄로 세우는 트랜잭션.
+   *
+   * <p>{@code afterCommit}에는 트랜잭션이 없으므로 여기서 새로 연다. 세션 저장소도 자기 트랜잭션을 따로 열지만(둘 다 {@code
+   * REQUIRES_NEW}) 서로 다른 테이블을 만져 얽히지 않는다.
+   */
+  private final TransactionTemplate serialize;
 
   /**
    * 저장소의 실제 세션 타입({@code JdbcSession})은 공개되어 있지 않아 와일드카드로 주입받고 여기서 좁힌다. {@code save(S)}가 {@code
    * Session}을 받으려면 타입이 정해져 있어야 한다.
    */
   @SuppressWarnings("unchecked")
-  public SessionSynchronizer(FindByIndexNameSessionRepository<? extends Session> sessions) {
+  public SessionSynchronizer(
+      FindByIndexNameSessionRepository<? extends Session> sessions,
+      UserRepository userRepository,
+      PlatformTransactionManager transactionManager) {
     this.sessions = (FindByIndexNameSessionRepository<Session>) sessions;
+    this.userRepository = userRepository;
+    this.serialize = new TransactionTemplate(transactionManager);
+    this.serialize.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
   }
 
   /**
@@ -83,17 +102,16 @@ public class SessionSynchronizer {
    * 그 사람의 세션을 <b>전부</b> 갱신한다.
    *
    * <p>한 사람이 PC와 휴대폰에 각각 로그인해 있을 수 있다. 하나라도 남기면 <b>정지된 사람이 그 브라우저로 계속 쓴다.</b>
+   *
+   * <p><b>읽고-비교하고-저장하는 동안 그 사람의 계정 행을 잡고 있는다.</b> 버전 비교만으로는 부족하다 — 앞뒤 콜백이 (인스턴스가 달라도) 같은 옛 세션을 함께
+   * 읽으면 둘 다 비교를 통과하고, 나중에 저장하는 쪽이 낮은 버전이면 새 값이 도로 덮인다. 이 잠금이 그 구간 전체를 한 줄로 세운다.
+   *
+   * <p>계정 행을 고르는 이유는 <b>상태를 바꾸는 트랜잭션이 이미 그 행을 잠그기 때문이다</b> — 갱신과 다음 변경도 자연히 순서가 선다. 세션 저장은 다른 테이블이라
+   * 이 잠금과 얽히지 않는다.
    */
   private void refresh(Snapshot snapshot) {
     try {
-      Map<String, Session> found = sessions.findByPrincipalName(String.valueOf(snapshot.userId()));
-      found.values().forEach(session -> save(session, snapshot));
-      log.info(
-          "세션 갱신: userId={} status={} role={} 세션 {}개",
-          snapshot.userId(),
-          snapshot.status(),
-          snapshot.role(),
-          found.size());
+      serialize.executeWithoutResult(ignored -> refreshLocked(snapshot));
     } catch (RuntimeException e) {
       /*
        * 여기서 던지면 이미 커밋된 변경까지 실패한 것처럼 보인다. 세션은 옛 값으로 남고
@@ -102,6 +120,20 @@ public class SessionSynchronizer {
        */
       log.error("세션 갱신 실패: userId={}", snapshot.userId(), e);
     }
+  }
+
+  private void refreshLocked(Snapshot snapshot) {
+    // 계정이 사라졌으면 잠글 것이 없다. 남은 세션은 정리해 두는 편이 낫다.
+    userRepository.findByIdForUpdate(snapshot.userId());
+
+    Map<String, Session> found = sessions.findByPrincipalName(String.valueOf(snapshot.userId()));
+    found.values().forEach(session -> save(session, snapshot));
+    log.info(
+        "세션 갱신: userId={} status={} role={} 세션 {}개",
+        snapshot.userId(),
+        snapshot.status(),
+        snapshot.role(),
+        found.size());
   }
 
   /**
