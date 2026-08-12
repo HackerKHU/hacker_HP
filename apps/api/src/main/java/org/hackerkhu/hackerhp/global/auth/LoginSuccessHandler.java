@@ -80,7 +80,7 @@ public class LoginSuccessHandler implements AuthenticationSuccessHandler {
      * 여기서 한 번 더 읽는 것으로는 닫히지 않는다. 창의 끝은 "다시 읽는 시점"이 아니라 "세션이
      * 실제로 저장되는 시점"이라, 조회를 늘려도 창이 조금 줄 뿐이다. 닫으려면 세션을 저장소로
      * 직접 만들어 먼저 쓰고 그 뒤에 대조해야 하는데, 그것은 로그인 경로의 구조를 바꾸는 일이라
-     * 별도 이슈로 둔다.
+     * #127로 둔다.
      */
     AuthSession.store(request.getSession(true), user);
     accessTokenCookie.write(response, jwtProvider.issue(user.getId()), jwtProvider.expiry());
