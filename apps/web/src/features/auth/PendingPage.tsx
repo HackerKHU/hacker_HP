@@ -18,16 +18,51 @@ const STUDENT_NO_MAX = 20
 const NAME_MAX = 50
 
 /**
+ * 입력 예시. **규칙이 아니라 예시다.**
+ *
+ * 위 주석대로 계약이 요구하는 것은 "공백이 아닐 것"뿐이고 학번 형식 제약은 없다
+ * (#38 결정 4). `xxxxxx`를 자릿수 요구로 읽지 않도록 `maxLength` 말고는 아무것도
+ * 걸지 않았다 — `pattern`도 `inputMode`도 주지 않는다. 편입·교환학생·대학원처럼
+ * 형태가 다른 학번이 실제로 있고 그것들도 그대로 받아야 한다.
+ *
+ * **연도를 문자열에 박지 않는다.** `2026xxxxxx`라고 적어두면 내년 신입생이 작년 예시를
+ * 보게 되고, 고치는 사람이 나올 때까지 아무도 모른다. 화면에 보이는 예시는 "올해 들어온
+ * 사람의 학번"이어야 뜻이 통하므로 실행 시점의 연도로 만든다.
+ *
+ * 모듈이 처음 불릴 때 한 번만 계산한다. 렌더마다 `new Date()`를 부를 이유가 없다.
+ *
+ * ⚠️ **뒤 여섯 자리는 확인된 값이 아니다.** 이대로면 총 10자리인데, 경희대 학번이
+ * 실제로 10자리인지 **우리는 모른다.** 계약에는 `student_no varchar(20)`뿐이고
+ * (spec §3-2-2) 형식 규칙이 없다. 픽스처가 10자리를 쓰지만 그건 우리가 지어낸 값이라
+ * 근거가 못 된다. 자릿수가 실제와 다르면 사용자가 "이 형식이어야 한다"고 오해할 수
+ * 있으니, **실제 자릿수를 확인하면 이 줄을 그 값으로 고친다.** 확인 전까지도 입력은
+ * 막지 않는다 — 위 주석대로 `pattern`을 걸지 않았다.
+ */
+const STUDENT_NO_PLACEHOLDER = `${new Date().getFullYear()}000000`
+
+/** 구글 프로필에서 미리 채워져 보일 일이 드물다. 비어 있을 때만 나온다. */
+const NAME_PLACEHOLDER = '홍길동'
+
+/**
  * 화면 컨테이너. **로그인 화면과 같은 폭·정렬이다** — 로그인에서 여기로 넘어오는 흐름에서
  * 화면이 좌우로 튀지 않아야 한다.
  *
  * 상하 여백은 주지 않는다. 이 화면은 `AppLayout` 안이고 `<main>`이 이미 `py-8`을 준다 —
- * 로그인 화면이 `py-16`을 갖는 것은 그쪽이 레이아웃 **밖**이라 헤더도 여백도 없기 때문이다.
+ * 레이아웃 밖 화면이 자기 여백을 갖는 것은 그쪽에 헤더도 `<main>`도 없기 때문이다.
+ *
+ * **`my-auto`로 세로 가운데에 둔다. `items-center`가 아니다.** `AppLayout`의 `<main>`이
+ * 세로 flex라 여기서 위아래 `margin: auto`를 잡으면 남는 공간을 반씩 나눠 갖는다. 남는
+ * 공간이 없으면 0이 되어 위에서 시작하고 아래로 흐르므로 **잘려서 못 보는 부분이 없다.**
+ * 정렬로 가운데를 잡으면 그 상황에서 위쪽이 밖으로 밀려 스크롤로 닿을 수 없다.
+ *
+ * **레이아웃 안에서 가운데로 두는 화면은 여기뿐이다.** 이 화면은 짧은 카드 하나가 전부고
+ * 길이가 거의 변하지 않는다. 목록·표·읽는 글은 위에서 시작해야 한다 — 가운데로 두면 행
+ * 수나 글 길이에 따라 시작 위치가 위아래로 움직인다.
  *
  * 로딩 화면과 본 화면이 이 값을 같이 쓴다. 따로 적으면 한쪽만 바뀌어 로딩이 끝나는 순간
  * 화면이 움직인다.
  */
-const CONTAINER = 'mx-auto max-w-sm'
+const CONTAINER = 'mx-auto my-auto max-w-sm'
 
 /**
  * 신청·대기 화면. **한 화면이 두 모습을 가진다** (spec §3-1-6).
@@ -172,9 +207,14 @@ export function PendingPage() {
             <p role="alert" className="mt-6 text-sm text-muted-foreground">
               {error}
             </p>
+            {/*
+              아래 대기 화면의 "다시 확인"과 같은 동작·같은 라벨이므로 모양도 같다.
+              여기서만 좁으면, 다시 확인이 성공해 대기 화면으로 넘어가는 순간 같은
+              버튼이 전체폭으로 늘어난다.
+            */}
             <Button
               type="button"
-              className="mt-4"
+              className="mt-4 w-full"
               disabled={checking}
               onClick={handleRecheck}
             >
@@ -211,6 +251,7 @@ export function PendingPage() {
               <Input
                 id="application-student-no"
                 value={values.studentNo}
+                placeholder={STUDENT_NO_PLACEHOLDER}
                 maxLength={STUDENT_NO_MAX}
                 onChange={(event) =>
                   setDraft({ ...values, studentNo: event.target.value })
@@ -223,6 +264,7 @@ export function PendingPage() {
               <Input
                 id="application-name"
                 value={values.name}
+                placeholder={NAME_PLACEHOLDER}
                 maxLength={NAME_MAX}
                 onChange={(event) =>
                   setDraft({ ...values, name: event.target.value })
@@ -236,14 +278,28 @@ export function PendingPage() {
               </p>
             )}
 
-            <div className="flex gap-2">
-              <Button type="submit" disabled={saving}>
+            {/*
+             * **좁은 카드에서는 주 동작이 전체폭 하나다** (`apps/web/README.md` "폼 버튼").
+             * 384px짜리 카드 안에서 오른쪽으로 밀면 버튼이 한쪽에 치우쳐 보이고, 바로 옆
+             * 로그인 카드는 구글 버튼이 이미 전체폭이라 결도 어긋난다.
+             *
+             * **취소는 그 아래 글자 버튼으로 내린다.** 전체폭 둘을 세로로 쌓으면 크기가
+             * 같아 취소가 제출만큼 중요해 보인다. 로그인 카드가 전체폭 버튼 아래에
+             * `← 동아리 소개로 돌아가기`를 두는 것과 같은 구조다 — 새로 만든 모양이 아니다.
+             * `ghost`라 테두리·배경이 없고, 폭은 채워 누를 자리를 넓게 준다.
+             *
+             * 순서가 바뀌어도 Enter 제출은 그대로다 — 취소가 `type="button"`이라 이 폼의
+             * submit 버튼은 여전히 하나뿐이다.
+             */}
+            <div className="flex flex-col gap-1">
+              <Button type="submit" className="w-full" disabled={saving}>
                 {saving ? '제출 중' : '제출'}
               </Button>
               {editing && (
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
+                  className="w-full text-muted-foreground hover:text-foreground"
                   onClick={() => {
                     setEditing(false)
                     setError(null)
@@ -291,13 +347,28 @@ export function PendingPage() {
             </p>
           )}
 
-          <div className="mt-4 flex gap-2">
-            <Button type="button" disabled={checking} onClick={handleRecheck}>
+          {/*
+           * 폼은 아니지만 **같은 좁은 카드라 같은 모양을 쓴다** — 주 동작이 전체폭이고
+           * 부수 동작은 그 아래 글자 버튼이다. 한 카드 안에서 위(신청 폼)와 아래가
+           * 다른 모양이면 규칙이 둘로 보인다.
+           *
+           * 바로 위 문장이 "**아래 버튼으로** 다시 확인해 주세요"라고 버튼을 가리키는데,
+           * 전체폭이면 그 문장 바로 밑을 가득 채우므로 가리키는 것과 가리켜지는 것이
+           * 붙는다. (오른쪽으로 밀면 그 둘이 갈라져서 앞서 왼쪽에 뒀던 자리다.)
+           */}
+          <div className="mt-4 flex flex-col gap-1">
+            <Button
+              type="button"
+              className="w-full"
+              disabled={checking}
+              onClick={handleRecheck}
+            >
               {checking ? '확인 중' : '다시 확인'}
             </Button>
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
+              className="w-full text-muted-foreground hover:text-foreground"
               onClick={() => setEditing(true)}
             >
               신청 내용 수정

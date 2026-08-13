@@ -261,6 +261,33 @@ describe('신청서 제출', () => {
       ])
     })
   })
+
+  /*
+   * 예시(placeholder)는 **규칙이 아니다.** 위 케이스가 `EX-2021-7`로 그것을 지키고,
+   * 여기서는 예시가 형식 제약으로 새어나가지 않았는지를 본다 — `pattern`·`inputMode`가
+   * 붙으면 브라우저가 예시와 같은 모양을 강제하게 된다.
+   */
+  it('학번 예시는 올해 연도로 만들고, 예시일 뿐 형식을 강제하지 않는다', async () => {
+    renderAt()
+
+    const studentNo = await screen.findByLabelText('학번')
+    /*
+     * **화면 값을 코드에서 가져오지 않는다.** 여기서 상수를 import하면 코드가 `2026`을
+     * 박아두어도 같이 틀린 값을 비교하게 된다. 연도는 테스트가 따로 구한다 — 코드가
+     * 리터럴로 굳는 순간 해가 바뀌면 이 단언이 깨진다. 그것이 잡으려는 결함이다.
+     */
+    expect(studentNo).toHaveAttribute(
+      'placeholder',
+      `${new Date().getFullYear()}000000`,
+    )
+    expect(studentNo).not.toHaveAttribute('pattern')
+    expect(studentNo).not.toHaveAttribute('inputMode')
+
+    expect(screen.getByLabelText('이름')).toHaveAttribute(
+      'placeholder',
+      '홍길동',
+    )
+  })
 })
 
 describe('제출 실패', () => {

@@ -27,16 +27,6 @@ function formatDateTime(iso: string): string {
   })
 }
 
-/**
- * 읽는 글의 폭. **랜딩 소개·후원이 이미 쓰는 값이다** (`max-w-2xl` = 672px) — 새 숫자를
- * 만들지 않는다.
- *
- * 한글은 전각이라 글자 폭이 폰트 크기와 비슷하다. 672px이면 16px 본문에서 42자, 14px
- * 본문에서 48자다. 읽기 좋은 줄 길이(40~50자 안팎) 안에 든다. 1152px을 그대로 쓰면 82자가
- * 되어 **눈이 다음 줄 시작을 못 찾는다.**
- */
-const READING = 'max-w-2xl'
-
 type Status = 'loading' | 'loaded' | 'notFound' | 'failed'
 
 export function NoticeDetailPage() {
@@ -91,8 +81,17 @@ export function NoticeDetailPage() {
   }
 
   return (
-    // 제목·메타·본문이 같은 폭을 쓴다. 본문만 좁히면 제목이 붕 뜬다.
-    <article className={READING}>
+    /*
+     * **폭을 제한하지 않는다** — `AppLayout`의 `<main>`이 주는 1152px을 그대로 쓴다.
+     * 제목·메타·본문이 같은 폭이라는 것은 그대로다. 본문만 좁히면 제목이 붕 뜬다.
+     *
+     * 한때 `max-w-2xl`(672px)로 좁혔다. 근거는 줄 길이 계산이었다 — 1152px이면 한글이
+     * 한 줄에 82자까지 들어가 눈이 다음 줄 시작을 못 찾는다는 것. **계산은 맞지만 그
+     * 82자는 아주 긴 공지에서만 나오는 최악값이었다.** 실제 공지는 대부분 몇 줄이라
+     * 672px에서는 글이 왼쪽에 쪼그라들고 오른쪽 480px이 빈 채 남는다. 화면을 직접 보고
+     * 답답하다는 판단이 나와 되돌렸다 (2026-08-11). 규칙은 `apps/web/README.md`에 있다.
+     */
+    <article>
       {/* 목록으로 돌아가는 진입점. 뒤로가기만 믿지 않는다. */}
       <Link
         to="/notices"
