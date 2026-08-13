@@ -42,6 +42,16 @@ spring:
       initialize-schema: never
 
 server:
+  tomcat:
+    # 로그인 리다이렉트를 상대 경로 그대로 내보낸다 (3-2 §3-2-3 MUST).
+    #
+    # 로그인 성공·실패 핸들러는 SPA의 라우트(`/`, `/login?error=...`)를 상대 경로로 준다. 끄면
+    # Tomcat이 그것을 요청 Host로 절대화하는데, 이 API는 언제나 프록시 뒤에 있고 프록시가 Host를
+    # API 오리진으로 바꾼다(로컬은 Vite의 changeOrigin, 운영은 Vercel rewrites → ALB). 그러면
+    # 브라우저가 SPA를 떠나 API 서버로 이동해 화면 대신 JSON을 본다 — 로그인에 성공해도 그렇다.
+    #
+    # 위의 redirect-uri를 환경별 절대 URI로 고정한 것과 같은 이유이고, 같은 함정의 다른 자리다.
+    use-relative-redirects: true
   servlet:
     session:
       # JWT 수명(app.auth.jwt.expiry)과 같은 값이다. 세션이 없으면 토큰이 살아 있어도 인증이
