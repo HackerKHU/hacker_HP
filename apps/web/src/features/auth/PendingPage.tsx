@@ -96,7 +96,18 @@ export function PendingPage() {
   } | null>(null)
   const values = draft ?? {
     studentNo: user?.studentNo ?? '',
-    name: user?.name ?? '',
+    /*
+     * **최초 신청에는 이름을 채우지 않는다.**
+     *
+     * 신청 전 `user.name`은 구글이 준 표시 이름이고(§3-2-2 — "최초에는 구글 프로필, 신청 시
+     * 본인이 정정"), 학교 Workspace가 거기에 소속을 넣는다:
+     * `강경현[학생](소프트웨어융합대학 컴퓨터공학부)`. 채워 두면 그럴듯해 보여서 그대로
+     * 제출되고, 계약이 말한 정정이 일어나지 않는다.
+     *
+     * **수정할 때는 채운다.** 그때의 값은 본인이 낸 이름이다. 여기서도 비우면 학번 오타
+     * 하나를 고치려고 이름을 다시 쳐야 한다.
+     */
+    name: applied ? (user?.name ?? '') : '',
   }
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
