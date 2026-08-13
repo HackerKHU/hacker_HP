@@ -105,6 +105,19 @@ function pathname(): string {
   return screen.getByTestId('pathname').textContent ?? ''
 }
 
+/**
+ * 신청 폼을 채운다.
+ *
+ * **이름도 채워야 한다.** 최초 신청에서는 이름 칸이 비어 있으므로(#132), 학번만 넣고 제출하면
+ * 화면이 클라이언트에서 막는다 — 서버 응답을 보려는 케이스가 요청도 못 보내고 통과해 버린다.
+ */
+async function fillApplication(studentNo: string, name = '홍길동') {
+  fireEvent.change(await screen.findByLabelText('학번'), {
+    target: { value: studentNo },
+  })
+  fireEvent.change(screen.getByLabelText('이름'), { target: { value: name } })
+}
+
 beforeEach(() => {
   api.me = BASE
   api.meError = null
@@ -125,11 +138,21 @@ describe('한 화면 두 모습', () => {
     expect(screen.queryByRole('heading', { name: '승인 대기 중' })).toBeNull()
   })
 
-  // 결정 3 — 이름은 구글 프로필에서 받아둔 값이 있다. 빈 칸으로 두면 다시 쓰게 한다.
-  it('이름은 계정에 있는 값으로 미리 채운다', async () => {
+  /*
+   * **결정 3을 뒤집는다** (#132). 원래 근거는 "구글 프로필에서 받아둔 값이 있으니 빈 칸으로
+   * 두면 다시 쓰게 한다"였다. 그 전제가 이 학교에서는 틀렸다 — 경희대 Workspace는 표시
+   * 이름에 소속을 넣는다.
+   *
+   *     강경현[학생](소프트웨어융합대학 컴퓨터공학부)
+   *
+   * 그럴듯한 값이 채워져 있으면 그대로 제출되고, 계약이 말한 "신청 시 본인이 정정"
+   * (§3-2-2)이 일어나지 않는다. 아끼는 것은 세 글자 입력이고, 치르는 것은 회원 목록에
+   * 남는 이 문자열이다.
+   */
+  it('최초 신청에는 이름을 채우지 않는다', async () => {
     renderAt()
 
-    expect(await screen.findByLabelText('이름')).toHaveValue('구글이름')
+    expect(await screen.findByLabelText('이름')).toHaveValue('')
   })
 
   // T-105
@@ -216,9 +239,7 @@ describe('신청서 제출', () => {
   it('제출은 성공했지만 서버가 아직 신청 전이라고 하면 폼에 머문다', async () => {
     renderAt()
 
-    fireEvent.change(await screen.findByLabelText('학번'), {
-      target: { value: '2021123456' },
-    })
+    await fillApplication('2021123456')
     fireEvent.click(screen.getByRole('button', { name: '제출' }))
 
     await waitFor(() => {
@@ -232,9 +253,8 @@ describe('신청서 제출', () => {
   it('공백만 넣으면 요청이 나가지 않는다', async () => {
     renderAt()
 
-    fireEvent.change(await screen.findByLabelText('학번'), {
-      target: { value: '   ' },
-    })
+    // 이름은 채운다 — 둘 다 비면 무엇 때문에 막혔는지 이 케이스가 가리지 못한다.
+    await fillApplication('   ')
     fireEvent.click(screen.getByRole('button', { name: '제출' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -252,12 +272,12 @@ describe('신청서 제출', () => {
     expect(screen.getByLabelText('이름')).toHaveAttribute('maxLength', '50')
 
     // 숫자가 아닌 학번도 그대로 받는다 — 편입·교환학생 학번이 그렇다.
-    fireEvent.change(studentNo, { target: { value: 'EX-2021-7' } })
+    await fillApplication('EX-2021-7')
     fireEvent.click(screen.getByRole('button', { name: '제출' }))
 
     await waitFor(() => {
       expect(api.submitted).toEqual([
-        { studentNo: 'EX-2021-7', name: '구글이름' },
+        { studentNo: 'EX-2021-7', name: '홍길동' },
       ])
     })
   })
@@ -310,9 +330,7 @@ describe('제출 실패', () => {
     api.submitError = error
 
     renderAt()
-    fireEvent.change(await screen.findByLabelText('학번'), {
-      target: { value: '2021123456' },
-    })
+    await fillApplication('2021123456')
     fireEvent.click(screen.getByRole('button', { name: '제출' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(expected)
@@ -334,9 +352,7 @@ describe('제출 중 상태가 바뀌면', () => {
     api.submitError = new ApiError('SUSPENDED', 403, '정지된 계정입니다.')
 
     renderAt()
-    fireEvent.change(await screen.findByLabelText('학번'), {
-      target: { value: '2021123456' },
-    })
+    await fillApplication('2021123456')
     fireEvent.click(screen.getByRole('button', { name: '제출' }))
 
     await waitFor(() => {
@@ -354,9 +370,7 @@ describe('제출 중 상태가 바뀌면', () => {
     )
 
     renderAt()
-    fireEvent.change(await screen.findByLabelText('학번'), {
-      target: { value: '2021123456' },
-    })
+    await fillApplication('2021123456')
     fireEvent.click(screen.getByRole('button', { name: '제출' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
