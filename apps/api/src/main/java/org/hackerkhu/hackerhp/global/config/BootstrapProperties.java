@@ -9,8 +9,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * ADMIN_BOOTSTRAP_TOKEN}).
  *
  * <p><b>값이 없어도 기동은 된다.</b> {@code allowed-email-domain}·{@code jwt.secret}과 달리 이것은 <b>일회성 운영
- * 경로</b>다 — 기동 조건으로 묶으면 나중에 SSM에서 토큰을 회전하거나 지우는 순간 API 전체가 죽는다. 대신 값이 없으면 그 경로를 <b>닫는다</b>({@link
- * #configured()}). 빈 값이 일치로 취급되는 일은 없다.
+ * 경로</b>다. 기동 조건으로 묶으면 로컬·테스트가 이 값을 채워야만 뜨는데 그 대가로 얻는 것이 없다 — 값이 없으면 그 경로를 <b>닫으므로</b>({@link
+ * #configured()}) 무방비가 되지 않는다. 빈 값이 일치로 취급되는 일도 없다.
+ *
+ * <p>운영에서는 태스크 정의가 두 값을 {@code secrets}로 <b>항상</b> 주입한다. <b>토큰을 바꿀 때 파라미터를 지우면 안 된다</b> — 주입이 실패해 새
+ * 태스크가 기동 전에 죽는다. 값만 바꾸고 재배포한다 ({@code docs/ops/runbook.md}).
  *
  * @param email 최초 관리자가 될 사람의 이메일. 이것만으로는 승격되지 않는다
  * @param token SSM 접근 권한이 있는 사람만 아는 무작위 시크릿

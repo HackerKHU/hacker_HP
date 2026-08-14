@@ -143,6 +143,35 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
     assertThat(promoted.getApprovedAt()).isEqualTo(approvedBefore);
   }
 
+  /**
+   * <b>같은 요청을 다시 보내는 것이 복구 수단이어야 한다.</b>
+   *
+   * <p>승격은 커밋됐는데 세션 갱신이 실패하는 경우가 있다 — 그 실패는 예외로 올리지 않는다(이미 커밋된 변경까지 실패한 것처럼 보이면 안 되기 때문이다). 그러면 본인이
+   * 할 수 있는 일은 다시 부르는 것뿐인데, "활성 관리자가 이미 있다"로 거절하면 <b>재로그인 전까지 관리자 화면을 열 수 없다.</b>
+   *
+   * <p>재요청은 아무것도 바꾸지 않고 세션만 다시 맞춘다.
+   */
+  @Test
+  void repeatingTheCallAfterPromotionIsAllowed() throws Exception {
+    mockMvc.perform(bootstrap(founder, TOKEN)).andExpect(status().isNoContent());
+    User promoted = reload(founder);
+
+    mockMvc.perform(bootstrap(founder, TOKEN)).andExpect(status().isNoContent());
+
+    User again = reload(founder);
+    assertThat(again.getRole()).isEqualTo(Role.ADMIN);
+    assertThat(again.getStatus()).isEqualTo(Status.ACTIVE);
+    assertThat(again.getApprovedAt()).isEqualTo(promoted.getApprovedAt());
+  }
+
+  /** 재요청이라도 토큰이 틀리면 통과하지 못한다. 이 문은 이메일·토큰을 지난 사람에게만 열린다. */
+  @Test
+  void repeatingWithAWrongTokenIsStillRejected() throws Exception {
+    mockMvc.perform(bootstrap(founder, TOKEN)).andExpect(status().isNoContent());
+
+    mockMvc.perform(bootstrap(founder, "wrong-token")).andExpect(status().isForbidden());
+  }
+
   /* ---------------------------------------------------------------- 거절 */
 
   /** T-17 — 이메일은 맞지만 토큰이 다르다. */

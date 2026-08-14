@@ -1,6 +1,8 @@
 package org.hackerkhu.hackerhp.domain.user.service;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
@@ -61,7 +63,12 @@ public class AdminBootstrapService {
    */
   public void promote(Long requesterId, String token) {
     transaction.executeWithoutResult(ignored -> apply(requesterId, token));
-    // 승격은 role·status를 바꾼다. 반영하지 않으면 본인이 재로그인해야 관리자 화면이 열린다.
+    /*
+     * 승격은 role·status를 바꾼다. 반영하지 않으면 본인이 재로그인해야 관리자 화면이 열린다.
+     *
+     * 이 갱신이 실패해도 예외로 올라오지 않으므로, 같은 요청을 다시 보내는 것이 복구 수단이다.
+     * 그래서 이미 승격된 계정의 재요청도 여기까지 온다 (apply 참고).
+     */
     sessionSynchronizer.refresh(List.of(requesterId));
   }
 
@@ -72,33 +79,58 @@ public class AdminBootstrapService {
     }
 
     /*
-     * 활성 관리자 수를 세는 동안 그 행들이 바뀌면 안 된다 (2-2 §2-2-7의 원자성 요구).
-     * 잠금 순서는 저장소 전체에서 하나다 — users 행은 id 오름차순.
+     * 자격부터 본다 — 잠그기 전에.
+     *
+     * 이 경로는 로그인만 하면 누구나 부를 수 있다. 자격을 보기 전에 관리자 행을 잠그면,
+     * 자격 없는 사람이 반복 호출하는 것만으로 관리자 행 잠금을 계속 점유해 승인·정지 같은
+     * 정상 작업을 대기시킬 수 있다.
      */
-    SortedSet<Long> ids = new TreeSet<>(List.of(requesterId));
-    ids.addAll(userRepository.findIdsByRoleAndStatus(Role.ADMIN, Status.ACTIVE));
-    ids.forEach(id -> userRepository.findByIdForUpdate(id));
-
-    User requester =
+    User candidate =
         userRepository
             .findById(requesterId)
             // 세션은 살아 있는데 계정이 사라졌다. 인증이 성립할 수 없는 상태다.
             .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHENTICATED));
+    requireCredentials(requesterId, candidate.getEmail(), token);
 
-    if (userRepository.countByRoleAndStatus(Role.ADMIN, Status.ACTIVE) > 0) {
-      reject(requesterId, "활성 관리자가 이미 있다");
+    /*
+     * 여기부터 잠근다. 활성 관리자 수를 세는 동안 그 행들이 바뀌면 안 된다 (2-2 §2-2-7의
+     * 원자성 요구). 잠금 순서는 저장소 전체에서 하나다 — users 행은 id 오름차순.
+     */
+    SortedSet<Long> ids = new TreeSet<>(List.of(requesterId));
+    ids.addAll(userRepository.findIdsByRoleAndStatus(Role.ADMIN, Status.ACTIVE));
+    Map<Long, User> locked = new LinkedHashMap<>();
+    ids.forEach(id -> userRepository.findByIdForUpdate(id).ifPresent(user -> locked.put(id, user)));
+
+    User requester = locked.get(requesterId);
+    if (requester == null) {
+      throw new BusinessException(ErrorCode.UNAUTHENTICATED);
     }
-    if (!bootstrap.matchesEmail(requester.getEmail())) {
-      reject(requesterId, "이메일이 설정값과 다르다");
-    }
-    if (!bootstrap.matchesToken(token)) {
-      reject(requesterId, "토큰이 일치하지 않는다");
-    }
+    // 잠금을 기다리는 사이에 바뀌었을 수 있다. 잠근 값으로 다시 본다.
+    requireCredentials(requesterId, requester.getEmail(), token);
+
     if (requester.getStatus() == Status.SUSPENDED) {
       reject(requesterId, "정지된 계정이다");
     }
     if (requester.getAppliedAt() == null) {
       reject(requesterId, "신청서를 제출하지 않았다");
+    }
+
+    /*
+     * 본인이 이미 활성 관리자면 아무것도 바꾸지 않고 통과한다.
+     *
+     * 승격은 커밋됐는데 세션 갱신이 실패하는 경우가 있다(그 실패는 예외로 올리지 않는다).
+     * 그러면 같은 요청을 다시 보내는 것이 유일한 복구 수단인데, 여기서 "활성 관리자가 이미
+     * 있다"로 거절하면 그 재시도가 막힌다 — 본인은 재로그인 전까지 관리자 화면을 못 연다.
+     *
+     * 이메일·토큰을 이미 확인했으므로 여는 문이 넓어지지 않는다.
+     */
+    if (requester.getRole() == Role.ADMIN && requester.getStatus() == Status.ACTIVE) {
+      log.info("이미 승격된 계정의 재요청 — 세션만 다시 맞춘다: userId={}", requesterId);
+      return;
+    }
+
+    if (userRepository.countByRoleAndStatus(Role.ADMIN, Status.ACTIVE) > 0) {
+      reject(requesterId, "활성 관리자가 이미 있다");
     }
 
     /*
@@ -111,6 +143,15 @@ public class AdminBootstrapService {
     requester.promoteToAdmin();
 
     log.warn("최초 관리자 승격: userId={} email={} — 활성 관리자가 0명이었다", requesterId, requester.getEmail());
+  }
+
+  private void requireCredentials(Long requesterId, String email, String token) {
+    if (!bootstrap.matchesEmail(email)) {
+      reject(requesterId, "이메일이 설정값과 다르다");
+    }
+    if (!bootstrap.matchesToken(token)) {
+      reject(requesterId, "토큰이 일치하지 않는다");
+    }
   }
 
   /**

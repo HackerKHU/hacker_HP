@@ -40,8 +40,10 @@
 **② 토큰을 조회한다.**
 
 ```bash
-aws ssm get-parameter --name /hacker-hp/prod/admin-bootstrap-token   --with-decryption --query 'Parameter.Value' --output text
+aws ssm get-parameter --name /hacker/dev/ADMIN_BOOTSTRAP_TOKEN   --with-decryption --query Parameter.Value --output text
 ```
+
+> 파라미터 이름은 [infra.md](infra.md)의 `ssm.tf`가 원본이다. 환경이 늘면 그 경로도 함께 바뀐다.
 
 **③ 브라우저에서 호출한다.** 로그인한 그 브라우저의 개발자 도구 콘솔에서 실행한다 — 쿠키 세 개(`SESSION`·`ACCESS_TOKEN`·CSRF)가 모두 필요해 `curl`로는 번거롭다.
 
@@ -58,6 +60,17 @@ res.status   // 204면 성공
 ```
 
 **④ 확인한다.** 새로고침하면 관리자 화면이 열린다 — 승격은 **기존 세션에 즉시 반영되므로** 재로그인이 필요 없다 ([3-1 §3-1-5](../../spec/3-1-DESIGN-ARCHITECTURE.md)).
+
+### 토큰을 바꿔야 할 때
+
+**파라미터를 지우지 않는다.** 태스크 정의가 두 값을 `secrets`로 항상 참조하므로([infra.md](infra.md) `ecs.tf`), 지우면 **새 태스크가 기동 전에 실패한다** — 배포나 Spot 회수 뒤 대체 태스크가 뜨지 못해 서비스가 통째로 멈춘다.
+
+값만 바꾸고 **재배포한다.** SSM 값은 컨테이너가 시작할 때 환경변수로 주입되므로, 이미 돌고 있는 태스크에는 반영되지 않는다.
+
+```bash
+aws ssm put-parameter --name /hacker/dev/ADMIN_BOOTSTRAP_TOKEN   --type SecureString --value "$(openssl rand -hex 16)" --overwrite
+aws ecs update-service --cluster hacker-cluster --service hacker-api --force-new-deployment
+```
 
 > **토큰을 채팅·이슈·커밋에 남기지 않는다.** 안전한 채널로 최초 관리자에게만 전달한다 ([infra.md](infra.md)).
 >
