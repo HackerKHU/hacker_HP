@@ -514,6 +514,8 @@ aws ssm get-parameter --name /hacker/dev/ADMIN_BOOTSTRAP_TOKEN \
 
 이 값을 최초 관리자가 될 사람에게 안전한 채널(직접 전달, 사설 DM 등)로 알려주고, 그 사람이 가입 후 `POST /auth/bootstrap-admin`을 호출할 때 쓰게 합니다. 커밋 로그나 공개 채널에 남기지 않습니다.
 
+**이 값의 소유자는 Terraform입니다.** 회전은 `terraform apply -replace=random_password.admin_bootstrap_token`으로 합니다 — `aws ssm put-parameter`로 직접 덮으면 다음 `apply`가 드리프트로 보고 되살립니다. 파라미터 자체를 지우면 안 됩니다: 태스크 정의가 `secrets`로 항상 참조하므로 **새 태스크가 기동 전에 실패합니다** ([runbook.md](runbook.md)).
+
 ### alb.tf — ALB, 타겟 그룹, 리스너
 
 ```hcl

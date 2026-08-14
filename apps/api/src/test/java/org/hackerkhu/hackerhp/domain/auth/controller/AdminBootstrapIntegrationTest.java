@@ -122,6 +122,23 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
   }
 
   /**
+   * 대소문자만 다른 두 계정이 함께 있어도 <b>관리자는 하나만 생긴다.</b>
+   *
+   * <p>{@code users.email}의 {@code UNIQUE}는 대소문자를 구분하는데 이 경로는 구분하지 않고 견주므로, <b>자격을 만족하는 행이 둘일 수
+   * 있다.</b> 각자 자기 행만 잠그면 둘 다 "활성 관리자 0명"을 보고 통과한다 — 같은 이메일을 쓰는 계정을 전부 잠가 한 줄로 세운다.
+   */
+  @Test
+  void onlyOneOfTwoCaseVariantsCanBePromoted() throws Exception {
+    User upper = userRepository.saveAndFlush(applied("sub-up", "FOUNDER@KHU.AC.KR", "20200009"));
+
+    mockMvc.perform(bootstrap(founder, TOKEN)).andExpect(status().isNoContent());
+    mockMvc.perform(bootstrap(upper, TOKEN)).andExpect(status().isForbidden());
+
+    assertThat(reload(founder).getRole()).isEqualTo(Role.ADMIN);
+    assertThat(reload(upper).getRole()).isEqualTo(Role.USER);
+  }
+
+  /**
    * 마지막 관리자 사고의 복구 경로 (2-2 §2-2-7).
    *
    * <p>이미 승인된 회원이면 <b>role만 바꾼다.</b> {@code approve()}를 다시 부르면 승인일이 오늘로 덮여 실제 승인일이 사라진다.

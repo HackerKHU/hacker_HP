@@ -95,8 +95,14 @@ public class AdminBootstrapService {
     /*
      * 여기부터 잠근다. 활성 관리자 수를 세는 동안 그 행들이 바뀌면 안 된다 (2-2 §2-2-7의
      * 원자성 요구). 잠금 순서는 저장소 전체에서 하나다 — users 행은 id 오름차순.
+     *
+     * 요청자만 잠그면 부족하다. users.email의 UNIQUE는 대소문자를 구분하는데 이 경로는
+     * 구분하지 않고 견주므로, 자격을 만족하는 행이 둘 이상일 수 있다 — 그 둘이 동시에
+     * 호출하면 각자 자기 행만 잠근 채 "활성 관리자 0명"을 함께 보고 둘 다 관리자가 된다.
+     * 그래서 같은 이메일을 쓰는 계정을 전부 잠가 이 경로의 요청들을 한 줄로 세운다.
      */
     SortedSet<Long> ids = new TreeSet<>(List.of(requesterId));
+    ids.addAll(userRepository.findIdsByEmailIgnoreCase(bootstrap.email().trim()));
     ids.addAll(userRepository.findIdsByRoleAndStatus(Role.ADMIN, Status.ACTIVE));
     Map<Long, User> locked = new LinkedHashMap<>();
     ids.forEach(id -> userRepository.findByIdForUpdate(id).ifPresent(user -> locked.put(id, user)));

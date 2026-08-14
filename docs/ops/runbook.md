@@ -21,7 +21,8 @@
 | Vercel에서 API 호출 실패 | `vercel.json` destination이 ALB DNS와 불일치 |
 | 태스크가 가끔 재시작 | Fargate Spot 회수. 정상 동작 ([결정 3](../../spec/3-3-DESIGN-DECISIONS.md)) |
 | 첫 가입자가 계속 `PENDING` | 최초 관리자 승격을 안 했다. 아래 절차를 밟는다 |
-| 관리자가 전부 사라짐 | 같은 절차로 복구한다 ([2-2 §2-2-7](../../spec/2-2-OPERATOR-REQUIREMENTS.md)) |
+| 관리자가 전부 사라짐 | 아래 절차로 복구한다 ([2-2 §2-2-7](../../spec/2-2-OPERATOR-REQUIREMENTS.md)) |
+| 마지막 관리자가 **정지됨** | 승격 경로로 복구되지 않는다. 아래 "정지된 관리자밖에 없을 때"를 본다 |
 | 승격 API가 계속 `403` | 조건 넷 중 하나가 어긋났다. **응답은 사유를 알려주지 않으므로 서버 로그를 본다** (`관리자 승격 거절` 줄) |
 
 ## 최초 관리자 승격
@@ -67,10 +68,24 @@ res.status   // 204면 성공
 
 값만 바꾸고 **재배포한다.** SSM 값은 컨테이너가 시작할 때 환경변수로 주입되므로, 이미 돌고 있는 태스크에는 반영되지 않는다.
 
+**Terraform을 통해 바꾼다.** 이 파라미터의 값은 `random_password.admin_bootstrap_token`이 소유한다([infra.md](infra.md) `ssm.tf`) — `aws ssm put-parameter`로 직접 덮으면 **다음 `terraform apply`가 그것을 드리프트로 보고 옛 토큰을 되살린다.**
+
 ```bash
-aws ssm put-parameter --name /hacker/dev/ADMIN_BOOTSTRAP_TOKEN   --type SecureString --value "$(openssl rand -hex 16)" --overwrite
+terraform apply -replace=random_password.admin_bootstrap_token
 aws ecs update-service --cluster hacker-cluster --service hacker-api --force-new-deployment
 ```
+
+Terraform을 쓸 수 없는 상황이라 CLI로 급히 바꿨다면, **그 값을 잊지 말고 Terraform 쪽에도 반영한다** — 하지 않으면 다음 `apply`에 조용히 되돌아간다.
+
+### 정지된 관리자밖에 없을 때
+
+마지막 활성 관리자가 `SUSPENDED`가 되어 0명이 된 경우는 **위 절차로 복구되지 않는다.** 그 계정은 로그인 단계에서 거절되고, 세션이 남아 있어도 승격 경로가 정지된 계정을 거절하며, 다른 계정은 `ADMIN_BOOTSTRAP_EMAIL`과 달라 실패한다.
+
+1. 신청서까지 마친 **다른 계정**을 준비한다 (없으면 그 사람이 먼저 가입·신청한다).
+2. `ADMIN_BOOTSTRAP_EMAIL`을 그 주소로 바꾼다 — 값의 소유자가 Terraform이므로 `.tf`에서 고쳐 `apply`한다.
+3. ECS를 재배포한다. SSM 값은 컨테이너가 시작할 때 읽는다.
+4. 그 계정으로 위의 승격 절차를 밟는다.
+5. 복구한 뒤 정지됐던 계정을 관리자 화면에서 해제한다.
 
 > **토큰을 채팅·이슈·커밋에 남기지 않는다.** 안전한 채널로 최초 관리자에게만 전달한다 ([infra.md](infra.md)).
 >
