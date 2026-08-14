@@ -15,7 +15,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 공지 조회·등록·수정·삭제 (spec 2-1 §2-1-6, 2-2 §2-2-6). 고정 토글은 별도 API(#34)가 맡는다. */
+/** 공지 조회·등록·수정·삭제·고정 토글 (spec 2-1 §2-1-6, 2-2 §2-2-6). */
 @Service
 @Transactional(readOnly = true)
 public class NoticeService {
@@ -75,5 +75,18 @@ public class NoticeService {
       throw new BusinessException(ErrorCode.NOT_FOUND);
     }
     noticeRepository.deleteById(id);
+  }
+
+  /** 고정 개수 상한은 두지 않는다 (spec 2-1 §2-1-6). 여러 개가 고정되면 {@link #FIXED_SORT}가 등록일 최신순으로 가른다. */
+  @Transactional
+  public NoticeResponse togglePin(Long id) {
+    Notice notice =
+        noticeRepository.findById(id).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+    if (notice.isPinned()) {
+      notice.unpin();
+    } else {
+      notice.pin();
+    }
+    return NoticeResponse.from(notice);
   }
 }
