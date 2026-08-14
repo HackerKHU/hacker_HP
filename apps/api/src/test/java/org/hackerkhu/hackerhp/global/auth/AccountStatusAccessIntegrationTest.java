@@ -5,11 +5,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import jakarta.servlet.http.Cookie;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
-import org.hackerkhu.testsupport.session.InMemorySessionConfig;
+import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,11 +16,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
  * 승인 대기·정지 계정이 콘텐츠에 닿지 못하는지 (spec 3-1 §3-1-2, T-02·T-32).
@@ -31,12 +27,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  *
  * <p>세션을 직접 붙이려고 Spring Session 자동 설정을 뺀다 — 이유는 {@code AuthControllerIntegrationTest}에 적어 두었다.
  */
-@SpringBootTest(
-    properties =
-        "spring.autoconfigure.exclude="
-            + "org.springframework.boot.autoconfigure.session.SessionAutoConfiguration")
+@SpringBootTest
 @AutoConfigureMockMvc
-@Import(InMemorySessionConfig.class)
 class AccountStatusAccessIntegrationTest extends AbstractIntegrationTest {
 
   /** 지금 인증 영역에서 상태 통제를 받는 유일한 경로다. 공지 API(#32)가 오면 T-01·T-02가 그쪽으로 덮인다. */
@@ -55,8 +47,9 @@ class AccountStatusAccessIntegrationTest extends AbstractIntegrationTest {
     userRepository.deleteAll();
     pending =
         userRepository.saveAndFlush(User.createFromGoogle("sub-p", "pending@khu.ac.kr", "대기자"));
-    active = userRepository.saveAndFlush(approved("sub-a", "active@khu.ac.kr", "20240001"));
-    User toSuspend = approved("sub-s", "suspended@khu.ac.kr", "20240002");
+    active =
+        userRepository.saveAndFlush(Accounts.approved("sub-a", "active@khu.ac.kr", "20240001"));
+    User toSuspend = Accounts.approved("sub-s", "suspended@khu.ac.kr", "20240002");
     toSuspend.suspend();
     suspended = userRepository.saveAndFlush(toSuspend);
   }
@@ -64,21 +57,6 @@ class AccountStatusAccessIntegrationTest extends AbstractIntegrationTest {
   @AfterEach
   void clear() {
     userRepository.deleteAll();
-  }
-
-  private static User approved(String googleSub, String email, String studentNo) {
-    User user = User.createFromGoogle(googleSub, email, "이름");
-    user.submitApplication(studentNo, "본명");
-    user.approve();
-    return user;
-  }
-
-  private MockHttpServletRequestBuilder as(User user, MockHttpServletRequestBuilder builder) {
-    MockHttpSession session = new MockHttpSession();
-    AuthSession.store(session, user);
-    return builder
-        .session(session)
-        .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(user.getId())));
   }
 
   /*
@@ -89,7 +67,7 @@ class AccountStatusAccessIntegrationTest extends AbstractIntegrationTest {
   @Test
   void pendingIsBlockedWithItsOwnCode() throws Exception {
     mockMvc
-        .perform(as(pending, get(PROTECTED_PATH)))
+        .perform(sessions.as(pending, get(PROTECTED_PATH)))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("PENDING_APPROVAL"))
         .andExpect(jsonPath("$.message").value("승인 대기 중인 계정입니다."));
@@ -104,7 +82,7 @@ class AccountStatusAccessIntegrationTest extends AbstractIntegrationTest {
   @Test
   void suspendedIsBlockedWithItsOwnCode() throws Exception {
     mockMvc
-        .perform(as(suspended, get(PROTECTED_PATH)))
+        .perform(sessions.as(suspended, get(PROTECTED_PATH)))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("SUSPENDED"))
         .andExpect(jsonPath("$.message").value("정지된 계정입니다."));
@@ -112,7 +90,7 @@ class AccountStatusAccessIntegrationTest extends AbstractIntegrationTest {
 
   @Test
   void activeMemberPassesThrough() throws Exception {
-    mockMvc.perform(as(active, get(PROTECTED_PATH))).andExpect(status().isOk());
+    mockMvc.perform(sessions.as(active, get(PROTECTED_PATH))).andExpect(status().isOk());
   }
 
   /*
@@ -135,7 +113,7 @@ class AccountStatusAccessIntegrationTest extends AbstractIntegrationTest {
   void pendingCanStillSubmitTheApplication() throws Exception {
     mockMvc
         .perform(
-            Csrf.with(as(pending, post("/api/v1/auth/application")))
+            Csrf.with(sessions.as(pending, post("/api/v1/auth/application")))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"studentNo\":\"20249999\",\"name\":\"본명\"}"))
         .andExpect(status().isNoContent());
@@ -152,7 +130,7 @@ class AccountStatusAccessIntegrationTest extends AbstractIntegrationTest {
   void suspendedSubmittingTheApplicationLearnsItIsSuspended() throws Exception {
     mockMvc
         .perform(
-            Csrf.with(as(suspended, post("/api/v1/auth/application")))
+            Csrf.with(sessions.as(suspended, post("/api/v1/auth/application")))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"studentNo\":\"20249998\",\"name\":\"본명\"}"))
         .andExpect(status().isForbidden())
@@ -163,7 +141,7 @@ class AccountStatusAccessIntegrationTest extends AbstractIntegrationTest {
   @Test
   void pendingCanStillReadItsOwnProfile() throws Exception {
     mockMvc
-        .perform(as(pending, get("/api/v1/auth/me")))
+        .perform(sessions.as(pending, get("/api/v1/auth/me")))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.status").value("PENDING"));
   }
@@ -177,7 +155,7 @@ class AccountStatusAccessIntegrationTest extends AbstractIntegrationTest {
   @Test
   void suspendedCanStillReadItsOwnProfile() throws Exception {
     mockMvc
-        .perform(as(suspended, get("/api/v1/auth/me")))
+        .perform(sessions.as(suspended, get("/api/v1/auth/me")))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.status").value("SUSPENDED"));
   }
@@ -186,20 +164,24 @@ class AccountStatusAccessIntegrationTest extends AbstractIntegrationTest {
   @Test
   void suspendedCanStillLogOut() throws Exception {
     mockMvc
-        .perform(Csrf.with(as(suspended, post("/api/v1/auth/logout"))))
+        .perform(Csrf.with(sessions.as(suspended, post("/api/v1/auth/logout"))))
         .andExpect(status().isNoContent());
   }
 
   /* 위 두 쓰기 요청에 필요한 토큰을 받는 경로다. 막으면 신청도 로그아웃도 못 한다. */
   @Test
   void blockedAccountsCanStillGetACsrfToken() throws Exception {
-    mockMvc.perform(as(pending, get("/api/v1/auth/csrf"))).andExpect(status().isNoContent());
-    mockMvc.perform(as(suspended, get("/api/v1/auth/csrf"))).andExpect(status().isNoContent());
+    mockMvc
+        .perform(sessions.as(pending, get("/api/v1/auth/csrf")))
+        .andExpect(status().isNoContent());
+    mockMvc
+        .perform(sessions.as(suspended, get("/api/v1/auth/csrf")))
+        .andExpect(status().isNoContent());
   }
 
   /* 헬스체크는 어떤 상태에서도 열린다. 막히면 ALB가 태스크를 무한 재시작한다. */
   @Test
   void healthCheckIsNeverBlocked() throws Exception {
-    mockMvc.perform(as(suspended, get("/actuator/health"))).andExpect(status().isOk());
+    mockMvc.perform(sessions.as(suspended, get("/actuator/health"))).andExpect(status().isOk());
   }
 }

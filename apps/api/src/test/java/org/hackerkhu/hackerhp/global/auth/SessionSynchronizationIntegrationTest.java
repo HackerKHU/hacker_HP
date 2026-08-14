@@ -7,7 +7,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import jakarta.servlet.http.Cookie;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
@@ -18,6 +17,8 @@ import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.testsupport.auth.TestSessions.SignedIn;
+import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,15 +27,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.session.SessionRepository;
-import org.springframework.session.web.http.CookieSerializer;
 import org.springframework.session.web.http.DefaultCookieSerializer;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -72,11 +69,13 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
   void createAccounts() {
     userRepository.deleteAll();
 
-    User toPromote = approved("sub-admin", "admin@khu.ac.kr", "20200001", "관리자");
+    User toPromote = Accounts.approved("sub-admin", "admin@khu.ac.kr", "20200001", "관리자");
     toPromote.promoteToAdmin();
     admin = userRepository.saveAndFlush(toPromote);
 
-    member = userRepository.saveAndFlush(approved("sub-user", "user@khu.ac.kr", "20240101", "회원"));
+    member =
+        userRepository.saveAndFlush(
+            Accounts.approved("sub-user", "user@khu.ac.kr", "20240101", "회원"));
 
     User pending = User.createFromGoogle("sub-pending", "pending@khu.ac.kr", "구글이름");
     pending.submitApplication("20240102", "신청자");
@@ -88,41 +87,10 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
     userRepository.deleteAll();
   }
 
-  private static User approved(String googleSub, String email, String studentNo, String name) {
-    User user = User.createFromGoogle(googleSub, email, "구글이름");
-    user.submitApplication(studentNo, name);
-    user.approve();
-    return user;
-  }
-
-  /** 로그인한 것과 같은 상태의 세션을 저장소에 만들고, 브라우저가 받았을 쿠키를 돌려준다. */
-  private SignedIn signIn(User user) {
-    Session session = sessionRepository.createSession();
-    AuthSession.store(session, user);
-    save(session);
-
-    MockHttpServletResponse carrier = new MockHttpServletResponse();
-    cookieSerializer.writeCookieValue(
-        new CookieSerializer.CookieValue(new MockHttpServletRequest(), carrier, session.getId()));
-    return new SignedIn(
-        session.getId(),
-        carrier.getCookie(SESSION_COOKIE),
-        new Cookie("ACCESS_TOKEN", jwtProvider.issue(user.getId())));
-  }
-
-  private record SignedIn(String id, Cookie session, Cookie token) {
-    Cookie[] cookies() {
-      return new Cookie[] {session, token};
-    }
-  }
-
+  /** 세션 저장소를 직접 다뤄야 하는 사례가 있다 — 갱신이 실패한 상황을 만들 때다. */
   @SuppressWarnings("unchecked")
   private void save(Session session) {
     ((SessionRepository<Session>) sessionRepository).save(session);
-  }
-
-  private MockHttpServletRequestBuilder as(SignedIn signedIn, MockHttpServletRequestBuilder call) {
-    return call.cookie(signedIn.cookies());
   }
 
   /* ------------------------------------------------------------------ 색인 */
@@ -134,7 +102,7 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void sessionIsIndexedByUserId() {
-    SignedIn signedIn = signIn(member);
+    SignedIn signedIn = sessions.signIn(member);
 
     assertThat(indexedSessions.findByPrincipalName(String.valueOf(member.getId())))
         .containsKey(signedIn.id());
@@ -152,13 +120,13 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void suspensionReachesTheLiveSession() throws Exception {
-    SignedIn signedIn = signIn(member);
-    mockMvc.perform(as(signedIn, get(DOCS))).andExpect(status().isOk());
+    SignedIn signedIn = sessions.signIn(member);
+    mockMvc.perform(signedIn.on(get(DOCS))).andExpect(status().isOk());
 
     suspendThroughTheApi(member);
 
     mockMvc
-        .perform(as(signedIn, get(DOCS)))
+        .perform(signedIn.on(get(DOCS)))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("SUSPENDED"));
   }
@@ -170,14 +138,14 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void everySessionOfThatPersonIsRefreshed() throws Exception {
-    SignedIn onDesktop = signIn(member);
-    SignedIn onPhone = signIn(member);
+    SignedIn onDesktop = sessions.signIn(member);
+    SignedIn onPhone = sessions.signIn(member);
 
     suspendThroughTheApi(member);
 
     for (SignedIn signedIn : List.of(onDesktop, onPhone)) {
       mockMvc
-          .perform(as(signedIn, get(DOCS)))
+          .perform(signedIn.on(get(DOCS)))
           .andExpect(status().isForbidden())
           .andExpect(jsonPath("$.code").value("SUSPENDED"));
     }
@@ -193,20 +161,20 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void repeatingTheSameChangeReSyncsAStaleSession() throws Exception {
-    SignedIn signedIn = signIn(member);
+    SignedIn signedIn = sessions.signIn(member);
     suspendThroughTheApi(member);
 
     // 갱신이 실패해 세션만 옛 값으로 남은 상태를 만든다.
     Session stale = sessionRepository.findById(signedIn.id());
     stale.setAttribute(AuthSession.STATUS, Status.ACTIVE);
     save(stale);
-    mockMvc.perform(as(signedIn, get(DOCS))).andExpect(status().isOk());
+    mockMvc.perform(signedIn.on(get(DOCS))).andExpect(status().isOk());
 
     // 관리자가 같은 정지를 다시 누른다.
     suspendThroughTheApi(member);
 
     mockMvc
-        .perform(as(signedIn, get(DOCS)))
+        .perform(signedIn.on(get(DOCS)))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("SUSPENDED"));
   }
@@ -221,7 +189,7 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void aLateArrivingOldValueDoesNotOverwriteTheNewOne() throws Exception {
-    SignedIn signedIn = signIn(member);
+    SignedIn signedIn = sessions.signIn(member);
 
     // 더 새 변경이 이미 세션까지 반영된 상태를 만든다.
     Session ahead = sessionRepository.findById(signedIn.id());
@@ -233,7 +201,7 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
     sessionSynchronizer.refresh(List.of(member.getId()));
 
     mockMvc
-        .perform(as(signedIn, get(DOCS)))
+        .perform(signedIn.on(get(DOCS)))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("SUSPENDED"));
   }
@@ -249,7 +217,7 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void concurrentRefreshesLeaveTheNewerValue() throws Exception {
-    SignedIn signedIn = signIn(member);
+    SignedIn signedIn = sessions.signIn(member);
 
     transactionTemplate.executeWithoutResult(
         ignored -> userRepository.findById(member.getId()).orElseThrow().suspend());
@@ -264,7 +232,7 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
     }
 
     mockMvc
-        .perform(as(signedIn, get(DOCS)))
+        .perform(signedIn.on(get(DOCS)))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("SUSPENDED"));
   }
@@ -287,25 +255,25 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void approvalReachesTheLiveSession() throws Exception {
-    SignedIn waiting = signIn(applicant);
+    SignedIn waiting = sessions.signIn(applicant);
     mockMvc
-        .perform(as(waiting, get(DOCS)))
+        .perform(waiting.on(get(DOCS)))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("PENDING_APPROVAL"));
 
-    SignedIn adminSession = signIn(admin);
+    SignedIn adminSession = sessions.signIn(admin);
     mockMvc
         .perform(
-            Csrf.with(as(adminSession, post(APPROVE)))
+            Csrf.with(adminSession.on(post(APPROVE)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"userIds\":[" + applicant.getId() + "]}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.approved.length()").value(1));
 
     // 재로그인 없이 그대로 이용할 수 있어야 한다 (3-1 §3-1-4).
-    mockMvc.perform(as(waiting, get(DOCS))).andExpect(status().isOk());
+    mockMvc.perform(waiting.on(get(DOCS))).andExpect(status().isOk());
     mockMvc
-        .perform(as(waiting, get(ME)))
+        .perform(waiting.on(get(ME)))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.status").value("ACTIVE"));
   }
@@ -315,15 +283,15 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
   /** T-34 — 권한을 회수하면 그 사람의 다음 관리자 API 요청이 막힌다. 대상 API는 #58이고 여기서는 공통 경로를 직접 부른다. */
   @Test
   void roleChangeReachesTheLiveSession() throws Exception {
-    SignedIn adminSession = signIn(admin);
-    mockMvc.perform(as(adminSession, get(ADMIN_USERS))).andExpect(status().isOk());
+    SignedIn adminSession = sessions.signIn(admin);
+    mockMvc.perform(adminSession.on(get(ADMIN_USERS))).andExpect(status().isOk());
 
     transactionTemplate.executeWithoutResult(
         ignored -> userRepository.findById(admin.getId()).orElseThrow().demoteToUser());
     sessionSynchronizer.refresh(List.of(admin.getId()));
 
     mockMvc
-        .perform(as(adminSession, get(ADMIN_USERS)))
+        .perform(adminSession.on(get(ADMIN_USERS)))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("FORBIDDEN"));
   }
@@ -338,7 +306,7 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void rolledBackChangeDoesNotReachTheSession() throws Exception {
-    SignedIn signedIn = signIn(member);
+    SignedIn signedIn = sessions.signIn(member);
 
     transactionTemplate.executeWithoutResult(
         status -> {
@@ -348,15 +316,15 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
     // 커밋되지 않았으므로 갱신을 부르지 않는다. 불러도 잠근 채 읽은 값은 여전히 ACTIVE다.
     sessionSynchronizer.refresh(List.of(member.getId()));
 
-    mockMvc.perform(as(signedIn, get(DOCS))).andExpect(status().isOk());
+    mockMvc.perform(signedIn.on(get(DOCS))).andExpect(status().isOk());
   }
 
   /** 관리자가 화면에서 정지를 누르는 것과 같은 경로 (#31). */
   private void suspendThroughTheApi(User user) throws Exception {
-    SignedIn adminSession = signIn(admin);
+    SignedIn adminSession = sessions.signIn(admin);
     mockMvc
         .perform(
-            Csrf.with(as(adminSession, patch(ADMIN_USERS + "/" + user.getId() + "/status")))
+            Csrf.with(adminSession.on(patch(ADMIN_USERS + "/" + user.getId() + "/status")))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"status\":\"SUSPENDED\"}"))
         .andExpect(status().isOk())

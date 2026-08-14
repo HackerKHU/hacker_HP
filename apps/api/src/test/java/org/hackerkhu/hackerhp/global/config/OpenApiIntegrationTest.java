@@ -4,13 +4,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import jakarta.servlet.http.Cookie;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
-import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
-import org.hackerkhu.testsupport.session.InMemorySessionConfig;
+import org.hackerkhu.testsupport.user.Accounts;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,8 +17,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -29,12 +25,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  *
  * <p>세션을 직접 붙이려고 Spring Session 자동 설정을 뺀다 — 이유는 {@code AuthControllerIntegrationTest}에 적어 두었다.
  */
-@SpringBootTest(
-    properties =
-        "spring.autoconfigure.exclude="
-            + "org.springframework.boot.autoconfigure.session.SessionAutoConfiguration")
+@SpringBootTest
 @AutoConfigureMockMvc
-@Import(InMemorySessionConfig.class)
 class OpenApiIntegrationTest extends AbstractIntegrationTest {
 
   private static final String API_DOCS = "/v3/api-docs";
@@ -48,7 +40,7 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
   @BeforeEach
   void signIn() {
     userRepository.deleteAll();
-    member = userRepository.saveAndFlush(approved("sub-doc", "doc@khu.ac.kr", "20240001"));
+    member = userRepository.saveAndFlush(Accounts.approved("sub-doc", "doc@khu.ac.kr", "20240001"));
   }
 
   /**
@@ -56,13 +48,6 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
    *
    * <p>학번을 인자로 받는다. 계정마다 달라야 한다 — UNIQUE 제약이 있다.
    */
-  private static User approved(String googleSub, String email, String studentNo) {
-    User user = User.createFromGoogle(googleSub, email, "구글이름");
-    user.submitApplication(studentNo, "본명");
-    user.approve();
-    return user;
-  }
-
   @AfterEach
   void clear() {
     userRepository.deleteAll();
@@ -74,11 +59,7 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
 
   private MockHttpServletRequestBuilder signedInAs(
       MockHttpServletRequestBuilder builder, User user) {
-    MockHttpSession session = new MockHttpSession();
-    AuthSession.store(session, user);
-    return builder
-        .session(session)
-        .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(user.getId())));
+    return sessions.as(user, builder);
   }
 
   /*
@@ -119,7 +100,7 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
 
   @Test
   void suspendedCannotReadTheSpecification() throws Exception {
-    User suspended = approved("sub-suspended", "suspended@khu.ac.kr", "20240002");
+    User suspended = Accounts.approved("sub-suspended", "suspended@khu.ac.kr", "20240002");
     suspended.suspend();
     userRepository.saveAndFlush(suspended);
 

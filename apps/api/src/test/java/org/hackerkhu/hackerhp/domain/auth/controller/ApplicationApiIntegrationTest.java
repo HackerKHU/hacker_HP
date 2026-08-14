@@ -5,13 +5,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import jakarta.servlet.http.Cookie;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
-import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
-import org.hackerkhu.testsupport.session.InMemorySessionConfig;
+import org.hackerkhu.testsupport.auth.TestSessions.SignedIn;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,9 +19,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -33,12 +29,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * <p>세션을 직접 붙이려고 Spring Session 자동 설정을 뺀다 — 이유는 {@code AuthControllerIntegrationTest}에 적어 두었다. 실제
  * 세션 저장소를 태우는 확인은 {@code AuthenticationBindingIntegrationTest}가 한다.
  */
-@SpringBootTest(
-    properties =
-        "spring.autoconfigure.exclude="
-            + "org.springframework.boot.autoconfigure.session.SessionAutoConfiguration")
+@SpringBootTest
 @AutoConfigureMockMvc
-@Import(InMemorySessionConfig.class)
 class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
 
   private static final String PATH = "/api/v1/auth/application";
@@ -62,13 +54,9 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   }
 
   /** 로그인한 브라우저가 보내는 것. 세션의 status가 곧 권한이므로 저장된 값을 그대로 담는다. */
-  private MockHttpServletRequestBuilder as(User user, String body) {
-    MockHttpSession session = new MockHttpSession();
-    AuthSession.store(session, user);
-    return Csrf.with(
-            post(PATH)
-                .session(session)
-                .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(user.getId()))))
+  /** 그 사람이 신청서를 내는 요청. 본문·CSRF·쿠키를 한 번에 싣는다. */
+  private MockHttpServletRequestBuilder submit(User user, String body) {
+    return Csrf.with(sessions.as(user, post(PATH)))
         .contentType(MediaType.APPLICATION_JSON)
         .content(body);
   }
@@ -83,7 +71,7 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
 
   @Test
   void pendingCanSubmitApplication() throws Exception {
-    mockMvc.perform(as(applicant, body("20240001", "본명"))).andExpect(status().isNoContent());
+    mockMvc.perform(submit(applicant, body("20240001", "본명"))).andExpect(status().isNoContent());
 
     User saved = reload();
     assertThat(saved.getStudentNo()).isEqualTo("20240001");
@@ -95,9 +83,9 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   /* T-51 — 승인 대기 중에는 다시 내 고칠 수 있다. */
   @Test
   void pendingCanResubmitToCorrectTheApplication() throws Exception {
-    mockMvc.perform(as(applicant, body("20240001", "처음"))).andExpect(status().isNoContent());
+    mockMvc.perform(submit(applicant, body("20240001", "처음"))).andExpect(status().isNoContent());
 
-    mockMvc.perform(as(reload(), body("20240099", "고친이름"))).andExpect(status().isNoContent());
+    mockMvc.perform(submit(reload(), body("20240099", "고친이름"))).andExpect(status().isNoContent());
 
     User saved = reload();
     assertThat(saved.getStudentNo()).isEqualTo("20240099");
@@ -113,7 +101,7 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
     approve();
 
     mockMvc
-        .perform(as(reload(), body("20240099", "다른이름")))
+        .perform(submit(reload(), body("20240099", "다른이름")))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
@@ -129,16 +117,13 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void staleSessionCannotOverwriteAnApprovedApplication() throws Exception {
-    MockHttpSession sessionFromBeforeApproval = new MockHttpSession();
-    AuthSession.store(sessionFromBeforeApproval, applicant);
+    // 승인 전에 발급된 세션 — 아직 PENDING을 들고 있다.
+    SignedIn fromBeforeApproval = sessions.signIn(applicant);
     approve();
 
     mockMvc
         .perform(
-            Csrf.with(
-                    post(PATH)
-                        .session(sessionFromBeforeApproval)
-                        .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(applicant.getId()))))
+            Csrf.with(fromBeforeApproval.on(post(PATH)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body("20249999", "덮어쓰기")))
         .andExpect(status().isForbidden());
@@ -159,7 +144,7 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
       })
   void blankValuesAreRejectedWithoutRecordingApplication(String blankBody) throws Exception {
     mockMvc
-        .perform(as(applicant, "PLACEHOLDER").content(blankBody))
+        .perform(submit(applicant, blankBody))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
@@ -172,10 +157,10 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   void studentNoAlreadyUsedByAnotherAccountIsRejected() throws Exception {
     User other =
         userRepository.saveAndFlush(User.createFromGoogle("sub-other", "other@khu.ac.kr", "다른사람"));
-    mockMvc.perform(as(other, body("20240001", "다른사람"))).andExpect(status().isNoContent());
+    mockMvc.perform(submit(other, body("20240001", "다른사람"))).andExpect(status().isNoContent());
 
     mockMvc
-        .perform(as(applicant, body("20240001", "본명")))
+        .perform(submit(applicant, body("20240001", "본명")))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.code").value("DUPLICATE_STUDENT_NO"));
 
@@ -185,9 +170,9 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   /* 같은 학번을 그대로 다시 내는 것은 중복이 아니다 — 자기 자신은 세지 않는다. */
   @Test
   void resubmittingTheSameStudentNoIsNotADuplicate() throws Exception {
-    mockMvc.perform(as(applicant, body("20240001", "처음"))).andExpect(status().isNoContent());
+    mockMvc.perform(submit(applicant, body("20240001", "처음"))).andExpect(status().isNoContent());
 
-    mockMvc.perform(as(reload(), body("20240001", "고친이름"))).andExpect(status().isNoContent());
+    mockMvc.perform(submit(reload(), body("20240001", "고친이름"))).andExpect(status().isNoContent());
 
     assertThat(reload().getName()).isEqualTo("고친이름");
   }
@@ -204,23 +189,21 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
     User active = reload();
 
     mockMvc
-        .perform(as(active, "PLACEHOLDER").content("{\"studentNo\":\"\",\"name\":\"\"}"))
+        .perform(submit(active, "{\"studentNo\":\"\",\"name\":\"\"}"))
         .andExpect(status().isForbidden());
-    mockMvc
-        .perform(as(active, "PLACEHOLDER").content("{\"studentNo\":"))
-        .andExpect(status().isForbidden());
+    mockMvc.perform(submit(active, "{\"studentNo\":")).andExpect(status().isForbidden());
   }
 
   /* 길이는 컬럼과 맞춘다 — student_no varchar(20), name varchar(50) (§3-2-2). */
   @Test
   void valuesLongerThanTheColumnAreRejected() throws Exception {
     mockMvc
-        .perform(as(applicant, body("1".repeat(21), "본명")))
+        .perform(submit(applicant, body("1".repeat(21), "본명")))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
     mockMvc
-        .perform(as(applicant, body("20240001", "가".repeat(51))))
+        .perform(submit(applicant, body("20240001", "가".repeat(51))))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
@@ -236,7 +219,7 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   @Test
   void invisibleWhitespaceOnlyIsRejected() throws Exception {
     mockMvc
-        .perform(as(applicant, body(" ​", "본명")))
+        .perform(submit(applicant, body(" ​", "본명")))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
@@ -254,10 +237,10 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   void invisibleWhitespaceCannotSmuggleADuplicateStudentNo() throws Exception {
     User other =
         userRepository.saveAndFlush(User.createFromGoogle("sub-other", "other@khu.ac.kr", "다른사람"));
-    mockMvc.perform(as(other, body("20240001", "다른사람"))).andExpect(status().isNoContent());
+    mockMvc.perform(submit(other, body("20240001", "다른사람"))).andExpect(status().isNoContent());
 
     mockMvc
-        .perform(as(applicant, body("2024 0001", "본명")))
+        .perform(submit(applicant, body("2024 0001", "본명")))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.code").value("DUPLICATE_STUDENT_NO"));
   }
@@ -265,7 +248,9 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   /* 이름 안쪽의 공백은 정당하다. 앞뒤만 털고 보이지 않는 문자를 보통 공백으로 바꾼다. */
   @Test
   void nameKeepsItsInnerSpacing() throws Exception {
-    mockMvc.perform(as(applicant, body("20240001", "  홍 길동  "))).andExpect(status().isNoContent());
+    mockMvc
+        .perform(submit(applicant, body("20240001", "  홍 길동  ")))
+        .andExpect(status().isNoContent());
 
     assertThat(reload().getName()).isEqualTo("홍 길동");
   }

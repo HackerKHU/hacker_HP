@@ -5,16 +5,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import jakarta.servlet.http.Cookie;
 import java.time.Instant;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
-import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
-import org.hackerkhu.testsupport.session.InMemorySessionConfig;
+import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,9 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -37,13 +33,10 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  */
 @SpringBootTest(
     properties = {
-      "spring.autoconfigure.exclude="
-          + "org.springframework.boot.autoconfigure.session.SessionAutoConfiguration",
       "ADMIN_BOOTSTRAP_EMAIL=founder@khu.ac.kr",
       "ADMIN_BOOTSTRAP_TOKEN=bootstrap-token-for-tests"
     })
 @AutoConfigureMockMvc
-@Import(InMemorySessionConfig.class)
 class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
 
   private static final String PATH = "/api/v1/auth/bootstrap-admin";
@@ -59,7 +52,9 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
   void createAccounts() {
     userRepository.deleteAll();
     // 최초 관리자가 될 사람 — 정상 가입 절차를 마친 PENDING이다.
-    founder = userRepository.saveAndFlush(applied("sub-founder", "founder@khu.ac.kr", "20200001"));
+    founder =
+        userRepository.saveAndFlush(
+            Accounts.applied("sub-founder", "founder@khu.ac.kr", "20200001"));
   }
 
   @AfterEach
@@ -67,22 +62,8 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
     userRepository.deleteAll();
   }
 
-  private static User applied(String googleSub, String email, String studentNo) {
-    User user = User.createFromGoogle(googleSub, email, "구글이름");
-    user.submitApplication(studentNo, "본명");
-    return user;
-  }
-
-  private MockHttpServletRequestBuilder as(User user, MockHttpServletRequestBuilder builder) {
-    MockHttpSession session = new MockHttpSession();
-    AuthSession.store(session, user);
-    return builder
-        .session(session)
-        .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(user.getId())));
-  }
-
   private MockHttpServletRequestBuilder bootstrap(User caller, String token) {
-    return Csrf.with(as(caller, post(PATH)))
+    return Csrf.with(sessions.as(caller, post(PATH)))
         .contentType(MediaType.APPLICATION_JSON)
         .content("{\"token\":\"" + token + "\"}");
   }
@@ -115,7 +96,8 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
   /** 운영자가 SSM에 대문자로 넣어도 동작해야 한다. 이메일은 비밀이 아니다. */
   @Test
   void emailComparisonIgnoresCase() throws Exception {
-    User upper = userRepository.saveAndFlush(applied("sub-up", "FOUNDER@KHU.AC.KR", "20200009"));
+    User upper =
+        userRepository.saveAndFlush(Accounts.applied("sub-up", "FOUNDER@KHU.AC.KR", "20200009"));
 
     mockMvc.perform(bootstrap(upper, TOKEN)).andExpect(status().isNoContent());
     assertThat(reload(upper).getRole()).isEqualTo(Role.ADMIN);
@@ -129,7 +111,8 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void onlyOneOfTwoCaseVariantsCanBePromoted() throws Exception {
-    User upper = userRepository.saveAndFlush(applied("sub-up", "FOUNDER@KHU.AC.KR", "20200009"));
+    User upper =
+        userRepository.saveAndFlush(Accounts.applied("sub-up", "FOUNDER@KHU.AC.KR", "20200009"));
 
     mockMvc.perform(bootstrap(founder, TOKEN)).andExpect(status().isNoContent());
     mockMvc.perform(bootstrap(upper, TOKEN)).andExpect(status().isForbidden());
@@ -147,7 +130,7 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
   void recoversAnAlreadyApprovedMemberWithoutRewritingApprovedAt() throws Exception {
     // 이메일이 유일해야 하므로 최초 계정을 먼저 지운다.
     userRepository.deleteAll();
-    User member = applied("sub-ok", "founder@khu.ac.kr", "20200002");
+    User member = Accounts.applied("sub-ok", "founder@khu.ac.kr", "20200002");
     member.approve();
     User saved = userRepository.saveAndFlush(member);
     // 저장된 값을 기준으로 잡는다 — 메모리의 Instant는 나노초, DB는 마이크로초라 그대로 비교하면 어긋난다.
@@ -205,7 +188,8 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
   /** T-18 — 토큰은 맞지만 다른 사람이다. 토큰만 알아서는 아무나 관리자가 될 수 없다. */
   @Test
   void anotherEmailIsRejectedEvenWithTheRightToken() throws Exception {
-    User other = userRepository.saveAndFlush(applied("sub-other", "other@khu.ac.kr", "20240101"));
+    User other =
+        userRepository.saveAndFlush(Accounts.applied("sub-other", "other@khu.ac.kr", "20240101"));
 
     mockMvc.perform(bootstrap(other, TOKEN)).andExpect(status().isForbidden());
 
@@ -215,7 +199,7 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
   /** T-19 — 관리자가 이미 있으면 이 경로는 아무 일도 하지 않는다. 이것이 상시 개방의 방어선이다. */
   @Test
   void doesNothingWhileAnActiveAdminExists() throws Exception {
-    User existing = applied("sub-admin", "admin@khu.ac.kr", "20200003");
+    User existing = Accounts.applied("sub-admin", "admin@khu.ac.kr", "20200003");
     existing.approve();
     existing.promoteToAdmin();
     userRepository.saveAndFlush(existing);
@@ -247,7 +231,7 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
   @Test
   void suspendedAccountIsRejected() throws Exception {
     userRepository.deleteAll();
-    User banned = applied("sub-ban", "founder@khu.ac.kr", "20200004");
+    User banned = Accounts.applied("sub-ban", "founder@khu.ac.kr", "20200004");
     banned.approve();
     banned.suspend();
     User saved = userRepository.saveAndFlush(banned);
@@ -289,7 +273,8 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
   void withoutCsrfTokenIsRejected() throws Exception {
     mockMvc
         .perform(
-            as(founder, post(PATH))
+            sessions
+                .as(founder, post(PATH))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"" + TOKEN + "\"}"))
         .andExpect(status().isForbidden());

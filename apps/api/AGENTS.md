@@ -45,6 +45,8 @@
 ## 검증
 
 - Java 변경 후 `./gradlew spotlessCheck test`를 실행한다.
+- **통합 테스트는 `AbstractIntegrationTest`를 상속한다.** 로그인 상태는 `sessions.as(user, request)` 한 줄로 만들고, 계정은 `testsupport.user.Accounts`의 팩토리를 쓴다 — 상태를 손으로 조립하면 실제로는 만들어질 수 없는 계정(예: 신청서 없는 `ACTIVE`)이 생겨 없는 문제를 잡거나 있는 문제를 놓친다.
+- **`spring.autoconfigure.exclude`로 세션 자동설정을 끄지 않는다.** 끄면 `MockHttpSession`을 쓸 수 있어 편하지만 **테스트마다 어느 방식인지 골라야 하고**, 설정이 다른 컨텍스트가 여러 벌 떠 전체가 느려진다. `sessions`가 진짜 저장소에 세션을 만들어 준다.
 - **테스트에서 `SecurityMockMvcRequestPostProcessors.csrf()`를 쓰지 않는다.** 그것은 애플리케이션 컨텍스트의 `CsrfFilter`에 손을 뻗어 토큰 저장소를 세션 기반 대역으로 바꾸고, 컨텍스트는 클래스 사이에 캐시되므로 그 교체가 남는다 — 뒤에 도는 테스트가 순서에 따라 깨진다. `testsupport.web.Csrf`로 쿠키·헤더를 직접 싣는다(브라우저가 하는 일과 같다).
 - 컨테이너 변경 후 `docker build --platform linux/amd64 .`로 빌드한다.
 - health check는 인증 없이 200을 반환하고 응답의 `status` 값이 `UP`이어야 한다.

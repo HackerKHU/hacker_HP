@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import jakarta.servlet.http.Cookie;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
@@ -20,11 +19,10 @@ import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserStatusService;
-import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
-import org.hackerkhu.testsupport.session.InMemorySessionConfig;
+import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,9 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -44,12 +40,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * <p>정지가 <b>기존 세션까지</b> 닿는지(T-32)는 실제 세션 저장소가 필요해 {@code SessionSynchronizationIntegrationTest}가
  * 본다. 여기서는 전이 규칙과 안전장치를 확인한다.
  */
-@SpringBootTest(
-    properties =
-        "spring.autoconfigure.exclude="
-            + "org.springframework.boot.autoconfigure.session.SessionAutoConfiguration")
+@SpringBootTest
 @AutoConfigureMockMvc
-@Import(InMemorySessionConfig.class)
 class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
 
   private static final String BASE = "/api/v1/admin/users/";
@@ -68,11 +60,10 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
   void createAccounts() {
     userRepository.deleteAll();
 
-    admin =
-        userRepository.saveAndFlush(promoted(approved("sub-ad", "admin@khu.ac.kr", "20200001")));
-    member = userRepository.saveAndFlush(approved("sub-us", "user@khu.ac.kr", "20240101"));
+    admin = userRepository.saveAndFlush(Accounts.admin("sub-ad", "admin@khu.ac.kr", "20200001"));
+    member = userRepository.saveAndFlush(Accounts.approved("sub-us", "user@khu.ac.kr", "20240101"));
 
-    User toSuspend = approved("sub-sp", "suspended@khu.ac.kr", "20240102");
+    User toSuspend = Accounts.approved("sub-sp", "suspended@khu.ac.kr", "20240102");
     toSuspend.suspend();
     suspended = userRepository.saveAndFlush(toSuspend);
 
@@ -86,28 +77,8 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
     userRepository.deleteAll();
   }
 
-  private static User approved(String googleSub, String email, String studentNo) {
-    User user = User.createFromGoogle(googleSub, email, "이름");
-    user.submitApplication(studentNo, "본명");
-    user.approve();
-    return user;
-  }
-
-  private static User promoted(User user) {
-    user.promoteToAdmin();
-    return user;
-  }
-
-  private MockHttpServletRequestBuilder as(User user, MockHttpServletRequestBuilder builder) {
-    MockHttpSession session = new MockHttpSession();
-    AuthSession.store(session, user);
-    return builder
-        .session(session)
-        .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(user.getId())));
-  }
-
   private MockHttpServletRequestBuilder change(User caller, Long targetId, String body) {
-    return Csrf.with(as(caller, patch(BASE + targetId + "/status")))
+    return Csrf.with(sessions.as(caller, patch(BASE + targetId + "/status")))
         .contentType(MediaType.APPLICATION_JSON)
         .content(body);
   }
@@ -220,7 +191,7 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
   /** 막아야 하는 것은 "마지막 1명이 사라지는 것"이지 "자기 자신을 건드리는 것"이 아니다 (§2-2-7). */
   @Test
   void adminCanSuspendThemselvesWhenAnotherAdminRemains() throws Exception {
-    userRepository.saveAndFlush(promoted(approved("sub-ad2", "admin2@khu.ac.kr", "20200002")));
+    userRepository.saveAndFlush(Accounts.admin("sub-ad2", "admin2@khu.ac.kr", "20200002"));
 
     mockMvc
         .perform(change(admin.getId(), "SUSPENDED"))
@@ -231,7 +202,7 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
   /** 정지된 관리자는 세지 않는다 (MUST). 로그인할 수 없으므로 DB에 role만 남아 있어도 운영을 보장하지 못한다. */
   @Test
   void suspendedAdminDoesNotCountAsAGuard() throws Exception {
-    User inactive = promoted(approved("sub-ad3", "admin3@khu.ac.kr", "20200003"));
+    User inactive = Accounts.admin("sub-ad3", "admin3@khu.ac.kr", "20200003");
     inactive.suspend();
     userRepository.saveAndFlush(inactive);
 
@@ -249,8 +220,7 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void twoAdminsSuspendingEachOtherAtOnceCannotBothSucceed() throws Exception {
-    User other =
-        userRepository.saveAndFlush(promoted(approved("sub-ad5", "a5@khu.ac.kr", "20200005")));
+    User other = userRepository.saveAndFlush(Accounts.admin("sub-ad5", "a5@khu.ac.kr", "20200005"));
 
     CyclicBarrier ready = new CyclicBarrier(2);
     ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -281,8 +251,7 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void suspendingTheOnlyRemainingActiveAdminIsBlocked() throws Exception {
-    User other =
-        userRepository.saveAndFlush(promoted(approved("sub-ad7", "a7@khu.ac.kr", "20200007")));
+    User other = userRepository.saveAndFlush(Accounts.admin("sub-ad7", "a7@khu.ac.kr", "20200007"));
     suspendDirectly(admin);
 
     assertThatThrownBy(() -> statusService.change(other.getId(), other.getId(), Target.SUSPENDED))
@@ -307,8 +276,7 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void suspendedRequesterCannotFinishAPendingWrite() {
-    User other =
-        userRepository.saveAndFlush(promoted(approved("sub-ad6", "a6@khu.ac.kr", "20200006")));
+    User other = userRepository.saveAndFlush(Accounts.admin("sub-ad6", "a6@khu.ac.kr", "20200006"));
     suspendDirectly(other);
 
     assertThatThrownBy(() -> statusService.change(other.getId(), member.getId(), Target.SUSPENDED))
@@ -343,8 +311,7 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void twoAdminsSuspendingThemselvesAtOnceCannotBothSucceed() throws Exception {
-    User other =
-        userRepository.saveAndFlush(promoted(approved("sub-ad4", "a4@khu.ac.kr", "20200004")));
+    User other = userRepository.saveAndFlush(Accounts.admin("sub-ad4", "a4@khu.ac.kr", "20200004"));
 
     CyclicBarrier ready = new CyclicBarrier(2);
     ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -415,7 +382,8 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
   void changeWithoutCsrfTokenIsRejected() throws Exception {
     mockMvc
         .perform(
-            as(admin, patch(BASE + member.getId() + "/status"))
+            sessions
+                .as(admin, patch(BASE + member.getId() + "/status"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"status\":\"SUSPENDED\"}"))
         .andExpect(status().isForbidden());
