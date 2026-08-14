@@ -8,15 +8,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import jakarta.servlet.http.Cookie;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.notice.entity.Notice;
 import org.hackerkhu.hackerhp.domain.notice.repository.NoticeRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
-import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
-import org.hackerkhu.testsupport.session.InMemorySessionConfig;
+import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,19 +22,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /** GET/POST/PATCH/DELETE /notices, PATCH /notices/{id}/pin — spec/3-2 §3-2-5. */
-@SpringBootTest(
-    properties =
-        "spring.autoconfigure.exclude="
-            + "org.springframework.boot.autoconfigure.session.SessionAutoConfiguration")
+@SpringBootTest
 @AutoConfigureMockMvc
-@Import(InMemorySessionConfig.class)
 class NoticeApiIntegrationTest extends AbstractIntegrationTest {
 
   @Autowired private MockMvc mockMvc;
@@ -46,13 +38,19 @@ class NoticeApiIntegrationTest extends AbstractIntegrationTest {
 
   private User admin;
   private User member;
+  private User applicant;
 
   @BeforeEach
   void createAccounts() {
     noticeRepository.deleteAll();
     userRepository.deleteAll();
-    admin = userRepository.saveAndFlush(approvedAdmin("sub-admin", "admin@khu.ac.kr", "20240001"));
-    member = userRepository.saveAndFlush(approved("sub-member", "member@khu.ac.kr", "20240002"));
+    admin = userRepository.saveAndFlush(Accounts.admin("sub-admin", "admin@khu.ac.kr", "20240001"));
+    member =
+        userRepository.saveAndFlush(
+            Accounts.approved("sub-member", "member@khu.ac.kr", "20240002"));
+    applicant =
+        userRepository.saveAndFlush(
+            Accounts.applied("sub-applicant", "applicant@khu.ac.kr", "20240003"));
   }
 
   @AfterEach
@@ -61,30 +59,11 @@ class NoticeApiIntegrationTest extends AbstractIntegrationTest {
     userRepository.deleteAll();
   }
 
-  private static User approved(String googleSub, String email, String studentNo) {
-    User user = User.createFromGoogle(googleSub, email, "이름");
-    user.submitApplication(studentNo, "본명");
-    user.approve();
-    return user;
-  }
-
-  private static User approvedAdmin(String googleSub, String email, String studentNo) {
-    User user = approved(googleSub, email, studentNo);
-    user.promoteToAdmin();
-    return user;
-  }
-
-  private MockHttpServletRequestBuilder as(User user, MockHttpServletRequestBuilder builder) {
-    MockHttpSession session = new MockHttpSession();
-    AuthSession.store(session, user);
-    return builder
-        .session(session)
-        .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(user.getId())));
-  }
-
   private MockHttpServletRequestBuilder write(
       User user, MockHttpServletRequestBuilder builder, String body) {
-    return Csrf.with(as(user, builder)).contentType(MediaType.APPLICATION_JSON).content(body);
+    return Csrf.with(sessions.as(user, builder))
+        .contentType(MediaType.APPLICATION_JSON)
+        .content(body);
   }
 
   /** 같은 밀리초에 created_at이 찍히면 정렬 검증이 흔들린다. OS 타이머 해상도를 넘겨준다. */
@@ -97,6 +76,32 @@ class NoticeApiIntegrationTest extends AbstractIntegrationTest {
    * created_at 순서만으로는 고정 여부가 드러나지 않으므로 일반 공지를 먼저 만들고
    * 나중에 고정 공지를 만들어, "고정이라서" 앞에 온다는 것을 구분해서 본다.
    */
+  /**
+   * T-01 — 비로그인은 목록조차 볼 수 없다.
+   *
+   * <p>승인제 사이트의 가장 바깥 경계다. 여기가 열리면 <b>가입하지 않은 사람이 동아리 내부 글을 읽는다.</b>
+   */
+  @Test
+  void anonymousCannotReadNotices() throws Exception {
+    mockMvc
+        .perform(get("/api/v1/notices"))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+  }
+
+  /**
+   * T-02 — 승인 대기 회원도 볼 수 없다. <b>코드가 {@code PENDING_APPROVAL}이어야 한다.</b>
+   *
+   * <p>{@code FORBIDDEN}으로 뭉개면 화면이 "권한이 없습니다"만 띄운다 — 그 사람에게 필요한 안내는 <b>"승인을 기다리는 중"</b>이다 (T-116).
+   */
+  @Test
+  void pendingCannotReadNotices() throws Exception {
+    mockMvc
+        .perform(sessions.as(applicant, get("/api/v1/notices")))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("PENDING_APPROVAL"));
+  }
+
   @Test
   void listReturnsPinnedFirstThenNewest() throws Exception {
     Notice older = noticeRepository.save(Notice.write("일반 공지", "내용1", admin));
@@ -111,7 +116,7 @@ class NoticeApiIntegrationTest extends AbstractIntegrationTest {
     noticeRepository.flush();
 
     mockMvc
-        .perform(as(member, get("/api/v1/notices")))
+        .perform(sessions.as(member, get("/api/v1/notices")))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.content[0].id").value(pinned.getId()))
         .andExpect(jsonPath("$.content[0].isPinned").value(true))
@@ -125,7 +130,7 @@ class NoticeApiIntegrationTest extends AbstractIntegrationTest {
     Notice notice = noticeRepository.saveAndFlush(Notice.write("제목", "본문", admin));
 
     mockMvc
-        .perform(as(member, get("/api/v1/notices/{id}", notice.getId())))
+        .perform(sessions.as(member, get("/api/v1/notices/{id}", notice.getId())))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.title").value("제목"))
         .andExpect(jsonPath("$.content").value("본문"))
@@ -135,7 +140,7 @@ class NoticeApiIntegrationTest extends AbstractIntegrationTest {
   @Test
   void getWithUnknownIdReturns404() throws Exception {
     mockMvc
-        .perform(as(member, get("/api/v1/notices/{id}", 999_999L)))
+        .perform(sessions.as(member, get("/api/v1/notices/{id}", 999_999L)))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("NOT_FOUND"));
   }
@@ -215,7 +220,7 @@ class NoticeApiIntegrationTest extends AbstractIntegrationTest {
     Notice notice = noticeRepository.saveAndFlush(Notice.write("제목", "내용", admin));
 
     mockMvc
-        .perform(Csrf.with(as(admin, delete("/api/v1/notices/{id}", notice.getId()))))
+        .perform(Csrf.with(sessions.as(admin, delete("/api/v1/notices/{id}", notice.getId()))))
         .andExpect(status().isNoContent());
 
     assertThat(noticeRepository.existsById(notice.getId())).isFalse();
@@ -224,7 +229,7 @@ class NoticeApiIntegrationTest extends AbstractIntegrationTest {
   @Test
   void deleteWithUnknownIdReturns404() throws Exception {
     mockMvc
-        .perform(Csrf.with(as(admin, delete("/api/v1/notices/{id}", 999_999L))))
+        .perform(Csrf.with(sessions.as(admin, delete("/api/v1/notices/{id}", 999_999L))))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("NOT_FOUND"));
   }
@@ -234,7 +239,7 @@ class NoticeApiIntegrationTest extends AbstractIntegrationTest {
     Notice notice = noticeRepository.saveAndFlush(Notice.write("제목", "내용", admin));
 
     mockMvc
-        .perform(Csrf.with(as(member, delete("/api/v1/notices/{id}", notice.getId()))))
+        .perform(Csrf.with(sessions.as(member, delete("/api/v1/notices/{id}", notice.getId()))))
         .andExpect(status().isForbidden());
   }
 
@@ -243,7 +248,7 @@ class NoticeApiIntegrationTest extends AbstractIntegrationTest {
     Notice notice = noticeRepository.saveAndFlush(Notice.write("제목", "내용", admin));
 
     mockMvc
-        .perform(Csrf.with(as(admin, patch("/api/v1/notices/{id}/pin", notice.getId()))))
+        .perform(Csrf.with(sessions.as(admin, patch("/api/v1/notices/{id}/pin", notice.getId()))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.isPinned").value(true));
   }
@@ -255,7 +260,7 @@ class NoticeApiIntegrationTest extends AbstractIntegrationTest {
     noticeRepository.saveAndFlush(notice);
 
     mockMvc
-        .perform(Csrf.with(as(admin, patch("/api/v1/notices/{id}/pin", notice.getId()))))
+        .perform(Csrf.with(sessions.as(admin, patch("/api/v1/notices/{id}/pin", notice.getId()))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.isPinned").value(false));
   }
@@ -263,7 +268,7 @@ class NoticeApiIntegrationTest extends AbstractIntegrationTest {
   @Test
   void togglePinWithUnknownIdReturns404() throws Exception {
     mockMvc
-        .perform(Csrf.with(as(admin, patch("/api/v1/notices/{id}/pin", 999_999L))))
+        .perform(Csrf.with(sessions.as(admin, patch("/api/v1/notices/{id}/pin", 999_999L))))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("NOT_FOUND"));
   }
@@ -273,7 +278,7 @@ class NoticeApiIntegrationTest extends AbstractIntegrationTest {
     Notice notice = noticeRepository.saveAndFlush(Notice.write("제목", "내용", admin));
 
     mockMvc
-        .perform(Csrf.with(as(member, patch("/api/v1/notices/{id}/pin", notice.getId()))))
+        .perform(Csrf.with(sessions.as(member, patch("/api/v1/notices/{id}/pin", notice.getId()))))
         .andExpect(status().isForbidden());
   }
 }

@@ -5,14 +5,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import jakarta.servlet.http.Cookie;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
-import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
-import org.hackerkhu.testsupport.session.InMemorySessionConfig;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,9 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -32,12 +27,8 @@ import org.springframework.test.web.servlet.MockMvc;
  *
  * <p>응답은 <b>다른 거절과 같다.</b> 설정되지 않았다는 것조차 밖에서 알 수 없다 — 알 수 있으면 "언제 이 경로가 열리는지"를 지켜볼 수 있다.
  */
-@SpringBootTest(
-    properties =
-        "spring.autoconfigure.exclude="
-            + "org.springframework.boot.autoconfigure.session.SessionAutoConfiguration")
+@SpringBootTest
 @AutoConfigureMockMvc
-@Import(InMemorySessionConfig.class)
 class AdminBootstrapDisabledIntegrationTest extends AbstractIntegrationTest {
 
   private static final String PATH = "/api/v1/auth/bootstrap-admin";
@@ -63,15 +54,9 @@ class AdminBootstrapDisabledIntegrationTest extends AbstractIntegrationTest {
 
   @Test
   void theEndpointIsClosedWithoutRevealingWhy() throws Exception {
-    MockHttpSession session = new MockHttpSession();
-    AuthSession.store(session, founder);
-
     mockMvc
         .perform(
-            Csrf.with(
-                    post(PATH)
-                        .session(session)
-                        .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(founder.getId()))))
+            Csrf.with(sessions.as(founder, post(PATH)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"anything\"}"))
         .andExpect(status().isForbidden())

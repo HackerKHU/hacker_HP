@@ -35,6 +35,13 @@
 
 **API 계층은 통합 테스트로 검증한다** (SHOULD). Spring Security 필터를 태우지 않는 단위 테스트는 권한 버그를 잡지 못한다. `@SpringBootTest` + Testcontainers(또는 CI의 postgres service container)를 쓴다.
 
+기반은 `apps/api`의 `AbstractIntegrationTest`(Testcontainers·세션·JWT)와 `testsupport`(`Accounts`·`TestSessions`·`Csrf`)다 (2026-08-14, #90). 새 API 이슈는 **그 위에 T 번호 사례만 얹는다.**
+
+- 로그인 상태는 `sessions.as(user, request)` 한 줄이다. **세션은 진짜 저장소에 만든다** — `MockHttpSession`을 쓰려면 세션 자동설정을 꺼야 하고, 그러면 테스트마다 어느 방식인지 골라야 한다.
+- 계정은 `Accounts.signedIn/applied/approved/admin/suspended`로 만든다. **가입 단계를 그대로 밟는다** — 상태를 손으로 조립하면 실제로는 만들어질 수 없는 계정이 생긴다.
+- **구글 OAuth 콜백 전체 흐름은 통합으로 타지 않는다.** 도메인·`email_verified` 검증(위 표의 MUST)은 `GoogleOidcUserServiceTest`가 서비스 단위로 덮고, 배선은 #82·#48이 실제 구글로 밟는다. 가짜 OIDC 서버를 띄우는 것은 별도 결정이 필요하다.
+- **CI에서 도는 것은 #45가 붙인다.** 러너에 Docker가 있어야 Testcontainers가 뜬다.
+
 ## 5-2 필수 테스트 사례
 
 ### 인증·권한

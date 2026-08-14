@@ -6,11 +6,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import jakarta.servlet.http.Cookie;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
-import org.hackerkhu.testsupport.session.InMemorySessionConfig;
+import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.AdminOnlyTestController;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
@@ -23,7 +22,6 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -39,12 +37,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * <p><b>쓰기도 함께 본다.</b> 조회만 확인하면 규칙이 반쪽만 증명된다 — MVC는 메서드를 부르기 전에 본문을 역직렬화하고 {@code @Valid}를 돌리므로,
  * {@code @PreAuthorize}에만 기대면 깨진 본문을 보낸 비관리자가 {@code 403}이 아니라 {@code 400}을 받는다.
  */
-@SpringBootTest(
-    properties =
-        "spring.autoconfigure.exclude="
-            + "org.springframework.boot.autoconfigure.session.SessionAutoConfiguration")
+@SpringBootTest
 @AutoConfigureMockMvc
-@Import({InMemorySessionConfig.class, AdminAuthorizationIntegrationTest.AdminEndpointConfig.class})
+@Import(AdminAuthorizationIntegrationTest.AdminEndpointConfig.class)
 class AdminAuthorizationIntegrationTest extends AbstractIntegrationTest {
 
   /* 실제 관리자 API가 올 자리다. SecurityConfig가 이 접두사에 거는 규칙을 함께 확인하려면 그 아래여야 한다. */
@@ -75,12 +70,11 @@ class AdminAuthorizationIntegrationTest extends AbstractIntegrationTest {
   @BeforeEach
   void createAccounts() {
     userRepository.deleteAll();
-    admin =
-        userRepository.saveAndFlush(promoted(approved("sub-ad", "admin@khu.ac.kr", "20240001")));
-    member = userRepository.saveAndFlush(approved("sub-us", "user@khu.ac.kr", "20240002"));
+    admin = userRepository.saveAndFlush(Accounts.admin("sub-ad", "admin@khu.ac.kr", "20240001"));
+    member = userRepository.saveAndFlush(Accounts.approved("sub-us", "user@khu.ac.kr", "20240002"));
     pending =
         userRepository.saveAndFlush(User.createFromGoogle("sub-pd", "pending@khu.ac.kr", "대기자"));
-    User toSuspend = promoted(approved("sub-sa", "suspended@khu.ac.kr", "20240003"));
+    User toSuspend = Accounts.admin("sub-sa", "suspended@khu.ac.kr", "20240003");
     toSuspend.suspend();
     suspendedAdmin = userRepository.saveAndFlush(toSuspend);
   }
@@ -90,36 +84,16 @@ class AdminAuthorizationIntegrationTest extends AbstractIntegrationTest {
     userRepository.deleteAll();
   }
 
-  private static User approved(String googleSub, String email, String studentNo) {
-    User user = User.createFromGoogle(googleSub, email, "이름");
-    user.submitApplication(studentNo, "본명");
-    user.approve();
-    return user;
-  }
-
-  private static User promoted(User user) {
-    user.promoteToAdmin();
-    return user;
-  }
-
-  private MockHttpServletRequestBuilder as(User user, MockHttpServletRequestBuilder builder) {
-    MockHttpSession session = new MockHttpSession();
-    AuthSession.store(session, user);
-    return builder
-        .session(session)
-        .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(user.getId())));
-  }
-
   @Test
   void activeAdminPassesThrough() throws Exception {
-    mockMvc.perform(as(admin, get(ADMIN_PATH))).andExpect(status().isOk());
+    mockMvc.perform(sessions.as(admin, get(ADMIN_PATH))).andExpect(status().isOk());
   }
 
   /* T-05의 형태 — 권한이 모자라면 FORBIDDEN이다. 상태 때문이 아니라는 것이 이 코드의 뜻이다. */
   @Test
   void activeUserIsForbidden() throws Exception {
     mockMvc
-        .perform(as(member, get(ADMIN_PATH)))
+        .perform(sessions.as(member, get(ADMIN_PATH)))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("FORBIDDEN"));
   }
@@ -135,7 +109,7 @@ class AdminAuthorizationIntegrationTest extends AbstractIntegrationTest {
   @Test
   void suspendedAdminIsBlockedByStatusNotByRole() throws Exception {
     mockMvc
-        .perform(as(suspendedAdmin, get(ADMIN_PATH)))
+        .perform(sessions.as(suspendedAdmin, get(ADMIN_PATH)))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("SUSPENDED"));
   }
@@ -144,7 +118,7 @@ class AdminAuthorizationIntegrationTest extends AbstractIntegrationTest {
   @Test
   void pendingIsBlockedByStatusNotByRole() throws Exception {
     mockMvc
-        .perform(as(pending, get(ADMIN_PATH)))
+        .perform(sessions.as(pending, get(ADMIN_PATH)))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("PENDING_APPROVAL"));
   }
@@ -190,7 +164,7 @@ class AdminAuthorizationIntegrationTest extends AbstractIntegrationTest {
   }
 
   private MockHttpServletRequestBuilder write(User user, String body) {
-    return Csrf.with(as(user, post(ADMIN_PATH)))
+    return Csrf.with(sessions.as(user, post(ADMIN_PATH)))
         .contentType(MediaType.APPLICATION_JSON)
         .content(body);
   }

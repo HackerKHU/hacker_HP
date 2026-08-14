@@ -7,13 +7,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import jakarta.servlet.http.Cookie;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
-import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
-import org.hackerkhu.testsupport.session.InMemorySessionConfig;
+import org.hackerkhu.testsupport.auth.TestSessions.SignedIn;
+import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,8 +20,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -34,12 +31,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * SESSION} 쿠키로 자기 세션을 찾으므로, 테스트가 붙인 세션을 서버가 보지 못해 전부 401이 된다. 여기서 볼 것은 <b>로그인한 세션이 무엇을 돌려주는가</b>이지
  * 그 세션이 어디에 저장되는가가 아니다 — 저장소 스키마는 {@code SchemaMigrationIntegrationTest}가 따로 본다.
  */
-@SpringBootTest(
-    properties =
-        "spring.autoconfigure.exclude="
-            + "org.springframework.boot.autoconfigure.session.SessionAutoConfiguration")
+@SpringBootTest
 @AutoConfigureMockMvc
-@Import(InMemorySessionConfig.class)
 class AuthControllerIntegrationTest extends AbstractIntegrationTest {
 
   @Autowired private MockMvc mockMvc;
@@ -47,15 +40,13 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
   @Autowired private JwtProvider jwtProvider;
 
   private User member;
-  private MockHttpSession session;
+  private SignedIn signedIn;
 
   @BeforeEach
   void signIn() {
     userRepository.deleteAll();
-    member =
-        userRepository.saveAndFlush(User.createFromGoogle("sub-me", "auth-me@khu.ac.kr", "구글이름"));
-    session = new MockHttpSession();
-    AuthSession.store(session, member);
+    member = userRepository.saveAndFlush(Accounts.signedIn("sub-me", "auth-me@khu.ac.kr"));
+    signedIn = sessions.signIn(member);
   }
 
   /*
@@ -69,11 +60,7 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
 
   /** 로그인한 브라우저가 보내는 것 — 세션 쿠키와 토큰 쿠키가 함께 간다. */
   private MockHttpServletRequestBuilder asMember(MockHttpServletRequestBuilder builder) {
-    return builder.session(session).cookie(accessToken(member.getId()));
-  }
-
-  private Cookie accessToken(Long userId) {
-    return new Cookie("ACCESS_TOKEN", jwtProvider.issue(userId));
+    return signedIn.on(builder);
   }
 
   /* T-46 — 첫 로그인 직후. 화면은 이 값으로 신청 폼을 띄울지 대기 안내를 띄울지 가른다. */
@@ -134,7 +121,8 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
         .perform(Csrf.with(asMember(post("/api/v1/auth/logout"))))
         .andExpect(status().isNoContent());
 
-    assertThat(session.isInvalid()).isTrue();
+    // 저장소에서 사라져야 한다 — 응답 쿠키만 지우면 서버에는 살아 있다.
+    assertThat(signedIn.storedInRepository()).isFalse();
   }
 
   /*
@@ -144,7 +132,7 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
   @Test
   void tokenLeftAfterLogoutNoLongerAuthenticates() throws Exception {
     mockMvc
-        .perform(get("/api/v1/auth/me").cookie(accessToken(member.getId())))
+        .perform(get("/api/v1/auth/me").cookie(sessions.token(member)))
         .andExpect(status().isUnauthorized())
         .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
   }

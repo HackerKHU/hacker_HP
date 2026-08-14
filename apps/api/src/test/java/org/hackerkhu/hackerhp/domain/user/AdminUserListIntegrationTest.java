@@ -4,24 +4,20 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import jakarta.servlet.http.Cookie;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
-import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
-import org.hackerkhu.testsupport.session.InMemorySessionConfig;
+import org.hackerkhu.testsupport.user.Accounts;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -34,12 +30,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * <p>정렬과 필터를 특히 조밀하게 본다. <b>이 화면의 결과는 곧 승인·정지의 대상 목록이 된다</b> — 순서가 어긋나거나 신청하지 않은 계정이 승인 대기로 섞이면
  * 관리자가 잘못된 사람을 처리한다.
  */
-@SpringBootTest(
-    properties =
-        "spring.autoconfigure.exclude="
-            + "org.springframework.boot.autoconfigure.session.SessionAutoConfiguration")
+@SpringBootTest
 @AutoConfigureMockMvc
-@Import(InMemorySessionConfig.class)
 class AdminUserListIntegrationTest extends AbstractIntegrationTest {
 
   private static final String PATH = "/api/v1/admin/users";
@@ -72,13 +64,13 @@ class AdminUserListIntegrationTest extends AbstractIntegrationTest {
   void createAccounts() {
     userRepository.deleteAll();
 
-    User toPromote = approved("sub-admin", "admin@khu.ac.kr", "20200001", "관리자");
+    User toPromote = Accounts.approved("sub-admin", "admin@khu.ac.kr", "20200001", "관리자");
     // 저장 뒤에 승격시키면 안 된다. 다시 저장할 때 메모리에 남은 옛 applied_at이
     // 아래에서 못 박은 값을 덮어써, 정렬 사례가 조용히 무의미해진다.
     toPromote.promoteToAdmin();
     admin = save(toPromote, 4);
 
-    alice = save(approved("sub-alice", "alice@khu.ac.kr", "20240101", "김가나"), 3);
+    alice = save(Accounts.approved("sub-alice", "alice@khu.ac.kr", "20240101", "김가나"), 3);
 
     User bob = User.createFromGoogle("sub-bob", "BOB@khu.ac.kr", "구글이름");
     bob.submitApplication("20240102", "박다라");
@@ -87,7 +79,7 @@ class AdminUserListIntegrationTest extends AbstractIntegrationTest {
     // 구글 로그인만 해보고 신청서를 내지 않았다. 학번이 없다.
     userRepository.saveAndFlush(User.createFromGoogle("sub-carol", "carol@khu.ac.kr", "이마바"));
 
-    User suspended = approved("sub-dave", "dave@khu.ac.kr", "20240104", "최사아");
+    User suspended = Accounts.approved("sub-dave", "dave@khu.ac.kr", "20240104", "최사아");
     suspended.suspend();
     dave = save(suspended, 2);
   }
@@ -95,13 +87,6 @@ class AdminUserListIntegrationTest extends AbstractIntegrationTest {
   @AfterEach
   void clear() {
     userRepository.deleteAll();
-  }
-
-  private static User approved(String googleSub, String email, String studentNo, String name) {
-    User user = User.createFromGoogle(googleSub, email, "구글이름");
-    user.submitApplication(studentNo, name);
-    user.approve();
-    return user;
   }
 
   /**
@@ -119,16 +104,8 @@ class AdminUserListIntegrationTest extends AbstractIntegrationTest {
     return saved;
   }
 
-  private MockHttpServletRequestBuilder as(User user, MockHttpServletRequestBuilder builder) {
-    MockHttpSession session = new MockHttpSession();
-    AuthSession.store(session, user);
-    return builder
-        .session(session)
-        .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(user.getId())));
-  }
-
   private MockHttpServletRequestBuilder query(String query) {
-    return as(admin, get(PATH + query));
+    return sessions.as(admin, get(PATH + query));
   }
 
   /**
@@ -138,7 +115,7 @@ class AdminUserListIntegrationTest extends AbstractIntegrationTest {
    * 와일드카드({@code %25})를 그렇게 보내면 서버는 {@code "%20"}이라는 글자를 받고, 검사가 의도와 다른 것을 확인하게 된다.
    */
   private MockHttpServletRequestBuilder search(String keyword) {
-    return as(admin, get(PATH).param("q", keyword));
+    return sessions.as(admin, get(PATH).param("q", keyword));
   }
 
   /* ---------------------------------------------------------------- 권한 */
@@ -147,7 +124,7 @@ class AdminUserListIntegrationTest extends AbstractIntegrationTest {
   @Test
   void memberIsForbidden() throws Exception {
     mockMvc
-        .perform(as(alice, get(PATH)))
+        .perform(sessions.as(alice, get(PATH)))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("FORBIDDEN"));
   }
@@ -164,7 +141,7 @@ class AdminUserListIntegrationTest extends AbstractIntegrationTest {
   @Test
   void suspendedIsBlockedByStatus() throws Exception {
     mockMvc
-        .perform(as(dave, get(PATH)))
+        .perform(sessions.as(dave, get(PATH)))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("SUSPENDED"));
   }

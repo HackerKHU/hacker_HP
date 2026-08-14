@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import jakarta.servlet.http.Cookie;
 import java.util.List;
 import java.util.stream.LongStream;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
@@ -14,11 +13,10 @@ import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserApprovalService;
-import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
-import org.hackerkhu.testsupport.session.InMemorySessionConfig;
+import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,9 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -38,12 +34,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * <p>가입 승인은 <b>되돌릴 수 없고 여러 명을 한 번에 처리한다.</b> 그래서 "무엇이 대상인가"와 "무엇이 실패했는가"를 조밀하게 본다 — 관리자는 응답의 건수를
  * 그대로 읽어 안내하고, 실패한 사람에게 신청서를 내라고 연락한다.
  */
-@SpringBootTest(
-    properties =
-        "spring.autoconfigure.exclude="
-            + "org.springframework.boot.autoconfigure.session.SessionAutoConfiguration")
+@SpringBootTest
 @AutoConfigureMockMvc
-@Import(InMemorySessionConfig.class)
 class AdminUserApprovalIntegrationTest extends AbstractIntegrationTest {
 
   private static final String PATH = "/api/v1/admin/users/approve";
@@ -64,20 +56,21 @@ class AdminUserApprovalIntegrationTest extends AbstractIntegrationTest {
   void createAccounts() {
     userRepository.deleteAll();
 
-    User toPromote = approved("sub-admin", "admin@khu.ac.kr", "20200001", "관리자");
+    User toPromote = Accounts.approved("sub-admin", "admin@khu.ac.kr", "20200001", "관리자");
     toPromote.promoteToAdmin();
     admin = userRepository.saveAndFlush(toPromote);
 
-    applicant = userRepository.saveAndFlush(applied("sub-a", "a@khu.ac.kr", "20240101", "신청자일"));
+    applicant =
+        userRepository.saveAndFlush(Accounts.applied("sub-a", "a@khu.ac.kr", "20240101", "신청자일"));
     anotherApplicant =
-        userRepository.saveAndFlush(applied("sub-b", "b@khu.ac.kr", "20240102", "신청자이"));
+        userRepository.saveAndFlush(Accounts.applied("sub-b", "b@khu.ac.kr", "20240102", "신청자이"));
     // 구글 로그인만 해봤다. 학번이 없다.
     neverApplied =
         userRepository.saveAndFlush(User.createFromGoogle("sub-c", "c@khu.ac.kr", "미신청"));
     alreadyActive =
-        userRepository.saveAndFlush(approved("sub-d", "d@khu.ac.kr", "20240104", "이미회원"));
+        userRepository.saveAndFlush(Accounts.approved("sub-d", "d@khu.ac.kr", "20240104", "이미회원"));
 
-    User toSuspend = approved("sub-e", "e@khu.ac.kr", "20240105", "정지회원");
+    User toSuspend = Accounts.approved("sub-e", "e@khu.ac.kr", "20240105", "정지회원");
     toSuspend.suspend();
     suspended = userRepository.saveAndFlush(toSuspend);
   }
@@ -87,28 +80,10 @@ class AdminUserApprovalIntegrationTest extends AbstractIntegrationTest {
     userRepository.deleteAll();
   }
 
-  private static User applied(String googleSub, String email, String studentNo, String name) {
-    User user = User.createFromGoogle(googleSub, email, "구글이름");
-    user.submitApplication(studentNo, name);
-    return user;
-  }
-
-  private static User approved(String googleSub, String email, String studentNo, String name) {
-    User user = applied(googleSub, email, studentNo, name);
-    user.approve();
-    return user;
-  }
-
-  private MockHttpServletRequestBuilder as(User user, MockHttpServletRequestBuilder builder) {
-    MockHttpSession session = new MockHttpSession();
-    AuthSession.store(session, user);
-    return builder
-        .session(session)
-        .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(user.getId())));
-  }
-
   private MockHttpServletRequestBuilder approveAs(User caller, String body) {
-    return Csrf.with(as(caller, post(PATH))).contentType(MediaType.APPLICATION_JSON).content(body);
+    return Csrf.with(sessions.as(caller, post(PATH)))
+        .contentType(MediaType.APPLICATION_JSON)
+        .content(body);
   }
 
   private MockHttpServletRequestBuilder approve(String body) {
@@ -296,7 +271,8 @@ class AdminUserApprovalIntegrationTest extends AbstractIntegrationTest {
   void approvalWithoutCsrfTokenIsRejected() throws Exception {
     mockMvc
         .perform(
-            as(admin, post(PATH))
+            sessions
+                .as(admin, post(PATH))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(ids(applicant.getId())))
         .andExpect(status().isForbidden());

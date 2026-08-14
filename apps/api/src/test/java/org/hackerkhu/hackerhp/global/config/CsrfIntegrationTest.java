@@ -10,18 +10,14 @@ import jakarta.servlet.http.Cookie;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
-import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
-import org.hackerkhu.testsupport.session.InMemorySessionConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -37,12 +33,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  *
  * <p>세션을 직접 붙이려고 Spring Session 자동 설정을 뺀다 — 이유는 {@code AuthControllerIntegrationTest}에 적어 두었다.
  */
-@SpringBootTest(
-    properties =
-        "spring.autoconfigure.exclude="
-            + "org.springframework.boot.autoconfigure.session.SessionAutoConfiguration")
+@SpringBootTest
 @AutoConfigureMockMvc
-@Import(InMemorySessionConfig.class)
 class CsrfIntegrationTest extends AbstractIntegrationTest {
 
   /** 계약이 정한 이름 (spec 3-2 §3-2-3). 상수를 참조하지 않고 적는 것이 이 테스트의 요점이다. */
@@ -73,11 +65,7 @@ class CsrfIntegrationTest extends AbstractIntegrationTest {
 
   /** 로그인한 브라우저가 자동으로 싣는 것 — 세션과 신원 토큰. CSRF 토큰은 화면이 직접 넣어야 한다. */
   private MockHttpServletRequestBuilder signedIn(MockHttpServletRequestBuilder builder) {
-    MockHttpSession session = new MockHttpSession();
-    AuthSession.store(session, applicant);
-    return builder
-        .session(session)
-        .cookie(new Cookie("ACCESS_TOKEN", jwtProvider.issue(applicant.getId())));
+    return sessions.as(applicant, builder);
   }
 
   private MockHttpServletRequestBuilder submitApplication() {
