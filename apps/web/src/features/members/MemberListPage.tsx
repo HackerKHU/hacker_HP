@@ -99,22 +99,50 @@ function statusLabel(user: User): string {
 }
 
 /**
- * 상태 필터의 라벨. **API 값(`PENDING` 등)과 표시 이름은 다른 층위다.**
+ * 상태 필터. **API 값과 표시 이름은 다른 층위다.**
  *
- * `PENDING`을 "미승인"이라 부르는 것은 이 필터가 `PENDING` 전부를 데려오기 때문이다 —
- * 행에 "미승인"으로 뜨는 계정과 "승인 대기"로 뜨는 계정이 함께 온다. "승인 대기"라고
- * 적으면 필터가 거짓말을 하므로 둘을 아우르는 이름을 쓴다.
+ * `PENDING`을 <b>둘로 쪼갠다.</b> 그 상태에는 신청서를 낸 계정과 구글 로그인만 해본 계정이
+ * 함께 있고, 관리자가 이 화면에서 가장 자주 하는 일이 **"승인 대기만 보여줘"**이기 때문이다.
+ * 서버가 `applied`로 그 둘을 갈라 준다 (spec §3-2-6).
  *
- * **서버에는 둘을 가르는 방법이 이미 있다** — `applied` 파라미터다 (spec §3-2-6).
- * 화면이 아직 쓰지 않을 뿐이고, 붙이면 이 라벨도 "승인 대기"로 좁힐 수 있다.
+ * **낱말은 행의 상태 칸과 같다** (`statusLabel`). 전에는 필터의 "미승인"이 `PENDING` 전부를
+ * 뜻하고 행의 "미승인"은 그중 신청 안 한 계정만을 뜻해 **같은 낱말이 두 범위로 쓰였다.**
+ * 이제 두 곳이 같은 것을 가리킨다.
  *
- * **같은 낱말이 두 범위로 쓰인다.** 여기(필터)의 "미승인"은 `PENDING` 전부이고,
- * `statusLabel()`이 행에 붙이는 "미승인"은 그중 신청서를 내지 않은 계정만이다.
+ * `PENDING` 전부를 한 번에 보는 선택지는 두지 않는다 — 위 둘의 합집합이고, "전체"에서
+ * 상태 칸이 이미 둘을 갈라 보여준다.
  */
-const STATUS_FILTERS: Record<UserStatus, string> = {
-  PENDING: '미승인',
-  ACTIVE: '활동중',
-  SUSPENDED: '정지',
+type StatusFilter = {
+  /** `<select>`의 값. URL이 아니라 화면 안에서만 쓰는 합성 키다. */
+  value: string
+  label: string
+  status?: UserStatus
+  applied?: boolean
+}
+
+const STATUS_FILTERS: StatusFilter[] = [
+  { value: '', label: '전체' },
+  {
+    value: 'PENDING:applied',
+    label: '승인 대기',
+    status: 'PENDING',
+    applied: true,
+  },
+  { value: 'PENDING:none', label: '미승인', status: 'PENDING', applied: false },
+  { value: 'ACTIVE', label: '활동중', status: 'ACTIVE' },
+  { value: 'SUSPENDED', label: '정지', status: 'SUSPENDED' },
+]
+
+/** URL에 적힌 두 값(`status`·`applied`)을 `<select>`가 아는 하나로 되돌린다. */
+function toFilterValue(status: string, applied: string | null): string {
+  const found = STATUS_FILTERS.find(
+    (filter) =>
+      (filter.status ?? '') === status &&
+      (filter.applied === undefined
+        ? applied === null
+        : String(filter.applied) === applied),
+  )
+  return found?.value ?? ''
 }
 
 const ROLE_LABEL: Record<Role, string> = { USER: '부원', ADMIN: '관리자' }
@@ -163,6 +191,11 @@ export function MemberListPage() {
 
   const page = parsePage(searchParams.get('page'))
   const status = (searchParams.get('status') ?? '') as UserStatus | ''
+  /*
+   * URL에 서버 파라미터를 그대로 적는다 (spec §3-2-6). 합성 값을 쓰면 주소만 보고는
+   * 무엇을 조회하는지 알 수 없고, 뒤로가기·새로고침·링크 공유에서 되살리기도 어렵다.
+   */
+  const applied = searchParams.get('applied')
   const role = (searchParams.get('role') ?? '') as Role | ''
   const sort = searchParams.get('sort') ?? ''
   const keyword = searchParams.get('q') ?? ''
@@ -211,6 +244,7 @@ export function MemberListPage() {
       size: PAGE_SIZE,
       q: keyword || undefined,
       status: status || undefined,
+      applied: applied === null ? undefined : applied === 'true',
       role: role || undefined,
       sort: sort || undefined,
     })
@@ -226,7 +260,7 @@ export function MemberListPage() {
     return () => {
       alive = false
     }
-  }, [page, keyword, status, role, sort, reloadKey, reportApiError])
+  }, [page, keyword, status, applied, role, sort, reloadKey, reportApiError])
 
   /**
    * 조회 조건이 바뀌면 선택을 버린다. 다른 페이지·다른 조건에서 고른 사람이 남아 있으면
@@ -255,7 +289,7 @@ export function MemberListPage() {
           : '조회 조건이 바뀌어 진행 중이던 확인을 닫았습니다.'
         : `조회 조건이 바뀌어 선택한 ${dropped}명이 해제되었습니다.`,
     )
-  }, [page, keyword, status, role, sort])
+  }, [page, keyword, status, applied, role, sort])
 
   /**
    * URL의 검색어가 바뀌면 입력창도 따라간다.
@@ -288,6 +322,23 @@ export function MemberListPage() {
     const next = new URLSearchParams(searchParams)
     if (value === '') next.delete(key)
     else next.set(key, value)
+    next.delete('page')
+    setSearchParams(next)
+  }
+
+  /**
+   * 상태 필터는 URL 파라미터 <b>두 개</b>를 함께 움직인다.
+   *
+   * 하나씩 세우면 그 사이에 조회가 한 번 더 나가고, `status`만 바뀐 중간 상태로 목록이
+   * 잠깐 그려진다 — 관리자가 보는 것과 고른 것이 어긋난다.
+   */
+  function setStatusFilter(value: string) {
+    const filter = STATUS_FILTERS.find((candidate) => candidate.value === value)
+    const next = new URLSearchParams(searchParams)
+    if (filter?.status === undefined) next.delete('status')
+    else next.set('status', filter.status)
+    if (filter?.applied === undefined) next.delete('applied')
+    else next.set('applied', String(filter.applied))
     next.delete('page')
     setSearchParams(next)
   }
@@ -443,14 +494,13 @@ export function MemberListPage() {
           <Label htmlFor="member-status">상태</Label>
           <select
             id="member-status"
-            value={status}
-            onChange={(event) => setParam('status', event.target.value)}
+            value={toFilterValue(status, applied)}
+            onChange={(event) => setStatusFilter(event.target.value)}
             className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
           >
-            <option value="">전체</option>
-            {Object.entries(STATUS_FILTERS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
+            {STATUS_FILTERS.map((filter) => (
+              <option key={filter.value} value={filter.value}>
+                {filter.label}
               </option>
             ))}
           </select>

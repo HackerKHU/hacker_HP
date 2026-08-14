@@ -247,24 +247,25 @@ describe('승인 대상', () => {
   })
 
   /*
-   * 필터의 "미승인"은 `status=PENDING` 전부를 데려온다 — 행에 "미승인"으로 뜨는 계정과
-   * "승인 대기"로 뜨는 계정이 함께 온다. **같은 낱말이 필터와 행에서 범위가 다르다.**
-   * "승인 대기"라고 적으면 필터가 거짓말을 한다 — 둘을 아우르는 이름을 쓴다.
-   *
-   * 서버에는 둘을 가르는 `applied` 파라미터가 이미 있다 (spec §3-2-6). 화면이 그것을
-   * 쓰기 시작하면 이 라벨도 좁힐 수 있다.
+   * 필터와 행이 **같은 낱말로 같은 것을 가리킨다.** 전에는 필터의 "미승인"이 `PENDING`
+   * 전부였고 행의 "미승인"은 그중 신청 안 한 계정만이라, 같은 낱말이 두 범위로 쓰였다.
+   * 서버가 `applied`로 둘을 갈라 주므로(spec §3-2-6) 이제 그럴 이유가 없다.
    */
-  it('상태 필터의 PENDING 라벨은 미승인이다', async () => {
+  it('상태 필터가 승인 대기와 미승인을 가른다', async () => {
     renderAt()
     await loaded()
 
     const filter = screen.getByLabelText('상태')
-    expect(within(filter).getByRole('option', { name: '미승인' })).toHaveValue(
-      'PENDING',
-    )
     expect(
-      within(filter).queryByRole('option', { name: '승인 대기' }),
-    ).toBeNull()
+      within(filter).getByRole('option', { name: '승인 대기' }),
+    ).toHaveValue('PENDING:applied')
+    expect(within(filter).getByRole('option', { name: '미승인' })).toHaveValue(
+      'PENDING:none',
+    )
+    // PENDING 전부를 한 번에 보는 선택지는 두지 않는다 — 위 둘의 합집합이다.
+    expect(
+      within(filter).queryByRole('option', { name: '승인 대기 · 미승인' }),
+    ).not.toBeInTheDocument()
   })
 
   it('신청서를 낸 PENDING은 승인 대기로 보인다', async () => {
@@ -687,8 +688,67 @@ describe('검색·필터·정렬', () => {
     })
   })
 
+  /**
+   * **거르는 것은 서버가 한다** (spec §3-2-6). 화면이 받아서 버리면 총 건수와 총 페이지 수가
+   * 실제와 어긋나 관리자가 "12명 남았다"고 읽는 숫자가 틀리게 된다.
+   */
+  it('승인 대기를 고르면 status와 applied를 함께 보낸다', async () => {
+    renderAt()
+    await loaded()
+
+    fireEvent.change(screen.getByLabelText('상태'), {
+      target: { value: 'PENDING:applied' },
+    })
+
+    await waitFor(() => {
+      expect(api.queries.at(-1)?.status).toBe('PENDING')
+      expect(api.queries.at(-1)?.applied).toBe(true)
+    })
+  })
+
+  it('미승인을 고르면 applied=false로 보낸다', async () => {
+    renderAt()
+    await loaded()
+
+    fireEvent.change(screen.getByLabelText('상태'), {
+      target: { value: 'PENDING:none' },
+    })
+
+    await waitFor(() => {
+      expect(api.queries.at(-1)?.status).toBe('PENDING')
+      expect(api.queries.at(-1)?.applied).toBe(false)
+    })
+  })
+
+  /** 신청 여부와 무관한 상태를 고르면 그 파라미터를 아예 보내지 않는다. */
+  it('활동중을 고르면 applied를 보내지 않는다', async () => {
+    renderAt()
+    await loaded()
+
+    fireEvent.change(screen.getByLabelText('상태'), {
+      target: { value: 'ACTIVE' },
+    })
+
+    await waitFor(() => {
+      expect(api.queries.at(-1)?.status).toBe('ACTIVE')
+      expect(api.queries.at(-1)?.applied).toBeUndefined()
+    })
+  })
+
+  /**
+   * 뒤로가기·새로고침·링크 공유에 살아남아야 한다 (T-84와 같은 규칙).
+   *
+   * URL에는 <b>서버 파라미터를 그대로</b> 적는다 — 합성 값을 쓰면 주소만 보고는 무엇을
+   * 조회하는지 알 수 없다.
+   */
+  it('주소로 들어와도 승인 대기 필터가 선택돼 있다', async () => {
+    renderAt('/admin/members?status=PENDING&applied=true')
+    await loaded()
+
+    expect(screen.getByLabelText('상태')).toHaveValue('PENDING:applied')
+  })
+
   it.each([
-    ['상태', 'PENDING', 'status'],
     ['권한', 'ADMIN', 'role'],
     ['정렬', 'name', 'sort'],
   ])('%s를 바꾸면 그 값으로 다시 조회한다', async (label, value, key) => {
@@ -712,7 +772,7 @@ describe('검색·필터·정렬', () => {
     expect(api.queries.at(-1)?.page).toBe(2)
 
     fireEvent.change(screen.getByLabelText('상태'), {
-      target: { value: 'PENDING' },
+      target: { value: 'PENDING:applied' },
     })
 
     await waitFor(() => {
@@ -730,7 +790,7 @@ describe('검색·필터·정렬', () => {
     expect(screen.getByText(/이 페이지에서 1명 선택됨/)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('상태'), {
-      target: { value: 'PENDING' },
+      target: { value: 'PENDING:applied' },
     })
 
     expect(await screen.findByRole('status')).toHaveTextContent(
@@ -748,7 +808,7 @@ describe('검색·필터·정렬', () => {
     await loaded()
 
     fireEvent.change(screen.getByLabelText('상태'), {
-      target: { value: 'PENDING' },
+      target: { value: 'PENDING:applied' },
     })
 
     await waitFor(() => {
