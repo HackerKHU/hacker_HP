@@ -263,6 +263,29 @@ export function MemberListPage() {
   }, [page, keyword, status, applied, role, sort, reloadKey, reportApiError])
 
   /**
+   * <b>옛 주소를 새 조합으로 맞춘다.</b>
+   *
+   * 상태 필터를 쪼개기 전에는 `?status=PENDING` 하나가 `PENDING` 전부를 뜻했다. 그 주소가
+   * 기록·북마크·붙여넣은 링크로 다시 열리면 목록은 여전히 `PENDING`만 가져오는데 필터는
+   * 짝이 없어 <b>"전체"로 보인다</b> — 관리자는 전원을 보고 있다고 믿지만 실제로는 일부만 본다.
+   * 이 화면이 없애려던 바로 그 거짓말이다.
+   *
+   * 가장 가까운 새 조합인 <b>"승인 대기"</b>로 맞추고 주소도 함께 고친다. <b>말없이 바꾸지
+   * 않는다</b> — 아래 선택 해제와 같은 규칙이다 (T-83). 범위가 좁아지는 쪽이라 관리자가
+   * 알아야 한다.
+   */
+  useEffect(() => {
+    if (status !== 'PENDING' || applied !== null) return
+
+    const next = new URLSearchParams(searchParams)
+    next.set('applied', 'true')
+    setSearchParams(next, { replace: true })
+    setNotice(
+      '이전 주소의 조건을 "승인 대기"로 맞췄습니다. 신청하지 않은 계정은 "미승인"에서 볼 수 있습니다.',
+    )
+  }, [status, applied, searchParams, setSearchParams])
+
+  /**
    * 조회 조건이 바뀌면 선택을 버린다. 다른 페이지·다른 조건에서 고른 사람이 남아 있으면
    * **화면에 보이지 않는 사람을 승인하게 된다** — 되돌릴 수 없는 조작이다.
    *

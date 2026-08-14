@@ -748,6 +748,25 @@ describe('검색·필터·정렬', () => {
     expect(screen.getByLabelText('상태')).toHaveValue('PENDING:applied')
   })
 
+  /**
+   * 필터를 쪼개기 전의 주소 — `?status=PENDING` 하나가 `PENDING` 전부를 뜻했다.
+   *
+   * 그대로 두면 목록은 `PENDING`만 가져오는데 필터는 짝이 없어 <b>"전체"로 보인다.</b>
+   * 관리자는 전원을 보고 있다고 믿지만 실제로는 일부만 본다 — 이 화면이 없애려던 거짓말이다.
+   */
+  it('옛 PENDING 주소는 승인 대기로 맞추고 그 사실을 알린다', async () => {
+    renderAt('/admin/members?status=PENDING')
+    await loaded()
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '이전 주소의 조건을 "승인 대기"로 맞췄습니다',
+    )
+    await waitFor(() => {
+      expect(screen.getByLabelText('상태')).toHaveValue('PENDING:applied')
+      expect(api.queries.at(-1)?.applied).toBe(true)
+    })
+  })
+
   it.each([
     ['권한', 'ADMIN', 'role'],
     ['정렬', 'name', 'sort'],
