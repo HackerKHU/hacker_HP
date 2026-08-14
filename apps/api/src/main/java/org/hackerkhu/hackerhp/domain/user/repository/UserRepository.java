@@ -52,6 +52,16 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
   List<Long> findIdsByRoleAndStatus(@Param("role") Role role, @Param("status") Status status);
 
   /**
+   * 그 이메일을 쓰는 계정의 id — <b>대소문자를 가리지 않고</b> 찾는다.
+   *
+   * <p>{@code users.email}의 {@code UNIQUE}는 대소문자를 구분하므로 {@code a@b}와 {@code A@B}가 <b>함께 존재할 수
+   * 있다.</b> 최초 관리자 승격은 이메일을 대소문자 없이 견주므로 <b>자격을 만족하는 행이 둘 이상일 수 있고</b>, 그 둘이 동시에 호출하면 각자 자기 행만 잠근 채
+   * "활성 관리자 0명"을 함께 보고 <b>둘 다 관리자가 된다.</b> 잠글 후보를 이 질의로 모은다.
+   */
+  @Query("select u.id from User u where lower(u.email) = lower(:email)")
+  List<Long> findIdsByEmailIgnoreCase(@Param("email") String email);
+
+  /**
    * 활성 관리자 수.
    *
    * <p><b>세는 것과 바꾸는 것이 한 연산이어야 한다</b> (spec 2-2 §2-2-7 MUST). 잠그지 않고 세면 두 정지 요청이 둘 다 "활성 관리자 2명"을

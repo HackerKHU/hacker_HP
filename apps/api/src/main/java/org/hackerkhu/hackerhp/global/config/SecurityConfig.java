@@ -34,7 +34,11 @@ import org.springframework.security.web.savedrequest.NullRequestCache;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties({AuthProperties.class, JwtProperties.class})
+@EnableConfigurationProperties({
+  AuthProperties.class,
+  JwtProperties.class,
+  BootstrapProperties.class
+})
 public class SecurityConfig {
 
   /** 인증을 요청 사이에 보관하지 않는다. 매 요청 토큰과 세션을 대조해 새로 세운다. */

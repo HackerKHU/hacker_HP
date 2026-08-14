@@ -10,8 +10,10 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import org.hackerkhu.hackerhp.domain.auth.dto.ApplicationRequest;
+import org.hackerkhu.hackerhp.domain.auth.dto.BootstrapRequest;
 import org.hackerkhu.hackerhp.domain.auth.dto.MeResponse;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.domain.user.service.AdminBootstrapService;
 import org.hackerkhu.hackerhp.domain.user.service.UserApplicationService;
 import org.hackerkhu.hackerhp.global.auth.AccessTokenCookie;
 import org.hackerkhu.hackerhp.global.auth.PublicApi;
@@ -46,16 +48,19 @@ public class AuthController {
   private final AccessTokenCookie accessTokenCookie;
   private final CsrfTokenRepository csrfTokenRepository;
   private final UserApplicationService userApplicationService;
+  private final AdminBootstrapService adminBootstrapService;
 
   public AuthController(
       UserRepository userRepository,
       AccessTokenCookie accessTokenCookie,
       CsrfTokenRepository csrfTokenRepository,
-      UserApplicationService userApplicationService) {
+      UserApplicationService userApplicationService,
+      AdminBootstrapService adminBootstrapService) {
     this.userRepository = userRepository;
     this.accessTokenCookie = accessTokenCookie;
     this.csrfTokenRepository = csrfTokenRepository;
     this.userApplicationService = userApplicationService;
+    this.adminBootstrapService = adminBootstrapService;
   }
 
   /**
@@ -165,6 +170,58 @@ public class AuthController {
   public ResponseEntity<Void> submitApplication(
       @AuthenticationPrincipal Long userId, @Valid @RequestBody ApplicationRequest request) {
     userApplicationService.submit(userId, request.studentNo(), request.name());
+    return ResponseEntity.noContent().build();
+  }
+
+  /**
+   * 최초 관리자 승격 (spec 3-3 결정 11).
+   *
+   * <p><b>이것이 없으면 관리자가 한 명도 없어 아무도 가입을 승인할 수 없다.</b> 마지막 관리자 사고의 복구 경로도 겸한다 (2-2 §2-2-7).
+   *
+   * <p><b>거절 사유를 가르지 않는다.</b> 어떤 조건에서 막혔든 같은 응답이다 — 사유가 갈리면 "이메일은 맞았고 토큰만 틀렸다"를 알아낼 수 있다.
+   */
+  @Operation(
+      summary = "최초 관리자 승격",
+      description =
+          """
+          **활성 관리자가 한 명도 없을 때만** 동작한다. 넷을 모두 통과해야 본인이 `ADMIN`이 된다 —
+          활성 관리자 0명, 이메일 일치, 토큰 일치, **신청서 제출 완료**.
+
+          신청서 조건이 있는 이유는 신청 API가 `PENDING` 전용이기 때문이다. 신청 없이 곧장
+          관리자가 되면 학번을 채울 방법이 영영 없어진다.
+
+          **어떤 이유로 막혔는지 알려주지 않는다.** 설정되지 않은 서버에서도 같은 응답이 나간다.
+
+          토큰 값은 SSM(`ADMIN_BOOTSTRAP_TOKEN`)에 있다. 호출 절차는
+          `docs/ops/runbook.md`에 있다.
+          """)
+  @ApiResponse(responseCode = "204", description = "승격됨. 다음 요청부터 관리자다")
+  @ApiResponse(
+      responseCode = "400",
+      description = "`VALIDATION_ERROR` — `token`이 비었다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 로그인해야 부를 수 있다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description = "`FORBIDDEN` — 조건 하나라도 어긋났거나 CSRF 토큰이 없다. **어느 조건인지는 알려주지 않는다**",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @PostMapping("/bootstrap-admin")
+  @PreAuthorize("isAuthenticated()")
+  public ResponseEntity<Void> bootstrapAdmin(
+      @AuthenticationPrincipal Long requesterId, @Valid @RequestBody BootstrapRequest request) {
+    adminBootstrapService.promote(requesterId, request.token());
     return ResponseEntity.noContent().build();
   }
 

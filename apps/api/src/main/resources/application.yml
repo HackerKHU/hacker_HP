@@ -73,6 +73,18 @@ app:
       # 기본값을 심으면 누구나 아는 키로 토큰을 위조할 수 있다. 운영 값은 SSM에 있다.
       secret: ${JWT_SECRET:}
       expiry: 30m
+    bootstrap:
+      # 최초 관리자 승격에 쓰는 값 (3-3 결정 11). 운영 값은 SSM에 있고 태스크 정의가
+      # secrets로 항상 주입한다 (docs/ops/infra.md).
+      #
+      # 위 둘과 달리 없어도 기동한다. 일회성 운영 경로를 기동 조건으로 묶으면 로컬·테스트가
+      # 이 값을 채워야만 뜨는데, 그 대가로 얻는 것이 없다 — 값이 없으면 그 경로만 닫히고
+      # 무방비가 되지도 않는다.
+      #
+      # 토큰 회전은 파라미터를 지우는 것이 아니라 값만 바꾸고 재배포하는 것이다. 지우면
+      # secrets 주입이 실패해 새 태스크가 뜨지 못한다 (docs/ops/runbook.md).
+      email: ${ADMIN_BOOTSTRAP_EMAIL:}
+      token: ${ADMIN_BOOTSTRAP_TOKEN:}
 
 management:
   endpoints:
