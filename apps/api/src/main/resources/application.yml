@@ -73,6 +73,13 @@ app:
       # 기본값을 심으면 누구나 아는 키로 토큰을 위조할 수 있다. 운영 값은 SSM에 있다.
       secret: ${JWT_SECRET:}
       expiry: 30m
+    bootstrap:
+      # 최초 관리자 승격에 쓰는 값 (3-3 결정 11). 운영 값은 SSM에 있다.
+      #
+      # 위 둘과 달리 없어도 기동한다 — 일회성 운영 경로라, 기동 조건으로 묶으면 나중에
+      # 토큰을 회전하거나 지우는 순간 API 전체가 죽는다. 값이 없으면 그 경로만 닫힌다.
+      email: ${ADMIN_BOOTSTRAP_EMAIL:}
+      token: ${ADMIN_BOOTSTRAP_TOKEN:}
 
 management:
   endpoints:

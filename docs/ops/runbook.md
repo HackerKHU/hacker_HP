@@ -20,6 +20,48 @@
 | presigned 업로드 CORS 에러 | S3 `allowed_origins`에 localhost/Vercel 도메인 누락 |
 | Vercel에서 API 호출 실패 | `vercel.json` destination이 ALB DNS와 불일치 |
 | 태스크가 가끔 재시작 | Fargate Spot 회수. 정상 동작 ([결정 3](../../spec/3-3-DESIGN-DECISIONS.md)) |
+| 첫 가입자가 계속 `PENDING` | 최초 관리자 승격을 안 했다. 아래 절차를 밟는다 |
+| 관리자가 전부 사라짐 | 같은 절차로 복구한다 ([2-2 §2-2-7](../../spec/2-2-OPERATOR-REQUIREMENTS.md)) |
+| 승격 API가 계속 `403` | 조건 넷 중 하나가 어긋났다. **응답은 사유를 알려주지 않으므로 서버 로그를 본다** (`관리자 승격 거절` 줄) |
+
+## 최초 관리자 승격
+
+**배포 직후 반드시 한 번 해야 한다** ([7-DEPLOYMENT](../../spec/7-DEPLOYMENT.md) MUST). 안 하면 관리자가 0명이라 **아무도 가입을 승인할 수 없고**, 첫 가입자가 계속 `PENDING`으로 남는다. 마지막 관리자가 사라졌을 때의 복구 절차이기도 하다.
+
+넷을 **모두** 만족해야 승격된다 ([3-3 결정 11](../../spec/3-3-DESIGN-DECISIONS.md)).
+
+1. 활성 관리자가 0명
+2. 요청자 이메일 == `ADMIN_BOOTSTRAP_EMAIL`
+3. 본문 토큰 == `ADMIN_BOOTSTRAP_TOKEN`
+4. **신청서 제출 완료** — 구글 로그인만으로는 안 된다
+
+**① 정상 가입을 마친다.** 구글로 로그인하고 **신청 폼까지 제출한다.** 4번 조건이라 건너뛰면 승격되지 않는다.
+
+**② 토큰을 조회한다.**
+
+```bash
+aws ssm get-parameter --name /hacker-hp/prod/admin-bootstrap-token   --with-decryption --query 'Parameter.Value' --output text
+```
+
+**③ 브라우저에서 호출한다.** 로그인한 그 브라우저의 개발자 도구 콘솔에서 실행한다 — 쿠키 세 개(`SESSION`·`ACCESS_TOKEN`·CSRF)가 모두 필요해 `curl`로는 번거롭다.
+
+```js
+await fetch('/api/v1/auth/csrf', { credentials: 'include' })          // 쿠키를 먼저 받는다
+const csrf = document.cookie.match(/XSRF-TOKEN=([^;]+)/)[1]
+const res = await fetch('/api/v1/auth/bootstrap-admin', {
+  method: 'POST',
+  credentials: 'include',
+  headers: { 'Content-Type': 'application/json', 'X-XSRF-TOKEN': csrf },
+  body: JSON.stringify({ token: '<②에서 받은 값>' }),
+})
+res.status   // 204면 성공
+```
+
+**④ 확인한다.** 새로고침하면 관리자 화면이 열린다 — 승격은 **기존 세션에 즉시 반영되므로** 재로그인이 필요 없다 ([3-1 §3-1-5](../../spec/3-1-DESIGN-ARCHITECTURE.md)).
+
+> **토큰을 채팅·이슈·커밋에 남기지 않는다.** 안전한 채널로 최초 관리자에게만 전달한다 ([infra.md](infra.md)).
+>
+> `403`이 나오면 **응답만으로는 무엇이 틀렸는지 알 수 없다** — 사유를 알려주면 토큰을 추측할 수 있기 때문이다. CloudWatch 로그에서 `관리자 승격 거절` 줄을 찾으면 사유가 적혀 있다.
 
 ## 디버깅 명령어
 

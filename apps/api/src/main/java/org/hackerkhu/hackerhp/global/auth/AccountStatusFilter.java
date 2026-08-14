@@ -57,7 +57,16 @@ public class AccountStatusFilter extends OncePerRequestFilter {
               matcher(null, "/api/v1/login/oauth2/code/**"),
               matcher(HttpMethod.GET, "/api/v1/auth/csrf"),
               matcher(HttpMethod.GET, "/api/v1/auth/me"),
-              matcher(HttpMethod.POST, "/api/v1/auth/logout")));
+              matcher(HttpMethod.POST, "/api/v1/auth/logout"),
+              /*
+               * 최초 관리자 승격 (3-3 결정 11). PENDING이 불러야 하는 경로다 — 최초 관리자는
+               * 신청서까지 낸 PENDING 상태로 이것을 부른다.
+               *
+               * PENDING_ONLY가 아니라 여기 두는 이유는, 이 경로가 마지막 관리자 사고의 복구
+               * 경로도 겸해 ACTIVE도 부를 수 있기 때문이다 (2-2 §2-2-7). SUSPENDED까지 핸들러에
+               * 닿지만 서비스가 거절한다 — 거절 사유를 가르지 않는 것이 이 경로의 규칙이다.
+               */
+              matcher(HttpMethod.POST, "/api/v1/auth/bootstrap-admin")));
 
   /**
    * {@code PENDING}에게만 여는 경로.
