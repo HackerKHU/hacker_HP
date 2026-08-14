@@ -1,0 +1,91 @@
+name: Deploy API
+
+# main에 apps/api 변경이 push되면 ECR에 새 이미지를 올리고 ECS 서비스를 갱신한다
+# (docs/ops/deployment.md, spec/7-DEPLOYMENT.md).
+#
+# AWS 액세스 키는 저장하지 않는다 — GitHub OIDC(infra/terraform/cicd.tf)로 매번
+# 임시 자격증명을 받는다.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**' # 모노레포 — API 바뀔 때만
+      - '.github/workflows/deploy-api.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPO: hacker-api
+  ECS_CLUSTER: hacker-cluster
+  ECS_SERVICE: hacker-api
+  TASK_FAMILY: hacker-api
+  CONTAINER_NAME: api
+
+permissions:
+  id-token: write # ★ OIDC 필수
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/api
+          platforms: linux/amd64 # ★ 태스크 정의의 X86_64와 일치
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Download current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.TASK_FAMILY }} \
+            --query taskDefinition > task-definition.json
+
+      - name: Update image in task definition
+        id: taskdef
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.taskdef.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 20); do
+            if curl -sf http://${{ secrets.ALB_DNS }}/actuator/health; then
+              echo "✅ deployed"; exit 0
+            fi
+            echo "waiting... ($i/20)"; sleep 15
+          done
+          echo "❌ health check failed"; exit 1
