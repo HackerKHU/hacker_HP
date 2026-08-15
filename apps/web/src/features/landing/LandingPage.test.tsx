@@ -93,6 +93,23 @@ describe('공개 랜딩', () => {
     expect(screen.queryByRole('heading', { name: '로그인' })).toBeNull()
   })
 
+  /*
+   * 근사치와 확정값이 화면에서 구분되어야 한다. 전부 `+`가 붙으면 확정된 창립 연차까지
+   * 추정처럼 읽히고, 아무 데도 안 붙으면 근사치가 정확한 집계처럼 읽힌다.
+   */
+  it('근사 표기를 켠 수치에만 +가 붙는다', async () => {
+    renderLanding()
+
+    const cumulative = (await screen.findByText('누적 활동 회원')).closest(
+      'div',
+    )
+    expect(cumulative).toHaveTextContent('2000+명')
+
+    const years = screen.getByText('함께한 시간').closest('div')
+    expect(years).toHaveTextContent('39년')
+    expect(years).not.toHaveTextContent('+')
+  })
+
   // 주소가 없는 mailto는 빈 메일 창만 띄운다. 위와 같은 이유로 조건 분기 없이 못박는다.
   it('후원 문의 주소가 자리표시자인 동안 버튼이 잠겨 있다', async () => {
     renderLanding()
