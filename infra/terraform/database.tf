@@ -11,7 +11,7 @@ resource "aws_db_subnet_group" "main" {
 resource "aws_db_instance" "main" {
   identifier     = "${local.name}-dev"
   engine         = "postgres"
-  engine_version = "16.4"
+  engine_version = "16" # 패치 버전을 고정하지 않는다 — AWS가 특정 버전을 내리면 apply가 막힌다
   instance_class = "db.t4g.micro"
 
   allocated_storage     = 20
@@ -28,7 +28,7 @@ resource "aws_db_instance" "main" {
   publicly_accessible    = false
   multi_az               = false
 
-  backup_retention_period      = 7
+  backup_retention_period      = 1 # 프리티어 계정은 7일을 거부한다 (FreeTierRestrictionError)
   performance_insights_enabled = false
   monitoring_interval          = 0
 
