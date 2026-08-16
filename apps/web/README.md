@@ -145,9 +145,9 @@ gitignore된 각자의 `.env.local`은 검색에 안 잡히니 따로 지운다.
 
 ## 배포
 
-[`vercel.json`](vercel.json)에 SPA fallback rewrite가 있다. `BrowserRouter`를 쓰므로 이것이 없으면 `/notices` 같은 경로를 새로고침할 때 404가 난다.
+[`vercel.json`](vercel.json)에 rewrite가 두 개 있다. `/api/*`를 `api.khuhacker.com`으로 넘기는 프록시([docs/ops/deployment.md](../../docs/ops/deployment.md))와 SPA fallback이다. fallback은 `BrowserRouter`를 쓰기 때문에 필요하다 — 없으면 `/notices` 같은 경로를 새로고침할 때 404가 난다.
 
-**rewrite 순서에 제약이 있다.** `/api/*`를 ALB로 넘기는 규칙([docs/ops/deployment.md](../../docs/ops/deployment.md))을 추가할 때는 반드시 SPA fallback **위에** 넣는다. Vercel은 위에서부터 첫 번째로 맞는 규칙을 적용하므로, 아래에 두면 fallback이 API 요청까지 `/index.html`로 삼켜 로그인이 되지 않는다.
+**순서를 바꾸면 안 된다.** Vercel은 위에서부터 첫 번째로 맞는 규칙을 적용하므로 `/api/*`가 SPA fallback **위에** 있어야 한다. 아래로 내려가면 fallback이 API 요청까지 `/index.html`로 삼켜 로그인이 되지 않는다.
 
 ## 검증
 

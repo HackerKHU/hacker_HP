@@ -8,11 +8,9 @@
 
 인프라(VPC·ECS·RDS·S3) 자체는 [infra.md](infra.md) 참고. 이 문서는 "코드를 어떻게 컨테이너로 만들어 그 인프라 위로 올리는지"를 다룹니다.
 
-## ⚠️ 도메인 없이 HTTPS 처리하기
+## API 프록시
 
-ALB 기본 DNS(`xxx.ap-northeast-2.elb.amazonaws.com`)에는 **ACM 인증서를 붙일 수 없습니다.** 소유한 도메인이어야 발급되기 때문입니다. 그래서 지금은 ALB가 HTTP(80)만 받습니다.
-
-문제는 Vercel이 HTTPS라 브라우저가 HTTP API 호출을 차단한다는 것(mixed content). 해결책은 **Vercel rewrites 프록시**입니다.
+프론트는 `www.khuhacker.com`(Vercel), API는 `api.khuhacker.com`(ALB)입니다. 브라우저가 API를 직접 부르지 않고 **Vercel rewrites 프록시**를 거칩니다.
 
 ```json
 // apps/web/vercel.json
@@ -21,6 +19,10 @@ ALB 기본 DNS(`xxx.ap-northeast-2.elb.amazonaws.com`)에는 **ACM 인증서를 
     {
       "source": "/api/:path*",
       "destination": "https://api.khuhacker.com/api/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
@@ -30,30 +32,19 @@ ALB 기본 DNS(`xxx.ap-northeast-2.elb.amazonaws.com`)에는 **ACM 인증서를 
 브라우저 ──HTTPS──> Vercel Edge ──HTTPS──> ALB ──> ECS
 ```
 
-브라우저는 Vercel하고만 통신하므로 mixed content가 없습니다. **덤으로 same-origin이 되어 쿠키 문제도 사라집니다** — `SameSite=None; Secure`가 필요 없고 `SameSite=Lax`로 충분해집니다. 프론트 코드에서는 그냥 `/api/v1/...`로 호출하면 됩니다.
+**순서가 중요합니다.** Vercel은 위에서부터 첫 번째로 맞는 규칙을 적용하므로 `/api/*` 규칙이 SPA fallback **위에** 있어야 합니다. 아래에 두면 fallback이 API 요청까지 `/index.html`로 삼켜서 로그인이 되지 않습니다.
+
+브라우저는 Vercel하고만 통신하므로 mixed content가 없습니다. **덤으로 same-origin이 되어 쿠키 문제도 사라집니다** — `SameSite=None; Secure`가 필요 없고 `SameSite=Lax`로 충분해집니다. 프론트 코드에서는 그냥 `/api/v1/...`로 호출하면 됩니다. `api.khuhacker.com`을 직접 부르면 CORS와 쿠키 설정이 따라붙으므로 절대 URL은 쓰지 않습니다.
 
 프록시 `source`는 `/api/v1/:path*`이 아니라 `/api/:path*`로 둡니다. 나중에 `/api/v2`가 생겨도 rewrites 설정을 건드리지 않기 위해서입니다 ([3-3 결정 9](../../spec/3-3-DESIGN-DECISIONS.md)).
 
 **파일은 이 프록시를 거치지 않습니다.** Vercel의 서버리스/Edge 함수는 요청 본문이 4.5MB로 제한되는데, 자료 파일 최대 용량은 20MB([3-3 §3-3-7](../../spec/3-3-DESIGN-DECISIONS.md))라 애초에 프록시를 통과할 수 없습니다. 그래서 파일은 presigned URL로 브라우저→S3 직접 업로드/다운로드하고([2-1 §2-1-2·§2-1-4](../../spec/2-1-USER-STORIES.md)), `/api/*` 프록시는 메타데이터를 주고받는 JSON 요청에만 씁니다.
 
-### 지금 이 구성으로 하면 안 되는 것
+### 구간별 암호화
 
-Vercel↔ALB 구간이 평문 HTTP입니다. AWS 네트워크 내부가 아니라 공개 인터넷을 지나갑니다.
+ALB는 ACM 인증서로 443을 받고 80은 443으로 리다이렉트합니다(`infra/terraform/alb.tf`). 브라우저↔Vercel, Vercel↔ALB 모두 HTTPS라 **공개 인터넷을 지나는 평문 구간이 없습니다.** ALB↔ECS 구간만 HTTP인데, 이건 VPC 내부이고 ECS 보안그룹이 ALB 보안그룹에서 오는 트래픽만 받습니다.
 
-- ✅ 개발/테스트, 더미 데이터, 기능 검증 — 괜찮습니다
-- ❌ **실제 부원 계정으로 로그인, 시험 정보 업로드 — 하지 마세요**
-
-인증 쿠키(JWT·세션)가 평문으로 네트워크를 지나갑니다. 자체 비밀번호는 없지만([결정 13](../../spec/3-3-DESIGN-DECISIONS.md)) 쿠키를 가로채면 그 계정으로 로그인한 것과 같습니다. 학과 시험 정보나 정리본은 유출되면 곤란한 자료입니다. **부원들에게 공개하기 전에는 반드시 도메인 + ACM을 붙여야 합니다.** ([결정 5](../../spec/3-3-DESIGN-DECISIONS.md))
-
-### 나중에 도메인 붙일 때 (10분)
-
-1. 도메인 구매 (연 1.5만원 정도) — 동아리 회비로 결재 받기
-2. ACM에서 인증서 발급 (무료), DNS 검증
-3. ALB에 443 리스너 추가, 80은 443으로 리다이렉트
-4. `api.동아리.com` A레코드 → ALB (alias)
-5. `vercel.json` 프록시 제거 또는 destination을 HTTPS로 변경
-
-Terraform 코드로는 `aws_lb_listener` 하나 추가 + 변수 하나 바꾸는 수준입니다. 지금 구조가 그 전환을 막지 않습니다.
+인증 쿠키(JWT·세션)를 가로채면 그 계정으로 로그인한 것과 같으므로([결정 13](../../spec/3-3-DESIGN-DECISIONS.md)) 이 조건이 깨지면 부원 공개를 멈춰야 합니다 ([결정 5](../../spec/3-3-DESIGN-DECISIONS.md)).
 
 ---
 
@@ -363,8 +354,8 @@ Settings → Secrets and variables → Actions:
 - [ ] GitHub Secrets 2개
 - [ ] `deploy-api.yml` 수동 실행 성공
 - [ ] Vercel Root Directory = `apps/web`
-- [ ] `vercel.json` rewrites에 ALB DNS
-- [ ] 프론트에서 `/api/v1/...` 호출 성공 → **최초 배포(도메인 없는 dev 환경) 완료**
+- [ ] `vercel.json` rewrites destination = `https://api.khuhacker.com`, SPA fallback 위에 위치
+- [ ] 프론트에서 `/api/v1/...` 호출 성공 → **최초 배포 완료**
 
 **배포 직후 30분 동안 알아둘 것**
 
