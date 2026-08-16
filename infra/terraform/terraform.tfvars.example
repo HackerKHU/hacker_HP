@@ -1,0 +1,8 @@
+# 이 파일을 terraform.tfvars로 복사한 뒤 실제 값을 채운다.
+# terraform.tfvars는 .gitignore 대상이다 — 절대 커밋하지 않는다.
+
+google_client_id     = "xxxxxxxx.apps.googleusercontent.com"
+google_client_secret = "GOCSPX-xxxxxxxx"
+oauth_redirect_uri    = "https://hacker-hp.vercel.app/api/v1/login/oauth2/code/google"
+vercel_origin         = "https://hacker-hp.vercel.app"
+admin_bootstrap_email = "admin@khu.ac.kr"

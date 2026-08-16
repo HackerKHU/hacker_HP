@@ -5,6 +5,48 @@
 
 # 런북 — 자주 터지는 것들
 
+## 최초 적용 순서
+
+의존성 때문에 `infra/terraform`을 한 번에 `apply`할 수 없습니다. **ECR이 비어 있으면 ECS 서비스가 이미지를 못 찾아 무한 재시도**하므로 순서가 중요합니다.
+
+```bash
+cd infra/terraform
+terraform init
+
+# 1) 네트워크
+terraform apply -target=aws_vpc.main \
+                -target=aws_subnet.public -target=aws_subnet.private \
+                -target=aws_internet_gateway.main
+
+# 2) ECR 먼저 (이미지를 넣어야 ECS가 뜸)
+terraform apply -target=aws_ecr_repository.api
+
+# 3) 첫 이미지 push
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+REGISTRY=$ACCOUNT.dkr.ecr.ap-northeast-2.amazonaws.com
+aws ecr get-login-password --region ap-northeast-2 \
+  | docker login --username AWS --password-stdin $REGISTRY
+
+docker buildx build --platform linux/amd64 \
+  -t $REGISTRY/hacker-api:latest ./apps/api --push
+
+# 4) RDS (5~10분 소요)
+terraform apply -target=aws_db_instance.main
+
+# 5) 전체
+terraform plan -out=tfplan
+terraform apply tfplan
+```
+
+**검증:**
+
+```bash
+curl http://$(terraform output -raw alb_dns_name)/actuator/health
+# {"status":"UP"} 나오면 최초 배포 확인 완료
+```
+
+이 URL을 `vercel.json`의 `destination`에 넣습니다 ([deployment.md](deployment.md)).
+
 ## 증상별 원인 / 해결
 
 | 증상 | 원인 / 해결 |
