@@ -246,11 +246,13 @@ T-143이 필요한 이유는 **Spring의 기본 헤더 이름이 `X-CSRF-TOKEN`�
 | T-49 | **목록을 우회해** `POST /admin/users/approve`에 미신청 계정 id를 직접 전달 | 그 건은 실패로 집계되고 계정은 `PENDING`으로 남는다. `student_no=NULL`인 `ACTIVE`가 만들어지지 않는다 |
 | T-50 | `ACTIVE` 사용자가 `POST /auth/application` 호출 | **`403 FORBIDDEN`으로** 거부된다 — 승인 후에는 이 경로로 학번을 바꿀 수 없다 |
 | T-51 | 승인 대기 중 신청서를 다시 제출 | 성공, 내용이 갱신된다 |
-| T-52 | `studentNo` 또는 `name`을 `""`·공백만으로 제출 | `400 VALIDATION_ERROR`. **`applied_at`이 기록되지 않아 승인 대상이 되지 않는다** |
+| T-52 | `studentNo`·`name`·`department`를 `""`·공백만으로 제출 | `400 VALIDATION_ERROR`. **`applied_at`이 기록되지 않아 승인 대상이 되지 않는다** |
 | T-53 | `user@notkhu.ac.kr`로 로그인 | 거부 — **`endsWith` 검사를 쓰면 통과한다.** `@` 뒤를 잘라 정확히 비교해야 한다 |
 | T-54 | `user@cs.khu.ac.kr`(하위 도메인)로 로그인 | 거부 — 정확 일치가 아니다 |
 | T-55 | 이메일이 바뀌었는데 그 주소가 다른 계정에 이미 있음 | 로그인 거부(`/login?error=failed`). **두 계정이 합쳐지지 않는다** |
 | T-56 | 신청서 제출과 관리자 승인을 **동시에** 실행 | 승인 후 `student_no`·`name`이 바뀌지 않는다 — 관리자가 심사한 내용과 저장된 내용이 같다 |
+| T-181 | `department`를 정해진 목록에 없는 값으로 제출 | `400 VALIDATION_ERROR`. **`applied_at`이 기록되지 않는다** — 자유 입력을 허용하면 회원 목록에서 학과로 걸러보는 것이 무의미해진다 (#100) |
+| T-182 | 신청서 제출 뒤 `GET /auth/me`, 승인 뒤 `GET /admin/users` 조회 | 응답에 `department`가 포함된다. 신청 전이거나 이 필드가 생기기 전 승인된 회원은 `null`이다 (#100) |
 
 T-42이 이 절의 핵심이다. `hd` 파라미터는 구글이 붙여주는 힌트일 뿐이라 그것만 보고 통과시키면 도메인 제한이 무력해진다.
 

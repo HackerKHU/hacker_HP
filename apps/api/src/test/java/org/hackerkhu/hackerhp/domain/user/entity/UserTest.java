@@ -15,7 +15,7 @@ class UserTest {
 
   private static User applied() {
     User user = loggedInWithGoogle();
-    user.submitApplication("20240003", "본명");
+    user.submitApplication("20240003", "본명", "컴퓨터공학과");
     return user;
   }
 
@@ -25,6 +25,7 @@ class UserTest {
 
     // 구글은 학번을 주지 않는다. 신청서를 내기 전까지 비어 있어야 한다.
     assertThat(user.getStudentNo()).isNull();
+    assertThat(user.getDepartment()).isNull();
     assertThat(user.getAppliedAt()).isNull();
     assertThat(user.getRole()).isEqualTo(Role.USER);
     assertThat(user.getStatus()).isEqualTo(Status.PENDING);
@@ -34,10 +35,11 @@ class UserTest {
   void submitApplicationFillsStudentNoAndAppliedAt() {
     User user = loggedInWithGoogle();
 
-    user.submitApplication("20240003", "본명");
+    user.submitApplication("20240003", "본명", "컴퓨터공학과");
 
     assertThat(user.getStudentNo()).isEqualTo("20240003");
     assertThat(user.getName()).isEqualTo("본명");
+    assertThat(user.getDepartment()).isEqualTo("컴퓨터공학과");
     assertThat(user.getAppliedAt()).isNotNull();
   }
 
@@ -45,10 +47,26 @@ class UserTest {
   void submitApplicationAgainBeforeApprovalUpdatesContent() {
     User user = applied();
 
-    user.submitApplication("20240099", "정정한이름");
+    user.submitApplication("20240099", "정정한이름", "인공지능학과");
 
     assertThat(user.getStudentNo()).isEqualTo("20240099");
     assertThat(user.getName()).isEqualTo("정정한이름");
+    assertThat(user.getDepartment()).isEqualTo("인공지능학과");
+  }
+
+  /*
+   * 학과는 정해진 목록에 있는 값만 받는다 (spec 3-2 §3-2-2, §3-2-3 MUST). 자유 입력을 허용하면
+   * 회원 목록에서 학과로 걸러보는 것이 무의미해진다.
+   */
+  @Test
+  void submitApplicationRejectsDepartmentNotInTheFixedList() {
+    User user = loggedInWithGoogle();
+
+    assertThatThrownBy(() -> user.submitApplication("20240003", "본명", "존재하지않는학과"))
+        .isInstanceOf(IllegalArgumentException.class);
+
+    assertThat(user.getAppliedAt()).isNull();
+    assertThat(user.getDepartment()).isNull();
   }
 
   /*
@@ -60,7 +78,7 @@ class UserTest {
     User user = applied();
     user.approve();
 
-    assertThatThrownBy(() -> user.submitApplication("20240099", "다른이름"))
+    assertThatThrownBy(() -> user.submitApplication("20240099", "다른이름", "컴퓨터공학과"))
         .isInstanceOf(IllegalStateException.class);
   }
 
@@ -81,21 +99,24 @@ class UserTest {
    * DB의 NOT NULL·UNIQUE는 빈 문자열을 거르지 않는다. 여기서 통과시키면 식별 정보가 없는
    * 계정이 applied_at을 얻어 approve()의 검사까지 통과한다.
    */
-  @ParameterizedTest(name = "학번={0} 이름={1}")
+  @ParameterizedTest(name = "학번={0} 이름={1} 학과={2}")
   @CsvSource(
       value = {
-        "'', 김신입",
-        "'   ', 김신입",
-        "20240003, ''",
-        "20240003, '   '",
-        "null, 김신입",
-        "20240003, null"
+        "'', 김신입, 컴퓨터공학과",
+        "'   ', 김신입, 컴퓨터공학과",
+        "20240003, '', 컴퓨터공학과",
+        "20240003, '   ', 컴퓨터공학과",
+        "null, 김신입, 컴퓨터공학과",
+        "20240003, null, 컴퓨터공학과",
+        "20240003, 김신입, ''",
+        "20240003, 김신입, '   '",
+        "20240003, 김신입, null"
       },
       nullValues = "null")
-  void submitApplicationRejectsBlankValues(String studentNo, String name) {
+  void submitApplicationRejectsBlankValues(String studentNo, String name, String department) {
     User user = loggedInWithGoogle();
 
-    assertThatThrownBy(() -> user.submitApplication(studentNo, name))
+    assertThatThrownBy(() -> user.submitApplication(studentNo, name, department))
         .isInstanceOf(IllegalArgumentException.class);
 
     // 거부됐으면 신청 상태가 남아서는 안 된다 — 남으면 승인 대상이 된다.
@@ -108,7 +129,7 @@ class UserTest {
   void submitApplicationTrimsSurroundingWhitespace() {
     User user = loggedInWithGoogle();
 
-    user.submitApplication("  20240003  ", "  본명  ");
+    user.submitApplication("  20240003  ", "  본명  ", "컴퓨터공학과");
 
     assertThat(user.getStudentNo()).isEqualTo("20240003");
     assertThat(user.getName()).isEqualTo("본명");

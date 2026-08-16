@@ -72,14 +72,15 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.status").value("PENDING"))
         .andExpect(jsonPath("$.role").value("USER"))
         .andExpect(jsonPath("$.studentNo").doesNotExist())
+        .andExpect(jsonPath("$.department").doesNotExist())
         .andExpect(jsonPath("$.appliedAt").doesNotExist())
         .andExpect(jsonPath("$.approvedAt").doesNotExist());
   }
 
-  /* T-47 — 신청서를 낸 뒤. appliedAt에 값이 있는 것이 곧 "신청했다"는 뜻이다. */
+  /* T-47·T-182 — 신청서를 낸 뒤. appliedAt에 값이 있는 것이 곧 "신청했다"는 뜻이다. */
   @Test
   void meAfterApplicationShowsStudentNoAndAppliedAt() throws Exception {
-    member.submitApplication("20240001", "본명");
+    member.submitApplication("20240001", "본명", "컴퓨터공학과");
     userRepository.saveAndFlush(member);
 
     mockMvc
@@ -87,6 +88,7 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.studentNo").value("20240001"))
         .andExpect(jsonPath("$.name").value("본명"))
+        .andExpect(jsonPath("$.department").value("컴퓨터공학과"))
         .andExpect(jsonPath("$.appliedAt").isNotEmpty());
   }
 
@@ -103,8 +105,8 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
         // 날짜는 ISO 문자열이다. 숫자로 나가면 화면이 그대로 표시하지 못한다.
         .andExpect(jsonPath("$.createdAt").isString())
         .andExpect(jsonPath("$.version").doesNotExist())
-        // null인 세 필드(studentNo·appliedAt·approvedAt)는 JSON에 남으므로 아홉 개다.
-        .andExpect(jsonPath("$").value(aMapWithSize(9)));
+        // null인 네 필드(studentNo·department·appliedAt·approvedAt)는 JSON에 남으므로 열 개다.
+        .andExpect(jsonPath("$").value(aMapWithSize(10)));
   }
 
   @Test

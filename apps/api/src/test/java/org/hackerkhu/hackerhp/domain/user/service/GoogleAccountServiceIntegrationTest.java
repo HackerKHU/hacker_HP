@@ -150,7 +150,7 @@ class GoogleAccountServiceIntegrationTest extends AbstractIntegrationTest {
   /** 관리자가 정지시킨 상태를 만든다. 신청 → 승인 → 정지가 실제 경로다 (§3-1-4). */
   private void suspend(Long id) {
     User user = userRepository.findById(id).orElseThrow();
-    user.submitApplication("20240001", "본명");
+    user.submitApplication("20240001", "본명", "컴퓨터공학과");
     user.approve();
     user.suspend();
     userRepository.saveAndFlush(user);

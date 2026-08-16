@@ -78,7 +78,7 @@ class SessionSynchronizationIntegrationTest extends AbstractIntegrationTest {
             Accounts.approved("sub-user", "user@khu.ac.kr", "20240101", "회원"));
 
     User pending = User.createFromGoogle("sub-pending", "pending@khu.ac.kr", "구글이름");
-    pending.submitApplication("20240102", "신청자");
+    pending.submitApplication("20240102", "신청자", "컴퓨터공학과");
     applicant = userRepository.saveAndFlush(pending);
   }
 

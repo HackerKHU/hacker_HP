@@ -25,7 +25,7 @@ class SchemaMigrationIntegrationTest extends AbstractIntegrationTest {
   @Test
   void userAndNoticePersistAndLoadAccordingToSchema() {
     User user = User.createFromGoogle("google-sub-1", "member@khu.ac.kr", "테스트");
-    user.submitApplication("20240001", "테스트");
+    user.submitApplication("20240001", "테스트", "컴퓨터공학과");
     entityManager.persist(user);
 
     Notice notice = Notice.write("공지 제목", "공지 내용", user);
@@ -65,12 +65,12 @@ class SchemaMigrationIntegrationTest extends AbstractIntegrationTest {
   @Test
   void duplicateStudentNoViolatesUniqueConstraint() {
     User first = User.createFromGoogle("google-sub-1", "member1@khu.ac.kr", "테스트1");
-    first.submitApplication("20240002", "테스트1");
+    first.submitApplication("20240002", "테스트1", "컴퓨터공학과");
     entityManager.persist(first);
     entityManager.flush();
 
     User duplicate = User.createFromGoogle("google-sub-2", "member2@khu.ac.kr", "테스트2");
-    duplicate.submitApplication("20240002", "테스트2");
+    duplicate.submitApplication("20240002", "테스트2", "컴퓨터공학과");
 
     assertThatThrownBy(
             () -> {

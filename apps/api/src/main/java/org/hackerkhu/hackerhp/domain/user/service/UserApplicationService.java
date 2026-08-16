@@ -1,5 +1,6 @@
 package org.hackerkhu.hackerhp.domain.user.service;
 
+import org.hackerkhu.hackerhp.domain.user.entity.Department;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
@@ -40,7 +41,7 @@ public class UserApplicationService {
    * 값</b>이기 때문이다 — 판단과 저장 사이에 관리자가 승인했을 수 있다.
    */
   @Transactional
-  public void submit(Long userId, String studentNo, String name) {
+  public void submit(Long userId, String studentNo, String name, String department) {
     User user =
         userRepository
             .findByIdForUpdate(userId)
@@ -55,7 +56,11 @@ public class UserApplicationService {
       throw new BusinessException(ErrorCode.DUPLICATE_STUDENT_NO);
     }
 
-    user.submitApplication(studentNo, name);
+    if (!Department.isValid(department)) {
+      throw new BusinessException(ErrorCode.VALIDATION_ERROR, "존재하지 않는 학과입니다.");
+    }
+
+    user.submitApplication(studentNo, name, department);
     try {
       userRepository.flush();
     } catch (DataIntegrityViolationException e) {
