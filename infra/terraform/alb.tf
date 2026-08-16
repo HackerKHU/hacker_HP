@@ -27,31 +27,45 @@ resource "aws_lb_target_group" "api" {
   }
 }
 
+# #156 — 443으로 리다이렉트한다. 평문 HTTP로 API를 직접 받지 않는다.
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.api.arn
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
   }
 }
 
-# #156 — 도메인을 샀으므로 인증서부터 발급한다.
-#
-# DNS 검증이라 발급 자체는 이 리소스만으로 끝나지 않는다. AWS가 domain_validation_options로
-# 내려주는 CNAME을 실제 DNS(khuhacker.com을 관리하는 곳 — 이 계정 Route53이 아니다)에 넣어야
-# 상태가 PENDING_VALIDATION에서 ISSUED로 바뀐다. 그 CNAME은 outputs.tf의
-# acm_validation_record로 확인한다.
-#
-# 443 리스너와 80→443 redirect는 인증서가 ISSUED된 뒤 별도로 추가한다 — 아직 검증 전인
-# 인증서를 리스너에 매달아 두면 그 리스너도 함께 막힌다.
+# #156 — api.khuhacker.com 인증서. DNS 검증이라 발급 자체는 이 리소스만으로 끝나지 않는다.
+# AWS가 domain_validation_options로 내려주는 CNAME을 실제 DNS(khuhacker.com을 관리하는
+# 곳 — 이 계정 Route53이 아니다)에 넣어야 상태가 PENDING_VALIDATION에서 ISSUED로 바뀐다.
+# 그 CNAME은 outputs.tf의 acm_validation_record로 확인한다.
 resource "aws_acm_certificate" "api" {
   domain_name       = "api.khuhacker.com"
   validation_method = "DNS"
 
   lifecycle {
     create_before_destroy = true
+  }
+}
+
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = 443
+  protocol          = "HTTPS"
+  # TLS 1.2 이상만 받는다. ALB 기본값(2016-08)은 더 오래된 프로토콜까지 허용한다.
+  ssl_policy      = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn = aws_acm_certificate.api.arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn
   }
 }
