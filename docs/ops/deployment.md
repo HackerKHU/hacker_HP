@@ -20,14 +20,14 @@ ALB 기본 DNS(`xxx.ap-northeast-2.elb.amazonaws.com`)에는 **ACM 인증서를 
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "http://hacker-alb-xxxx.ap-northeast-2.elb.amazonaws.com/api/:path*"
+      "destination": "https://api.khuhacker.com/api/:path*"
     }
   ]
 }
 ```
 
 ```
-브라우저 ──HTTPS──> Vercel Edge ──HTTP──> ALB ──> ECS
+브라우저 ──HTTPS──> Vercel Edge ──HTTPS──> ALB ──> ECS
 ```
 
 브라우저는 Vercel하고만 통신하므로 mixed content가 없습니다. **덤으로 same-origin이 되어 쿠키 문제도 사라집니다** — `SameSite=None; Secure`가 필요 없고 `SameSite=Lax`로 충분해집니다. 프론트 코드에서는 그냥 `/api/v1/...`로 호출하면 됩니다.
