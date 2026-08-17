@@ -4,6 +4,10 @@ import { useLogout } from '@/auth/useLogout'
 import { Button } from '@/components/ui/button'
 import { CLUB, isPlaceholder, SECTIONS } from './content'
 
+/** 왼쪽 메뉴 한 칸. 앵커와 라우트 링크가 같은 무게로 읽히도록 클래스를 공유한다. */
+const NAV_ITEM =
+  'rounded-md px-3 py-2 text-base text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground'
+
 /**
  * 랜딩 전용 헤더. `AppHeader`와 별개 컴포넌트다 — 배경이 검정이고 메뉴가 라우트가 아니라
  * **섹션 앵커**라서 성격이 다르다. 하나로 합치면 두 성격이 조건문으로 뒤엉킨다.
@@ -27,17 +31,39 @@ export function PublicHeader() {
           {CLUB.name}
         </a>
 
-        <nav className="flex items-center gap-1" aria-label="섹션 이동">
-          {SECTIONS.map((section) => (
-            <a
-              key={section.id}
-              href={`#${section.id}`}
-              className="rounded-md px-3 py-2 text-base text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-            >
-              {section.label}
-            </a>
-          ))}
-        </nav>
+        {/*
+         * 섹션 앵커와 공지사항을 **한 덩어리로 묶되 구분선으로 가른다.**
+         *
+         * 둘은 하는 일이 다르다 — 앞쪽은 이 페이지 안에서 움직이고(`#about`), 공지사항은
+         * 다른 화면으로 전환한다(`/notices`). 그대로 붙이면 눌렀을 때 페이지가 바뀌는지
+         * 아닌지 예측할 수 없고, 멀리 떼어 놓으면 목적지 메뉴가 계정 조작(로그아웃) 옆에
+         * 끼어 보인다. 묶어서 보여주고 성격은 선으로 가른다.
+         *
+         * `nav[aria-label="섹션 이동"]` 안에 넣지 않는 이유도 같다. 라우트 링크가 그
+         * 이름 아래 들어가면 스크린리더에게 거짓말이 된다.
+         */}
+        <div className="flex items-center gap-1">
+          <nav className="flex items-center gap-1" aria-label="섹션 이동">
+            {SECTIONS.map((section) => (
+              <a key={section.id} href={`#${section.id}`} className={NAV_ITEM}>
+                {section.label}
+              </a>
+            ))}
+          </nav>
+
+          {/*
+           * 부원에게만 보인다. `isActive`는 세션 확인이 끝나야 참이 되므로, 아래 오른쪽
+           * 묶음처럼 `loading`을 따로 거를 필요가 없다 — 확인 전에는 그려지지 않는다.
+           */}
+          {isActive && (
+            <>
+              <span aria-hidden="true" className="mx-2 h-4 w-px bg-border" />
+              <Link to={homePath(session)} className={NAV_ITEM}>
+                공지사항
+              </Link>
+            </>
+          )}
+        </div>
 
         {/*
          * 세션을 확인하는 동안에는 아무것도 그리지 않는다. "로그인"을 먼저 그렸다가
@@ -101,15 +127,14 @@ export function PublicHeader() {
                  *
                  * `hasApplied`가 `null`이면 403으로만 알아낸 경우라 신청 여부를 모른다.
                  * 그때는 아무 주장도 하지 않고 로그아웃만 남긴다.
+                 *
+                 * ACTIVE는 여기 없다. 부원의 공지사항은 **목적지**라 왼쪽 메뉴로 옮겼고,
+                 * 이 자리는 내 상태와 다음 행동만 남긴다 — 로그인·로그아웃과 같은 성격이다.
                  */}
-                {(isActive || applied !== null) && (
+                {!isActive && applied !== null && (
                   <Button asChild variant="outline" size="sm">
                     <Link to={homePath(session)}>
-                      {isActive
-                        ? '공지사항'
-                        : applied
-                          ? '승인 대기 중'
-                          : '지원하기'}
+                      {applied ? '승인 대기 중' : '지원하기'}
                     </Link>
                   </Button>
                 )}

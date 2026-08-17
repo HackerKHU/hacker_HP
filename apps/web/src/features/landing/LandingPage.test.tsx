@@ -191,6 +191,25 @@ describe('랜딩 헤더 상태별 진입점', () => {
     expect(screen.getByRole('button', { name: '로그아웃' })).toBeInTheDocument()
   })
 
+  /*
+   * 공지사항은 부원이 오가는 **목적지**라 섹션 메뉴와 한 덩어리로 읽혀야 한다. 로그아웃
+   * 옆으로 돌아가면 계정 조작 사이에 목적지가 끼어 보인다 (#148).
+   *
+   * 다만 `섹션 이동` 내비 안에 넣지는 않는다 — 그 이름 아래 라우트 링크가 들어가면
+   * 스크린리더에게 거짓말이 된다. 묶이되 안에 들어가지는 않는다는 두 가지를 함께 본다.
+   */
+  it('공지사항이 섹션 메뉴와 같은 묶음에 놓인다', async () => {
+    auth.me = () => Promise.resolve(BASE)
+
+    renderLanding()
+
+    const notices = await screen.findByRole('link', { name: '공지사항' })
+    const sectionNav = screen.getByRole('navigation', { name: '섹션 이동' })
+
+    expect(notices.parentElement).toContainElement(sectionNav)
+    expect(sectionNav).not.toContainElement(notices)
+  })
+
   it('ACTIVE에게는 공지사항 링크와 로그아웃이 보인다', async () => {
     auth.me = () => Promise.resolve(BASE)
 
