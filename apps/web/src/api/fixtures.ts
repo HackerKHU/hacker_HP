@@ -564,6 +564,13 @@ function self(): User {
 function matchesQuery(user: User, query: AdminUserQuery): boolean {
   if (query.status && user.status !== query.status) return false
   if (query.role && user.role !== query.role) return false
+  // 신청 여부. 서버와 같은 규칙이어야 픽스처로 만든 화면이 실제와 같게 움직인다 (§3-2-6).
+  if (
+    query.applied !== undefined &&
+    (user.appliedAt !== null) !== query.applied
+  ) {
+    return false
+  }
   const keyword = query.q?.trim().toLowerCase()
   if (!keyword) return true
   // 검색은 이름·학번·이메일 통합이다 (2-2 §2-2-1).

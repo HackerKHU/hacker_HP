@@ -252,7 +252,7 @@ export async function request<T>(
 
 /** 값이 없는 파라미터는 쿼리에서 뺀다. 빈 문자열도 뺀다 — 0은 남긴다(page=0이 첫 페이지). */
 export function toQuery(
-  params: Record<string, string | number | undefined>,
+  params: Record<string, string | number | boolean | undefined>,
 ): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
