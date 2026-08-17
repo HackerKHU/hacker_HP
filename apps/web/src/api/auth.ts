@@ -24,6 +24,11 @@ export const GOOGLE_LOGIN_PATH = apiPath('/oauth2/authorization/google')
 export interface ApplicationRequest {
   studentNo: string
   name: string
+  /**
+   * 정해진 목록에서 고른 값 (spec §3-2-3 MUST). 서버가 목록에 없는 값을
+   * `400 VALIDATION_ERROR`로 거부한다 — 목록은 `features/auth/departments.ts`에 있다.
+   */
+  department: string
 }
 
 /**

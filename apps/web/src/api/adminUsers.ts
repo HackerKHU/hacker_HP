@@ -10,6 +10,16 @@ export type AdminUserQuery = {
   status?: UserStatus
   role?: Role
   q?: string
+  /**
+   * 신청서를 냈는지 (spec §3-2-6).
+   *
+   * **`status=PENDING`만으로는 승인 대기를 고를 수 없다.** 구글 로그인만 해보고 신청서를
+   * 내지 않은 계정도 `PENDING`이기 때문이다. 승인 대상은 `status=PENDING&applied=true`다.
+   *
+   * 거르는 것은 **서버가 한다.** 화면이 받아서 버리면 총 건수와 총 페이지 수가 실제와
+   * 어긋나 관리자가 "12명 남았다"고 읽는 숫자가 틀리게 된다.
+   */
+  applied?: boolean
   sort?: string
   page?: number
   size?: number

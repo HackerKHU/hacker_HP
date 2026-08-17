@@ -8,6 +8,11 @@ export interface User {
   /** 신청서를 내기 전에는 비어 있다. 구글이 학번을 주지 않는다 (3-3 결정 13). */
   studentNo: string | null
   name: string
+  /**
+   * 학과. 신청서 제출 시 채운다. **이 필드가 생기기 전에 승인된 회원은 값이 없다**
+   * (spec §3-2-2 — 일괄로 채우지 않는다).
+   */
+  department: string | null
   role: Role
   status: UserStatus
   createdAt: string

@@ -26,6 +26,7 @@
  * 타입이 계약을 강제하는 것이 이 파일의 존재 이유다.
  */
 
+import { DEPARTMENTS } from '@/features/auth/departments'
 import type { AdminUserQuery, ApproveResult } from './adminUsers'
 import { ApiError } from './client'
 import type { Notice } from './notices'
@@ -57,6 +58,7 @@ const BASE = {
   email: 'member@khu.ac.kr',
   studentNo: '2021123456',
   name: '홍길동',
+  department: '컴퓨터공학과',
   createdAt: '2026-03-02T09:00:00Z',
   appliedAt: '2026-03-02T09:10:00Z',
 } as const
@@ -80,11 +82,12 @@ const USERS: Record<
     status: 'ACTIVE',
     approvedAt: '2026-03-03T09:00:00Z',
   },
-  // 구글 로그인만 마친 상태. 구글이 학번을 주지 않으므로 둘 다 비어 있다 (3-3 결정 13).
+  // 구글 로그인만 마친 상태. 구글이 학번도 학과도 주지 않으므로 비어 있다 (3-3 결정 13).
   applying: {
     ...BASE,
     id: 3,
     studentNo: null,
+    department: null,
     role: 'USER',
     status: 'PENDING',
     appliedAt: null,
@@ -115,7 +118,11 @@ const USERS: Record<
  * 입력값을 그대로 들고 있어야 재제출(승인 전 수정) 화면도 만들 수 있다.
  * 하드코딩된 값을 돌려주면 무엇을 고쳤는지 화면에서 확인할 수 없다.
  */
-let application: { studentNo: string; name: string } | null = null
+let application: {
+  studentNo: string
+  name: string
+  department: string
+} | null = null
 
 export function fixtureMe(): Promise<User> {
   if (SCENARIO === 'guest') {
@@ -135,6 +142,7 @@ export function fixtureMe(): Promise<User> {
       ...USERS[SCENARIO],
       studentNo: application.studentNo,
       name: application.name,
+      department: application.department,
       appliedAt: '2026-03-02T10:00:00Z',
     })
   }
@@ -162,6 +170,7 @@ export function fixtureMe(): Promise<User> {
 export function fixtureApplication(body: {
   studentNo: string
   name: string
+  department: string
 }): Promise<void> {
   if (SCENARIO === 'guest') {
     return Promise.reject(
@@ -185,6 +194,15 @@ export function fixtureApplication(body: {
     )
   }
   /*
+   * 학과가 목록 안의 값인지도 서버 계약이다 (§3-2-3 MUST, T-181). 픽스처가 통과시키면
+   * 화면이 목록 밖 값을 보내는 회귀를 못 잡는다 — 지금 이 이슈(#165)가 정확히 그 종류였다.
+   */
+  if (!(DEPARTMENTS as readonly string[]).includes(body.department)) {
+    return Promise.reject(
+      new ApiError('VALIDATION_ERROR', 400, '학과를 선택해 주세요.'),
+    )
+  }
+  /*
    * 학번 중복 거부도 서버 계약이다 (§3-1-4, T-07). 픽스처가 통과시키면 한 학번으로 여러
    * 계정이 만들어지는 경로를 화면에서 못 잡고, 409를 보여주는 UI도 검증할 수 없다.
    * 명부(`MEMBERS`)에 이미 쓰이고 있는 학번인지 본다 — 관리자 화면이 보는 그 명단이다.
@@ -199,7 +217,7 @@ export function fixtureApplication(body: {
     )
   }
 
-  application = { studentNo, name }
+  application = { studentNo, name, department: body.department }
   return Promise.resolve()
 }
 
@@ -530,6 +548,14 @@ for (const [index, name] of MEMBER_NAMES.entries()) {
       ? `20${21 + (index % 5)}${String(100000 + index)}`
       : null,
     name,
+    /*
+     * 학번과 같이 신청서에서 채워진다 — 안 낸 계정은 비어 있다.
+     *
+     * **여러 학과가 섞이게 둔다.** 전부 같은 학과면 회원 목록이 학과를 아예 안 그려도
+     * 화면이 그럴듯해 보인다. 목록 앞쪽(소프트웨어융합대학 셋)에서 돌려 쓴다 — 실제
+     * 부원 분포도 그쪽에 몰려 있다.
+     */
+    department: applied ? DEPARTMENTS[index % 3] : null,
     role: admin ? 'ADMIN' : 'USER',
     status: pending ? 'PENDING' : suspended ? 'SUSPENDED' : 'ACTIVE',
     // 계정 생성(첫 구글 로그인)은 신청보다 앞선다. 둘을 며칠 벌려 둬야 화면이 어느
@@ -564,6 +590,13 @@ function self(): User {
 function matchesQuery(user: User, query: AdminUserQuery): boolean {
   if (query.status && user.status !== query.status) return false
   if (query.role && user.role !== query.role) return false
+  // 신청 여부. 서버와 같은 규칙이어야 픽스처로 만든 화면이 실제와 같게 움직인다 (§3-2-6).
+  if (
+    query.applied !== undefined &&
+    (user.appliedAt !== null) !== query.applied
+  ) {
+    return false
+  }
   const keyword = query.q?.trim().toLowerCase()
   if (!keyword) return true
   // 검색은 이름·학번·이메일 통합이다 (2-2 §2-2-1).

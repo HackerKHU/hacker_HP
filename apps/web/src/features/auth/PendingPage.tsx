@@ -5,6 +5,7 @@ import { hasApplied, useSession } from '@/auth/session'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { DEPARTMENTS } from './departments'
 
 /**
  * 입력 상한. **스키마에서 온 값이다** — `student_no varchar(20)`, `name varchar(50)`
@@ -42,6 +43,36 @@ const STUDENT_NO_PLACEHOLDER = `${new Date().getFullYear()}000000`
 
 /** 구글 프로필에서 미리 채워져 보일 일이 드물다. 비어 있을 때만 나온다. */
 const NAME_PLACEHOLDER = '홍길동'
+
+/**
+ * 학과는 **자유 입력이 아니라 목록에서 고른다** (spec §3-2-2 MUST). `<input>`이 아니라
+ * `<select>`인 이유이고, 그래서 `maxLength` 같은 상한도 두지 않는다 — 고를 수 있는 값이
+ * 전부 유효하다.
+ *
+ * **shadcn `Select`를 들이지 않고 네이티브 `<select>`를 쓴다.** 항목이 103개라 모바일에서는
+ * OS 기본 피커가 커스텀 리스트박스보다 낫고(휠·검색·한 손 조작), radix 의존성도 늘지
+ * 않는다. 모양은 `Input`과 맞춰 폼 안에서 결이 어긋나지 않게 한다.
+ *
+ * `appearance-none`으로 기본 화살표를 지우고 배경 이미지로 직접 그린다. 지우지 않으면
+ * 브라우저마다 다른 화살표가 붙어 다른 입력들과 높이·여백이 어긋난다.
+ */
+const SELECT_CLASS =
+  'h-9 w-full min-w-0 appearance-none rounded-md border border-input bg-transparent bg-no-repeat px-3 py-1 pr-9 text-base shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30'
+
+/**
+ * 화살표. `currentColor`를 쓸 수 없어(배경 이미지다) 무채색 팔레트의 중간 값을 직접 넣는다.
+ * 라이트/다크 어느 쪽에서도 배경과 충분히 구분된다.
+ *
+ * **위치·크기도 여기서 준다.** Tailwind 임의값(`bg-[position:...]`)으로 쓰면 밑줄 이스케이프를
+ * 한 글자만 틀려도 값이 조용히 버려져 화살표가 왼쪽 끝에 붙는다 — 실제로 그랬다. 이미지와
+ * 한 곳에 두면 셋이 같이 움직인다.
+ */
+const SELECT_ARROW = {
+  backgroundImage:
+    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23888' stroke-width='1.5'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E\")",
+  backgroundPosition: 'right 0.625rem center',
+  backgroundSize: '1rem',
+} as const
 
 /**
  * 화면 컨테이너. **로그인 화면과 같은 폭·정렬이다** — 로그인에서 여기로 넘어오는 흐름에서
@@ -93,9 +124,16 @@ export function PendingPage() {
   const [draft, setDraft] = useState<{
     studentNo: string
     name: string
+    department: string
   } | null>(null)
   const values = draft ?? {
     studentNo: user?.studentNo ?? '',
+    /*
+     * **고르지 않은 상태를 빈 문자열로 둔다.** 첫 항목(컴퓨터공학과)을 기본값으로 두면
+     * 손대지 않고 제출한 사람이 그 학과로 저장된다 — 부원 다수의 소속이라 틀려도 그럴듯해
+     * 보여서 아무도 못 잡는다. 안 고르면 제출이 막히는 편이 낫다.
+     */
+    department: user?.department ?? '',
     /*
      * **최초 신청에는 이름을 채우지 않는다.**
      *
@@ -148,6 +186,14 @@ export function PendingPage() {
       setError('학번과 이름을 입력해주세요.')
       return
     }
+    /*
+     * 학과는 따로 본다. 위 문구에 묶으면 학번·이름을 채운 사람이 무엇이 빠졌는지 모른다 —
+     * `<select>`는 비어 있어도 칸이 채워진 것처럼 보여서 더 그렇다.
+     */
+    if (values.department === '') {
+      setError('학과를 선택해주세요.')
+      return
+    }
 
     setSaving(true)
     setError(null)
@@ -155,6 +201,8 @@ export function PendingPage() {
       await submitApplication({
         studentNo: values.studentNo.trim(),
         name: values.name.trim(),
+        // 목록에서 고른 값이라 다듬을 것이 없다.
+        department: values.department,
       })
       /*
        * **저장된 것을 확인한 뒤에 화면을 바꾼다.** 낙관적으로 먼저 바꾸면 서버가 거부한
@@ -283,6 +331,30 @@ export function PendingPage() {
               />
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="application-department">학과</Label>
+              {/*
+                `<option value="">`을 첫 항목으로 둬서 "안 고름"이 눈에 보이게 한다.
+                `disabled`는 걸지 않는다 — 잘못 골랐을 때 되돌릴 자리가 없어진다.
+              */}
+              <select
+                id="application-department"
+                className={SELECT_CLASS}
+                style={SELECT_ARROW}
+                value={values.department}
+                onChange={(event) =>
+                  setDraft({ ...values, department: event.target.value })
+                }
+              >
+                <option value="">학과를 선택해 주세요</option>
+                {DEPARTMENTS.map((department) => (
+                  <option key={department} value={department}>
+                    {department}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {error && (
               <p role="alert" className="text-sm text-muted-foreground">
                 {error}
@@ -338,6 +410,14 @@ export function PendingPage() {
               <div className="flex gap-4">
                 <dt className="w-16 shrink-0 text-muted-foreground">이름</dt>
                 <dd>{user.name}</dd>
+              </div>
+              {/*
+                이 필드가 생기기 전에 신청한 계정은 값이 없다 (§3-2-2). 학번과 같은
+                방식으로 `—`를 그린다 — 줄을 통째로 숨기면 무엇이 비었는지 안 보인다.
+              */}
+              <div className="flex gap-4">
+                <dt className="w-16 shrink-0 text-muted-foreground">학과</dt>
+                <dd>{user.department ?? '—'}</dd>
               </div>
             </dl>
           )}
