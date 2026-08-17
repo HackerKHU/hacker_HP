@@ -166,7 +166,7 @@ erDiagram
 | `uploader_id` | bigint | NULL, FK → users.id, **ON DELETE SET NULL** | `NULL`이면 탈퇴한 회원 |
 | `created_at` | datetime | NOT NULL | |
 
-저장 키 형식: `photos/{photoId}/{uuid}.jpg`, 썸네일은 `photos/{photoId}/thumb/{uuid}.jpg`
+저장 키 형식: `photos/{photoId}/{uuid}.jpg`, 썸네일은 `photos/{photoId}/thumb/{uuid}.jpg`. 업로드 경로(원본을 어디에 잠깐 두고 어떻게 리사이즈본으로 바뀌는지)는 [1-BACKGROUND §1-5](1-BACKGROUND.md) 확정 사항, API는 아래 `POST /photos/upload-url`·`POST /photos`를 따른다.
 
 `uploader_id`는 `ADMIN`만 채워진다(사진 업로드는 `ADMIN` 전용이다). 그래도 **`ON DELETE SET NULL`이다** (MUST) — 관리자도 삭제 대상이 될 수 있고, 활동사진은 아카이브라 남아야 한다.
 
@@ -315,10 +315,23 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | DELETE | `/notices/{id}` | ADMIN | 삭제 |
 | PATCH | `/notices/{id}/pin` | ADMIN | 고정 토글 |
 | GET | `/photos` | ACTIVE | 목록 |
-| POST | `/photos` | ADMIN | 다중 업로드 (multipart, 서버 리사이즈) |
+| POST | `/photos/upload-url` | ADMIN | 원본 파일별 presigned PUT URL 발급 (다중) |
+| POST | `/photos` | ADMIN | 메타데이터 등록 (JSON) — body에 업로드 완료된 원본 파일 키 목록. 서버가 그 키들을 S3에서 읽어 리사이즈한 뒤 최종 위치에 저장하고 사진마다 행을 만든다 |
 | DELETE | `/photos/{id}` | ADMIN | 삭제 |
 
-> `POST /photos`의 업로드 경로는 미결정이다 ([1-BACKGROUND §1-5](1-BACKGROUND.md) #5).
+### `POST /photos` — 업로드 경로 (확정, [1-BACKGROUND §1-5](1-BACKGROUND.md) #5)
+
+**원본은 presigned PUT으로 브라우저→S3 직접 올리고, 리사이즈는 서버가 동기로 한다** (MUST). 서버 리사이즈가 필요해([2-1 §2-1-7](2-1-USER-STORIES.md) MUST) `POST /photos`가 원본을 그대로 받는 방식(multipart)은 Vercel 프록시의 요청 본문 4.5MB 제한에 걸린다 — 요즘 휴대폰 사진은 그보다 흔히 크다. presigned PUT은 Vercel을 거치지 않고 브라우저가 S3에 직접 쓰므로 이 제한과 무관하다.
+
+절차:
+
+1. 관리자가 `POST /photos/upload-url`을 불러 올릴 개수만큼 presigned PUT URL을 받는다. 원본은 `photos/uploads/{uuid}.{ext}`에 임시로 쓴다 — 이 시점엔 `photoId`가 없다 (`note_files`의 `notes/{uuid}.{ext}`와 같은 이유, §3-2-2).
+2. 브라우저가 각 URL로 원본을 S3에 직접 올린다.
+3. 관리자가 `POST /photos`를 불러 업로드된 원본 키 목록(과 캡션)을 보낸다.
+4. **서버가 그 요청 처리 중에** 각 원본을 S3에서 읽어(이 트래픽도 Vercel을 거치지 않는다) 리사이즈하고, 최종 키(`photos/{photoId}/{uuid}.jpg`, 썸네일 `photos/{photoId}/thumb/{uuid}.jpg`)에 다시 쓴 뒤 DB 행을 만든다.
+5. 리사이즈가 끝나면 임시 원본(`photos/uploads/...`)을 지운다 — 남겨 둘 이유가 없고, 쌓이면 스토리지 비용만 는다.
+
+**대안이었던 "Lambda 등으로 비동기 리사이즈"는 채택하지 않는다.** 지금 규모(부원 수, 업로드 빈도)에서 얻는 이득보다 새 인프라(이벤트 트리거, 별도 실행 환경)와 "업로드 직후엔 리사이즈본이 아직 없는" 처리 지연을 다루는 비용이 크다. 업로드량이 실제로 늘면 그때 다시 검토한다.
 
 ### 성공 응답 본문
 
