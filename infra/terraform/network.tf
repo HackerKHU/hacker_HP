@@ -69,7 +69,14 @@ resource "aws_security_group" "alb" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  # 도메인 붙이면 443 추가
+
+  # #156 — api.khuhacker.com 인증서가 나와서 443 리스너를 연다.
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   egress {
     from_port   = 0
