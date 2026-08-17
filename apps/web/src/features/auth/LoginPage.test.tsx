@@ -49,6 +49,7 @@ const BASE: User = {
   email: 'member@khu.ac.kr',
   studentNo: '2021123456',
   name: '홍길동',
+  department: '컴퓨터공학과',
   role: 'USER',
   status: 'ACTIVE',
   createdAt: '2026-03-02T09:00:00Z',

@@ -20,6 +20,7 @@ const PENDING: User = {
   email: 'member@khu.ac.kr',
   studentNo: null,
   name: '홍길동',
+  department: null,
   role: 'USER',
   status: 'PENDING',
   createdAt: '2026-03-02T09:00:00Z',

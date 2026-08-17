@@ -271,12 +271,22 @@ describe('오류 본문 형태', () => {
     [
       '승인된 계정의 신청서 제출',
       'user',
-      (f) => f.fixtureApplication({ studentNo: '2021123456', name: '홍길동' }),
+      (f) =>
+        f.fixtureApplication({
+          studentNo: '2021123456',
+          name: '홍길동',
+          department: '컴퓨터공학과',
+        }),
     ],
     [
       '빈 신청서',
       'applying',
-      (f) => f.fixtureApplication({ studentNo: ' ', name: ' ' }),
+      (f) =>
+        f.fixtureApplication({
+          studentNo: ' ',
+          name: ' ',
+          department: '컴퓨터공학과',
+        }),
     ],
     ['없는 공지 조회', 'user', (f) => f.fixtureNotice(-1)],
     [
