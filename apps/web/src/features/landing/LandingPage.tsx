@@ -167,10 +167,12 @@ function CountUp({
   value,
   unit,
   minDigits = 1,
+  approx = false,
 }: {
   value: number
   unit: string
   minDigits?: number
+  approx?: boolean
 }) {
   const ref = useRef<HTMLSpanElement>(null)
   const [shown, setShown] = useState(0)
@@ -211,9 +213,17 @@ function CountUp({
     }
   }, [value])
 
+  /*
+   * `+`는 카운트업이 끝난 뒤가 아니라 처음부터 붙인다.
+   *
+   * 중간에 붙이면 완료되는 순간 글자 하나만큼 폭이 튄다 — 바로 아래 `tabular-nums`
+   * 주석이 막으려는 그 덜컹거림이다. 도는 동안 `340+`가 보여도 거짓이 아니다.
+   * 최종값이 근사 하한이므로 어느 프레임에서도 "이만큼 이상"은 참이다.
+   */
   return (
     <span ref={ref}>
       {String(shown).padStart(minDigits, '0')}
+      {approx && '+'}
       {unit}
     </span>
   )
@@ -235,6 +245,7 @@ function Stats() {
                 value={stat.value}
                 unit={stat.unit}
                 minDigits={stat.minDigits}
+                approx={stat.approx}
               />
             </dd>
             <dt className="mt-3 text-sm text-muted-foreground">{stat.label}</dt>
