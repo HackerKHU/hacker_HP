@@ -1,0 +1,41 @@
+name: Lint PR title
+
+# 일반 작업과 release PR 모두 CONTRIBUTING.md의 PR 규칙을 따른다.
+# squash merge에서는 PR 제목이 그대로 커밋 메시지가 된다.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PR 출발 브랜치 규칙 테스트
+        run: bash .github/scripts/test-validate-pr-source.sh
+      - name: PR 출발 브랜치 검사
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: bash .github/scripts/validate-pr-source.sh "$BASE_REF" "$HEAD_REF"
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            design
+            cicd
+            refactor
+            test
+            chore
+          # scope는 쓰지 않는다 (CONTRIBUTING.md 1절)
+          requireScope: false
+          disallowScopes: |
+            *

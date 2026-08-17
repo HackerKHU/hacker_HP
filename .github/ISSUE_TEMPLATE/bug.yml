@@ -1,0 +1,71 @@
+name: 버그
+description: 재현 가능한 오류나 예상과 다른 동작을 등록합니다.
+title: "fix: "
+labels:
+  - bug
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: 영역
+      options:
+        - Backend
+        - Frontend
+        - Infra / CI/CD
+        - Integration
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 문제
+      description: 무엇이 잘못되었는지 한두 문장으로 적어주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 재현 방법
+      placeholder: |
+        1. PENDING 계정으로 로그인한다.
+        2. /notices로 이동한다.
+        3. 공지 목록이 노출된다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대 결과
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 실제 결과
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: 환경
+      description: local, dev, production과 브라우저·OS 등을 적어주세요.
+      placeholder: dev / Chrome / macOS
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 로그·스크린샷
+      description: 개인정보와 시크릿을 제거한 뒤 첨부해주세요.
+
+  - type: textarea
+    id: references
+    attributes:
+      label: 관련 이슈·PR
+      placeholder: "#12, #18"

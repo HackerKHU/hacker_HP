@@ -1,0 +1,33 @@
+# Terraform — tfstate에는 DB 비밀번호가 평문으로 들어간다 (docs/ops/infra.md)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+terraform.tfvars
+
+# 환경변수
+.env
+.env.*
+!.env.example
+
+# 구글 OAuth 클라이언트 자격 (#82)
+# 콘솔에서 "JSON 다운로드"를 누르면 client_secret_<클라이언트ID>.json 이름으로 받아진다.
+# 저장소 안에 두면 그대로 커밋되므로 파일명 자체를 막는다.
+client_secret*.json
+# Spring 프로파일에 시크릿을 직접 적는 실수를 막는다. 값은 환경변수로 주입한다.
+application-secret*.yml
+application-secret*.properties
+
+# Java / Gradle
+build/
+.gradle/
+
+# Node
+node_modules/
+dist/
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store

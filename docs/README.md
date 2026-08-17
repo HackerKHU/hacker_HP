@@ -1,35 +1,27 @@
-# 문서 인덱스
+# 운영 문서
 
-동아리 홈페이지 프로젝트(모노레포) 문서 모음입니다.
+인프라·배포 실물 절차입니다. 프로젝트 전체 현황은 루트 [`README.md`](../README.md)에서 시작합니다.
 
-## 처음 오셨다면
+**"무엇을 왜 만드는가"는 [`spec/`](../spec/README.md)이 원본**이고, 여기는 "어떻게 띄우고 어떻게 고치는가"만 다룹니다.
 
-1. [product/01-overview.md](product/01-overview.md) — 뭘 만드는지
-2. [architecture/auth.md](architecture/auth.md) — 권한 구조 (필수)
-3. [ops/infra.md](ops/infra.md) → [ops/deployment.md](ops/deployment.md) — 어떻게 띄우는지
-4. [../CONTRIBUTING.md](../CONTRIBUTING.md) — 어떻게 같이 개발하는지
-5. [guides/claude-code-setup.md](guides/claude-code-setup.md) — Claude Code로 세팅을 이어서 진행하는 순서
+| 문서 | 내용 | 수명 |
+|---|---|---|
+| [ops/runbook.md](ops/runbook.md) | 증상별 원인과 디버깅 명령어 | **유지** |
+| [ops/infra.md](ops/infra.md) | Terraform, VPC, ECS, ALB, RDS, S3, IAM | `infra/terraform/` 생기면 삭제 |
+| [ops/deployment.md](ops/deployment.md) | Docker, GitHub Actions, Vercel 설정 | 워크플로·Dockerfile 실물 생기면 삭제 |
 
-## 문서 목록
+**이 폴더는 대부분 비계입니다.** 지금은 코드가 없어 이 문서들이 유일한 원본이지만, 해당 코드가 생기는 순간 코드의 복사본이 됩니다. 복사본을 남겨두면 한쪽만 고쳐져서 문서가 거짓말을 시작합니다. 각 문서 서두에 은퇴 조건을 적어뒀고, 해당 코드를 넣는 PR에서 같이 지웁니다.
 
-| 문서 | 내용 |
-|---|---|
-| [product/](product/) | 제품 요구사항 — 개요, 기능별 명세(NOTE/NOTICE/PHOTO/ADMIN), 화면, 비기능 요구사항, 미결정 사항 |
-| [architecture/](architecture/) | 기술 설계 — 인증/권한, 데이터 모델, API 명세 |
-| [ops/](ops/) | 인프라·배포 — Terraform/AWS, Docker/CI-CD/Vercel, 런북 |
-| [adr/](adr/) | 아키텍처 결정 기록 (ADR) |
-| [guides/](guides/) | 작업 가이드 — Claude Code 초기 세팅 지시서 |
-| [../CONTRIBUTING.md](../CONTRIBUTING.md) | 커밋 컨벤션, 브랜치 전략, PR 규칙 |
+`runbook.md`만 영구 문서입니다. "증상 → 원인"은 어떤 코드에도 적히지 않는 정보라서요.
 
 > 각 문서의 최종 수정일·작성자는 `git log <파일경로>`로 확인하세요. 문서 안에 손으로 적어두면 곧 틀린 정보가 됩니다.
 
 ## 빠르게 찾기
 
-- 지금 뭘 만들어야 하는지 궁금하다 → [product/01-overview.md](product/01-overview.md)
-- 로그인/가입 승인/권한 매트릭스가 궁금하다 → [architecture/auth.md](architecture/auth.md)
-- API 엔드포인트 전체 목록이 필요하다 → [architecture/api.md](architecture/api.md)
-- 스키마를 바꿔야 한다 → [architecture/data-model.md](architecture/data-model.md)
 - 인프라를 처음부터 세팅해야 한다 → [ops/infra.md](ops/infra.md)
 - 배포가 실패해서 원인을 찾아야 한다 → [ops/runbook.md](ops/runbook.md)
-- 왜 이런 선택을 했는지 궁금하다 (NAT 없음, Spot, SSM 등) → [adr/](adr/)
-- 커밋 메시지·브랜치명을 어떻게 지어야 할지 모르겠다 → [../CONTRIBUTING.md](../CONTRIBUTING.md)
+- 배포에서 지켜야 할 원칙이 궁금하다 → [spec/7-DEPLOYMENT.md](../spec/7-DEPLOYMENT.md)
+- 뭘 만드는지, 권한 매트릭스가 어떻게 되는지 → [spec/README.md](../spec/README.md)
+- 왜 이런 선택을 했는지 (NAT 없음, Spot, SSM 등) → [spec/3-3-DESIGN-DECISIONS.md](../spec/3-3-DESIGN-DECISIONS.md)
+- 커밋 메시지·브랜치명을 어떻게 지어야 할지 → [CONTRIBUTING.md](../CONTRIBUTING.md)
+- 지금 무엇을 누가 먼저 구현하는지 → [README.md](../README.md)

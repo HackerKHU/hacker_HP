@@ -1,0 +1,442 @@
+[← 스펙 인덱스](README.md)
+
+# 3-2. 계약 — 데이터 모델과 API
+
+프론트엔드와 백엔드가 공유하는 계약을 잡아준다. **스키마나 엔드포인트를 바꾸기 전에 이 문서를 확인하고, 바뀌면 같은 PR에서 갱신한다** (MUST). Flyway 마이그레이션(`V*__*.sql`)은 §3-2-2의 정의를 그대로 반영해야 한다.
+
+> **출시 단계** — MVP는 인증, 공지, 회원 목록·승인·상태 변경 API를 우선 구현한다. 가입 거부, 자료·즐겨찾기·사진·회원 제거·권한 변경 API는 계약을 유지하되 `Post Launch`에서 구현한다.
+
+구현된 API는 Swagger UI와 OpenAPI JSON(`/v3/api-docs`)으로 확인할 수 있어야 한다 (MUST). 엔드포인트를 구현하거나 변경하는 PR은 접근 권한, 요청·응답 스키마, 상태 코드와 대표 오류 응답을 OpenAPI 명세에도 함께 반영한다. Swagger는 이 문서를 대체하지 않으며, 이 문서는 기능·권한의 원본이고 OpenAPI는 구현 시점의 상세 계약이다.
+
+```text
+§3-2-1   ERD              테이블 관계
+§3-2-2   테이블 정의       컬럼과 제약
+§3-2-3   API — 인증
+§3-2-4   API — 자료·즐겨찾기
+§3-2-5   API — 공지·사진
+§3-2-6   API — 회원 관리
+§3-2-7   공통 에러 코드
+§3-2-8   공통 페이지 응답
+```
+
+**미합의 항목을 이 문서에 쌓아 두지 않는다.** 계약이 말하지 않는 것을 발견하면 **이슈로 올리고**, 정해지면 그 내용을 해당 절에 바로 적는다. 예전에는 §3-2-9에 모아 두었는데, 확정한 뒤 지우는 것을 놓치거나 오래된 브랜치가 되살려 **이미 정해진 것이 미정으로 보이는 일이 생겼다** (2026-08-15, #140).
+
+## 3-2-1 ERD
+
+```mermaid
+erDiagram
+  USERS ||--o{ NOTES : uploads
+  USERS ||--o{ BOOKMARKS : saves
+  NOTES ||--o{ BOOKMARKS : saved_in
+  NOTES ||--o{ NOTE_FILES : has
+  USERS ||--o{ NOTICES : writes
+  USERS ||--o{ PHOTOS : uploads
+```
+
+## 3-2-2 테이블 정의
+
+> **아래 표는 DB 컬럼 이름이다. JSON 응답의 필드 이름과는 층위가 다르다** — 컬럼은 `is_pinned`, JSON은 `isPinned`다. 서버는 Jackson을 Spring Boot 기본값(Java 필드명 그대로)으로 직렬화한다 — 엔티티·DTO를 camelCase로 쓰므로 JSON도 자연히 camelCase다 (확정, 2026-08-13, #33).
+
+### users
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | bigint | PK, auto | |
+| `google_sub` | varchar(255) | UNIQUE, NOT NULL | 구글 계정 식별자 (ID 토큰의 `sub`) |
+| `email` | varchar(255) | UNIQUE, NOT NULL | 학교 이메일 (`khu.ac.kr`) |
+| `student_no` | varchar(20) | UNIQUE, NULL | 학번 (신원 확인용). 신청서 제출 시 채운다 |
+| `name` | varchar(50) | NOT NULL | 최초에는 구글 프로필, 신청 시 본인이 정정 |
+| `department` | varchar(50) | NULL | 학과. 정해진 목록에서 선택 (자유 입력 아님). 신청서 제출 시 채운다 |
+| `role` | enum | NOT NULL, default `USER` | `USER`, `ADMIN` |
+| `status` | enum | NOT NULL, default `PENDING` | `PENDING`, `ACTIVE`, `SUSPENDED` |
+| `created_at` | datetime | NOT NULL | 계정 생성일시 (첫 구글 로그인) |
+| `applied_at` | datetime | NULL | 신청서 제출일시 |
+| `approved_at` | datetime | NULL | 승인일시 |
+| `version` | bigint | NOT NULL, default 0 | 낙관적 잠금용. 아래 참고 |
+
+**비밀번호 컬럼이 없다.** 인증은 구글이 담당하며 자체 비밀번호를 받지도 저장하지도 않는다 ([3-3 결정 13](3-3-DESIGN-DECISIONS.md#3-3-14-결정-13--가입로그인을-구글-oauth로-한다)).
+
+계정의 신원 키는 `email`이 아니라 **`google_sub`** 이다 (MUST). 이메일은 학교 정책에 따라 바뀔 수 있지만 `sub`는 구글 계정에 영구적으로 고정된다. 로그인 시 `google_sub`로 기존 계정을 찾는다.
+
+**기존 계정에 붙일 때 구글이 준 이메일이 저장된 값과 다르면 `email`을 갱신한다** (MUST). 갱신하지 않으면 회원 목록·검색과 `GET /auth/me`에 옛 주소가 남아, `google_sub`를 신원 키로 고른 이유가 절반만 실현된다. 갱신된 이메일도 허용 도메인 검증을 통과해야 한다.
+
+**새 이메일이 다른 계정에 이미 쓰이고 있으면 로그인을 거부한다** (MUST). 학교가 주소를 회수해 다른 사람에게 재할당하면 `email` UNIQUE에 걸린다. 이때 **이메일로 기존 행을 찾아 붙이지 않는다** — 서로 다른 구글 계정이 한 사용자로 합쳐져 남의 자료에 접근하게 된다.
+
+`/login?error=failed`로 되돌리고 서버 로그에 두 계정의 `id`를 남긴다. 관리자가 어느 쪽이 유효한 계정인지 판단해 정리해야 하는 상황이며, 자동으로 해결하지 않는다.
+
+`student_no`는 NULL을 허용한다. 구글이 학번을 주지 않으므로 계정 생성 시점에는 비어 있고, 신청서 제출 시 채워진다 ([3-1 §3-1-4](3-1-DESIGN-ARCHITECTURE.md)). UNIQUE는 그대로 유지한다 (MUST) — 한 학번으로 여러 계정을 만드는 것을 막는다. PostgreSQL의 UNIQUE는 NULL을 서로 다른 값으로 보므로 미신청 계정이 여럿이어도 충돌하지 않는다.
+
+**`department`는 정해진 목록에서만 고른다** (MUST) — 자유 입력이 아니다. `컴공`/`컴퓨터공학과`/`소프트웨어융합대학 컴퓨터공학부`처럼 표기가 제각각이 되면 회원 목록에서 학과로 걸러보는 것이 사실상 불가능해진다. 목록은 경희대 서울·국제캠퍼스 전체 학과이며, 별도 관리 화면 없이 `apps/api`의 `Department` 클래스(`domain/user/entity` 패키지)에 코드로 고정한다 — 학과 개편이 잦지 않아 관리 화면을 따로 둘 만큼의 빈도가 아니다.
+
+신규 신청은 `department`를 **필수**로 받는다 (MUST) — 관리자가 승인 심사에서 실제로 참고하는 값이다. 다만 **컬럼 자체는 `NULL`을 허용한다**: 이 필드가 생기기 전에 이미 승인된 기존 회원은 값이 없고, 일괄 채우지 않는다 — 잘못 추정한 기본값을 넣느니 비워 두고 개별적으로 보완하는 쪽을 택했다. 그래서 "필수"는 DB 제약이 아니라 `POST /auth/application`의 검증이 담당한다 (아래).
+
+**승인 대상은 `status = 'PENDING' AND applied_at IS NOT NULL`이다** (MUST). 구글 로그인만 하고 신청하지 않은 계정을 관리자의 승인 목록에서 제외한다.
+
+`version`은 개인정보가 아니라 **동시성 제어용 컬럼**이다. 신청서 제출과 관리자 승인이 같은 행을 동시에 고칠 때 한쪽만 성공하게 만든다 ([3-1 §3-1-4](3-1-DESIGN-ARCHITECTURE.md)의 직렬화 요구). 상태 검사만으로는 두 트랜잭션이 각자 읽어둔 값을 보고 모두 통과하므로, 나중에 쓰는 쪽이 앞의 변경을 덮는다.
+
+### 세션 테이블
+
+인가 상태를 서버 세션으로 관리하므로([3-3 결정 12](3-3-DESIGN-DECISIONS.md#3-3-13-결정-12--인증은-jwt-인가-상태는-서버-세션으로-나눈다)) 세션 저장용 테이블이 RDS에 필요하다. Spring Session JDBC가 요구하는 스키마를 쓰며, 컬럼 정의는 이 문서가 아니라 Spring Session 쪽이 원본이다.
+
+`ddl-auto`가 `validate`이므로 이 테이블도 **Flyway 마이그레이션에 포함해야 한다** (MUST). 애플리케이션 테이블이 아니라 인증 기반이므로 위 ERD에는 넣지 않는다.
+
+`V2__session.sql`이 그 마이그레이션이며, 내용은 `spring-session-jdbc` jar의 `schema-postgresql.sql`을 그대로 옮긴 것이다. **손으로 고치지 않는다** — 컬럼 하나만 어긋나도 세션 저장이 런타임에 실패한다. Spring Session 버전을 올릴 때 그 jar의 스키마와 대조하고, 달라졌으면 새 마이그레이션을 만든다. 스키마 생성은 Flyway가 맡으므로 `spring.session.jdbc.initialize-schema`는 `never`다 — 둘 다 만들려 들면 기동이 실패한다.
+
+### notes
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | bigint | PK, auto | |
+| `category` | enum | NOT NULL | `EXAM`, `SUBJECT` |
+| `title` | varchar(200) | NOT NULL | |
+| `subject_name` | varchar(100) | NOT NULL | 과목명 |
+| `professor` | varchar(50) | NULL | 교수명 |
+| `year` | int | NOT NULL | 개설 연도 |
+| `semester` | enum | NOT NULL | `SPRING`, `FALL` |
+| `exam_type` | enum | NULL | `MIDTERM`, `FINAL` |
+| `uploader_id` | bigint | FK → users.id | |
+| `created_at` | datetime | NOT NULL | |
+| `updated_at` | datetime | NOT NULL | |
+
+- 인덱스: `(category, created_at)`, `(subject_name)`, `(year, semester)`
+- **CHECK 제약** (MUST): `category = 'EXAM'`이면 `exam_type IS NOT NULL`, `category = 'SUBJECT'`면 `exam_type IS NULL`. 애플리케이션 검증에만 맡기지 않는다.
+
+### note_files
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | bigint | PK, auto | |
+| `note_id` | bigint | FK → notes.id, **ON DELETE CASCADE** | |
+| `original_name` | varchar(255) | NOT NULL | 업로드 당시 파일명 |
+| `stored_path` | varchar(500) | NOT NULL | S3 오브젝트 키 |
+| `size_bytes` | bigint | NOT NULL | |
+
+파일은 S3에만 저장한다. **서버 디스크에 저장하지 않는다** (MUST). 저장 키 형식은 `notes/{uuid}.{ext}`이며, presigned 업로드 시점에는 `note_id`가 아직 없으므로 키에 포함하지 않는다.
+
+### bookmarks
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `user_id` | bigint | PK, FK → users.id, **ON DELETE CASCADE** | |
+| `note_id` | bigint | PK, FK → notes.id, **ON DELETE CASCADE** | |
+| `created_at` | datetime | NOT NULL | |
+
+복합 PK `(user_id, note_id)`로 중복 등록을 막는다. 양쪽 FK 모두 CASCADE를 건다 (MUST) — [2-1 §2-1-3](2-1-USER-STORIES.md)이 자료 삭제 시 즐겨찾기도 지워진다고 정의하고 있다.
+
+### notices
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | bigint | PK, auto | |
+| `title` | varchar(200) | NOT NULL | |
+| `content` | text | NOT NULL | |
+| `is_pinned` | boolean | NOT NULL, default false | 상단 고정 여부 |
+| `author_id` | bigint | FK → users.id | |
+| `created_at` | datetime | NOT NULL | |
+| `updated_at` | datetime | NOT NULL | |
+
+정렬 기준: `is_pinned DESC, created_at DESC`
+
+### photos
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | bigint | PK, auto | |
+| `caption` | varchar(200) | NULL | |
+| `stored_path` | varchar(500) | NOT NULL | 리사이즈된 이미지의 S3 오브젝트 키 |
+| `uploader_id` | bigint | FK → users.id | |
+| `created_at` | datetime | NOT NULL | |
+
+저장 키 형식: `photos/{photoId}/{uuid}.jpg`, 썸네일은 `photos/{photoId}/thumb/{uuid}.jpg`
+
+---
+
+Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는다 — `/auth/me`의 실제 URL은 `/api/v1/auth/me`다.
+
+**경로에 버전을 붙인다** (MUST). 응답 필드를 지우거나 의미를 바꾸는 등 기존 클라이언트를 깨는 변경이 필요하면, `/api/v1`을 고치지 않고 `/api/v2`를 새로 연다 ([3-3 결정 9](3-3-DESIGN-DECISIONS.md#3-3-10-결정-9--api-경로에-버전을-붙인다)). 필드 추가처럼 호환되는 변경은 `v1` 안에서 한다.
+
+버전을 붙이지 않는 경로가 두 개 있다. `/actuator/health`는 ALB 헬스체크가 쓰는 운영 경로이고, `/v3/api-docs`와 Swagger UI는 springdoc이 제공하는 경로다. 둘 다 클라이언트 계약이 아니므로 `/api/v1` 아래에 두지 않는다.
+
+권한 컬럼은 [3-1 §3-1-3](3-1-DESIGN-ARCHITECTURE.md) 매트릭스와 반드시 일치해야 한다 (MUST).
+
+## 3-2-3 API — 인증
+
+| Method | Path | 권한 | 설명 |
+|---|---|---|---|
+| GET | `/auth/csrf` | 비로그인 | CSRF 토큰 발급 |
+| GET | `/oauth2/authorization/google` | 비로그인 | 구글 로그인 시작 (가입 겸용) |
+| GET | `/login/oauth2/code/google` | 비로그인 | 구글 콜백. 성공 시 계정 생성 또는 조회 후 세션 발급 |
+| POST | `/auth/application` | PENDING | 신청서 제출·수정. body: `{ "studentNo": "...", "name": "...", "department": "..." }` |
+| POST | `/auth/logout` | 로그인 | 로그아웃 |
+| GET | `/auth/me` | 로그인 | 내 정보 + role/status/신청 여부 |
+| POST | `/auth/bootstrap-admin` | 로그인 + **신청서 제출 완료** | 최초 관리자 승격/마지막 관리자 복구. body: `{ "token": "..." }` — [3-3 결정 11](3-3-DESIGN-DECISIONS.md) |
+
+**`POST /auth/signup`과 `POST /auth/login`은 없다.** 자체 비밀번호를 쓰지 않으므로 두 엔드포인트가 사라졌다 ([3-3 결정 13](3-3-DESIGN-DECISIONS.md#3-3-14-결정-13--가입로그인을-구글-oauth로-한다)).
+
+### `POST /auth/application` — 신청서
+
+**`studentNo`·`name`·`department`는 공백이 아니어야 한다** (MUST). 셋 중 하나라도 비었거나 공백뿐이면 `400 VALIDATION_ERROR`를 반환하고 **`applied_at`을 기록하지 않는다** (MUST).
+
+PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. 검증이 없으면 `""`를 제출한 계정이 `applied_at`을 얻어 승인 대상이 되고, 식별 정보가 없는 채로 관리자 부트스트랩까지 통과한다.
+
+**`department`는 정해진 목록에 있는 값만 받는다** (MUST). 목록에 없는 값이면 `400 VALIDATION_ERROR`다 — 자유 입력을 허용하면 §3-2-2가 막으려는 표기 불일치가 API 쪽에서 다시 생긴다.
+
+### `POST /auth/bootstrap-admin` — 신청 완료 계정만
+
+**`applied_at IS NOT NULL`인 계정만 호출할 수 있다** (MUST). 신청서를 내지 않은 계정이 이 경로로 곧장 `ACTIVE`가 되면 `student_no`가 비어 있는 관리자가 만들어지는데, 신청 API는 `PENDING` 전용이라 나중에 채울 방법이 없다. 이 조건이 빠지면 최초 관리자만 학번 없는 계정으로 남는다.
+
+성공하면 `204`다. 본문은 없다 — 화면이 쓰는 경로가 아니라 운영자가 한 번 부르는 경로이고, 결과는 `GET /auth/me`로 확인한다.
+
+**거절은 사유를 가르지 않는다** (MUST, 2026-08-14 #89). 활성 관리자가 이미 있든, 이메일이 다르든, 토큰이 틀리든, 신청서를 내지 않았든, **정지된 계정이든** 전부 같은 `403 FORBIDDEN`과 같은 문구다. 사유가 갈리면 *"이메일은 맞았고 토큰만 틀렸다"* 를 알아낼 수 있어 무차별 대입의 탐색 공간이 줄어든다. 진짜 사유는 서버 로그에만 남기고, **토큰은 로그에도 남기지 않는다.**
+
+**설정값(`ADMIN_BOOTSTRAP_EMAIL`·`ADMIN_BOOTSTRAP_TOKEN`)이 없으면 이 경로는 닫힌다** — 응답은 위와 같아서 설정 여부조차 밖에서 알 수 없다. 값이 없다고 기동을 막지는 않는다: 일회성 운영 경로를 기동 조건으로 묶으면 나중에 토큰을 회전하거나 지우는 순간 API 전체가 죽는다.
+
+**이미 승인된 계정이 호출하면 `role`만 바꾼다** (MUST). 마지막 관리자 사고의 복구 경로로 쓰일 때가 그렇다 ([2-2 §2-2-7](2-2-OPERATOR-REQUIREMENTS.md)) — 다시 승인 처리하면 `approved_at`이 오늘로 덮여 **실제 승인일이 사라진다.**
+
+### 구글 OAuth 경로
+
+두 경로는 Spring Security OAuth2 Client가 제공하며, **base path `/api/v1` 아래에 오도록 설정한다** (MUST). 실제 URL은 `/api/v1/oauth2/authorization/google`과 `/api/v1/login/oauth2/code/google`이다.
+
+프레임워크 기본값(`/oauth2/...`, `/login/...`)을 그대로 두면 Vercel rewrites가 `/api/*`만 프록시하므로 브라우저 요청이 ALB에 닿지 않는다 ([3-3 결정 5](3-3-DESIGN-DECISIONS.md#3-3-5-결정-5--도메인-없이-vercel-프록시로-https를-우회한다)). 프록시 규칙을 늘리는 대신 서버 경로를 옮긴다.
+
+구글 콘솔에 등록할 redirect URI도 **프론트엔드 오리진** 기준이다. 브라우저는 Vercel과만 통신하므로 ALB 주소를 등록하면 콜백이 다른 오리진에 떨어져 쿠키가 붙지 않는다.
+
+`GET /auth/me`는 신청서 제출 여부를 함께 반환한다. 프론트엔드가 `PENDING` 사용자에게 신청 폼을 보일지 대기 안내를 보일지 이 값으로 가른다 ([3-1 §3-1-6](3-1-DESIGN-ARCHITECTURE.md)).
+
+**신청 여부는 `appliedAt`(스키마의 `applied_at`)으로 판단한다** (MUST). 값이 있으면 제출한 것이다. 같은 사실을 알려주는 별도 boolean 필드를 두지 않는다 — 두 값이 어긋나는 자리가 생기고, 어긋나면 화면이 폼과 안내 중 틀린 쪽을 고른다.
+
+### 콜백은 항상 SPA로 되돌린다
+
+**구글 콜백은 성공이든 실패든 JSON을 반환하지 않는다** (MUST). 브라우저 전체가 이동한 흐름이므로, 오류 본문을 그대로 내보내면 사용자가 SPA 밖의 빈 화면에 갇힌다. `request()`를 거치지 않아 프론트엔드의 공통 오류 처리도 동작하지 않는다.
+
+| 결과 | 리다이렉트 |
+|---|---|
+| 성공 | `/` — 이후 SPA가 `GET /auth/me`로 상태를 판단해 알맞은 화면으로 보낸다 |
+| 실패 | `/login?error={코드}` |
+
+실패 코드는 이용자에게 무엇을 해야 하는지 알려줄 수 있는 것만 쓴다 (MUST).
+
+| 코드 | 상황 | 로그인 화면이 보여줄 것 |
+|---|---|---|
+| `domain` | 허용 도메인이 아닌 계정 | "`khu.ac.kr` 계정으로 로그인하세요" |
+| `unverified` | `email_verified`가 거짓 | 구글에서 이메일 인증을 마치라는 안내 |
+| `suspended` | 정지된 계정 | 정지 안내 ([3-1 §3-1-5](3-1-DESIGN-ARCHITECTURE.md)) |
+| `failed` | 그 외 (`state` 불일치, 토큰 교환 실패 등) | 일반 오류. 원인을 자세히 알리지 않는다 |
+
+**쿼리 파라미터에 이메일·토큰·예외 메시지를 담지 않는다** (MUST). 주소창과 브라우저 기록, 리퍼러에 남는다.
+
+§3-2-7의 상태 코드(`403 SUSPENDED`, `403 FORBIDDEN` 등)는 **API 호출에만 쓴다.** 콜백 실패는 상태 코드가 아니라 위 표의 리다이렉트로 알린다.
+
+### CSRF 토큰
+
+인증 쿠키가 자동 전송되므로 상태를 바꾸는 요청은 CSRF 토큰을 검증한다 ([3-3 결정 12](3-3-DESIGN-DECISIONS.md#3-3-13-결정-12--인증은-jwt-인가-상태는-서버-세션으로-나눈다)).
+
+| 항목 | 값 |
+|---|---|
+| 쿠키 이름 | `XSRF-TOKEN` — **`httpOnly`가 아니다.** 클라이언트가 읽어 헤더에 실어야 한다 |
+| 헤더 이름 | `X-XSRF-TOKEN` |
+| 검증 대상 | `POST`, `PATCH`, `DELETE` 등 상태를 바꾸는 모든 요청 |
+| 발급 경로 | `GET /auth/csrf` |
+
+**`POST /auth/application`도 검증 대상이다** (MUST). `PENDING` 사용자만 호출할 수 있지만 세션 쿠키가 자동 전송되므로 다른 사이트가 대신 학번을 제출하게 만들 수 있다.
+
+구글 로그인 시작(`GET /oauth2/authorization/google`)은 `GET`이라 CSRF 검증 대상이 아니다. 대신 **OAuth `state` 파라미터가 같은 역할을 한다** (MUST). Spring Security OAuth2 Client가 기본으로 생성·검증하므로 이를 끄지 않는다 — 끄면 로그인 CSRF(피해자를 공격자 계정에 로그인시키는 공격)가 열린다.
+
+세션도 토큰도 없는 최초 진입에는 발급 경로가 필요하다. **클라이언트는 첫 상태 변경 요청 전에 `GET /auth/csrf`를 호출해 `XSRF-TOKEN` 쿠키를 받는다** (MUST). 이 엔드포인트는 응답 본문 없이 쿠키만 내려주며 비로그인으로 접근할 수 있다.
+
+토큰이 없거나 쿠키와 헤더 값이 다르면 `403 FORBIDDEN`을 반환한다.
+
+### 로그인 후 신원 조회
+
+클라이언트는 로그인(구글 콜백 처리)이 끝난 뒤 `GET /auth/me`로 `role`·`status`·신청 여부를 조회한다 (MUST).
+
+신원 조회 경로를 하나로 유지하기 위함이다. 콜백 응답에 사용자 정보를 실으면 같은 값을 두 곳에서 만들게 되고, 새로고침으로 세션을 복구할 때는 어차피 `GET /auth/me`를 쓰므로 흐름이 갈라진다.
+
+## 3-2-4 API — 자료·즐겨찾기
+
+| Method | Path | 권한 | 설명 |
+|---|---|---|---|
+| GET | `/notes` | ACTIVE | 목록·검색·필터 |
+| GET | `/notes/filters` | ACTIVE | 필터 옵션(과목/교수/연도) 목록 |
+| GET | `/notes/{id}` | ACTIVE | 상세 |
+| POST | `/notes/upload-url` | ACTIVE | 파일별 presigned PUT URL 발급 |
+| POST | `/notes` | ACTIVE | 메타데이터 등록 (JSON) — body에 업로드 완료된 파일 키 목록 |
+| PATCH | `/notes/{id}` | 본인/ADMIN | 수정 |
+| DELETE | `/notes/{id}` | 본인/ADMIN | 삭제 |
+| GET | `/notes/{id}/files/{fileId}` | ACTIVE | presigned GET URL 발급 (파일 바이트는 서버를 거치지 않음) |
+| GET | `/bookmarks` | ACTIVE | 내 즐겨찾기 목록 |
+| POST | `/notes/{id}/bookmark` | ACTIVE | 추가 |
+| DELETE | `/notes/{id}/bookmark` | ACTIVE | 해제 |
+
+**`GET /notes` 쿼리 파라미터**
+
+| 이름 | 타입 | 설명 |
+|---|---|---|
+| `category` | string | `EXAM` \| `SUBJECT` |
+| `q` | string | 통합 검색어 (제목/과목/교수) |
+| `subject` | string | 과목 필터 |
+| `professor` | string | 교수 필터 |
+| `year` | int | 연도 필터 |
+| `semester` | string | `SPRING` \| `FALL` |
+| `examType` | string | `MIDTERM` \| `FINAL` |
+| `sort` | string | `latest`(기본) \| `title` |
+| `page` | int | 0부터 시작 |
+| `size` | int | 기본 20 |
+
+## 3-2-5 API — 공지·사진
+
+| Method | Path | 권한 | 설명 |
+|---|---|---|---|
+| GET | `/notices` | ACTIVE | 목록 (고정 우선 정렬) |
+| GET | `/notices/{id}` | ACTIVE | 상세 |
+| POST | `/notices` | ADMIN | 등록 |
+| PATCH | `/notices/{id}` | ADMIN | 수정 |
+| DELETE | `/notices/{id}` | ADMIN | 삭제 |
+| PATCH | `/notices/{id}/pin` | ADMIN | 고정 토글 |
+| GET | `/photos` | ACTIVE | 목록 |
+| POST | `/photos` | ADMIN | 다중 업로드 (multipart, 서버 리사이즈) |
+| DELETE | `/photos/{id}` | ADMIN | 삭제 |
+
+> `POST /photos`의 업로드 경로는 미결정이다 ([1-BACKGROUND §1-5](1-BACKGROUND.md) #5).
+
+### 성공 응답 본문
+
+`POST /notices`, `PATCH /notices/{id}`, `PATCH /notices/{id}/pin`은 저장된 공지를 본문으로 돌려준다 (확정, 2026-08-13, #33·#34) — `POST`는 `201`, 두 `PATCH`는 `200`이다. 화면은 등록·수정 응답 본문의 `id`로 상세 화면으로 이동한다. `DELETE /notices/{id}`는 본문 없이 `204`다.
+
+## 3-2-6 API — 회원 관리
+
+| Method | Path | 권한 | 설명 |
+|---|---|---|---|
+| GET | `/admin/users` | ADMIN | 목록 — `status`, `role`, `q`, `applied`, `sort`, `page`, `size` |
+| POST | `/admin/users/approve` | ADMIN | 일괄 승인 — body: `{ "userIds": [1,2,3] }` |
+| POST | `/admin/users/reject` | ADMIN | 일괄 거부 — body: `{ "userIds": [1,2,3] }` |
+| PATCH | `/admin/users/{id}/status` | ADMIN | `ACTIVE` ↔ `SUSPENDED` (본인을 `SUSPENDED`로: 마지막 활성 관리자면 차단) |
+| PATCH | `/admin/users/{id}/role` | ADMIN | 권한 부여/회수 (본인 대상: 마지막 활성 관리자면 차단) |
+| DELETE | `/admin/users/{id}` | ADMIN | 회원 제거 (본인 대상: 마지막 활성 관리자면 차단) |
+
+### 목록 파라미터
+
+`GET /admin/users`의 파라미터는 아래로 확정한다 (2026-08-12, #29). 프론트엔드가 먼저 구현하고 확인을 요청했던 두 항목이 여기에 흡수됐다.
+
+| 파라미터 | 값 | 비고 |
+|---|---|---|
+| `status` | `PENDING` \| `ACTIVE` \| `SUSPENDED` | |
+| `role` | `USER` \| `ADMIN` | |
+| `q` | 문자열 | 이름·학번·이메일 통합 검색. **대소문자를 가리지 않는 부분 일치**다. 공백뿐이면 거르지 않는다 |
+| `applied` | `true` \| `false` | **신청서 제출 여부** (`applied_at`의 유무) |
+| `sort` | `name` \| `studentNo` \| `appliedAt` | Spring Data 형식이다 — `sort=name`은 `name` 오름차순, `sort=appliedAt,desc`도 받는다 |
+
+**`sort`에 그 밖의 값이 오면 `400 VALIDATION_ERROR`다** (MUST). 조용히 무시하지 않는다 — 관리자는 정렬이 적용된 줄 알고 그 순서를 신뢰해 승인·정지를 누른다. 정렬을 보내지 않으면 **가입 신청일 최신순**이고, **값이 없는 행은 언제나 뒤로 간다** (MUST). PostgreSQL은 `DESC`에서 널을 맨 앞에 올리므로, 그대로 두면 신청조차 하지 않은 계정이 승인 대기자보다 위에 온다.
+
+**`applied`가 필요한 이유는 `status=PENDING`만으로는 승인 대기를 고를 수 없기 때문이다.** 구글 로그인만 해보고 신청서를 내지 않은 계정도 `PENDING`이다. **승인 대상 집합은 `status=PENDING&applied=true`다** — 아래 절이 말하는 `status = 'PENDING' AND applied_at IS NOT NULL`과 같다.
+
+화면에서 거르는 것은 답이 아니다. 서버가 20건을 주고 화면이 그중 일부를 버리면 페이지마다 보이는 건수가 들쭉날쭉하고, 총 건수와 총 페이지 수가 실제와 어긋난다 — 관리자가 "12명 남았다"고 읽는 숫자가 틀리게 된다.
+
+### 일괄 승인 응답
+
+`POST /admin/users/approve`의 응답은 아래로 확정한다 (2026-08-13, #30). 프론트엔드가 먼저 구현하고 확인을 요청했던 형태를 그대로 받았다.
+
+```json
+{
+  "approved": [1, 2],
+  "failed": [{ "userId": 3, "reason": "NOT_APPLIED" }]
+}
+```
+
+| 항목 | 이유 |
+|---|---|
+| 건수 필드를 두지 않는다 | 배열 길이가 곧 건수다. `successCount`를 따로 두면 배열과 어긋날 자리가 생긴다 |
+| 실패에 `userId`를 담는다 | 건수만으로는 운영자가 조치할 수 없다. "1명 실패"로는 누구에게 신청서를 내라고 안내할지 모른다 |
+| 일부 실패도 `200` | 요청 자체의 실패가 아니다. 권한 없음 같은 실패는 §3-2-7의 규약을 그대로 쓴다 |
+
+**`reason`은 셋이다** (MUST). 계약이 명시한 실패는 `NOT_APPLIED` 하나였지만 실제로 거절되는 경우는 셋이고, 하나로 뭉개면 **이미 승인된 사람에게 "신청서를 내지 않았다"고 안내하게 된다.**
+
+| `reason` | 상황 |
+|---|---|
+| `NOT_FOUND` | 그 id의 계정이 없다 |
+| `NOT_PENDING` | 이미 승인됐거나 정지된 계정이다 |
+| `NOT_APPLIED` | 구글 로그인만 하고 신청서를 내지 않았다 |
+
+**요청자의 권한을 잠근 뒤 다시 확인한다** (MUST). 상태 변경과 같은 이유다 — 인가는 세션 값으로 이루어지므로, 대상 행을 기다리는 동안 다른 관리자가 요청자를 정지시켰을 수 있다. 확인하지 않으면 **정지된 관리자가 회원을 활성화한다.**
+
+**실패는 성공을 되돌리지 않는다** (MUST). 한 건 때문에 트랜잭션이 되돌아가면 관리자가 20명을 골랐을 때 한 명이 신청서를 내지 않았다는 이유로 아무도 승인되지 않는다.
+
+요청의 `userIds`는 **최대 100개**이고 빈 배열은 `400 VALIDATION_ERROR`다. 상한은 회원 목록의 페이지 크기와 같다 — 화면이 한 번에 고를 수 있는 최대가 "현재 페이지 전부"이기 때문이다 ([5-TESTING T-75](5-TESTING.md#5-2-필수-테스트-사례)). 같은 id가 두 번 오면 한 번만 센다.
+
+### 상태 변경
+
+`PATCH /admin/users/{id}/status`의 동작을 아래로 확정한다 (2026-08-13, #31).
+
+```json
+요청  { "status": "SUSPENDED" }
+응답  200 — 갱신된 회원 (목록의 한 행과 같은 형태)
+```
+
+**본문으로 갱신된 회원을 돌려준다** (MUST). 화면이 재조회 없이 그 행을 고칠 수 있어야 한다.
+
+| 요청 | |
+|---|---|
+| `ACTIVE` → `SUSPENDED`, `SUSPENDED` → `ACTIVE` | 허용 |
+| **이미 그 상태** | 아무것도 하지 않고 `200` + 현재 상태. 확인 창을 두 번 지나거나 낡은 목록에서 눌러도 오류가 아니다 |
+| **대상이 `PENDING`** | `400 VALIDATION_ERROR`. 계약이 정한 전이는 `ACTIVE` ↔ `SUSPENDED`뿐이다 ([2-2 §2-2-3](2-2-OPERATOR-REQUIREMENTS.md)) — 이 경로로 승인시키면 승인일시가 기록되지 않고 신청 여부도 확인하지 않는다 |
+| `status`가 `ACTIVE`·`SUSPENDED`가 아님 | `400 VALIDATION_ERROR` |
+| 없는 `id` | `404 NOT_FOUND` |
+| **정지 뒤 활성 관리자가 0명이 됨** | `403 FORBIDDEN` ([§2-2-7](2-2-OPERATOR-REQUIREMENTS.md) MUST). 자기 대상인지와 무관하다 |
+
+**정지는 기존 세션에 즉시 반영된다** (MUST) — 세션을 지우지 않고 갱신하므로 다음 요청이 `403 SUSPENDED`다 ([3-1 §3-1-5](3-1-DESIGN-ARCHITECTURE.md), T-32).
+
+**이미 그 상태인 요청도 세션을 다시 맞춘다** (MUST). 세션 갱신 실패는 예외로 올리지 않으므로 같은 요청을 다시 보내는 것이 유일한 복구 수단인데, 일찍 돌아가 버리면 그 재시도가 아무 일도 하지 않는다 — 정지된 사람이 만료까지 계속 쓴다.
+
+**활성 관리자 수 확인과 변경은 한 연산이다** (§2-2-7 MUST). 관련된 행을 잠근 뒤에 세므로, 동시에 들어온 다른 정지는 그 잠금을 기다렸다가 줄어든 수를 보고 막힌다 — 각자 자기 자신을 정지하든 **서로를 정지하든** 마찬가지다 ([5-TESTING T-15](5-TESTING.md#5-2-필수-테스트-사례)).
+
+**요청자의 권한을 잠근 뒤 다시 확인한다** (MUST). 인가는 세션 값으로 이루어지므로 요청이 인증을 통과한 뒤에도 다른 관리자가 그 사람을 정지하거나 권한을 회수할 수 있다 — 확인하지 않으면 **이미 정지된 관리자의 대기 중 요청이 그대로 커밋된다.** 이때의 코드는 필터가 막았을 때와 같다(`SUSPENDED`·`PENDING_APPROVAL`·`FORBIDDEN`, §3-2-7).
+
+### 신청일과 승인 대상
+
+**`GET /admin/users`의 "가입 신청일"은 `applied_at`이다** (MUST). `created_at`(첫 구글 로그인)이 아니다 — 표시·정렬 모두 `applied_at`을 쓴다 ([2-2 §2-2-1](2-2-OPERATOR-REQUIREMENTS.md)). 응답에는 두 값을 모두 담되 화면이 무엇을 "신청일"로 부르는지 어긋나지 않게 한다.
+
+**승인 대상 목록은 `status = 'PENDING' AND applied_at IS NOT NULL`로 거른다** (MUST). 신청하지 않은 계정은 **승인 대상에 포함되지 않는다.**
+
+여기서 말하는 것은 **승인의 대상 집합**이지 회원 목록 화면이 아니다 (2026-08-10 명확화). `GET /admin/users`는 모든 회원을 보여주는 화면이고 신청하지 않은 계정도 관리자가 봐야 한다 — 그 사람이 존재한다는 것 자체가 운영 정보다. 요점은 **그 계정이 승인 대상에서 빠지는 것**이고, 화면은 이를 상태 표시("미승인")와 선택 불가로 드러낸다 ([5-TESTING T-73](5-TESTING.md#5-2-필수-테스트-사례)).
+
+`POST /admin/users/approve`에 신청하지 않은 계정의 id가 섞여 오면 그 건은 실패로 집계하고 그 계정의 상태를 바꾸지 않는다 (MUST). 목록에서 걸렀더라도 API를 직접 부르는 경로가 남아 있다.
+
+## 3-2-7 공통 에러 코드
+
+| HTTP | 코드 | 상황 |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | 입력값 검증 실패 |
+| 401 | `UNAUTHENTICATED` | 미로그인 |
+| 403 | `PENDING_APPROVAL` | `PENDING` 사용자의 일반 API 접근 |
+| 403 | `SUSPENDED` | **정지된 계정의 보호 API 접근.** 이용 중 정지된 세션의 다음 요청이 이 코드다 ([2-2 §2-2-3](2-2-OPERATOR-REQUIREMENTS.md) MUST — 정지는 세션을 지우지 않고 갱신한다). 로그인 시도가 막히는 경우는 이 코드가 아니라 §3-2-3의 `/login?error=suspended` 리다이렉트다 |
+| 403 | `FORBIDDEN` | 권한 부족 / 마지막 활성 관리자의 본인 권한 회수·삭제·정지 시도 / 허용 도메인이 아닌 구글 계정의 로그인 / **`ACTIVE` 계정의 `POST /auth/application` 호출** ([3-1 §3-1-6](3-1-DESIGN-ARCHITECTURE.md) MUST) |
+| 404 | `NOT_FOUND` | 리소스 없음 |
+| 409 | `DUPLICATE_STUDENT_NO` | 신청서의 학번이 다른 계정에 이미 쓰이고 있음 |
+| 413 | `FILE_TOO_LARGE` | 파일 용량 초과 |
+| 415 | `UNSUPPORTED_FILE_TYPE` | 허용되지 않는 확장자 |
+
+에러 응답은 커스텀 예외 + `@RestControllerAdvice`로 일괄 처리한다 (MUST). 응답 형식은 [5-TESTING §5-4](5-TESTING.md)에 있다.
+
+## 3-2-8 공통 페이지 응답
+
+목록 API는 모두 페이지 응답을 쓴다. MVP는 `GET /notices`, `GET /admin/users`, `Post Launch`는 `GET /notes`, `GET /bookmarks`, `GET /photos`가 대상이다.
+
+공통 요청 파라미터는 `page`(0부터 시작), `size`(기본 20, **상한 100**)다. 상한을 두지 않으면 Spring 기본값인 2000까지 한 번에 요청할 수 있다.
+
+응답 형태는 Spring Data `PagedModel`로 고정한다 (MUST).
+
+```json
+{
+  "content": [],
+  "page": { "size": 20, "number": 0, "totalElements": 300, "totalPages": 15 }
+}
+```
+
+서버는 `spring.data.web.pageable.serialization-mode: via-dto`를 전역에 한 번 설정한다 (MUST).
+
+**같은 뜻의 `@EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO)`를 쓰지 않는다** (2026-08-12, #29에서 확인). 그 애너테이션을 붙이는 순간 Spring Boot의 자동설정이 통째로 물러나 `default-page-size`·`max-page-size` 설정이 **조용히 무시된다** — 응답 형태는 맞는데 `size=2000`이 그대로 통과한다.
+
+`Page` 객체를 그대로 직렬화하지 않는다 (MUST). Spring 3.3+는 이 방식의 구조 안정성을 보장하지 않고 경고를 남기며, `pageable`·`sort`·`offset` 같은 내부 구현 필드가 응답에 노출된다.
+
+---
+[← 이전: 아키텍처](3-1-DESIGN-ARCHITECTURE.md) · [다음: 결정 기록 →](3-3-DESIGN-DECISIONS.md)

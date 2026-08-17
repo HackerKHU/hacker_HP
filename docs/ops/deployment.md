@@ -1,4 +1,6 @@
-> 상태: 초안
+> **은퇴 조건 — Dockerfile·`docker-compose.yml`·워크플로 실물이 생기면 이 문서를 삭제합니다.**
+> 아래 코드 블록은 그때부터 실제 파일의 복사본입니다.
+> 배포에서 지켜야 할 원칙은 [spec/7-DEPLOYMENT](../../spec/7-DEPLOYMENT.md)가 원본이고, 장애 대응은 [runbook.md](runbook.md)에 남습니다.
 
 [← 문서 인덱스](../README.md)
 
@@ -6,11 +8,9 @@
 
 인프라(VPC·ECS·RDS·S3) 자체는 [infra.md](infra.md) 참고. 이 문서는 "코드를 어떻게 컨테이너로 만들어 그 인프라 위로 올리는지"를 다룹니다.
 
-## ⚠️ 도메인 없이 HTTPS 처리하기
+## API 프록시
 
-ALB 기본 DNS(`xxx.ap-northeast-2.elb.amazonaws.com`)에는 **ACM 인증서를 붙일 수 없습니다.** 소유한 도메인이어야 발급되기 때문입니다. 그래서 지금은 ALB가 HTTP(80)만 받습니다.
-
-문제는 Vercel이 HTTPS라 브라우저가 HTTP API 호출을 차단한다는 것(mixed content). 해결책은 **Vercel rewrites 프록시**입니다.
+프론트는 `www.khuhacker.com`(Vercel), API는 `api.khuhacker.com`(ALB)입니다. 브라우저가 API를 직접 부르지 않고 **Vercel rewrites 프록시**를 거칩니다.
 
 ```json
 // apps/web/vercel.json
@@ -18,38 +18,33 @@ ALB 기본 DNS(`xxx.ap-northeast-2.elb.amazonaws.com`)에는 **ACM 인증서를 
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "http://hacker-alb-xxxx.ap-northeast-2.elb.amazonaws.com/api/:path*"
+      "destination": "https://api.khuhacker.com/api/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
 ```
 
 ```
-브라우저 ──HTTPS──> Vercel Edge ──HTTP──> ALB ──> ECS
+브라우저 ──HTTPS──> Vercel Edge ──HTTPS──> ALB ──> ECS
 ```
 
-브라우저는 Vercel하고만 통신하므로 mixed content가 없습니다. **덤으로 same-origin이 되어 쿠키 문제도 사라집니다** — `SameSite=None; Secure`가 필요 없고 `SameSite=Lax`로 충분해집니다. 프론트 코드에서는 그냥 `/api/...`로 호출하면 됩니다.
+**순서가 중요합니다.** Vercel은 위에서부터 첫 번째로 맞는 규칙을 적용하므로 `/api/*` 규칙이 SPA fallback **위에** 있어야 합니다. 아래에 두면 fallback이 API 요청까지 `/index.html`로 삼켜서 로그인이 되지 않습니다.
 
-**파일은 이 프록시를 거치지 않습니다.** Vercel의 서버리스/Edge 함수는 요청 본문이 4.5MB로 제한되는데, 자료 파일 최대 용량은 20MB([product/07-non-functional.md](../product/07-non-functional.md))라 애초에 프록시를 통과할 수 없습니다. 그래서 파일은 presigned URL로 브라우저→S3 직접 업로드/다운로드하고([product/02-notes.md](../product/02-notes.md) NOTE-04/07), `/api/*` 프록시는 메타데이터를 주고받는 JSON 요청에만 씁니다.
+브라우저는 Vercel하고만 통신하므로 mixed content가 없습니다. **덤으로 same-origin이 되어 쿠키 문제도 사라집니다** — `SameSite=None; Secure`가 필요 없고 `SameSite=Lax`로 충분해집니다. 프론트 코드에서는 그냥 `/api/v1/...`로 호출하면 됩니다. `api.khuhacker.com`을 직접 부르면 CORS와 쿠키 설정이 따라붙으므로 절대 URL은 쓰지 않습니다.
 
-### 지금 이 구성으로 하면 안 되는 것
+프록시 `source`는 `/api/v1/:path*`이 아니라 `/api/:path*`로 둡니다. 나중에 `/api/v2`가 생겨도 rewrites 설정을 건드리지 않기 위해서입니다 ([3-3 결정 9](../../spec/3-3-DESIGN-DECISIONS.md)).
 
-Vercel↔ALB 구간이 평문 HTTP입니다. AWS 네트워크 내부가 아니라 공개 인터넷을 지나갑니다.
+**파일은 이 프록시를 거치지 않습니다.** Vercel의 서버리스/Edge 함수는 요청 본문이 4.5MB로 제한되는데, 자료 파일 최대 용량은 20MB([3-3 §3-3-7](../../spec/3-3-DESIGN-DECISIONS.md))라 애초에 프록시를 통과할 수 없습니다. 그래서 파일은 presigned URL로 브라우저→S3 직접 업로드/다운로드하고([2-1 §2-1-2·§2-1-4](../../spec/2-1-USER-STORIES.md)), `/api/*` 프록시는 메타데이터를 주고받는 JSON 요청에만 씁니다.
 
-- ✅ 개발/테스트, 더미 데이터, 기능 검증 — 괜찮습니다
-- ❌ **실제 부원 계정 생성, 진짜 비밀번호 입력, 시험 정보 업로드 — 하지 마세요**
+### 구간별 암호화
 
-로그인 비밀번호가 평문으로 네트워크를 지나가고, 학과 시험 정보나 정리본은 유출되면 곤란한 자료입니다. **부원들에게 공개하기 전에는 반드시 도메인 + ACM을 붙여야 합니다.** ([adr/0005](../adr/0005-vercel-proxy-no-domain.md))
+ALB는 ACM 인증서로 443을 받고 80은 443으로 리다이렉트합니다(`infra/terraform/alb.tf`). 브라우저↔Vercel, Vercel↔ALB 모두 HTTPS라 **공개 인터넷을 지나는 평문 구간이 없습니다.** ALB↔ECS 구간만 HTTP인데, 이건 VPC 내부이고 ECS 보안그룹이 ALB 보안그룹에서 오는 트래픽만 받습니다.
 
-### 나중에 도메인 붙일 때 (10분)
-
-1. 도메인 구매 (연 1.5만원 정도) — 동아리 회비로 결재 받기
-2. ACM에서 인증서 발급 (무료), DNS 검증
-3. ALB에 443 리스너 추가, 80은 443으로 리다이렉트
-4. `api.동아리.com` A레코드 → ALB (alias)
-5. `vercel.json` 프록시 제거 또는 destination을 HTTPS로 변경
-
-Terraform 코드로는 `aws_lb_listener` 하나 추가 + 변수 하나 바꾸는 수준입니다. 지금 구조가 그 전환을 막지 않습니다.
+인증 쿠키(JWT·세션)를 가로채면 그 계정으로 로그인한 것과 같으므로([결정 13](../../spec/3-3-DESIGN-DECISIONS.md)) 이 조건이 깨지면 부원 공개를 멈춰야 합니다 ([결정 5](../../spec/3-3-DESIGN-DECISIONS.md)).
 
 ---
 
@@ -91,11 +86,12 @@ COPY --from=extract /app/application/           ./
 USER app
 EXPOSE 8080
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS org.springframework.boot.loader.launch.JarLauncher"]
+ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]
 ```
 
 레이어 추출을 쓰면 의존성 레이어가 재사용돼서 배포 시 업로드 용량이 수십 MB로 줄어듭니다.
 `curl`은 컨테이너 헬스체크에 필요합니다.
+JVM 옵션은 ECS에서 `JAVA_TOOL_OPTIONS`로 주입하며, `java`가 이 환경변수를 자동으로 읽습니다.
 
 > 로더 클래스명은 Spring Boot 3.2 이상 기준입니다. 3.1 이하면 `org.springframework.boot.loader.JarLauncher`.
 
@@ -120,35 +116,25 @@ services:
       POSTGRES_DB: hacker
       POSTGRES_USER: hacker
       POSTGRES_PASSWORD: localdev
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]   # 루프백만. 공유 네트워크에서 기본 계정 노출 방지
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hacker"]
       interval: 5s
 
-  minio:                              # S3 호환. presigned URL 로직 그대로 테스트
-    image: minio/minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports: ["9000:9000", "9001:9001"]
-    volumes: [miniodata:/data]
-
 volumes:
   pgdata:
-  miniodata:
 ```
 
-S3 클라이언트는 `endpoint`만 바꾸면 MinIO ↔ S3가 전환됩니다. **코드 수정 없이** 로컬/운영이 같은 경로를 탑니다.
+자료 업로드(S3 presigned URL)는 아직 MVP 범위 밖이라 MinIO는 넣지 않았다 ([1-BACKGROUND.md §1-6](../../spec/1-BACKGROUND.md#1-6-1차-출시-범위)). 해당 기능을 만들 때 별도 이슈에서 docker-compose.yml에 추가한다.
 
 ```yaml
 # application-local.yml
-app:
-  s3:
-    endpoint: http://localhost:9000
-    path-style-access: true      # MinIO는 필수
-    bucket: hacker-uploads
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/hacker
+    username: hacker
+    password: localdev
 ```
 
 ```yaml
@@ -167,6 +153,32 @@ management:
 
 ---
 
+## 출시 브랜치
+
+브랜치 전략의 원본은 [`CONTRIBUTING.md`](../../CONTRIBUTING.md)다. 배포할 버전이 준비되면 최신 `origin/develop`에서 SemVer 형식의 release 브랜치를 만든다.
+
+```bash
+git fetch origin
+git switch -c release/v0.1.0 origin/develop
+git push -u origin release/v0.1.0
+```
+
+release 브랜치에서는 배포 후보를 검증하고 출시를 막는 수정만 PR로 받는다. 검증이 끝나면 `release/v0.1.0 → main` PR을 Merge commit으로 병합한다. release에서 추가 수정이 발생했다면 배포 후 `release/v0.1.0 → develop` 동기화 PR을 먼저 병합하고 release 브랜치를 삭제한다.
+
+출시 차단 수정은 현재 검증 중인 release 브랜치에서 수정 브랜치를 만든 뒤 같은 release로 PR을 보낸다.
+
+```bash
+git fetch origin
+git switch -c fix/42-release-blocker origin/release/v0.1.0
+git push -u origin fix/42-release-blocker
+```
+
+release 브랜치 삭제는 ruleset으로 보호된다. `develop` 동기화와 배포 확인을 모두 끝낸 뒤 ruleset 우회 권한을 가진 Organization Owner 또는 저장소 관리자가 삭제한다.
+
+`develop → main` 직접 PR과 release 브랜치에서의 새 기능 개발은 하지 않는다.
+
+---
+
 ## GitHub Actions
 
 ### .github/workflows/ci.yml
@@ -176,7 +188,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, 'release/**']
 
 jobs:
   api:
@@ -207,7 +219,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - working-directory: apps/web
@@ -325,7 +337,7 @@ Settings → Secrets and variables → Actions:
 - **Root Directory**: `apps/web`
 - **Ignored Build Step**: `git diff --quiet HEAD^ HEAD -- ./`
 - `vercel.json`에 위 rewrites 설정
-- 프론트 코드에서는 `fetch('/api/...')` — 별도 base URL 불필요
+- 프론트 코드에서는 `fetch('/api/v1/...')` — 별도 base URL 불필요
 
 ---
 
@@ -333,7 +345,7 @@ Settings → Secrets and variables → Actions:
 
 **앱**
 - [ ] Dockerfile + .dockerignore
-- [ ] `docker compose up` 로컬 postgres/minio 확인
+- [ ] `docker compose up` 로컬 postgres 확인
 - [ ] `/actuator/health` permitAll 설정
 - [ ] Flyway 마이그레이션
 - [ ] `application-local.yml` / `application-prod.yml` 분리
@@ -342,14 +354,31 @@ Settings → Secrets and variables → Actions:
 - [ ] GitHub Secrets 2개
 - [ ] `deploy-api.yml` 수동 실행 성공
 - [ ] Vercel Root Directory = `apps/web`
-- [ ] `vercel.json` rewrites에 ALB DNS
-- [ ] 프론트에서 `/api/...` 호출 성공 → **최초 배포(도메인 없는 dev 환경) 완료**
+- [ ] `vercel.json` rewrites destination = `https://api.khuhacker.com`, SPA fallback 위에 위치
+- [ ] 프론트에서 `/api/v1/...` 호출 성공 → **최초 배포 완료**
+
+**배포 직후 30분 동안 알아둘 것**
+
+배포 시점에 이미 로그인해 있던 세션은 **정지·승인이 반영되지 않는다.** 세션을 사용자로 찾으려면 `SPRING_SESSION.PRINCIPAL_NAME`이 채워져 있어야 하는데, 그 값은 로그인할 때 들어간다 ([3-1 §3-1-5](../../spec/3-1-DESIGN-ARCHITECTURE.md)).
+
+- 세션 수명이 30분이라 **그냥 두면 사라진다.** 마이그레이션은 필요 없다.
+- 그 사이에 **급히 정지해야 하는 계정**이 있으면 DB에서 그 사람의 세션을 직접 지운다. 지우면 다음 요청이 `401`이 되어 정지 안내 대신 로그인 화면으로 가지만, 접근은 즉시 끊긴다.
+
+```sql
+-- 급할 때만. 평소에는 관리자 화면의 정지를 쓴다.
+DELETE FROM spring_session WHERE primary_id IN (
+  SELECT session_primary_id FROM spring_session_attributes
+  WHERE attribute_name = 'auth.userId'
+);
+```
+
+위 질의는 **로그인한 세션 전부**를 지운다 — 배포 직후 특정 계정만 골라낼 방법이 없기 때문이다(그래서 이 창이 문제다). 전원이 다시 로그인하면 된다.
 
 **공개 전 (필수)**
 - [ ] 도메인 구매 → ACM 인증서 → ALB 443 리스너
 - [ ] `vercel.json` 프록시 정리
 - [ ] RDS `deletion_protection = true`, `skip_final_snapshot = false`
-- [ ] 그전까지 **실제 부원 계정·비밀번호·시험 자료는 올리지 않기**
+- [ ] 그전까지 **실제 부원 계정·시험 자료는 올리지 않기**
 
 ---
 [← 이전: 인프라](infra.md) · [다음: 런북 →](runbook.md)
