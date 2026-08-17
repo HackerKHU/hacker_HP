@@ -16,7 +16,14 @@ resource "aws_iam_role" "github_actions" {
         StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
         StringLike = {
           # ★ 특정 레포로 제한 — 다른 사람의 레포에서 이 역할을 가져다 쓰지 못하게 한다.
-          "token.actions.githubusercontent.com:sub" = "repo:HackerKHU/hacker_HP:*"
+          #
+          # 조직/레포 "이름"이 아니라 "이름@불변ID" 형식이다. 실제 배포에서
+          # repo:HackerKHU/hacker_HP:*로 걸었다가 AssumeRoleWithWebIdentity가
+          # 전부 AccessDenied로 거부됐다 — CloudTrail에 찍힌 실제 sub 값은
+          # repo:HackerKHU@311740447/hacker_HP@1319201406:ref:refs/heads/develop였다.
+          # GitHub이 레포 이름 변경/재사용으로 sub를 탈취하는 경로를 막으려고
+          # 불변 ID를 포함시킨다. 이름만으로는 더 이상 매치되지 않는다.
+          "token.actions.githubusercontent.com:sub" = "repo:HackerKHU@311740447/hacker_HP@1319201406:*"
         }
       }
     }]
