@@ -38,6 +38,7 @@ function member(overrides: Partial<User> & { id: number; name: string }): User {
   return {
     email: `user${overrides.id}@khu.ac.kr`,
     studentNo: '2021123456',
+    department: '컴퓨터공학과',
     role: 'USER',
     status: 'ACTIVE',
     createdAt: '2026-03-01T09:00:00Z',

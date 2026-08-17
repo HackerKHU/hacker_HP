@@ -1,10 +1,17 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { DEPARTMENTS } from './departments'
 
 /**
  * 신청·대기 화면 (#38).
@@ -23,7 +30,7 @@ const api = vi.hoisted(() => ({
   meError: null as ApiError | null,
   /** `getMe` 호출 횟수. "다시 확인"이 실제로 서버에 물었는지 본다. */
   meCalls: 0,
-  submitted: [] as { studentNo: string; name: string }[],
+  submitted: [] as { studentNo: string; name: string; department: string }[],
   submitError: null as ApiError | null,
 }))
 
@@ -32,6 +39,7 @@ const BASE: User = {
   email: 'applicant@khu.ac.kr',
   studentNo: null,
   name: '구글이름',
+  department: null,
   role: 'USER',
   status: 'PENDING',
   createdAt: '2026-03-02T09:00:00Z',
@@ -64,7 +72,11 @@ vi.mock('@/api/auth', async (importOriginal) => {
       return api.me
     },
     logout: () => Promise.resolve(),
-    submitApplication: async (body: { studentNo: string; name: string }) => {
+    submitApplication: async (body: {
+      studentNo: string
+      name: string
+      department: string
+    }) => {
       await later(null)
       if (api.submitError) throw api.submitError
       api.submitted.push(body)
@@ -108,14 +120,22 @@ function pathname(): string {
 /**
  * 신청 폼을 채운다.
  *
- * **이름도 채워야 한다.** 최초 신청에서는 이름 칸이 비어 있으므로(#132), 학번만 넣고 제출하면
- * 화면이 클라이언트에서 막는다 — 서버 응답을 보려는 케이스가 요청도 못 보내고 통과해 버린다.
+ * **이름도 학과도 채워야 한다.** 최초 신청에서는 이름 칸이 비어 있고(#132) 학과는 아무것도
+ * 고르지 않은 상태다(#165). 하나라도 빠뜨리면 화면이 클라이언트에서 막아, 서버 응답을
+ * 보려는 케이스가 요청도 못 보내고 통과해 버린다.
  */
-async function fillApplication(studentNo: string, name = '홍길동') {
+async function fillApplication(
+  studentNo: string,
+  name = '홍길동',
+  department = '컴퓨터공학과',
+) {
   fireEvent.change(await screen.findByLabelText('학번'), {
     target: { value: studentNo },
   })
   fireEvent.change(screen.getByLabelText('이름'), { target: { value: name } })
+  fireEvent.change(screen.getByLabelText('학과'), {
+    target: { value: department },
+  })
 }
 
 beforeEach(() => {
@@ -225,6 +245,9 @@ describe('신청서 제출', () => {
     fireEvent.change(screen.getByLabelText('이름'), {
       target: { value: '홍길동' },
     })
+    fireEvent.change(screen.getByLabelText('학과'), {
+      target: { value: '인공지능학과' },
+    })
     // 제출 성공 뒤 화면은 서버가 준 값으로 그려진다.
     api.me = APPLIED
     fireEvent.click(screen.getByRole('button', { name: '제출' }))
@@ -232,7 +255,54 @@ describe('신청서 제출', () => {
     expect(
       await screen.findByRole('heading', { name: '승인 대기 중' }),
     ).toBeInTheDocument()
-    expect(api.submitted).toEqual([{ studentNo: '2021123456', name: '홍길동' }])
+    /*
+     * **세 필드를 다 담아야 한다** (spec §3-2-3 MUST). `department`가 빠진 채로 나가면
+     * 서버가 `400 VALIDATION_ERROR`로 막는데, 화면에 고를 자리가 없으면 사용자가 그
+     * 오류를 풀 방법이 없다 — 실제로 그 상태로 배포됐다 (#165).
+     */
+    expect(api.submitted).toEqual([
+      { studentNo: '2021123456', name: '홍길동', department: '인공지능학과' },
+    ])
+  })
+
+  /*
+   * 학과는 목록에서만 고른다 (§3-2-2 MUST). 자유 입력 칸이면 표기가 제각각이 되어 회원
+   * 목록에서 학과로 거르는 것이 무의미해진다.
+   */
+  it('학과는 목록에서 고르고, 서버 목록과 같은 값이다', async () => {
+    renderAt()
+
+    const select = await screen.findByLabelText('학과')
+    expect(select.tagName).toBe('SELECT')
+
+    const options = within(select).getAllByRole('option')
+    // 첫 항목은 "안 고름"이라 목록 길이는 하나 더 많다.
+    expect(options).toHaveLength(DEPARTMENTS.length + 1)
+    expect(options[0]).toHaveValue('')
+    expect(options.slice(1).map((option) => option.textContent)).toEqual([
+      ...DEPARTMENTS,
+    ])
+  })
+
+  /*
+   * 기본값을 첫 항목으로 두면 손대지 않은 사람이 컴퓨터공학과로 저장된다 — 부원 다수의
+   * 소속이라 틀려도 그럴듯해 보여서 아무도 못 잡는다. 안 고르면 막는 편이 낫다.
+   */
+  it('학과를 안 고르면 요청이 나가지 않는다', async () => {
+    renderAt()
+
+    fireEvent.change(await screen.findByLabelText('학번'), {
+      target: { value: '2021123456' },
+    })
+    fireEvent.change(screen.getByLabelText('이름'), {
+      target: { value: '홍길동' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '제출' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '학과를 선택해주세요.',
+    )
+    expect(api.submitted).toEqual([])
   })
 
   // 결정 5 — 낙관적으로 바꾸지 않는다. 서버가 저장했는지 확인된 뒤에 바뀐다.
@@ -277,7 +347,11 @@ describe('신청서 제출', () => {
 
     await waitFor(() => {
       expect(api.submitted).toEqual([
-        { studentNo: 'EX-2021-7', name: '홍길동' },
+        {
+          studentNo: 'EX-2021-7',
+          name: '홍길동',
+          department: '컴퓨터공학과',
+        },
       ])
     })
   })

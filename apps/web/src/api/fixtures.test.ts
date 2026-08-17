@@ -35,7 +35,11 @@ describe('신청 픽스처', () => {
   it('신청서를 내면 이어지는 조회가 제출한 값으로 신청 완료 상태를 돌려준다', async () => {
     const { fixtureApplication, fixtureMe } = await loadFixtures('applying')
 
-    await fixtureApplication({ studentNo: '2024001122', name: '김신입' })
+    await fixtureApplication({
+      studentNo: '2024001122',
+      name: '김신입',
+      department: '컴퓨터공학과',
+    })
     const me = await fixtureMe()
 
     // 이 전환이 없으면 폼을 제출해도 화면이 폼에 머문다.
@@ -49,8 +53,16 @@ describe('신청 픽스처', () => {
   it('다시 제출하면 내용이 갱신된다', async () => {
     const { fixtureApplication, fixtureMe } = await loadFixtures('applying')
 
-    await fixtureApplication({ studentNo: '2024001122', name: '김신입' })
-    await fixtureApplication({ studentNo: '2024003344', name: '김정정' })
+    await fixtureApplication({
+      studentNo: '2024001122',
+      name: '김신입',
+      department: '컴퓨터공학과',
+    })
+    await fixtureApplication({
+      studentNo: '2024003344',
+      name: '김정정',
+      department: '컴퓨터공학과',
+    })
     const me = await fixtureMe()
 
     expect(me.studentNo).toBe('2024003344')
@@ -60,7 +72,11 @@ describe('신청 픽스처', () => {
   it('pending 시나리오의 재제출도 반영된다', async () => {
     const { fixtureApplication, fixtureMe } = await loadFixtures('pending')
 
-    await fixtureApplication({ studentNo: '2024005566', name: '박수정' })
+    await fixtureApplication({
+      studentNo: '2024005566',
+      name: '박수정',
+      department: '컴퓨터공학과',
+    })
     const me = await fixtureMe()
 
     expect(me.studentNo).toBe('2024005566')
@@ -77,9 +93,11 @@ describe('신청 픽스처', () => {
       const { fixtureApplication, fixtureMe, ApiError } =
         await loadFixtures('applying')
 
-      const error = await fixtureApplication({ studentNo, name }).catch(
-        (caught: unknown) => caught,
-      )
+      const error = await fixtureApplication({
+        studentNo,
+        name,
+        department: '컴퓨터공학과',
+      }).catch((caught: unknown) => caught)
 
       expect(error).toBeInstanceOf(ApiError)
       expect((error as InstanceType<typeof ApiError>).code).toBe(
@@ -99,6 +117,7 @@ describe('신청 픽스처', () => {
       const error = await fixtureApplication({
         studentNo: '2024001122',
         name: '김신입',
+        department: '컴퓨터공학과',
       }).catch((caught: unknown) => caught)
 
       expect(error).toBeInstanceOf(ApiError)
@@ -151,6 +170,7 @@ describe('신청 픽스처', () => {
     const error = await fixtureApplication({
       studentNo: taken.studentNo,
       name: '김신입',
+      department: '컴퓨터공학과',
     }).catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(ApiError)
@@ -162,7 +182,11 @@ describe('신청 픽스처', () => {
   it('쓰이지 않는 학번은 통과한다', async () => {
     const { fixtureApplication, fixtureMe } = await loadFixtures('applying')
 
-    await fixtureApplication({ studentNo: '9999999999', name: '김신입' })
+    await fixtureApplication({
+      studentNo: '9999999999',
+      name: '김신입',
+      department: '컴퓨터공학과',
+    })
 
     const me = await fixtureMe()
     expect(me.studentNo).toBe('9999999999')
@@ -176,9 +200,11 @@ describe('신청 픽스처', () => {
   ])('%s이면 VALIDATION_ERROR로 거부한다', async (_label, studentNo, name) => {
     const { fixtureApplication, ApiError } = await loadFixtures('applying')
 
-    const error = await fixtureApplication({ studentNo, name }).catch(
-      (caught: unknown) => caught,
-    )
+    const error = await fixtureApplication({
+      studentNo,
+      name,
+      department: '컴퓨터공학과',
+    }).catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(ApiError)
     expect((error as InstanceType<typeof ApiError>).code).toBe(
@@ -195,6 +221,7 @@ describe('신청 픽스처', () => {
       const error = await fixtureApplication({
         studentNo: '9999999999',
         name: '김신입',
+        department: '컴퓨터공학과',
       }).catch((caught: unknown) => caught)
 
       expect(error).toBeInstanceOf(ApiError)
