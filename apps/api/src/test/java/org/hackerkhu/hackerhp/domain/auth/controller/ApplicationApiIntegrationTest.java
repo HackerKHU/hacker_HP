@@ -61,8 +61,16 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
         .content(body);
   }
 
+  /** 학과를 특정하지 않는 테스트가 쓰는 기본값. {@code Department.ALL}에 있는 값이면 무엇이든 된다. */
+  private static final String DEFAULT_DEPARTMENT = "컴퓨터공학과";
+
   private static String body(String studentNo, String name) {
-    return "{\"studentNo\":\"%s\",\"name\":\"%s\"}".formatted(studentNo, name);
+    return body(studentNo, name, DEFAULT_DEPARTMENT);
+  }
+
+  private static String body(String studentNo, String name, String department) {
+    return "{\"studentNo\":\"%s\",\"name\":\"%s\",\"department\":\"%s\"}"
+        .formatted(studentNo, name, department);
   }
 
   private User reload() {
@@ -76,6 +84,7 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
     User saved = reload();
     assertThat(saved.getStudentNo()).isEqualTo("20240001");
     assertThat(saved.getName()).isEqualTo("본명");
+    assertThat(saved.getDepartment()).isEqualTo(DEFAULT_DEPARTMENT);
     // applied_at이 있는 것이 곧 "신청했다"는 뜻이다 — 승인 대상이 되는 기준이다 (§3-2-2).
     assertThat(saved.getAppliedAt()).isNotNull();
   }
@@ -139,8 +148,9 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   @ParameterizedTest(name = "[{index}] {0}")
   @ValueSource(
       strings = {
-        "{\"studentNo\":\"  \",\"name\":\"본명\"}",
-        "{\"studentNo\":\"20240001\",\"name\":\"   \"}"
+        "{\"studentNo\":\"  \",\"name\":\"본명\",\"department\":\"컴퓨터공학과\"}",
+        "{\"studentNo\":\"20240001\",\"name\":\"   \",\"department\":\"컴퓨터공학과\"}",
+        "{\"studentNo\":\"20240001\",\"name\":\"본명\",\"department\":\"   \"}"
       })
   void blankValuesAreRejectedWithoutRecordingApplication(String blankBody) throws Exception {
     mockMvc
@@ -150,6 +160,21 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
 
     assertThat(reload().getAppliedAt()).isNull();
     assertThat(reload().getStudentNo()).isNull();
+  }
+
+  /*
+   * T-181 — 학과는 정해진 목록에 있는 값만 받는다 (spec 3-2 §3-2-2, §3-2-3 MUST). 자유 입력을 허용하면
+   * 회원 목록에서 학과로 걸러보는 것이 무의미해진다.
+   */
+  @Test
+  void departmentNotInTheFixedListIsRejected() throws Exception {
+    mockMvc
+        .perform(submit(applicant, body("20240001", "본명", "존재하지않는학과")))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+    assertThat(reload().getAppliedAt()).isNull();
+    assertThat(reload().getDepartment()).isNull();
   }
 
   /* T-24 — 한 학번으로 여러 계정을 만들 수 없다. 화면은 이 코드로 무엇을 고쳐야 하는지 안다. */
@@ -194,7 +219,7 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
     mockMvc.perform(submit(active, "{\"studentNo\":")).andExpect(status().isForbidden());
   }
 
-  /* 길이는 컬럼과 맞춘다 — student_no varchar(20), name varchar(50) (§3-2-2). */
+  /* 길이는 컬럼과 맞춘다 — student_no varchar(20), name varchar(50), department varchar(50) (§3-2-2). */
   @Test
   void valuesLongerThanTheColumnAreRejected() throws Exception {
     mockMvc
@@ -204,6 +229,11 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
 
     mockMvc
         .perform(submit(applicant, body("20240001", "가".repeat(51))))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+    mockMvc
+        .perform(submit(applicant, body("20240001", "본명", "가".repeat(51))))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
@@ -266,7 +296,7 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
 
   private void approve() {
     User user = reload();
-    user.submitApplication("20240001", "본명");
+    user.submitApplication("20240001", "본명", DEFAULT_DEPARTMENT);
     user.approve();
     userRepository.saveAndFlush(user);
   }

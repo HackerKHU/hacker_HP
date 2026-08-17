@@ -43,7 +43,7 @@ class UserApplicationServiceTest {
         .when(userRepository)
         .flush();
 
-    assertThatThrownBy(() -> service.submit(1L, "20240001", "이름"))
+    assertThatThrownBy(() -> service.submit(1L, "20240001", "이름", "컴퓨터공학과"))
         .isInstanceOf(BusinessException.class)
         .hasMessageContaining("학번");
   }
@@ -58,6 +58,6 @@ class UserApplicationServiceTest {
             new RuntimeException("ERROR: value too long for type character varying(20)"));
     doThrow(unrelated).when(userRepository).flush();
 
-    assertThatThrownBy(() -> service.submit(1L, "20240001", "이름")).isSameAs(unrelated);
+    assertThatThrownBy(() -> service.submit(1L, "20240001", "이름", "컴퓨터공학과")).isSameAs(unrelated);
   }
 }

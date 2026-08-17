@@ -73,7 +73,7 @@ class AdminUserListIntegrationTest extends AbstractIntegrationTest {
     alice = save(Accounts.approved("sub-alice", "alice@khu.ac.kr", "20240101", "김가나"), 3);
 
     User bob = User.createFromGoogle("sub-bob", "BOB@khu.ac.kr", "구글이름");
-    bob.submitApplication("20240102", "박다라");
+    bob.submitApplication("20240102", "박다라", "컴퓨터공학과");
     save(bob, 1);
 
     // 구글 로그인만 해보고 신청서를 내지 않았다. 학번이 없다.
@@ -148,7 +148,7 @@ class AdminUserListIntegrationTest extends AbstractIntegrationTest {
 
   /* ---------------------------------------------------------------- 응답 */
 
-  /** 표시 항목은 2-2 §2-2-1이 원본이다 — 이름, 학번, 이메일, Role, Status, 가입 신청일, 승인일. */
+  /** 표시 항목은 2-2 §2-2-1이 원본이다 — 이름, 학번, 학과, 이메일, Role, Status, 가입 신청일, 승인일 (T-182). */
   @Test
   void rowCarriesEveryColumnTheScreenShows() throws Exception {
     mockMvc
@@ -157,6 +157,7 @@ class AdminUserListIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.content[0].id").value(alice.getId()))
         .andExpect(jsonPath("$.content[0].name").value("김가나"))
         .andExpect(jsonPath("$.content[0].studentNo").value("20240101"))
+        .andExpect(jsonPath("$.content[0].department").value("컴퓨터공학과"))
         .andExpect(jsonPath("$.content[0].email").value("alice@khu.ac.kr"))
         .andExpect(jsonPath("$.content[0].role").value("USER"))
         .andExpect(jsonPath("$.content[0].status").value("ACTIVE"))

@@ -115,7 +115,7 @@ class AccountStatusAccessIntegrationTest extends AbstractIntegrationTest {
         .perform(
             Csrf.with(sessions.as(pending, post("/api/v1/auth/application")))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"studentNo\":\"20249999\",\"name\":\"본명\"}"))
+                .content("{\"studentNo\":\"20249999\",\"name\":\"본명\",\"department\":\"컴퓨터공학과\"}"))
         .andExpect(status().isNoContent());
   }
 
@@ -132,7 +132,7 @@ class AccountStatusAccessIntegrationTest extends AbstractIntegrationTest {
         .perform(
             Csrf.with(sessions.as(suspended, post("/api/v1/auth/application")))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"studentNo\":\"20249998\",\"name\":\"본명\"}"))
+                .content("{\"studentNo\":\"20249998\",\"name\":\"본명\",\"department\":\"컴퓨터공학과\"}"))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("SUSPENDED"));
   }

@@ -37,6 +37,9 @@ public class User {
   @Column(nullable = false)
   private String name;
 
+  /** 정해진 목록({@link Department#ALL})에서만 고른다. 신청서 제출 전이거나 이 필드가 생기기 전 승인된 회원은 비어 있다. */
+  @Column private String department;
+
   @Enumerated(EnumType.STRING)
   @Column(nullable = false)
   private Role role;
@@ -87,19 +90,27 @@ public class User {
   }
 
   /**
-   * ② 신청서 제출. 승인 심사에 필요한 학번과 이름을 받는다 — §3-1-4.
+   * ② 신청서 제출. 승인 심사에 필요한 학번·이름·학과를 받는다 — §3-1-4.
    *
    * <p>승인 전까지 다시 제출해 고칠 수 있다. <b>ACTIVE는 이 경로로 학번을 바꿀 수 없다</b> — 관리자가 심사한 내용과 저장된 내용이 달라진다.
+   *
+   * <p>{@code department}가 {@link Department#ALL}에 없으면 거부한다 — 자유 입력을 허용하면 회원 목록에서 학과로 걸러보는 것이
+   * 무의미해진다 (spec 3-2 §3-2-2).
    */
-  public void submitApplication(String studentNo, String name) {
+  public void submitApplication(String studentNo, String name, String department) {
     if (this.status != Status.PENDING) {
       throw new IllegalStateException("PENDING 상태에서만 신청서를 낼 수 있습니다: " + this.status);
     }
     String trimmedStudentNo = requireNotBlank(studentNo, "학번");
     String trimmedName = requireNotBlank(name, "이름");
+    String trimmedDepartment = requireNotBlank(department, "학과");
+    if (!Department.isValid(trimmedDepartment)) {
+      throw new IllegalArgumentException("존재하지 않는 학과입니다: " + trimmedDepartment);
+    }
 
     this.studentNo = trimmedStudentNo;
     this.name = trimmedName;
+    this.department = trimmedDepartment;
     this.appliedAt = Instant.now();
   }
 
@@ -182,6 +193,10 @@ public class User {
 
   public String getName() {
     return name;
+  }
+
+  public String getDepartment() {
+    return department;
   }
 
   public Role getRole() {

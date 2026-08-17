@@ -33,7 +33,7 @@ class UserConcurrencyIntegrationTest extends AbstractIntegrationTest {
         inTransaction(
             em -> {
               User user = User.createFromGoogle("google-sub-race", "race@khu.ac.kr", "구글이름");
-              user.submitApplication("20240001", "본명");
+              user.submitApplication("20240001", "본명", "컴퓨터공학과");
               em.persist(user);
               return user.getId();
             });
@@ -53,7 +53,7 @@ class UserConcurrencyIntegrationTest extends AbstractIntegrationTest {
       approving.getTransaction().commit();
 
       // 신청 트랜잭션은 자기가 읽어둔 PENDING만 보므로 이 호출 자체는 통과한다.
-      toApply.submitApplication("99999999", "덮어쓴이름");
+      toApply.submitApplication("99999999", "덮어쓴이름", "컴퓨터공학과");
 
       assertThatThrownBy(() -> applying.getTransaction().commit())
           .as("승인이 먼저 커밋됐으므로 신청 트랜잭션은 실패해야 한다")

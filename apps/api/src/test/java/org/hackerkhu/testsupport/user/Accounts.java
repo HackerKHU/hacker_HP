@@ -15,6 +15,9 @@ public final class Accounts {
   /** 구글이 주는 표시 이름. 신청서의 본명과 다를 수 있다는 것이 이 값의 요점이다. */
   private static final String GOOGLE_NAME = "구글이름";
 
+  /** 학과를 특정하지 않는 테스트가 쓰는 기본값. Department.ALL에 있는 값이면 무엇이든 된다. */
+  private static final String DEFAULT_DEPARTMENT = "컴퓨터공학과";
+
   private Accounts() {}
 
   /**
@@ -32,8 +35,13 @@ public final class Accounts {
   }
 
   public static User applied(String googleSub, String email, String studentNo, String name) {
+    return applied(googleSub, email, studentNo, name, DEFAULT_DEPARTMENT);
+  }
+
+  public static User applied(
+      String googleSub, String email, String studentNo, String name, String department) {
     User user = signedIn(googleSub, email);
-    user.submitApplication(studentNo, name);
+    user.submitApplication(studentNo, name, department);
     return user;
   }
 
