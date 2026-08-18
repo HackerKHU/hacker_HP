@@ -60,7 +60,10 @@ curl http://$(terraform output -raw alb_dns_name)/actuator/health
 | GHA OIDC 인증 실패 | `permissions: id-token: write` 누락 또는 `sub` 조건 불일치 |
 | terraform이 CI 배포를 롤백 | `ignore_changes = [task_definition]` 누락 |
 | presigned 업로드 CORS 에러 | S3 `allowed_origins`에 localhost/Vercel 도메인 누락 |
-| Vercel에서 API 호출 실패 | `vercel.json` destination이 ALB DNS와 불일치 |
+| Vercel에서 API 호출 실패 | `vercel.json`의 `/api/*` rewrite가 없거나 SPA fallback **아래**에 있다 — fallback이 API 요청까지 `index.html`로 삼킨다. destination은 `https://api.khuhacker.com` ([deployment.md](deployment.md)) |
+| develop에 머지했는데 운영이 안 바뀜 | **Vercel Production Branch는 `main`이다.** develop push는 Preview만 만든다. `release/vX.Y.Z → main`을 태워야 운영에 나간다 ([CONTRIBUTING.md](../../CONTRIBUTING.md)) |
+| main 머지 후 Vercel Production 배포가 안 걸림 | GitHub 장애(webhook 유실)일 수 있다. 대시보드 상단 배너 확인 → 해당 커밋의 빌드를 `Promote to Production`으로 수동 승격 (2026-08-17 실제 사례 — 빌드 결과물은 커밋이 같으면 동일하다) |
+| main 머지에 API 배포가 안 돎 | `deploy-api.yml`은 `apps/api/**` 변경일 때만 트리거된다. 웹만 바뀐 릴리스면 안 도는 게 정상이다 |
 | 태스크가 가끔 재시작 | Fargate Spot 회수. 정상 동작 ([결정 3](../../spec/3-3-DESIGN-DECISIONS.md)) |
 | 첫 가입자가 계속 `PENDING` | 최초 관리자 승격을 안 했다. 아래 절차를 밟는다 |
 | 관리자가 전부 사라짐 | 아래 절차로 복구한다 ([2-2 §2-2-7](../../spec/2-2-OPERATOR-REQUIREMENTS.md)) |
@@ -78,12 +81,23 @@ curl http://$(terraform output -raw alb_dns_name)/actuator/health
 3. 본문 토큰 == `ADMIN_BOOTSTRAP_TOKEN`
 4. **신청서 제출 완료** — 구글 로그인만으로는 안 된다
 
+`403`이 나오면 사유는 응답이 아니라 로그에 있다:
+
+```bash
+aws logs filter-log-events --log-group-name /ecs/hacker-api \
+  --filter-pattern "승격 거절" --region ap-northeast-2 \
+  --query 'events[].message' --output text
+```
+
+> **"이메일이 설정값과 다르다"가 뜨면** SSM `/hacker/dev/ADMIN_BOOTSTRAP_EMAIL`을 의심한다. `terraform.tfvars.example`의 기본값(`admin@khu.ac.kr`)이 그대로 apply된 사례가 있다 (2026-08-18, #169). 고치는 곳은 `terraform.tfvars`이고, **콘솔에서 값만 바꾸면 다음 apply가 되돌린다.** 바꾼 뒤에는 ECS 강제 재배포까지 해야 반영된다 — SSM 값은 컨테이너가 시작할 때만 읽는다.
+
 **① 정상 가입을 마친다.** 구글로 로그인하고 **신청 폼까지 제출한다.** 4번 조건이라 건너뛰면 승격되지 않는다.
 
 **② 토큰을 조회한다.**
 
 ```bash
-aws ssm get-parameter --name /hacker/dev/ADMIN_BOOTSTRAP_TOKEN   --with-decryption --query Parameter.Value --output text
+aws ssm get-parameter --name /hacker/dev/ADMIN_BOOTSTRAP_TOKEN \
+  --with-decryption --region ap-northeast-2 --query Parameter.Value --output text
 ```
 
 > 파라미터 이름은 [infra.md](infra.md)의 `ssm.tf`가 원본이다. 환경이 늘면 그 경로도 함께 바뀐다.
