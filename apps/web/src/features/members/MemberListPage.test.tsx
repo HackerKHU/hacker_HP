@@ -66,6 +66,8 @@ const MEMBERS: User[] = [
     approvedAt: null,
   }),
   member({ id: 4, name: '활동회원', status: 'ACTIVE' }),
+  // 학과 필드가 생기기 **전에** 승인된 회원 — 신청은 했지만 department가 없다 (§3-2-2).
+  member({ id: 7, name: '이전승인', status: 'ACTIVE', department: null }),
   member({ id: 5, name: '정지회원', status: 'SUSPENDED' }),
   /*
    * **로그인한 관리자 본인.** 자기 정지(2-2 §2-2-7)를 확인하려면 명단에 본인이 있어야
@@ -315,8 +317,11 @@ describe('승인 대상', () => {
       within(row('신청한하나')).getByRole('cell', { name: '컴퓨터공학과' }),
     ).toBeInTheDocument()
 
-    const cells = within(row('미신청')).getAllByRole('cell')
-    expect(cells[3]).toHaveTextContent('—')
+    // T-186의 양쪽 — 신청 전 계정과, 필드가 생기기 전에 승인된 기존 회원.
+    for (const name of ['미신청', '이전승인']) {
+      const cells = within(row(name)).getAllByRole('cell')
+      expect(cells[3]).toHaveTextContent('—')
+    }
   })
 
   it('신청서를 낸 PENDING은 선택할 수 있다', async () => {
