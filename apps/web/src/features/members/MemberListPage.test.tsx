@@ -60,6 +60,8 @@ const MEMBERS: User[] = [
     name: '미신청',
     status: 'PENDING',
     studentNo: null,
+    // 학과도 신청서에서 온다 — 안 냈으면 학번처럼 비어 있다 (§3-2-2).
+    department: null,
     appliedAt: null,
     approvedAt: null,
   }),
@@ -295,9 +297,26 @@ describe('승인 대상', () => {
     await loaded()
 
     const cells = within(row('신청한하나')).getAllByRole('cell')
-    // 0 체크박스, 1 이름, 2 학번, 3 이메일, 4 권한, 5 상태, 6 가입 신청일, 7 승인일
-    expect(cells[6]).toHaveTextContent('2026. 03. 02.')
-    expect(cells[6]).not.toHaveTextContent('2026. 03. 01.')
+    // 0 체크박스, 1 이름, 2 학번, 3 학과, 4 이메일, 5 권한, 6 상태, 7 가입 신청일, 8 승인일
+    expect(cells[7]).toHaveTextContent('2026. 03. 02.')
+    expect(cells[7]).not.toHaveTextContent('2026. 03. 01.')
+  })
+
+  /*
+   * T-186 — 학과 칸은 `department`를 그린다 (2-2 §2-2-1). 이 필드가 생기기 전에
+   * 승인된 회원과 신청 전 계정은 값이 없으므로 `—`다 — 빈 것이지 오류가 아니다.
+   * 관리자가 승인 심사에서 실제로 참고하는 값이라(#100) 목록에서 바로 보여야 한다.
+   */
+  it('학과 칸에 department가 나오고 없으면 —다', async () => {
+    renderAt()
+    await loaded()
+
+    expect(
+      within(row('신청한하나')).getByRole('cell', { name: '컴퓨터공학과' }),
+    ).toBeInTheDocument()
+
+    const cells = within(row('미신청')).getAllByRole('cell')
+    expect(cells[3]).toHaveTextContent('—')
   })
 
   it('신청서를 낸 PENDING은 선택할 수 있다', async () => {

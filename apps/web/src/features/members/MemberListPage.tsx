@@ -617,6 +617,7 @@ export function MemberListPage() {
                 </TableHead>
                 <TableHead>이름</TableHead>
                 <TableHead>학번</TableHead>
+                <TableHead>학과</TableHead>
                 <TableHead>이메일</TableHead>
                 <TableHead>권한</TableHead>
                 <TableHead>상태</TableHead>
@@ -642,6 +643,11 @@ export function MemberListPage() {
                     </TableCell>
                     <TableCell className="font-medium">{user.name}</TableCell>
                     <TableCell>{user.studentNo ?? '—'}</TableCell>
+                    {/*
+                     * 학과 필드가 생기기 전에 승인된 회원과 신청 전 계정은 값이 없다
+                     * (§3-2-2 — 일괄로 채우지 않는다). 학번과 같은 방식으로 —를 그린다.
+                     */}
+                    <TableCell>{user.department ?? '—'}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {user.email}
                     </TableCell>
