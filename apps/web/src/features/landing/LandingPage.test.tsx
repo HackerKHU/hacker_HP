@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
+import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
 import { CLUB, FAQS } from './content'
@@ -139,9 +140,9 @@ describe('공개 랜딩', () => {
     renderLanding()
 
     const link = await screen.findByRole('link', { name: '후원 문의하기' })
-    expect(link).toHaveAttribute(
-      'href',
-      expect.stringContaining('mailto:hacker19870101@gmail.com'),
+    // 부분 일치로 보면 주소 뒤에 뭐가 붙어도 통과한다. 주소 자체를 못박는다.
+    expect(link.getAttribute('href')).toMatch(
+      /^mailto:hacker19870101@gmail\.com(\?|$)/,
     )
     expect(screen.queryByRole('button', { name: '후원 문의하기' })).toBeNull()
   })
@@ -159,6 +160,23 @@ describe('공개 랜딩', () => {
   })
 })
 describe('랜딩 헤더 상태별 진입점', () => {
+  /*
+   * 정지된 계정에는 지원하기를 보이지 않는다 (#194 검수). 그 계정은 로그인이 막혀 있어
+   * 눌러도 정지 안내만 뜬다 — 목적을 못 이루는 CTA를 강조색으로 두면 거짓말이 된다.
+   */
+  it('정지된 계정에는 지원하기가 없고 로그인만 남는다', async () => {
+    auth.me = () =>
+      Promise.reject(new ApiError('SUSPENDED', 403, '정지된 계정입니다.'))
+
+    renderLanding()
+
+    expect(
+      await screen.findByRole('link', { name: '로그인' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '지원하기' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '지원하기' })).toBeNull()
+  })
+
   it('비로그인에게는 지원하기와 로그인만 보인다', async () => {
     auth.me = () => Promise.reject(new Error('비로그인'))
 

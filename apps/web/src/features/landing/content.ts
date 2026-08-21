@@ -228,16 +228,6 @@ export const SUPPORT = {
   subject: '후원 문의',
 } as const
 
-/**
- * 아직 채워지지 않은 자리표시자인지.
- *
- * 값이 비어 있는데 링크를 살려두면 눌러서 `example.com`으로 나간다. 자리표시자 표시가
- * 아니라 **고장난 링크**이므로, 화면은 이 값을 보고 버튼을 잠근다.
- */
-export function isPlaceholder(value: string): boolean {
-  return value.includes('TODO')
-}
-
 /** 헤더와 푸터가 같이 쓰는 목록. 순서가 곧 화면 순서다. */
 export const SECTIONS = [
   { id: 'about', label: '소개' },

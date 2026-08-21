@@ -99,9 +99,16 @@ export function PublicHeader() {
                  * 자기 자리를 못 찾는다. 강조(흰색)를 준 것도 랜딩을 처음 보는 사람이
                  * 대부분이기 때문이다.
                  */}
-                <Button asChild size="sm">
-                  <Link to="/login">지원하기</Link>
-                </Button>
+                {/*
+                 * **정지된 계정에는 지원하기를 보이지 않는다.** 그 계정은 로그인 자체가
+                 * 막혀 있어 눌러도 정지 안내만 뜬다 — 목적을 못 이루는 CTA를 강조색으로
+                 * 두면 "여기를 누르면 된다"는 거짓말이 된다. 옆의 로그인과 목적지도 겹친다.
+                 */}
+                {session.state.kind === 'guest' && (
+                  <Button asChild size="sm">
+                    <Link to="/login">지원하기</Link>
+                  </Button>
+                )}
                 <Button asChild variant="outline" size="sm">
                   <Link to="/login">로그인</Link>
                 </Button>
