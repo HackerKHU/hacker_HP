@@ -1,5 +1,6 @@
 package org.hackerkhu.hackerhp.domain.user.service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -55,7 +56,8 @@ public class AdminUserApprovalService {
    * 요청이 상한을 그냥 통과한다. 거르지 않고 두면 응답의 건수가 부풀려진다 — 화면은 배열 길이를 그대로 "N명을 승인했습니다"로 읽는다.
    */
   public ApproveResponse approve(Long requesterId, List<Long> userIds) {
-    ApproveResponse result = transaction.execute(ignored -> apply(requesterId, userIds));
+    Approved applied = transaction.execute(ignored -> apply(requesterId, userIds));
+    ApproveResponse result = applied.response();
 
     /*
      * 세션 반영은 커밋 뒤다 (3-1 §3-1-5). 승인된 회원이 세션 만료까지 403 PENDING_APPROVAL에
@@ -69,11 +71,19 @@ public class AdminUserApprovalService {
      *
      * 실패한 건은 남기지 않는다 — 아무것도 바뀌지 않았기 때문이다.
      */
-    recorder.record(requesterId, result.approved(), AdminAction.APPROVE);
+    recorder.record(requesterId, result.approved(), AdminAction.APPROVE, applied.occurredAt());
     return result;
   }
 
-  private ApproveResponse apply(Long requesterId, List<Long> userIds) {
+  /**
+   * 승인이 <b>일어난 때</b>를 함께 돌려준다.
+   *
+   * <p>이력을 남기는 시점에 잡으면 커밋과 세션 반영이 끝난 뒤라 실제 조작 순서와 어긋날 수 있다 — 같은 회원을 다른 관리자가 곧이어 정지시키면 정지가 승인보다 앞선
+   * 것으로 남는다. 계정 행을 잠근 채 잡아 그 잠금이 순서를 세우게 한다.
+   */
+  private record Approved(ApproveResponse response, Instant occurredAt) {}
+
+  private Approved apply(Long requesterId, List<Long> userIds) {
     List<Long> approved = new ArrayList<>();
     List<Failure> failed = new ArrayList<>();
 
@@ -114,7 +124,11 @@ public class AdminUserApprovalService {
       approved.add(userId);
     }
 
-    log.info("가입 승인: 성공 {}건, 실패 {}건 {}", approved.size(), failed.size(), failed);
-    return new ApproveResponse(approved, failed);
+    /*
+     * 승인된 id를 함께 남긴다. 이력 저장이 실패하면 이 로그가 "누가 누구를 승인했나"의
+     * 마지막 단서인데, 건수만으로는 누구인지 알 수 없어 보정할 수도 없다.
+     */
+    log.info("가입 승인: 성공 {}건 {}, 실패 {}건 {}", approved.size(), approved, failed.size(), failed);
+    return new Approved(new ApproveResponse(approved, failed), Instant.now());
   }
 }

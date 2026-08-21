@@ -1,5 +1,6 @@
 package org.hackerkhu.hackerhp.domain.user.service;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -67,8 +68,9 @@ public class AdminBootstrapService {
    * 채울 방법이 영영 없어진다</b> (T-20).
    */
   public void promote(Long requesterId, String token) {
-    boolean[] promoted = {false};
-    transaction.executeWithoutResult(ignored -> promoted[0] = apply(requesterId, token));
+    // 승격이 일어난 때. 잠근 채 잡은 값이라 뒤이은 조작보다 반드시 앞선다 (#143 리뷰).
+    Instant[] promotedAt = {null};
+    transaction.executeWithoutResult(ignored -> promotedAt[0] = apply(requesterId, token));
     /*
      * 승격은 role·status를 바꾼다. 반영하지 않으면 본인이 재로그인해야 관리자 화면이 열린다.
      *
@@ -84,12 +86,15 @@ public class AdminBootstrapService {
      * 이미 승격된 계정의 재요청은 남기지 않는다. 아무것도 바뀌지 않았다.
      * 토큰은 넣지 않는다 — 시크릿이다.
      */
-    if (promoted[0]) {
-      recorder.record(requesterId, requesterId, AdminAction.PROMOTE_ADMIN);
+    if (promotedAt[0] != null) {
+      recorder.record(requesterId, requesterId, AdminAction.PROMOTE_ADMIN, promotedAt[0]);
     }
   }
 
-  private boolean apply(Long requesterId, String token) {
+  /**
+   * @return 승격했으면 그 시각. 아무것도 바꾸지 않았으면 {@code null}
+   */
+  private Instant apply(Long requesterId, String token) {
     if (!bootstrap.configured()) {
       // 설정이 없으면 이 경로는 닫힌다. 응답은 다른 거절과 같아 설정 여부조차 드러나지 않는다.
       reject(requesterId, "부트스트랩 설정이 없다");
@@ -149,7 +154,7 @@ public class AdminBootstrapService {
      */
     if (requester.getRole() == Role.ADMIN && requester.getStatus() == Status.ACTIVE) {
       log.info("이미 승격된 계정의 재요청 — 세션만 다시 맞춘다: userId={}", requesterId);
-      return false;
+      return null;
     }
 
     if (userRepository.countByRoleAndStatus(Role.ADMIN, Status.ACTIVE) > 0) {
@@ -166,7 +171,7 @@ public class AdminBootstrapService {
     requester.promoteToAdmin();
 
     log.warn("최초 관리자 승격: userId={} email={} — 활성 관리자가 0명이었다", requesterId, requester.getEmail());
-    return true;
+    return Instant.now();
   }
 
   private void requireCredentials(Long requesterId, String email, String token) {

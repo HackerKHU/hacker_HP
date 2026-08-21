@@ -20,6 +20,9 @@ import java.time.Instant;
  * <p>그래서 여기서 꺼낼 수 있는 것은 <b>숫자 id뿐이다.</b> 이름·이메일은 계정을 지운 뒤에도 남기지 않는다 (2-2 §2-2-4).
  *
  * <p>고쳐 쓰지 않는다. 이력은 <b>일어난 일</b>이라 나중에 달라질 수 없다.
+ *
+ * <p><b>시각을 받아서 담는다.</b> 여기서 {@code Instant.now()}를 부르면 조작이 아니라 <b>기록이 일어난 때</b>가 남는다 — 기록은 커밋과 세션
+ * 반영까지 끝난 뒤라, 같은 회원을 두 관리자가 잇따라 건드리면 <b>실제와 반대 순서로 남을 수 있다.</b>
  */
 @Entity
 @Table(name = "admin_actions")
@@ -51,8 +54,13 @@ public class AdminActionLog {
     this.createdAt = createdAt;
   }
 
-  public static AdminActionLog of(Long actorId, Long targetId, AdminAction action) {
-    return new AdminActionLog(actorId, targetId, action, Instant.now());
+  /**
+   * @param occurredAt <b>조작이 일어난 때.</b> 계정 행을 잠근 채 잡은 값이어야 한다 — 그 잠금이 같은 대상에 대한 순서를 세워 주므로, 나중에 잠근
+   *     조작은 반드시 더 나중 시각을 갖는다
+   */
+  public static AdminActionLog of(
+      Long actorId, Long targetId, AdminAction action, Instant occurredAt) {
+    return new AdminActionLog(actorId, targetId, action, occurredAt);
   }
 
   public Long getId() {

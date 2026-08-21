@@ -1,5 +1,6 @@
 package org.hackerkhu.hackerhp.domain.audit.service;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import org.hackerkhu.hackerhp.domain.audit.entity.AdminAction;
@@ -36,16 +37,19 @@ public class AdminActionRecorder {
     this.transaction = new TransactionTemplate(transactionManager);
   }
 
-  public void record(Long actorId, Long targetId, AdminAction action) {
-    record(actorId, List.of(targetId), action);
+  public void record(Long actorId, Long targetId, AdminAction action, Instant occurredAt) {
+    record(actorId, List.of(targetId), action, occurredAt);
   }
 
   /**
    * <b>대상마다 한 행을 남긴다.</b> 일괄 승인을 한 행으로 뭉치면 "이 사람이 언제 승인됐나"를 물을 수 없다 — 이력의 주된 질문이 그것이다.
    *
    * @param actorId 조작한 관리자. 대상이 비었으면 아무것도 남기지 않는다
+   * @param occurredAt <b>조작이 일어난 때.</b> 여기서 잡지 않는다 — 이 메서드는 커밋과 세션 반영이 끝난 뒤에 불리므로, 여기서 잡은 시각은 조작
+   *     순서와 어긋날 수 있다 ({@link AdminActionLog#of})
    */
-  public void record(Long actorId, Collection<Long> targetIds, AdminAction action) {
+  public void record(
+      Long actorId, Collection<Long> targetIds, AdminAction action, Instant occurredAt) {
     if (targetIds.isEmpty()) {
       return;
     }
@@ -57,20 +61,28 @@ public class AdminActionRecorder {
       throw new IllegalStateException("조작 이력은 변경이 커밋된 뒤에 남겨야 한다 (spec 2-2 §2-2-7).");
     }
 
+    List<Long> targets = targetIds.stream().distinct().sorted().toList();
     List<AdminActionLog> entries =
-        targetIds.stream()
-            .distinct()
-            .sorted()
-            .map(targetId -> AdminActionLog.of(actorId, targetId, action))
+        targets.stream()
+            .map(targetId -> AdminActionLog.of(actorId, targetId, action, occurredAt))
             .toList();
     try {
       transaction.executeWithoutResult(ignored -> logs.saveAll(entries));
     } catch (RuntimeException e) {
       /*
        * 삼키되 조용히 넘기지 않는다. 이력이 비면 "누가 누구를 정지했나"에 답할 수 없게 되므로
-       * 그 사실 자체가 운영 정보다. 로그에는 남으니 최후의 근거는 아직 있다.
+       * 그 사실 자체가 운영 정보다.
+       *
+       * 대상 id를 반드시 남긴다. 저장이 실패하면 이 로그가 남은 유일한 단서이고, 누구에게
+       * 일어난 일인지 없으면 나중에 보정할 수도 없다.
        */
-      log.error("조작 이력을 남기지 못했다: actorId={} action={} 대상 {}건", actorId, action, entries.size(), e);
+      log.error(
+          "조작 이력을 남기지 못했다: actorId={} action={} occurredAt={} targetIds={}",
+          actorId,
+          action,
+          occurredAt,
+          targets,
+          e);
     }
   }
 }

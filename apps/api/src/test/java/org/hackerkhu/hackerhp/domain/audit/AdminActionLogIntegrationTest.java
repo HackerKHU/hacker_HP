@@ -3,6 +3,7 @@ package org.hackerkhu.hackerhp.domain.audit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Instant;
 import java.util.List;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.audit.entity.AdminAction;
@@ -117,9 +118,16 @@ class AdminActionLogIntegrationTest extends AbstractIntegrationTest {
     statusService.change(admin.getId(), member.getId(), Target.SUSPENDED);
     statusService.change(admin.getId(), member.getId(), Target.ACTIVE);
 
-    assertThat(historyOf(member))
+    List<AdminActionLog> history = historyOf(member);
+    assertThat(history)
         .extracting(AdminActionLog::getAction)
         .containsExactly(AdminAction.SUSPEND, AdminAction.ACTIVATE);
+    /*
+     * 시각이 조작 순서를 따른다. 이력의 목적이 "언제"라서, 순서가 뒤집히면 남긴 의미가 없다.
+     * 시각은 계정 행을 잠근 채 잡는다 — 기록 시점에 잡으면 커밋과 세션 반영이 끝난 뒤라
+     * 잇따른 조작끼리 어긋날 수 있다 (#143 리뷰).
+     */
+    assertThat(history.get(0).getCreatedAt()).isBeforeOrEqualTo(history.get(1).getCreatedAt());
   }
 
   /**
@@ -153,7 +161,9 @@ class AdminActionLogIntegrationTest extends AbstractIntegrationTest {
     assertThatThrownBy(
             () ->
                 transaction.executeWithoutResult(
-                    ignored -> recorder.record(admin.getId(), admin.getId(), AdminAction.SUSPEND)))
+                    ignored ->
+                        recorder.record(
+                            admin.getId(), admin.getId(), AdminAction.SUSPEND, Instant.now())))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("커밋된 뒤");
   }
@@ -161,7 +171,7 @@ class AdminActionLogIntegrationTest extends AbstractIntegrationTest {
   /** 대상이 없으면 아무것도 남기지 않는다. 한 명도 승인되지 않은 요청이 그렇다. */
   @Test
   void recordsNothingWithoutTargets() {
-    recorder.record(admin.getId(), List.of(), AdminAction.APPROVE);
+    recorder.record(admin.getId(), List.of(), AdminAction.APPROVE, Instant.now());
 
     assertThat(logs.findAll()).isEmpty();
   }

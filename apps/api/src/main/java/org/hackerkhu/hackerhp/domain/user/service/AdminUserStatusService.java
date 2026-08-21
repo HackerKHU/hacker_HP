@@ -1,5 +1,6 @@
 package org.hackerkhu.hackerhp.domain.user.service;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -74,7 +75,8 @@ public class AdminUserStatusService {
       recorder.record(
           requesterId,
           changed.id(),
-          target == Target.SUSPENDED ? AdminAction.SUSPEND : AdminAction.ACTIVATE);
+          target == Target.SUSPENDED ? AdminAction.SUSPEND : AdminAction.ACTIVATE,
+          applied.occurredAt());
     }
     return changed;
   }
@@ -83,8 +85,11 @@ public class AdminUserStatusService {
    * 바뀌었는지를 함께 돌려준다.
    *
    * <p>응답만으로는 <b>"방금 정지했다"와 "이미 정지돼 있었다"를 가릴 수 없다.</b> 둘 다 같은 상태를 담아 돌아오는데, 이력에는 앞의 것만 남아야 한다.
+   *
+   * <p><b>시각도 여기서 나온다.</b> 이력을 남기는 시점에 잡으면 커밋과 세션 반영이 끝난 뒤라, 같은 회원을 두 관리자가 잇따라 건드릴 때 <b>실제와 반대 순서로
+   * 남을 수 있다.</b> 계정 행을 잠근 채 잡으면 나중에 잠근 조작이 반드시 더 나중 시각을 갖는다.
    */
-  private record Applied(AdminUserResponse response, boolean changed) {}
+  private record Applied(AdminUserResponse response, boolean changed, Instant occurredAt) {}
 
   private Applied apply(Long requesterId, Long targetId, Target target) {
     Status desired = target == Target.SUSPENDED ? Status.SUSPENDED : Status.ACTIVE;
@@ -108,6 +113,8 @@ public class AdminUserStatusService {
     }
 
     boolean changed = user.getStatus() != desired;
+    // 잠근 채로 잡는다. 이 시각이 이력의 "언제"가 된다.
+    Instant occurredAt = Instant.now();
     if (changed) {
       if (desired == Status.SUSPENDED) {
         user.suspend();
@@ -123,7 +130,7 @@ public class AdminUserStatusService {
     }
 
     // 이미 그 상태였더라도 위에서 세션을 다시 맞춘다 — 재요청이 갱신 실패의 복구 수단이다.
-    return new Applied(AdminUserResponse.from(user), changed);
+    return new Applied(AdminUserResponse.from(user), changed, occurredAt);
   }
 
   /**
