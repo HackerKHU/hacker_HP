@@ -32,7 +32,9 @@ resource "aws_db_instance" "main" {
   performance_insights_enabled = false
   monitoring_interval          = 0
 
-  skip_final_snapshot = true  # dev 한정
-  deletion_protection = false # dev 한정
+  # spec/7-DEPLOYMENT.md §7-3 공개 전 필수 조건 — 실수로 지워도 최종 스냅샷이 남고,
+  # 그 삭제 자체도 이 플래그를 먼저 꺼야 가능하게 만든다.
+  skip_final_snapshot = false
+  deletion_protection = true
   apply_immediately   = true
 }
