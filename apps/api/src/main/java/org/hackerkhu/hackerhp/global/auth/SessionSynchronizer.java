@@ -63,10 +63,48 @@ public class SessionSynchronizer {
    * 위에 커넥션을 겹쳐 잡는다. 잘못된 자리에서 부르면 <b>조용히</b> 어긋나므로 여기서 끊는다.
    */
   public void refresh(Collection<Long> userIds) {
+    requireCommitted();
+    userIds.stream().distinct().sorted().forEach(this::refresh);
+  }
+
+  /**
+   * 한 사람만 맞추고 <b>해냈는지 돌려준다.</b>
+   *
+   * <p>여럿을 맞추는 쪽은 실패를 로그로만 남기고 넘어간다 — 이미 커밋된 변경까지 실패한 것처럼 보이면 안 되기 때문이다. <b>그 뒤에 되돌릴 수 없는 일을 하는 경로는
+   * 다르다</b> (#58). 회원 제거는 정지가 세션에 실제로 반영된 것을 확인하고 나서 계정을 지운다 — 반영이 조용히 실패했는데 계정을 지우면, 그 세션은 {@code
+   * ACTIVE}·{@code ADMIN}인 채로 남고 <b>계정이 없어 되돌릴 방법도 없다.</b>
+   */
+  public boolean refreshReporting(Long userId) {
+    requireCommitted();
+    return refreshOne(userId);
+  }
+
+  /**
+   * <b>차단이 강해지는 변경은 세션에 닿아야 성공이다</b> (#58, #197 리뷰 3차).
+   *
+   * <p>정지와 권한 회수는 "즉시 차단"을 약속한다 (2-2 §2-2-3 §2-2-5 MUST). 그런데 인가는 매 요청 세션 값으로 판단하고 필터는 {@code
+   * users}를 다시 읽지 않으므로(3-3 결정 12), 세션 반영이 조용히 실패하면 <b>DB만 바뀐 채 정지된 사람이 만료(30분)까지 계속 쓴다.</b> 그 사이
+   * 응답은 {@code 200}이라 관리자는 차단된 줄 안다.
+   *
+   * <p>그래서 실패를 알린다. 변경 자체는 이미 커밋됐으므로 <b>되돌리지 않는다</b> — 관리자가 같은 요청을 다시 보내면 이 경로를 다시 밟아 복구된다 (그래서 값이
+   * 이미 목표와 같아도 반영을 건너뛰지 않는다).
+   *
+   * <p><b>완화되는 변경은 이 길로 오지 않는다.</b> 승인·권한 부여가 세션에 늦게 닿는 것은 그 사람이 아직 못 쓰는 것이라, 실패로 알려 되레 관리자를 헷갈리게 할
+   * 이유가 없다.
+   *
+   * <p><b>던지는 것은 이력을 남긴 뒤여야 한다.</b> 변경은 이미 커밋됐으므로, 여기서 곧장 빠져나가면 "누가 무엇을 했는지"만 사라진다 (§2-2-7).
+   *
+   * <p>계약에 이 상황을 가리키는 코드가 없다 (3-2 §3-2-7). 그대로 올려 {@code 500 INTERNAL_ERROR}가 나가게 둔다 — 실제로 서버 쪽
+   * 장애이고, 관리자가 할 수 있는 일은 다시 시도하는 것뿐이다.
+   */
+  public static IllegalStateException notReflected(String what, Long userId) {
+    return new IllegalStateException(what + "이(가) 세션에 반영되지 않았다: userId=" + userId);
+  }
+
+  private static void requireCommitted() {
     if (TransactionSynchronizationManager.isActualTransactionActive()) {
       throw new IllegalStateException("세션 반영은 변경이 커밋된 뒤에 불러야 한다 (spec 3-1 §3-1-5).");
     }
-    userIds.stream().distinct().sorted().forEach(this::refresh);
   }
 
   /**
@@ -81,6 +119,10 @@ public class SessionSynchronizer {
    * 이 잠금과 얽히지 않는다.
    */
   private void refresh(Long userId) {
+    refreshOne(userId);
+  }
+
+  private boolean refreshOne(Long userId) {
     try {
       boolean ran =
           NestedConnections.run(
@@ -88,6 +130,7 @@ public class SessionSynchronizer {
       if (!ran) {
         log.error("세션 갱신이 중단됐다: userId={}", userId);
       }
+      return ran;
     } catch (RuntimeException e) {
       /*
        * 여기서 던지면 이미 커밋된 변경까지 실패한 것처럼 보인다. 세션은 옛 값으로 남고
@@ -95,6 +138,7 @@ public class SessionSynchronizer {
        * 조용히 삼키지 않고 error로 남긴다. 관리자가 같은 요청을 다시 보내면 복구된다.
        */
       log.error("세션 갱신 실패: userId={}", userId, e);
+      return false;
     }
   }
 

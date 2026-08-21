@@ -44,7 +44,16 @@ function notice(
   daysAgo: number,
 ): Notice {
   const at = new Date(Date.now() - daysAgo * DAY_MS).toISOString()
-  return { id, title, content: '본문', isPinned, createdAt: at, updatedAt: at }
+  return {
+    id,
+    title,
+    content: '본문',
+    isPinned,
+    authorId: 2,
+    authorName: '관리자',
+    createdAt: at,
+    updatedAt: at,
+  }
 }
 
 /** 서버가 이미 `is_pinned DESC, created_at DESC`로 정렬해 내려준 상태를 흉내낸다. */

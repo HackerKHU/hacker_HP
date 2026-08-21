@@ -32,6 +32,8 @@ const EXISTING: Notice = {
   title: '기존 제목',
   content: '기존 본문',
   isPinned: false,
+  authorId: 2,
+  authorName: '관리자',
   createdAt: '2026-03-02T09:00:00Z',
   updatedAt: '2026-03-02T09:00:00Z',
 }
