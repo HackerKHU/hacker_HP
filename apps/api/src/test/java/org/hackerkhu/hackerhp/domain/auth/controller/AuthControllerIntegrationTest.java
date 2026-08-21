@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.aMapWithSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -109,12 +110,27 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$").value(aMapWithSize(10)));
   }
 
+  /**
+   * <b>비로그인에게는 {@code 204}다. 오류가 아니다</b> (#190).
+   *
+   * <p>화면은 랜딩을 포함해 최초 렌더마다 이것을 부른다. 실패로 답하면 <b>비로그인 방문자마다 실패 응답이 하나씩 남고</b>, 브라우저가 콘솔에 남기는 그 줄은 앱이
+   * 지울 수 없어 진짜 오류가 묻힌다.
+   */
   @Test
-  void meRequiresAuthentication() throws Exception {
+  void meAnswersNoContentForAGuest() throws Exception {
     mockMvc
         .perform(get("/api/v1/auth/me"))
-        .andExpect(status().isUnauthorized())
-        .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+        .andExpect(status().isNoContent())
+        .andExpect(content().string(""));
+  }
+
+  /** 열려 있다고 해서 <b>계정 정보가 나가지는 않는다.</b> 비로그인에게 나가는 것은 "세션이 없다"뿐이다. */
+  @Test
+  void meLeaksNothingToAGuest() throws Exception {
+    String body =
+        mockMvc.perform(get("/api/v1/auth/me")).andReturn().getResponse().getContentAsString();
+
+    assertThat(body).isEmpty();
   }
 
   @Test
@@ -133,10 +149,16 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void tokenLeftAfterLogoutNoLongerAuthenticates() throws Exception {
+    // 보호된 경로로 확인한다. /auth/me는 비로그인에게도 열려 있어(#190) 여기서는 204로 답한다.
     mockMvc
-        .perform(get("/api/v1/auth/me").cookie(sessions.token(member)))
+        .perform(get("/api/v1/notices").cookie(sessions.token(member)))
         .andExpect(status().isUnauthorized())
         .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+
+    // 그 토큰으로 /auth/me를 불러도 계정 정보는 나가지 않는다.
+    mockMvc
+        .perform(get("/api/v1/auth/me").cookie(sessions.token(member)))
+        .andExpect(status().isNoContent());
   }
 
   /*

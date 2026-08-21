@@ -35,7 +35,19 @@ import org.springframework.test.web.servlet.MvcResult;
 @AutoConfigureMockMvc
 class AuthenticationBindingIntegrationTest extends AbstractIntegrationTest {
 
-  private static final String PROTECTED_PATH = "/api/v1/auth/me";
+  /**
+   * 결합이 깨졌을 때 <b>막히는지</b>를 보는 자리.
+   *
+   * <p>{@code /auth/me}를 쓸 수 없다 — 최초 진입의 세션 확인이라 비로그인에게도 열려 있어(#190), 결합이 깨져도 {@code 401}이 아니라
+   * {@code 204}로 답한다. 그것은 그것대로 옳지만 <b>"막힌다"를 보여주지는 못한다.</b>
+   *
+   * <p>{@code AccountStatusFilter}는 인증이 성립하지 않은 요청을 건드리지 않으므로, 상태와 무관하게 {@code 401}이 나온다.
+   */
+  private static final String PROTECTED_PATH = "/api/v1/notices";
+
+  /** 정상 결합이 <b>무엇을 돌려주는지</b> 보는 자리. 상태와 무관하게 열려 있다. */
+  private static final String IDENTITY_PATH = "/api/v1/auth/me";
+
   private static final String SESSION_COOKIE = "SESSION";
 
   @Autowired private MockMvc mockMvc;
@@ -96,9 +108,31 @@ class AuthenticationBindingIntegrationTest extends AbstractIntegrationTest {
     SignedInSession signedIn = signIn(alice);
 
     mockMvc
-        .perform(get(PROTECTED_PATH).cookie(signedIn.cookie(), accessToken(alice)))
+        .perform(get(IDENTITY_PATH).cookie(signedIn.cookie(), accessToken(alice)))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.email").value("alice@khu.ac.kr"));
+  }
+
+  /**
+   * <b>공개 경로에서도 결합은 그대로 검사된다</b> (#190).
+   *
+   * <p>{@code /auth/me}가 비로그인에게 열렸다고 해서 <b>남의 세션에 내 토큰을 붙이는 것이 통하면 안 된다.</b> 인증이 서지 않으므로 계정 정보는 나가지
+   * 않고({@code 204}), 필터는 양쪽 쿠키를 그대로 폐기한다.
+   */
+  @Test
+  void aPublicPathStillRefusesMismatchedCredentials() throws Exception {
+    SignedInSession bobsSession = signIn(bob);
+
+    MvcResult result =
+        mockMvc
+            .perform(get(IDENTITY_PATH).cookie(bobsSession.cookie(), accessToken(alice)))
+            .andExpect(status().isNoContent())
+            .andReturn();
+
+    assertThat(result.getResponse().getContentAsString()).isEmpty();
+    assertThat(expired(result, "ACCESS_TOKEN")).isTrue();
+    assertThat(expired(result, SESSION_COOKIE)).isTrue();
+    assertThat(jdbcSessions.findById(bobsSession.id())).isNull();
   }
 
   /*

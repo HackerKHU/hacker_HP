@@ -121,6 +121,16 @@ public class SecurityConfig {
                     .requestMatchers(HttpMethod.GET, "/api/v1/auth/csrf")
                     .permitAll()
                     /*
+                     * 세션 확인도 최초 진입에 필요하다 (#190). 화면은 랜딩을 포함해 최초 렌더마다
+                     * 이것을 부르는데, 막으면 비로그인 방문자마다 실패 응답이 하나씩 남는다 —
+                     * 브라우저가 콘솔에 남기는 줄은 앱이 지울 수 없고, 진짜 오류가 그 사이에 묻힌다.
+                     *
+                     * 여는 것은 "세션이 있는가"라는 답뿐이다. 비로그인에게는 204가 나가고 계정
+                     * 정보는 한 줄도 실리지 않는다 (§3-2-3).
+                     */
+                    .requestMatchers(HttpMethod.GET, "/api/v1/auth/me")
+                    .permitAll()
+                    /*
                      * 신청서 제출은 PENDING만이다 (권한 매트릭스 §3-1-3). 컨트롤러의 @PreAuthorize와
                      * 겹쳐 보이지만 둘 다 필요하다 — MVC는 메서드를 부르기 전에 본문을 역직렬화하고
                      * @Valid를 돌리므로, ACTIVE가 깨진 본문을 보내면 @PreAuthorize에 닿기도 전에

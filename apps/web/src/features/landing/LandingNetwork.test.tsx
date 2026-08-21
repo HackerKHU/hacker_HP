@@ -33,16 +33,11 @@ beforeEach(() => {
     'fetch',
     vi.fn((input: RequestInfo | URL) => {
       requests.push(String(input))
-      // 비로그인으로 응답한다. 세션 확인이 실패해도 랜딩은 그대로 떠야 한다.
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            code: 'UNAUTHENTICATED',
-            message: '로그인이 필요합니다.',
-          }),
-          { status: 401, headers: { 'Content-Type': 'application/json' } },
-        ),
-      )
+      /*
+       * 비로그인으로 응답한다. 서버는 세션이 없으면 204로 답한다 (#190) — 오류가 아니라
+       * "비로그인"이라는 답이다. 401로 흉내내면 실제 서버와 다른 것을 검증하게 된다.
+       */
+      return Promise.resolve(new Response(null, { status: 204 }))
     }),
   )
 
@@ -77,7 +72,7 @@ describe('랜딩 네트워크 사용', () => {
   it('세션 확인 한 번 말고는 아무 요청도 하지 않는다', async () => {
     renderLanding()
 
-    // 세션 확인이 401로 끝난 뒤의 화면까지 기다린다.
+    // 세션 확인이 끝난 뒤의 화면까지 기다린다 (비로그인이면 204다, #190).
     expect(
       await screen.findByRole('link', { name: '로그인' }),
     ).toBeInTheDocument()

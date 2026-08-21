@@ -17,8 +17,6 @@ import org.hackerkhu.hackerhp.domain.user.service.AdminBootstrapService;
 import org.hackerkhu.hackerhp.domain.user.service.UserApplicationService;
 import org.hackerkhu.hackerhp.global.auth.AccessTokenCookie;
 import org.hackerkhu.hackerhp.global.auth.PublicApi;
-import org.hackerkhu.hackerhp.global.error.BusinessException;
-import org.hackerkhu.hackerhp.global.error.ErrorCode;
 import org.hackerkhu.hackerhp.global.error.ErrorResponse;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -98,6 +96,12 @@ public class AuthController {
    *
    * <p><b>세션이 아니라 DB에서 읽는다.</b> 관리자가 방금 바꾼 학번·이름·승인일시가 세션에는 없다. 세션이 들고 있는 것은 매 요청 권한 판단에 필요한 {@code
    * role}·{@code status}뿐이다.
+   *
+   * <p><b>비로그인에게도 열려 있다</b> (#190). 화면은 랜딩을 포함해 최초 렌더마다 이것을 부르므로, 막으면 <b>비로그인 방문자마다 실패 응답이 하나씩
+   * 남는다</b> — 브라우저가 콘솔에 남기는 줄은 앱이 지울 수 없고, 진짜 오류가 그 사이에 묻힌다.
+   *
+   * <p><b>여는 것은 "세션이 있는가"라는 답뿐이다.</b> 비로그인에게는 {@code 204}가 나가고 계정 정보는 한 줄도 실리지 않는다. 로그인 사용자의 응답은
+   * 그대로다 — 그래서 {@code 200}에 무엇이 담기는지는 바뀌지 않았다.
    */
   @Operation(
       summary = "내 정보 조회",
@@ -108,22 +112,24 @@ public class AuthController {
           **신청 여부는 `appliedAt`으로 판단한다.** 값이 있으면 제출한 것이다 — 같은 사실을
           알려주는 별도 필드를 두지 않는다.
           """)
-  @ApiResponse(responseCode = "200", description = "조회 성공")
-  @ApiResponse(
-      responseCode = "401",
-      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
-      content =
-          @Content(
-              mediaType = MediaType.APPLICATION_JSON_VALUE,
-              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(responseCode = "200", description = "로그인 상태 — 내 정보")
+  @ApiResponse(responseCode = "204", description = "세션이 없다. **본문이 없고 오류가 아니다**")
   @GetMapping("/me")
-  @PreAuthorize("isAuthenticated()")
-  public MeResponse me(@AuthenticationPrincipal Long userId) {
+  @PublicApi(reason = "최초 진입의 세션 확인. 비로그인에게는 204만 나간다 (#190)")
+  public ResponseEntity<MeResponse> me(@AuthenticationPrincipal Long userId) {
+    if (userId == null) {
+      return ResponseEntity.noContent().build();
+    }
     return userRepository
         .findById(userId)
         .map(MeResponse::from)
-        // 세션은 살아 있는데 계정이 사라졌다. 인증이 성립할 수 없는 상태다.
-        .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHENTICATED));
+        .map(ResponseEntity::ok)
+        /*
+         * 세션은 살아 있는데 계정이 사라졌다. 여기서도 204다 — 화면에게 그 상태는
+         * "로그인되어 있지 않다"와 같고, 실제로 다음 요청부터 인증이 성립하지 않는다.
+         * 401을 주면 이 경로만 다시 실패 응답을 남기게 된다.
+         */
+        .orElseGet(() -> ResponseEntity.noContent().build());
   }
 
   /**
