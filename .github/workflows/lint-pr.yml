@@ -19,12 +19,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # 커밋 메시지 훅이 쓰는 규칙이다. 커밋을 검사하는 것이 아니라 규칙 자체를 검사한다 —
-      # 켜 놓고 확인하지 않으면 오타 하나로 모든 메시지가 통과해도 아무도 모른다 (#91).
-      - name: 커밋 메시지 규칙 설치
+      - name: 메시지 규칙 설치
         run: npm ci
-      - name: 커밋 메시지 규칙 검사
+      # 규칙 자체를 검사한다. 켜 놓고 확인하지 않으면 오타 하나로 type-enum이 비어도
+      # 모든 제목이 통과하고 아무도 모른다 (#91).
+      - name: 메시지 규칙 검사
         run: npm run test:commitlint
+      # squash merge에서 히스토리에 남는 것은 PR 제목이다. 그러므로 여기가 관문이고,
+      # 로컬 훅과 같은 규칙으로 봐야 한다 — 다르면 훅을 통과한 제목이 여기서 막히거나
+      # 그 반대가 된다.
+      - name: PR 제목 검사
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s' "$PR_TITLE" | npx --no -- commitlint
       - name: PR 출발 브랜치 규칙 테스트
         run: bash .github/scripts/test-validate-pr-source.sh
       - name: PR 출발 브랜치 검사
@@ -32,20 +39,7 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           HEAD_REF: ${{ github.head_ref }}
         run: bash .github/scripts/validate-pr-source.sh "$BASE_REF" "$HEAD_REF"
-      - uses: amannn/action-semantic-pull-request@v5
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          types: |
-            feat
-            fix
-            docs
-            design
-            cicd
-            refactor
-            test
-            chore
-          # scope는 쓰지 않는다 (CONTRIBUTING.md 1절)
-          requireScope: false
-          disallowScopes: |
-            *
+
+# 예전에는 amannn/action-semantic-pull-request가 제목을 검사했다. commitlint로 옮긴 것은
+# 그쪽이 type과 scope만 보기 때문이다 — 이슈 번호도 길이도 걸러 주지 않아, 훅은 막는 제목이
+# 여기서는 통과해 히스토리에 남았다. 목록을 두 곳에 적어 두면 언젠가 갈라진다.
