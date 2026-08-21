@@ -58,22 +58,35 @@ public class LoginSessionIssuer {
    */
   public boolean issue(
       HttpServletRequest request, HttpServletResponse response, Long userId, String redirectTo) {
-    boolean[] issued = {false};
-
-    boolean ran =
-        NestedConnections.run(
-            () ->
-                serialize.executeWithoutResult(
-                    ignored -> issued[0] = publish(request, response, userId, redirectTo)));
-
-    if (!ran) {
-      log.error("로그인 세션 발급이 중단됐다: userId={}", userId);
-      return false;
+    try {
+      boolean ran =
+          NestedConnections.run(
+              () ->
+                  serialize.executeWithoutResult(
+                      ignored -> publish(request, response, userId, redirectTo)));
+      if (!ran) {
+        log.error("로그인 세션 발급이 중단됐다: userId={}", userId);
+      }
+    } catch (RuntimeException e) {
+      /*
+       * 트랜잭션을 열지 못했거나, 잠금·조회가 터졌거나, 세션 저장이 실패했다. 그대로 올리면
+       * 콜백에 500이 남는다 — 이 경로는 브라우저 전체가 이동한 흐름이라 계약(3-2 §3-2-3)이
+       * 리다이렉트를 요구한다. 아래에서 발급 여부를 보고 실패로 알린다.
+       */
+      log.error("로그인 세션 발급이 실패했다: userId={}", userId, e);
     }
-    return issued[0];
+
+    /*
+     * 발급했는가 = 응답이 나갔는가.
+     *
+     * 세션이 저장소에 쓰이는 것이 곧 응답을 내보내는 호출이므로 둘은 같은 사건이다.
+     * 나갔으면 세션도 저장된 뒤라 되돌릴 수 없고 되돌릴 이유도 없다. 나가지 않았으면
+     * 무엇이 어긋났든 아무것도 만들어지지 않았다.
+     */
+    return response.isCommitted();
   }
 
-  private boolean publish(
+  private void publish(
       HttpServletRequest request, HttpServletResponse response, Long userId, String redirectTo) {
     /*
      * 잠근 채 읽는다. 넘겨받은 값을 쓰면 그것이 이미 지난 값일 수 있다 — SessionSynchronizer가
@@ -81,9 +94,12 @@ public class LoginSessionIssuer {
      */
     User current = userRepository.findByIdForUpdate(userId).orElse(null);
     if (current == null) {
-      // 콜백이 방금 만든 계정이 사라졌다. 세션을 만들기 전이라 거둬들일 것도 없다.
+      /*
+       * 콜백이 계정을 읽은 뒤, 여기서 잠그기 전에 사라졌다. 세션을 만들기 전이라
+       * 거둬들일 것도 없다 — 응답을 내보내지 않고 끝내면 부르는 쪽이 실패로 알린다.
+       */
       log.warn("로그인 도중 계정이 사라졌다 — 세션을 발급하지 않는다: userId={}", userId);
-      return false;
+      return;
     }
 
     /*
@@ -105,6 +121,5 @@ public class LoginSessionIssuer {
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
-    return true;
   }
 }

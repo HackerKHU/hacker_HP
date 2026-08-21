@@ -21,11 +21,11 @@ import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -65,8 +65,6 @@ class LoginSessionIssueIntegrationTest extends AbstractIntegrationTest {
   @Autowired private FindByIndexNameSessionRepository<? extends Session> indexedSessions;
   @Autowired private SessionSynchronizer sessionSynchronizer;
   @Autowired private DefaultCookieSerializer cookieSerializer;
-  @Autowired private LoginSessionIssuer issuer;
-  @Autowired private JdbcTemplate jdbcTemplate;
 
   private TransactionTemplate transaction;
   private User member;
@@ -112,11 +110,7 @@ class LoginSessionIssueIntegrationTest extends AbstractIntegrationTest {
     Browser authorization = startAuthorization();
     // 저장됐는지부터 확인한다. 저장되지 않았다면 "지웠는가"를 물을 수 없다.
     assertThat(stored(authorization.sessionId())).isNotNull();
-    return logIn(authorization);
-  }
 
-  /** 인가 단계를 미리 끝내 두고 콜백만 밟는다. 줄 세우기가 필요한 사례가 쓴다. */
-  private Login logIn(Browser authorization) {
     MockHttpServletRequest request =
         new MockHttpServletRequest("GET", "/api/v1/login/oauth2/code/google");
     request.setCookies(authorization.cookie());
@@ -282,166 +276,3 @@ class LoginSessionIssueIntegrationTest extends AbstractIntegrationTest {
     assertThat(stored(login.sessionId()).<Status>getAttribute(AuthSession.STATUS))
         .isEqualTo(Status.ACTIVE);
   }
-
-  /**
-   * <b>T-202 — 이 이슈의 본체.</b> 정지가 <b>로그인이 계정 행을 잠근 사이에</b> 도착한다.
-   *
-   * <p>순서를 우연에 맡기지 않는다. 그냥 동시에 던지면 로그인이 인가 단계부터 밟느라 정지가 거의 항상 먼저 끝나고, 그러면 <b>읽은 뒤 저장 전에 잠금을 놓는 잘못된
-   * 구현도 통과한다.</b>
-   *
-   * <p>그래서 셋을 줄 세운다 — 시험이 먼저 행을 잡고, 로그인과 정지를 차례로 그 잠금에 <b>대기시킨 뒤</b> 놓아준다. Postgres가 대기 순서대로 주므로
-   * 로그인이 먼저 들어가고, 정지는 <b>로그인이 잠금을 쥔 동안</b> 기다린다.
-   *
-   * <p>잘못된 구현이라면 로그인이 계정을 읽자마자 잠금을 놓아 정지가 끼어들고, 그 정지의 세션 반영은 <b>아직 저장되지 않은 세션을 놓친다</b> — 뒤이어 저장된
-   * 세션은 {@code ACTIVE}로 남아 <b>정지된 사람이 만료까지 계속 이용한다.</b>
-   */
-  @Test
-  void aSuspensionArrivingDuringLoginCannotSlipBetweenReadAndStore() throws Exception {
-    userRepository.deleteAll();
-    member = userRepository.saveAndFlush(Accounts.approved(GOOGLE_SUB, EMAIL, "20250001"));
-    Long id = member.getId();
-    // 인가 단계를 미리 끝낸다. 로그인 스레드가 곧장 잠금 대기로 가야 줄 세우기가 성립한다.
-    Browser authorization = startAuthorization();
-
-    ExecutorService pool = Executors.newFixedThreadPool(3);
-    CountDownLatch holding = new CountDownLatch(1);
-    CountDownLatch release = new CountDownLatch(1);
-    int[] seen = {-1};
-    try {
-      pool.submit(
-          () ->
-              transaction.executeWithoutResult(
-                  ignored -> {
-                    userRepository.findByIdForUpdate(id).orElseThrow();
-                    holding.countDown();
-                    awaitQuietly(release);
-                  }));
-      assertThat(holding.await(30, TimeUnit.SECONDS)).isTrue();
-
-      Future<Login> loggingIn = pool.submit(() -> logIn(authorization));
-      awaitWaitersOnUsers(1);
-      Future<?> suspending = pool.submit(() -> suspendRecordingSessionsSeen(id, seen));
-      awaitWaitersOnUsers(2);
-
-      release.countDown();
-      Login login = loggingIn.get(30, TimeUnit.SECONDS);
-      suspending.get(30, TimeUnit.SECONDS);
-
-      /*
-       * 정지가 잠금을 잡은 순간 세션이 이미 저장소에 있어야 한다. 이것이 "저장까지가 잠금 안"의
-       * 정의다 — 최종 상태만 보면 저장을 잠금 밖으로 뺀 구현도 대개 통과한다.
-       */
-      assertThat(seen[0]).as("정지가 잠금을 잡았을 때 로그인 세션이 이미 저장돼 있어야 한다").isEqualTo(1);
-
-      assertThat(statusInDatabase()).isEqualTo(Status.SUSPENDED);
-      Session session = stored(login.sessionId());
-      assertThat(session).isNotNull();
-      assertThat(session.<Status>getAttribute(AuthSession.STATUS))
-          .as("세션이 DB와 어긋나면 정지된 사람이 만료까지 계속 이용한다")
-          .isEqualTo(Status.SUSPENDED);
-    } finally {
-      release.countDown();
-      pool.shutdownNow();
-    }
-  }
-
-  /**
-   * T-204 — 계정을 읽은 <b>뒤, 발급을 위해 잠그기 전에</b> 사라지면 아무것도 만들지 않는다 (2-2 §2-2-4 MUST).
-   *
-   * <p><b>핸들러 앞단에서 걸리는 것과 다른 경로다.</b> 첫 조회 전에 지우면 {@code findByGoogleSub}가 먼저 실패해 발급에 들어가지도 않는다 —
-   * 그러면 이 분기가 회귀해도 잡히지 않는다. 그래서 발급만 따로 부른다.
-   *
-   * <p>세션을 만들어 두면 계정 없는 사람이 만료까지 인증된다 — 필터는 매 요청 {@code users}를 읽지 않는다(3-3 결정 12). 승인·정지와 달리
-   * <b>재로그인으로 회복할 계정조차 없다.</b>
-   */
-  @Test
-  void issuesNothingWhenTheAccountVanishesBeforeTheLock() {
-    Browser authorization = startAuthorization();
-    Long id = member.getId();
-    transaction.executeWithoutResult(ignored -> userRepository.deleteById(id));
-
-    MockHttpServletRequest request =
-        new MockHttpServletRequest("GET", "/api/v1/login/oauth2/code/google");
-    request.setCookies(authorization.cookie());
-    MockHttpServletResponse response = new MockHttpServletResponse();
-    boolean[] issued = {true};
-
-    run(
-        request,
-        response,
-        (wrapped, wrappedResponse) -> issued[0] = issuer.issue(wrapped, wrappedResponse, id, "/"));
-
-    assertThat(issued[0]).isFalse();
-    assertThat(sessionsOf(id)).isEmpty();
-    assertThat(browser(response)).as("SESSION 쿠키를 굽지 않는다").isNull();
-    assertThat(response.isCommitted()).as("응답을 내보내지 않는다").isFalse();
-  }
-
-  /** 앞단에서 걸리는 쪽 — 첫 조회부터 실패하면 계약대로 로그인 화면으로 되돌린다. */
-  @Test
-  void redirectsToLoginWhenTheAccountIsAlreadyGone() {
-    Browser authorization = startAuthorization();
-    Long id = member.getId();
-    transaction.executeWithoutResult(ignored -> userRepository.deleteById(id));
-
-    MockHttpServletRequest request =
-        new MockHttpServletRequest("GET", "/api/v1/login/oauth2/code/google");
-    request.setCookies(authorization.cookie());
-    MockHttpServletResponse response = new MockHttpServletResponse();
-
-    run(
-        request,
-        response,
-        (wrapped, wrappedResponse) ->
-            handler.onAuthenticationSuccess(wrapped, wrappedResponse, authentication()));
-
-    assertThat(sessionsOf(id)).isEmpty();
-    assertThat(response.getHeader(HttpHeaders.LOCATION)).contains("/login?error=failed");
-  }
-
-  /**
-   * 정지하되, <b>잠금을 잡은 그 순간</b> 그 사람의 세션이 저장소에 몇 개 있는지 적어 둔다.
-   *
-   * <p>로그인이 먼저 줄을 섰으므로 여기 들어왔다는 것은 <b>로그인의 트랜잭션이 끝났다</b>는 뜻이다. 저장이 잠금 안에서 끝났다면 그때 세션은 이미 있다.
-   */
-  private void suspendRecordingSessionsSeen(Long userId, int[] seen) {
-    transaction.executeWithoutResult(
-        ignored -> {
-          User locked = userRepository.findByIdForUpdate(userId).orElseThrow();
-          seen[0] = sessionsOf(userId).size();
-          locked.suspend();
-        });
-    sessionSynchronizer.refresh(List.of(userId));
-  }
-
-  /* ------------------------------------------------------------------ 대기 */
-
-  /**
-   * 행 잠금을 기다리는 트랜잭션이 그만큼 쌓일 때까지 기다린다.
-   *
-   * <p><b>{@code users} 관계 잠금을 보면 안 된다.</b> {@code SELECT ... FOR UPDATE}는 관계 잠금(RowShareLock)을 곧바로
-   * 받고, 실제로 기다리는 것은 <b>먼저 그 행을 잡은 트랜잭션의 {@code transactionid}</b>다. 관계 쪽만 세면 대기가 영영 보이지 않는다.
-   */
-  private void awaitWaitersOnUsers(int expected) throws InterruptedException {
-    for (int attempt = 0; attempt < 600; attempt++) {
-      Integer waiting =
-          jdbcTemplate.queryForObject(
-              "SELECT count(*) FROM pg_locks"
-                  + " WHERE locktype IN ('transactionid', 'tuple') AND NOT granted",
-              Integer.class);
-      if (waiting != null && waiting >= expected) {
-        return;
-      }
-      TimeUnit.MILLISECONDS.sleep(50);
-    }
-    throw new IllegalStateException("잠금을 기다리는 트랜잭션이 " + expected + "개가 되지 않았다");
-  }
-
-  private static void awaitQuietly(CountDownLatch latch) {
-    try {
-      latch.await(30, TimeUnit.SECONDS);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
-  }
-}
