@@ -33,6 +33,8 @@ erDiagram
   USERS |o--o{ PHOTOS : uploads
 ```
 
+`admin_actions`는 ERD에 넣지 않는다. `users`를 가리키지만 **FK가 없어 관계가 아니고**, 그렇게 둔 이유가 바로 "이력은 현재 상태에 종속되지 않는다"이기 때문이다 — 선으로 이으면 정반대로 읽힌다.
+
 **작성자 쪽이 `|o`(0 또는 1)인 것은 오타가 아니다.** 회원을 지워도 자료·공지·사진은 남고 작성자만 비므로([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)), 작성자가 없는 행이 정상으로 존재한다. `BOOKMARKS`만 `||`인데, 즐겨찾기는 주인과 함께 사라져 주인 없는 행이 생기지 않기 때문이다.
 
 ## 3-2-2 테이블 정의
@@ -169,6 +171,26 @@ erDiagram
 저장 키 형식: `photos/{photoId}/{uuid}.jpg`, 썸네일은 `photos/{photoId}/thumb/{uuid}.jpg`. 업로드 경로(원본을 어디에 잠깐 두고 어떻게 리사이즈본으로 바뀌는지)는 [1-BACKGROUND §1-5](1-BACKGROUND.md) 확정 사항, API는 아래 `POST /photos/upload-url`·`POST /photos`를 따른다.
 
 `uploader_id`는 `ADMIN`만 채워진다(사진 업로드는 `ADMIN` 전용이다). 그래도 **`ON DELETE SET NULL`이다** (MUST) — 관리자도 삭제 대상이 될 수 있고, 활동사진은 아카이브라 남아야 한다.
+
+### admin_actions
+
+관리자 조작 이력 ([2-2 §2-2-7](2-2-OPERATOR-REQUIREMENTS.md#2-2-7-안전장치)). "누가 누구를 언제 정지했나"에 답하기 위한 것이다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | bigint | PK, auto | |
+| `actor_id` | bigint | NOT NULL, **FK 없음** | 조작한 관리자 |
+| `target_id` | bigint | NOT NULL, **FK 없음** | 대상 |
+| `action` | enum | NOT NULL | `APPROVE`, `SUSPEND`, `ACTIVATE`, `PROMOTE_ADMIN` |
+| `created_at` | datetime | NOT NULL | |
+
+- 인덱스: `(target_id, created_at DESC)`, `(actor_id, created_at DESC)`
+
+**여기만 `users`를 가리키는 FK가 없다** (MUST). 다른 테이블처럼 `ON DELETE SET NULL`을 걸면 **회원을 지우는 순간 "누구를 정지했는지"가 사라져** 이력의 존재 이유가 무너진다. 자료·공지와 성격이 다르다 — 그쪽은 보여줄 콘텐츠라 작성자 표시가 필요하지만, **이력은 일어난 일의 기록이라 현재 상태에 종속되면 안 된다.**
+
+**이름·이메일 같은 스냅샷은 두지 않는다** (MUST). 계정을 지운 뒤에도 개인정보가 남는다 ([§2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)). 남는 것은 숫자 id뿐이다.
+
+**고쳐 쓰지 않는다.** 이력은 일어난 일이라 나중에 달라질 수 없다.
 
 ---
 
