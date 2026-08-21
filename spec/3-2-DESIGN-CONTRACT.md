@@ -333,6 +333,7 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | POST | `/admin/users/reject` | ADMIN | 일괄 거부 — body: `{ "userIds": [1,2,3] }` |
 | PATCH | `/admin/users/{id}/status` | ADMIN | `ACTIVE` ↔ `SUSPENDED` (본인을 `SUSPENDED`로: 마지막 활성 관리자면 차단) |
 | PATCH | `/admin/users/{id}/role` | ADMIN | 권한 부여/회수 (본인 대상: 마지막 활성 관리자면 차단) |
+| GET | `/admin/users/{id}/content-summary` | ADMIN | 제거 확인 창이 쓰는 건수 — 그 회원이 남길 자료·공지·사진 |
 | DELETE | `/admin/users/{id}` | ADMIN | 회원 제거 (본인 대상: 마지막 활성 관리자면 차단) |
 
 ### 목록 파라미터
@@ -403,6 +404,20 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | `status`가 `ACTIVE`·`SUSPENDED`가 아님 | `400 VALIDATION_ERROR` |
 | 없는 `id` | `404 NOT_FOUND` |
 | **정지 뒤 활성 관리자가 0명이 됨** | `403 FORBIDDEN` ([§2-2-7](2-2-OPERATOR-REQUIREMENTS.md) MUST). 자기 대상인지와 무관하다 |
+
+### 제거 영향 조회
+
+`GET /admin/users/{id}/content-summary` — 제거 확인 창이 **"무엇이 남는지"** 를 보여주려면 필요하다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거) MUST).
+
+```json
+응답  200 { "notes": 12, "notices": 3, "photos": 0 }
+```
+
+**세 값 모두 항상 담는다** (MUST). `0`을 빼면 화면이 "없음"과 "모름"을 가르지 못한다.
+
+없는 `id`는 `404 NOT_FOUND`다. 이 값은 **확인 창을 여는 시점의 참고치**이지 제거의 조건이 아니다 — 그 사이 건수가 바뀌어도 제거는 그대로 진행한다. 건수를 맞추려고 제거까지 막으면 확인 창을 다시 열어도 같은 자리를 맴돌 수 있다.
+
+`Post Launch`다. 자료·사진 테이블이 생기기 전에는 셀 대상이 없다.
 
 **정지는 기존 세션에 즉시 반영된다** (MUST) — 세션을 지우지 않고 갱신하므로 다음 요청이 `403 SUSPENDED`다 ([3-1 §3-1-5](3-1-DESIGN-ARCHITECTURE.md), T-32).
 
