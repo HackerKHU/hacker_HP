@@ -5,6 +5,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.hackerkhu.hackerhp.domain.audit.entity.AdminAction;
+import org.hackerkhu.hackerhp.domain.audit.service.AdminActionRecorder;
 import org.hackerkhu.hackerhp.domain.user.dto.ApproveResponse;
 import org.hackerkhu.hackerhp.domain.user.dto.ApproveResponse.Failure;
 import org.hackerkhu.hackerhp.domain.user.dto.ApproveResponse.Reason;
@@ -26,14 +28,17 @@ public class AdminUserApprovalService {
 
   private final UserRepository userRepository;
   private final SessionSynchronizer sessionSynchronizer;
+  private final AdminActionRecorder recorder;
   private final TransactionTemplate transaction;
 
   public AdminUserApprovalService(
       UserRepository userRepository,
       SessionSynchronizer sessionSynchronizer,
+      AdminActionRecorder recorder,
       PlatformTransactionManager transactionManager) {
     this.userRepository = userRepository;
     this.sessionSynchronizer = sessionSynchronizer;
+    this.recorder = recorder;
     this.transaction = new TransactionTemplate(transactionManager);
   }
 
@@ -57,6 +62,14 @@ public class AdminUserApprovalService {
      * 갇히지 않게 하려는 것이고(T-33), 선택된 전원을 넘긴다 (2-2 §2-2-2 — 한 명도 빠지지 않는다).
      */
     sessionSynchronizer.refresh(result.approved());
+
+    /*
+     * 이력은 세션 반영보다 뒤다. 정지든 승인이든 반영이 먼저 끝나야 하고(2-2 §2-2-3 즉시 차단),
+     * 이력은 늦어도 되는 정보다. 실패해도 승인은 이미 커밋돼 있다 (§2-2-7).
+     *
+     * 실패한 건은 남기지 않는다 — 아무것도 바뀌지 않았기 때문이다.
+     */
+    recorder.record(requesterId, result.approved(), AdminAction.APPROVE);
     return result;
   }
 

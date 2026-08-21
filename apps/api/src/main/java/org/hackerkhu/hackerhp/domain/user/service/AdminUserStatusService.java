@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import org.hackerkhu.hackerhp.domain.audit.entity.AdminAction;
+import org.hackerkhu.hackerhp.domain.audit.service.AdminActionRecorder;
 import org.hackerkhu.hackerhp.domain.user.dto.AdminUserResponse;
 import org.hackerkhu.hackerhp.domain.user.dto.StatusChangeRequest.Target;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
@@ -28,14 +30,17 @@ public class AdminUserStatusService {
 
   private final UserRepository userRepository;
   private final SessionSynchronizer sessionSynchronizer;
+  private final AdminActionRecorder recorder;
   private final TransactionTemplate transaction;
 
   public AdminUserStatusService(
       UserRepository userRepository,
       SessionSynchronizer sessionSynchronizer,
+      AdminActionRecorder recorder,
       PlatformTransactionManager transactionManager) {
     this.userRepository = userRepository;
     this.sessionSynchronizer = sessionSynchronizer;
+    this.recorder = recorder;
     this.transaction = new TransactionTemplate(transactionManager);
   }
 
@@ -48,8 +53,8 @@ public class AdminUserStatusService {
    * @param requesterId 요청한 관리자. <b>잠근 뒤 다시 확인한다</b> — 인가는 세션 값으로 이루어지므로 그 사이에 이 사람이 정지됐을 수 있다
    */
   public AdminUserResponse change(Long requesterId, Long targetId, Target target) {
-    AdminUserResponse changed =
-        transaction.execute(ignored -> apply(requesterId, targetId, target));
+    Applied applied = transaction.execute(ignored -> apply(requesterId, targetId, target));
+    AdminUserResponse changed = applied.response();
 
     /*
      * 세션 반영은 커밋 뒤다 (3-1 §3-1-5). @Transactional 대신 템플릿을 쓰는 이유가 이것이다 —
@@ -57,10 +62,31 @@ public class AdminUserStatusService {
      * 않는다. 트랜잭션 안에서 부르면 되돌아간 변경이 세션에만 남는다.
      */
     sessionSynchronizer.refresh(List.of(changed.id()));
+
+    /*
+     * 이력은 세션 반영보다 뒤다. 정지는 즉시 차단이어야 하고(2-2 §2-2-3 MUST) 이력은 늦어도
+     * 되는 정보다. 실패해도 변경은 이미 커밋돼 있다 (§2-2-7).
+     *
+     * 이미 그 상태였던 재요청은 남기지 않는다. 아무것도 바뀌지 않았는데 "정지했다"가 한 줄 더
+     * 생기면, 나중에 이력을 읽는 사람이 두 번 정지된 것으로 읽는다.
+     */
+    if (applied.changed()) {
+      recorder.record(
+          requesterId,
+          changed.id(),
+          target == Target.SUSPENDED ? AdminAction.SUSPEND : AdminAction.ACTIVATE);
+    }
     return changed;
   }
 
-  private AdminUserResponse apply(Long requesterId, Long targetId, Target target) {
+  /**
+   * 바뀌었는지를 함께 돌려준다.
+   *
+   * <p>응답만으로는 <b>"방금 정지했다"와 "이미 정지돼 있었다"를 가릴 수 없다.</b> 둘 다 같은 상태를 담아 돌아오는데, 이력에는 앞의 것만 남아야 한다.
+   */
+  private record Applied(AdminUserResponse response, boolean changed) {}
+
+  private Applied apply(Long requesterId, Long targetId, Target target) {
     Status desired = target == Target.SUSPENDED ? Status.SUSPENDED : Status.ACTIVE;
     Map<Long, User> locked = lockRowsInIdOrder(requesterId, targetId, desired);
 
@@ -81,7 +107,8 @@ public class AdminUserStatusService {
       guardLastActiveAdmin(requesterId, targetId);
     }
 
-    if (user.getStatus() != desired) {
+    boolean changed = user.getStatus() != desired;
+    if (changed) {
       if (desired == Status.SUSPENDED) {
         user.suspend();
       } else {
@@ -96,7 +123,7 @@ public class AdminUserStatusService {
     }
 
     // 이미 그 상태였더라도 위에서 세션을 다시 맞춘다 — 재요청이 갱신 실패의 복구 수단이다.
-    return AdminUserResponse.from(user);
+    return new Applied(AdminUserResponse.from(user), changed);
   }
 
   /**

@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import org.hackerkhu.hackerhp.domain.audit.entity.AdminAction;
+import org.hackerkhu.hackerhp.domain.audit.service.AdminActionRecorder;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
@@ -35,16 +37,19 @@ public class AdminBootstrapService {
   private final UserRepository userRepository;
   private final BootstrapProperties bootstrap;
   private final SessionSynchronizer sessionSynchronizer;
+  private final AdminActionRecorder recorder;
   private final TransactionTemplate transaction;
 
   public AdminBootstrapService(
       UserRepository userRepository,
       BootstrapProperties bootstrap,
       SessionSynchronizer sessionSynchronizer,
+      AdminActionRecorder recorder,
       PlatformTransactionManager transactionManager) {
     this.userRepository = userRepository;
     this.bootstrap = bootstrap;
     this.sessionSynchronizer = sessionSynchronizer;
+    this.recorder = recorder;
     this.transaction = new TransactionTemplate(transactionManager);
   }
 
@@ -62,7 +67,8 @@ public class AdminBootstrapService {
    * 채울 방법이 영영 없어진다</b> (T-20).
    */
   public void promote(Long requesterId, String token) {
-    transaction.executeWithoutResult(ignored -> apply(requesterId, token));
+    boolean[] promoted = {false};
+    transaction.executeWithoutResult(ignored -> promoted[0] = apply(requesterId, token));
     /*
      * 승격은 role·status를 바꾼다. 반영하지 않으면 본인이 재로그인해야 관리자 화면이 열린다.
      *
@@ -70,9 +76,20 @@ public class AdminBootstrapService {
      * 그래서 이미 승격된 계정의 재요청도 여기까지 온다 (apply 참고).
      */
     sessionSynchronizer.refresh(List.of(requesterId));
+
+    /*
+     * 승격은 스스로에게 하는 조작이라 actor와 target이 같다. 그래도 남긴다 — "관리자가 언제
+     * 어떻게 생겼는가"가 이 경로의 유일한 기록이고, 상시 열려 있는 문이라 더 그렇다 (§2-2-7).
+     *
+     * 이미 승격된 계정의 재요청은 남기지 않는다. 아무것도 바뀌지 않았다.
+     * 토큰은 넣지 않는다 — 시크릿이다.
+     */
+    if (promoted[0]) {
+      recorder.record(requesterId, requesterId, AdminAction.PROMOTE_ADMIN);
+    }
   }
 
-  private void apply(Long requesterId, String token) {
+  private boolean apply(Long requesterId, String token) {
     if (!bootstrap.configured()) {
       // 설정이 없으면 이 경로는 닫힌다. 응답은 다른 거절과 같아 설정 여부조차 드러나지 않는다.
       reject(requesterId, "부트스트랩 설정이 없다");
@@ -132,7 +149,7 @@ public class AdminBootstrapService {
      */
     if (requester.getRole() == Role.ADMIN && requester.getStatus() == Status.ACTIVE) {
       log.info("이미 승격된 계정의 재요청 — 세션만 다시 맞춘다: userId={}", requesterId);
-      return;
+      return false;
     }
 
     if (userRepository.countByRoleAndStatus(Role.ADMIN, Status.ACTIVE) > 0) {
@@ -149,6 +166,7 @@ public class AdminBootstrapService {
     requester.promoteToAdmin();
 
     log.warn("최초 관리자 승격: userId={} email={} — 활성 관리자가 0명이었다", requesterId, requester.getEmail());
+    return true;
   }
 
   private void requireCredentials(Long requesterId, String email, String token) {
