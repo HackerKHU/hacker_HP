@@ -10,17 +10,23 @@ import org.hackerkhu.hackerhp.domain.note.dto.NoteFilterOptions;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteSearch;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteSort;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteSummaryResponse;
+import org.hackerkhu.hackerhp.domain.note.service.BookmarkService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteQueryService;
 import org.hackerkhu.hackerhp.global.error.ErrorResponse;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PagedModel;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -37,9 +43,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class NoteController {
 
   private final NoteQueryService noteQueryService;
+  private final BookmarkService bookmarkService;
 
-  public NoteController(NoteQueryService noteQueryService) {
+  public NoteController(NoteQueryService noteQueryService, BookmarkService bookmarkService) {
     this.noteQueryService = noteQueryService;
+    this.bookmarkService = bookmarkService;
   }
 
   @Operation(
@@ -59,10 +67,11 @@ public class NoteController {
   @GetMapping
   @PreAuthorize("isAuthenticated()")
   public PagedModel<NoteSummaryResponse> list(
+      @AuthenticationPrincipal Long viewerId,
       @ParameterObject NoteSearch search,
       @RequestParam(required = false) String sort,
       @ParameterObject Pageable pageable) {
-    return new PagedModel<>(noteQueryService.list(search, NoteSort.from(sort), pageable));
+    return new PagedModel<>(noteQueryService.list(viewerId, search, NoteSort.from(sort), pageable));
   }
 
   @Operation(
@@ -99,7 +108,48 @@ public class NoteController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @GetMapping("/{id}")
   @PreAuthorize("isAuthenticated()")
-  public NoteDetailResponse get(@PathVariable Long id) {
-    return noteQueryService.get(id);
+  public NoteDetailResponse get(@AuthenticationPrincipal Long viewerId, @PathVariable Long id) {
+    return noteQueryService.get(viewerId, id);
+  }
+
+  @Operation(
+      summary = "즐겨찾기 추가",
+      description =
+          """
+          **이미 담겨 있어도 성공이다.** 목록과 상세에서 각각 누르거나 두 번 누르는 일은 흔한데,
+          그때 오류를 주면 화면은 사용자에게 아무 의미 없는 안내를 띄워야 한다.
+
+          **토글이 아니다.** 같은 요청이 상태를 뒤집으면 재시도가 방금 담은 것을 조용히 뺀다 —
+          화면은 응답의 `bookmarked`를 보고 담을지 뺄지 고른다.
+          """)
+  @ApiResponse(responseCode = "204", description = "담겼다 (이미 담겨 있던 경우 포함)")
+  @ApiResponse(
+      responseCode = "404",
+      description = "`NOT_FOUND` — 없는 자료",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @PostMapping("/{id}/bookmark")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  @PreAuthorize("isAuthenticated()")
+  public void addBookmark(@AuthenticationPrincipal Long viewerId, @PathVariable Long id) {
+    bookmarkService.add(viewerId, id);
+  }
+
+  @Operation(
+      summary = "즐겨찾기 해제",
+      description =
+          """
+          **담겨 있지 않아도 성공이다.** 없는 자료여도 `404`를 주지 않는다 — 자료가 지워지면
+          즐겨찾기도 함께 사라지므로 뺄 것이 이미 없고, 오류를 주면 화면이 지울 수 없는 별표를
+          들고 있게 된다.
+          """)
+  @ApiResponse(responseCode = "204", description = "빠졌다 (담겨 있지 않던 경우 포함)")
+  @DeleteMapping("/{id}/bookmark")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  @PreAuthorize("isAuthenticated()")
+  public void removeBookmark(@AuthenticationPrincipal Long viewerId, @PathVariable Long id) {
+    bookmarkService.remove(viewerId, id);
   }
 }

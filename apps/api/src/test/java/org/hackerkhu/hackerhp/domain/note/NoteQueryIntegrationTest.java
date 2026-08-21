@@ -43,6 +43,7 @@ class NoteQueryIntegrationTest extends AbstractIntegrationTest {
 
   @BeforeEach
   void createAccounts() {
+    jdbcTemplate.update("DELETE FROM bookmarks");
     jdbcTemplate.update("DELETE FROM note_files");
     jdbcTemplate.update("DELETE FROM notes");
     userRepository.deleteAll();
@@ -53,6 +54,7 @@ class NoteQueryIntegrationTest extends AbstractIntegrationTest {
 
   @AfterEach
   void clear() {
+    jdbcTemplate.update("DELETE FROM bookmarks");
     jdbcTemplate.update("DELETE FROM note_files");
     jdbcTemplate.update("DELETE FROM notes");
     userRepository.deleteAll();
@@ -336,7 +338,9 @@ class NoteQueryIntegrationTest extends AbstractIntegrationTest {
     mockMvc
         .perform(asMember(get(PATH)))
         .andExpect(jsonPath("$.content[0].fileCount").value(2))
-        .andExpect(jsonPath("$.content[0].files").doesNotExist());
+        .andExpect(jsonPath("$.content[0].files").doesNotExist())
+        // 즐겨찾기하지 않았으므로 비어 있다 (#56)
+        .andExpect(jsonPath("$.content[0].bookmarked").value(false));
 
     mockMvc
         .perform(asMember(get(PATH + "/" + noteId)))

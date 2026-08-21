@@ -12,6 +12,7 @@ import org.hackerkhu.hackerhp.domain.note.dto.NoteSort;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteSummaryResponse;
 import org.hackerkhu.hackerhp.domain.note.dto.Uploader;
 import org.hackerkhu.hackerhp.domain.note.entity.Note;
+import org.hackerkhu.hackerhp.domain.note.repository.BookmarkRepository;
 import org.hackerkhu.hackerhp.domain.note.repository.NoteRepository;
 import org.hackerkhu.hackerhp.domain.note.repository.NoteSpecifications;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
@@ -31,10 +32,13 @@ public class NoteQueryService {
 
   private final NoteRepository notes;
   private final UserRepository users;
+  private final BookmarkRepository bookmarks;
 
-  public NoteQueryService(NoteRepository notes, UserRepository users) {
+  public NoteQueryService(
+      NoteRepository notes, UserRepository users, BookmarkRepository bookmarks) {
     this.notes = notes;
     this.users = users;
+    this.bookmarks = bookmarks;
   }
 
   /**
@@ -42,7 +46,8 @@ public class NoteQueryService {
    *
    * <p><b>업로더 이름은 한 번에 모아 읽는다.</b> 행마다 읽으면 20건에 질의가 20번 붙는다.
    */
-  public Page<NoteSummaryResponse> list(NoteSearch search, NoteSort sort, Pageable pageable) {
+  public Page<NoteSummaryResponse> list(
+      Long viewerId, NoteSearch search, NoteSort sort, Pageable pageable) {
     /*
      * 정렬을 Pageable에서 걷어낸다. 계약의 sort는 latest|title이지 Spring Data의 속성 정렬이 아닌데,
      * 그대로 넘기면 ?sort=bogus가 "Note에 그런 속성이 없다"로 500이 된다 — 화면이 보내는 값 하나에
@@ -51,19 +56,49 @@ public class NoteQueryService {
     Pageable unsorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
     Page<Note> page = notes.findAll(NoteSpecifications.matching(search, sort), unsorted);
     Map<Long, String> names = uploaderNames(page.getContent());
-    Map<Long, Integer> fileCounts = fileCounts(page.getContent());
-    return page.map(
-        note ->
-            NoteSummaryResponse.of(
-                note, uploaderOf(note, names), fileCounts.getOrDefault(note.getId(), 0)));
+    return toSummaries(viewerId, page);
   }
 
-  public NoteDetailResponse get(Long id) {
+  /** 내 즐겨찾기 목록 (#56). <b>정렬은 내가 표시한 순서</b>라 검색·필터를 받지 않는다 — 이미 본인이 추린 목록이다. */
+  public Page<NoteSummaryResponse> myBookmarks(Long viewerId, Pageable pageable) {
+    return toSummaries(viewerId, bookmarks.findMyNotes(viewerId, pageable));
+  }
+
+  public NoteDetailResponse get(Long viewerId, Long id) {
     Note note =
         notes
             .findWithFilesById(id)
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "자료를 찾을 수 없습니다."));
-    return NoteDetailResponse.of(note, uploaderOf(note, uploaderNames(List.of(note))));
+    return NoteDetailResponse.of(
+        note,
+        uploaderOf(note, uploaderNames(List.of(note))),
+        bookmarks.existsByUserIdAndNoteId(viewerId, id));
+  }
+
+  /**
+   * 페이지를 응답으로 옮긴다.
+   *
+   * <p><b>업로더 이름·파일 개수·즐겨찾기 여부를 각각 한 번에 모아 읽는다.</b> 행마다 읽으면 20건에 질의가 20번씩 붙는다.
+   */
+  private Page<NoteSummaryResponse> toSummaries(Long viewerId, Page<Note> page) {
+    Map<Long, String> names = uploaderNames(page.getContent());
+    Map<Long, Integer> fileCounts = fileCounts(page.getContent());
+    Set<Long> bookmarked = bookmarkedIds(viewerId, page.getContent());
+    return page.map(
+        note ->
+            NoteSummaryResponse.of(
+                note,
+                uploaderOf(note, names),
+                fileCounts.getOrDefault(note.getId(), 0),
+                bookmarked.contains(note.getId())));
+  }
+
+  private Set<Long> bookmarkedIds(Long viewerId, List<Note> found) {
+    List<Long> ids = found.stream().map(Note::getId).toList();
+    if (ids.isEmpty()) {
+      return Set.of();
+    }
+    return Set.copyOf(bookmarks.findNoteIdsOf(viewerId, ids));
   }
 
   /** 필터 옵션은 <b>실제 등록된 값</b>에서 만든다 (2-1 §2-1-1 MUST). */

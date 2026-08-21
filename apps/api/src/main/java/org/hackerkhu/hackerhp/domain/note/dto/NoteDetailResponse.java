@@ -25,10 +25,11 @@ public record NoteDetailResponse(
     @Schema(description = "category=EXAM에만 있다") ExamType examType,
     Uploader uploader,
     List<NoteFileResponse> files,
+    @Schema(description = "내가 즐겨찾기했는지") boolean bookmarked,
     Instant createdAt,
     Instant updatedAt) {
 
-  public static NoteDetailResponse of(Note note, Uploader uploader) {
+  public static NoteDetailResponse of(Note note, Uploader uploader, boolean bookmarked) {
     return new NoteDetailResponse(
         note.getId(),
         note.getCategory(),
@@ -40,6 +41,7 @@ public record NoteDetailResponse(
         note.getExamType(),
         uploader,
         note.getFiles().stream().map(NoteFileResponse::from).toList(),
+        bookmarked,
         note.getCreatedAt(),
         note.getUpdatedAt());
   }
