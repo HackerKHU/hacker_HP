@@ -7,6 +7,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Instant;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
+import org.hackerkhu.hackerhp.domain.audit.entity.AdminAction;
+import org.hackerkhu.hackerhp.domain.audit.entity.AdminActionLog;
+import org.hackerkhu.hackerhp.domain.audit.repository.AdminActionLogRepository;
+import org.hackerkhu.hackerhp.domain.auth.repository.BootstrapAttemptRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
@@ -44,12 +48,16 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository userRepository;
+  @Autowired private BootstrapAttemptRepository attempts;
   @Autowired private JwtProvider jwtProvider;
+  @Autowired private AdminActionLogRepository adminActions;
 
   private User founder;
 
   @BeforeEach
   void createAccounts() {
+    adminActions.deleteAll();
+    attempts.deleteAll();
     userRepository.deleteAll();
     // 최초 관리자가 될 사람 — 정상 가입 절차를 마친 PENDING이다.
     founder =
@@ -59,6 +67,8 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
 
   @AfterEach
   void clear() {
+    adminActions.deleteAll();
+    attempts.deleteAll();
     userRepository.deleteAll();
   }
 
@@ -129,6 +139,7 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
   @Test
   void recoversAnAlreadyApprovedMemberWithoutRewritingApprovedAt() throws Exception {
     // 이메일이 유일해야 하므로 최초 계정을 먼저 지운다.
+    attempts.deleteAll();
     userRepository.deleteAll();
     User member = Accounts.applied("sub-ok", "founder@khu.ac.kr", "20200002");
     member.approve();
@@ -162,6 +173,46 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
     assertThat(again.getRole()).isEqualTo(Role.ADMIN);
     assertThat(again.getStatus()).isEqualTo(Status.ACTIVE);
     assertThat(again.getApprovedAt()).isEqualTo(promoted.getApprovedAt());
+  }
+
+  /**
+   * 승격이 이력에 남는다 (#143).
+   *
+   * <p>스스로에게 하는 조작이라 행위자와 대상이 같다. 그래도 남기는 것은 <b>"관리자가 언제 어떻게 생겼는가"의 유일한 기록</b>이기 때문이다 — 상시 열려 있는
+   * 문이라 더 그렇다.
+   *
+   * <p><b>토큰은 남지 않는다.</b> 시크릿이다 (2-2 §2-2-7).
+   */
+  @Test
+  void recordsThePromotion() throws Exception {
+    mockMvc.perform(bootstrap(founder, TOKEN)).andExpect(status().isNoContent());
+
+    assertThat(adminActions.findByTargetIdOrderByIdAsc(founder.getId()))
+        .singleElement()
+        .satisfies(
+            entry -> {
+              assertThat(entry.getAction()).isEqualTo(AdminAction.PROMOTE_ADMIN);
+              assertThat(entry.getActorId()).isEqualTo(founder.getId());
+            });
+  }
+
+  /** 이미 승격된 계정의 재요청은 남기지 않는다. 아무것도 바뀌지 않았다. */
+  @Test
+  void doesNotRecordARepeatedPromotion() throws Exception {
+    mockMvc.perform(bootstrap(founder, TOKEN)).andExpect(status().isNoContent());
+    mockMvc.perform(bootstrap(founder, TOKEN)).andExpect(status().isNoContent());
+
+    assertThat(adminActions.findByTargetIdOrderByIdAsc(founder.getId()))
+        .extracting(AdminActionLog::getAction)
+        .containsExactly(AdminAction.PROMOTE_ADMIN);
+  }
+
+  /** 거절된 시도는 이력에 남지 않는다 — 반복 시도를 다루는 것은 #144다. */
+  @Test
+  void doesNotRecordRejectedAttempts() throws Exception {
+    mockMvc.perform(bootstrap(founder, "wrong-token")).andExpect(status().isForbidden());
+
+    assertThat(adminActions.findAll()).isEmpty();
   }
 
   /** 재요청이라도 토큰이 틀리면 통과하지 못한다. 이 문은 이메일·토큰을 지난 사람에게만 열린다. */
@@ -216,6 +267,7 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void accountWithoutAnApplicationIsRejected() throws Exception {
+    attempts.deleteAll();
     userRepository.deleteAll();
     User justSignedIn =
         userRepository.saveAndFlush(User.createFromGoogle("sub-new", "founder@khu.ac.kr", "이름"));
@@ -230,6 +282,7 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
   /** 정지된 계정이 이 경로로 되살아나면 안 된다. */
   @Test
   void suspendedAccountIsRejected() throws Exception {
+    attempts.deleteAll();
     userRepository.deleteAll();
     User banned = Accounts.applied("sub-ban", "founder@khu.ac.kr", "20200004");
     banned.approve();

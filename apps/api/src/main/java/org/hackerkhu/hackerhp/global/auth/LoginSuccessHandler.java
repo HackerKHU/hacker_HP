@@ -34,16 +34,19 @@ public class LoginSuccessHandler implements AuthenticationSuccessHandler {
   private final JwtProvider jwtProvider;
   private final AccessTokenCookie accessTokenCookie;
   private final LoginFailureHandler failureHandler;
+  private final LoginSessionIssuer sessionIssuer;
 
   public LoginSuccessHandler(
       GoogleAccountService accountService,
       JwtProvider jwtProvider,
       AccessTokenCookie accessTokenCookie,
-      LoginFailureHandler failureHandler) {
+      LoginFailureHandler failureHandler,
+      LoginSessionIssuer sessionIssuer) {
     this.accountService = accountService;
     this.jwtProvider = jwtProvider;
     this.accessTokenCookie = accessTokenCookie;
     this.failureHandler = failureHandler;
+    this.sessionIssuer = sessionIssuer;
   }
 
   @Override
@@ -70,26 +73,24 @@ public class LoginSuccessHandler implements AuthenticationSuccessHandler {
     }
 
     /*
-     * 알려진 경쟁 — 로그인과 상태 변경이 겹치는 아주 좁은 창이 있다 (#85 리뷰).
+     * 토큰 쿠키를 먼저 굽는다. 아래에서 응답이 커밋되므로 그 뒤에는 헤더를 더할 수 없다.
      *
-     * 여기서 읽은 값으로 세션을 채우는데, 이 세션이 DB에 쓰이는 것은 요청이 끝날 때
-     * SessionRepositoryFilter가 커밋하는 시점이다. 그 사이에 관리자가 이 사람을 승인·정지하면
-     * SessionSynchronizer의 조회가 아직 없는 세션을 놓치고, 뒤이어 저장된 세션은 옛 값을 들고
-     * 남는다 — DB는 ACTIVE인데 세션만 PENDING인 상태가 만료(30분)까지 간다.
-     *
-     * 여기서 한 번 더 읽는 것으로는 닫히지 않는다. 창의 끝은 "다시 읽는 시점"이 아니라 "세션이
-     * 실제로 저장되는 시점"이라, 조회를 늘려도 창이 조금 줄 뿐이다. 닫으려면 세션을 저장소로
-     * 직접 만들어 먼저 쓰고 그 뒤에 대조해야 하는데, 그것은 로그인 경로의 구조를 바꾸는 일이라
-     * #127로 둔다.
-     */
-    AuthSession.store(request.getSession(true), user);
-    accessTokenCookie.write(response, jwtProvider.issue(user.getId()), jwtProvider.expiry());
-
-    /*
      * 이 요청의 SecurityContext는 버린다. 인증은 다음 요청부터 JwtSessionAuthenticationFilter가
      * 토큰과 세션을 대조해 세운다 — 여기 남겨 두면 그 대조를 거치지 않은 인증이 한 번 존재하게 된다.
      */
+    accessTokenCookie.write(response, jwtProvider.issue(user.getId()), jwtProvider.expiry());
     SecurityContextHolder.clearContext();
-    response.sendRedirect(SPA_ROOT);
+
+    /*
+     * 발급과 되돌리기를 함께 맡긴다. 응답을 내보내는 순간이 곧 세션이 저장되는 순간이라,
+     * 그 호출이 계정 행 잠금 안에 있어야 창이 닫힌다 (#127).
+     */
+    if (sessionIssuer.issue(request, response, user.getId(), SPA_ROOT)) {
+      return;
+    }
+
+    // 세션도 응답도 만들어지지 않았다. 여기서 실패를 알린다.
+    accessTokenCookie.clear(response);
+    failureHandler.redirect(response, LoginErrorCode.FAILED);
   }
 }

@@ -25,17 +25,31 @@
 
 ```mermaid
 erDiagram
-  USERS ||--o{ NOTES : uploads
+  USERS |o--o{ NOTES : uploads
   USERS ||--o{ BOOKMARKS : saves
   NOTES ||--o{ BOOKMARKS : saved_in
   NOTES ||--o{ NOTE_FILES : has
-  USERS ||--o{ NOTICES : writes
-  USERS ||--o{ PHOTOS : uploads
+  USERS |o--o{ NOTICES : writes
+  USERS |o--o{ PHOTOS : uploads
 ```
+
+`admin_actions`는 ERD에 넣지 않는다. `users`를 가리키지만 **FK가 없어 관계가 아니고**, 그렇게 둔 이유가 바로 "이력은 현재 상태에 종속되지 않는다"이기 때문이다 — 선으로 이으면 정반대로 읽힌다.
+
+**작성자 쪽이 `|o`(0 또는 1)인 것은 오타가 아니다.** 회원을 지워도 자료·공지·사진은 남고 작성자만 비므로([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)), 작성자가 없는 행이 정상으로 존재한다. `BOOKMARKS`만 `||`인데, 즐겨찾기는 주인과 함께 사라져 주인 없는 행이 생기지 않기 때문이다.
 
 ## 3-2-2 테이블 정의
 
 > **아래 표는 DB 컬럼 이름이다. JSON 응답의 필드 이름과는 층위가 다르다** — 컬럼은 `is_pinned`, JSON은 `isPinned`다. 서버는 Jackson을 Spring Boot 기본값(Java 필드명 그대로)으로 직렬화한다 — 엔티티·DTO를 camelCase로 쓰므로 JSON도 자연히 camelCase다 (확정, 2026-08-13, #33).
+
+### 작성자를 내려주는 규칙
+
+자료·공지·활동사진의 작성자를 응답에 담을 때는 **`uploaderName`**(자료·사진)과 **`authorName`**(공지)을 쓴다 — `string`, **null이 아니다** (MUST).
+
+작성자 행이 없으면(`uploader_id`/`author_id`가 `NULL`) 서버가 그 자리에 **`"탈퇴한 회원"`** 을 넣는다. **`null`을 내려보내고 화면이 알아서 채우게 하지 않는다** — 화면마다 다른 문구를 쓰게 되고, 문구를 바꾸려면 웹을 배포해야 한다.
+
+`uploaderId`/`authorId`를 함께 내릴 때는 그쪽이 `null`이 될 수 있다. **"본인 것만 수정·삭제" 판단은 id로 한다** ([3-1 §3-1-3](3-1-DESIGN-ARCHITECTURE.md)) — 이름으로 견주면 "탈퇴한 회원"끼리 서로의 자료를 지울 수 있다.
+
+근거는 [2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)다.
 
 ### users
 
@@ -96,12 +110,13 @@ erDiagram
 | `year` | int | NOT NULL | 개설 연도 |
 | `semester` | enum | NOT NULL | `SPRING`, `FALL` |
 | `exam_type` | enum | NULL | `MIDTERM`, `FINAL` |
-| `uploader_id` | bigint | FK → users.id | |
+| `uploader_id` | bigint | NULL, FK → users.id, **ON DELETE SET NULL** | `NULL`이면 탈퇴한 회원 |
 | `created_at` | datetime | NOT NULL | |
 | `updated_at` | datetime | NOT NULL | |
 
 - 인덱스: `(category, created_at)`, `(subject_name)`, `(year, semester)`
 - **CHECK 제약** (MUST): `category = 'EXAM'`이면 `exam_type IS NOT NULL`, `category = 'SUBJECT'`면 `exam_type IS NULL`. 애플리케이션 검증에만 맡기지 않는다.
+- `uploader_id`는 **`ON DELETE SET NULL`이다** (MUST) — [2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)가 회원을 지워도 자료는 남긴다고 정했다. 기본값(`NO ACTION`)으로 두면 자료를 올린 회원은 삭제 자체가 FK 위반으로 막힌다.
 
 ### note_files
 
@@ -125,6 +140,8 @@ erDiagram
 
 복합 PK `(user_id, note_id)`로 중복 등록을 막는다. 양쪽 FK 모두 CASCADE를 건다 (MUST) — [2-1 §2-1-3](2-1-USER-STORIES.md)이 자료 삭제 시 즐겨찾기도 지워진다고 정의하고 있다.
 
+**작성자 FK가 `SET NULL`인데 여기만 `CASCADE`인 이유** — 즐겨찾기는 그 사람이 *본* 기록이지 *남긴* 것이 아니다. 주인이 없어지면 남길 이유도 없다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)).
+
 ### notices
 
 | 컬럼 | 타입 | 제약 | 설명 |
@@ -133,11 +150,13 @@ erDiagram
 | `title` | varchar(200) | NOT NULL | |
 | `content` | text | NOT NULL | |
 | `is_pinned` | boolean | NOT NULL, default false | 상단 고정 여부 |
-| `author_id` | bigint | FK → users.id | |
+| `author_id` | bigint | NULL, FK → users.id, **ON DELETE SET NULL** | `NULL`이면 탈퇴한 회원 |
 | `created_at` | datetime | NOT NULL | |
 | `updated_at` | datetime | NOT NULL | |
 
 정렬 기준: `is_pinned DESC, created_at DESC`
+
+`author_id`도 `notes.uploader_id`와 같은 이유로 **`ON DELETE SET NULL`이다** (MUST). 공지는 동아리의 기록이라 작성한 관리자가 나가도 남아야 한다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)). **`V1__init.sql`은 `ON DELETE` 절 없이 만들어졌으므로 회원 제거 기능(#58)에서 마이그레이션으로 맞춘다.**
 
 ### photos
 
@@ -146,10 +165,46 @@ erDiagram
 | `id` | bigint | PK, auto | |
 | `caption` | varchar(200) | NULL | |
 | `stored_path` | varchar(500) | NOT NULL | 리사이즈된 이미지의 S3 오브젝트 키 |
-| `uploader_id` | bigint | FK → users.id | |
+| `uploader_id` | bigint | NULL, FK → users.id, **ON DELETE SET NULL** | `NULL`이면 탈퇴한 회원 |
 | `created_at` | datetime | NOT NULL | |
 
-저장 키 형식: `photos/{photoId}/{uuid}.jpg`, 썸네일은 `photos/{photoId}/thumb/{uuid}.jpg`
+저장 키 형식: `photos/{photoId}/{uuid}.jpg`, 썸네일은 `photos/{photoId}/thumb/{uuid}.jpg`. 업로드 경로(원본을 어디에 잠깐 두고 어떻게 리사이즈본으로 바뀌는지)는 [1-BACKGROUND §1-5](1-BACKGROUND.md) 확정 사항, API는 아래 `POST /photos/upload-url`·`POST /photos`를 따른다.
+
+`uploader_id`는 `ADMIN`만 채워진다(사진 업로드는 `ADMIN` 전용이다). 그래도 **`ON DELETE SET NULL`이다** (MUST) — 관리자도 삭제 대상이 될 수 있고, 활동사진은 아카이브라 남아야 한다.
+
+### admin_bootstrap_attempts
+
+관리자 승격 시도 (#144). 한 행은 **"자리를 잡았다"** 는 뜻이고, 승격에 성공하면 그 계정의 것을 지우므로 남아 있는 것은 실질적으로 실패한 시도다. 성공한 조작은 `admin_actions`에 남는다 — 목적도 보존 주기도 달라 섞지 않는다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | bigint | PK, auto | |
+| `account_id` | bigint | NOT NULL, **FK 없음** | 시도한 계정 |
+| `created_at` | datetime | NOT NULL | |
+
+- 인덱스: `(account_id, created_at)`, `(created_at)`
+
+`admin_actions`와 같은 이유로 **`users` FK가 없다** — 잠금 판단이 `users`의 생명주기에 묶이면 안 된다. **창을 벗어난 행은 판단에 쓰이지 않으므로 지운다.**
+
+### admin_actions
+
+관리자 조작 이력 ([2-2 §2-2-7](2-2-OPERATOR-REQUIREMENTS.md#2-2-7-안전장치)). "누가 누구를 언제 정지했나"에 답하기 위한 것이다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | bigint | PK, auto | |
+| `actor_id` | bigint | NOT NULL, **FK 없음** | 조작한 관리자 |
+| `target_id` | bigint | NOT NULL, **FK 없음** | 대상 |
+| `action` | enum | NOT NULL | `APPROVE`, `SUSPEND`, `ACTIVATE`, `PROMOTE_ADMIN` |
+| `created_at` | datetime | NOT NULL | |
+
+- 인덱스: `(target_id, created_at DESC)`, `(actor_id, created_at DESC)`
+
+**여기만 `users`를 가리키는 FK가 없다** (MUST). 다른 테이블처럼 `ON DELETE SET NULL`을 걸면 **회원을 지우는 순간 "누구를 정지했는지"가 사라져** 이력의 존재 이유가 무너진다. 자료·공지와 성격이 다르다 — 그쪽은 보여줄 콘텐츠라 작성자 표시가 필요하지만, **이력은 일어난 일의 기록이라 현재 상태에 종속되면 안 된다.**
+
+**이름·이메일 같은 스냅샷은 두지 않는다** (MUST). 계정을 지운 뒤에도 개인정보가 남는다 ([§2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)). 남는 것은 숫자 id뿐이다.
+
+**고쳐 쓰지 않는다.** 이력은 일어난 일이라 나중에 달라질 수 없다.
 
 ---
 
@@ -170,7 +225,7 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 | GET | `/login/oauth2/code/google` | 비로그인 | 구글 콜백. 성공 시 계정 생성 또는 조회 후 세션 발급 |
 | POST | `/auth/application` | PENDING | 신청서 제출·수정. body: `{ "studentNo": "...", "name": "...", "department": "..." }` |
 | POST | `/auth/logout` | 로그인 | 로그아웃 |
-| GET | `/auth/me` | 로그인 | 내 정보 + role/status/신청 여부 |
+| GET | `/auth/me` | **비로그인 포함 전체** | 로그인이면 내 정보, 아니면 `204` |
 | POST | `/auth/bootstrap-admin` | 로그인 + **신청서 제출 완료** | 최초 관리자 승격/마지막 관리자 복구. body: `{ "token": "..." }` — [3-3 결정 11](3-3-DESIGN-DECISIONS.md) |
 
 **`POST /auth/signup`과 `POST /auth/login`은 없다.** 자체 비밀번호를 쓰지 않으므로 두 엔드포인트가 사라졌다 ([3-3 결정 13](3-3-DESIGN-DECISIONS.md#3-3-14-결정-13--가입로그인을-구글-oauth로-한다)).
@@ -191,6 +246,18 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 
 **거절은 사유를 가르지 않는다** (MUST, 2026-08-14 #89). 활성 관리자가 이미 있든, 이메일이 다르든, 토큰이 틀리든, 신청서를 내지 않았든, **정지된 계정이든** 전부 같은 `403 FORBIDDEN`과 같은 문구다. 사유가 갈리면 *"이메일은 맞았고 토큰만 틀렸다"* 를 알아낼 수 있어 무차별 대입의 탐색 공간이 줄어든다. 진짜 사유는 서버 로그에만 남기고, **토큰은 로그에도 남기지 않는다.**
 
+**시도 횟수를 제한한다** (MUST, #144). 한 계정은 **15분에 5회**, 이 경로 전체는 **15분에 20회**까지 시도할 수 있다. 계정을 갈아타며 두드리는 것을 전체 상한이 막는다.
+
+**확인과 자리 잡기가 한 연산이어야 한다** (MUST). 세어 보고 나중에 기록하면 **동시에 도착한 요청들이 모두 같은 옛 카운트를 읽고 전부 통과한다** — 병렬로 보내는 것만으로 상한이 무의미해진다. 시도를 시작하기 전에 잠금 아래에서 자리를 잡는다.
+
+**잠긴 동안의 요청은 세지 않는다** (MUST). 세면 두드릴수록 창이 뒤로 밀려 **"기다리면 풀린다"가 참이 아니게 된다** — 사고 대응 중인 운영자가 재시도하다 영영 못 들어가는 쪽이 더 위험하다.
+
+**잠긴 것도 위와 같은 `403`이고 문구도 같다** (MUST). 응답이 달라지면 **잠기는 시점을 재서 토큰이 맞았는지를 역으로 알아낼 수 있다** — 틀린 토큰만 세어진다면, 잠기지 않는 시도가 곧 맞는 토큰이다. 잠금은 로그에만 남는다.
+
+**IP는 세지 않는다.** 브라우저가 Vercel 프록시를 거쳐 도착하므로([deployment.md](../docs/ops/deployment.md)) 서버가 보는 주소는 프록시의 것이고, `X-Forwarded-For`는 우리가 통제하지 않는 구간을 지나며 요청자가 값을 넣을 수 있다 — **믿을 수 없는 값으로 나누면 버킷만 늘어나 제한이 사라진다.**
+
+**승격에 성공하면 그 계정의 시도 기록을 지운다** (MUST). 토큰을 몇 번 잘못 붙여넣고 성공하는 것은 흔한 일이라, 남겨 두면 **바로 다음 사고의 복구가 막힌다.**
+
 **설정값(`ADMIN_BOOTSTRAP_EMAIL`·`ADMIN_BOOTSTRAP_TOKEN`)이 없으면 이 경로는 닫힌다** — 응답은 위와 같아서 설정 여부조차 밖에서 알 수 없다. 값이 없다고 기동을 막지는 않는다: 일회성 운영 경로를 기동 조건으로 묶으면 나중에 토큰을 회전하거나 지우는 순간 API 전체가 죽는다.
 
 **이미 승인된 계정이 호출하면 `role`만 바꾼다** (MUST). 마지막 관리자 사고의 복구 경로로 쓰일 때가 그렇다 ([2-2 §2-2-7](2-2-OPERATOR-REQUIREMENTS.md)) — 다시 승인 처리하면 `approved_at`이 오늘로 덮여 **실제 승인일이 사라진다.**
@@ -202,6 +269,20 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 프레임워크 기본값(`/oauth2/...`, `/login/...`)을 그대로 두면 Vercel rewrites가 `/api/*`만 프록시하므로 브라우저 요청이 ALB에 닿지 않는다 ([3-3 결정 5](3-3-DESIGN-DECISIONS.md#3-3-5-결정-5--도메인-없이-vercel-프록시로-https를-우회한다)). 프록시 규칙을 늘리는 대신 서버 경로를 옮긴다.
 
 구글 콘솔에 등록할 redirect URI도 **프론트엔드 오리진** 기준이다. 브라우저는 Vercel과만 통신하므로 ALB 주소를 등록하면 콜백이 다른 오리진에 떨어져 쿠키가 붙지 않는다.
+
+### `GET /auth/me` — 세션 확인
+
+**비로그인에게도 열려 있고, 세션이 없으면 `204`다** (MUST, 2026-08-22, #190). 오류가 아니다.
+
+화면은 랜딩을 포함해 **최초 렌더마다** 이것을 부른다([3-1 §3-1-3](3-1-DESIGN-ARCHITECTURE.md)). `401`로 답하면 **비로그인 방문자마다 실패 응답이 하나씩 남고**, 브라우저가 콘솔에 남기는 그 줄은 앱이 지울 수 없어 진짜 오류가 묻힌다.
+
+**비로그인에게 나가는 것은 "세션이 없다"뿐이다** (MUST). 본문이 없으므로 계정 정보가 실릴 자리도 없다. `GET /auth/csrf`를 연 것과 같은 성격이다.
+
+**로그인 사용자의 `200` 응답은 바뀌지 않았다.** 그래서 `authenticated` 같은 필드로 감싸지 않는다 — 감싸면 화면·픽스처·기존 사례가 전부 따라 움직이는데, 얻는 것은 같다.
+
+**세션은 있는데 계정이 사라진 경우도 `204`다.** 화면에게 그 상태는 "로그인되어 있지 않다"와 같고, 실제로 다음 요청부터 인증이 성립하지 않는다.
+
+> **결합 검사가 느슨해진 것이 아니다.** `JwtSessionAuthenticationFilter`는 이 경로에서도 그대로 돌아, 토큰과 세션이 어긋나면 인증을 세우지 않고 **양쪽 쿠키를 폐기한다** (T-29). 다만 그 결과가 `401`이 아니라 `204`일 뿐이다.
 
 `GET /auth/me`는 신청서 제출 여부를 함께 반환한다. 프론트엔드가 `PENDING` 사용자에게 신청 폼을 보일지 대기 안내를 보일지 이 값으로 가른다 ([3-1 §3-1-6](3-1-DESIGN-ARCHITECTURE.md)).
 
@@ -285,6 +366,57 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | `page` | int | 0부터 시작 |
 | `size` | int | 기본 20 |
 
+**`sort`는 `latest`·`title`만 받는다** (MUST). 그 밖의 값은 기본값으로 본다 — 화면이 조합해 보내는 값이라 `400`으로 막을 이유가 없다. **Spring Data의 속성 정렬(`?sort=title,asc`)이 아니다** — 그대로 넘기면 없는 속성 이름 하나에 `500`이 난다 (2026-08-21, #52).
+
+**정렬의 마지막 기준은 언제나 `id`다** (MUST). 같은 시각에 등록됐거나 제목이 같은 자료가 여럿이면 순서가 정해지지 않아, 페이지를 넘길 때마다 배치가 달라진다 — **같은 자료가 두 번 보이거나 아예 빠지고, 훑는 사람은 그것을 알아채지 못한다.**
+
+**있을 수 없는 필터 조합은 오류가 아니라 결과 0건이다.** `category=SUBJECT&examType=MIDTERM`이 그렇다 — 조회에 검증을 넣으면 화면이 필터를 조합하는 순간마다 `400`을 받는다. 그 짝을 강제하는 것은 등록 경로와 §3-2-2의 CHECK 제약이다.
+
+**`GET /notes` 응답** (2026-08-21 확정, #52)
+
+목록의 한 행은 `id`·`category`·`title`·`subjectName`·`professor`·`year`·`semester`·`examType`·`uploader`·`fileCount`·`createdAt`이다.
+
+**파일은 개수만 담는다.** 목록에서 쓰는 것은 "첨부가 있나"뿐인데 파일 목록을 전부 실으면 20건 × N개가 된다. 내용은 상세가 준다.
+
+**`GET /notes/{id}` 응답**
+
+목록의 항목에 `files`와 `updatedAt`이 더해진다. `files`의 각 항목은 `id`·`originalName`·`sizeBytes`다.
+
+**`stored_path`(S3 오브젝트 키)는 어디에도 담지 않는다** (MUST). 버킷이 비공개라 키를 알아도 열 수 없고, 키 구조를 밖에 드러낼 이유가 없다. 파일을 받는 길은 presigned URL을 발급하는 `GET /notes/{id}/files/{fileId}`뿐이며, 그래서 파일 `id`가 필요하다.
+
+**`GET /notes/filters` 응답**
+
+```json
+{ "subjects": ["네트워크", "운영체제"], "professors": ["김교수"], "years": [2025, 2024] }
+```
+
+**실제 등록된 값에서 만든다** (MUST, [2-1 §2-1-1](2-1-USER-STORIES.md)). 없는 과목을 고를 수 있으면 결과가 늘 0건이고, 등록된 과목이 빠지면 찾을 방법이 사라진다. 교수명이 없는 자료는 옵션을 만들지 않는다 — 화면이 빈 항목을 그린다.
+
+**학기·시험 구분은 담지 않는다.** 값이 enum으로 고정이라 등록 현황과 무관하고 화면이 이미 안다.
+
+### 즐겨찾기 (2026-08-21 확정, #56)
+
+**자료 목록·상세 응답에 `bookmarked`(boolean)가 있다** (MUST). 목록에서도 추가·해제하므로([2-1 §2-1-5](2-1-USER-STORIES.md)) 화면이 별표를 채울지 비울지 알아야 한다 — 없으면 `GET /bookmarks`를 통째로 받아 대조해야 하고, 즐겨찾기가 많으면 그것부터 문제가 된다.
+
+**`POST`·`DELETE` 둘 다 멱등이다** (MUST).
+
+| 요청 | |
+|---|---|
+| 이미 담긴 자료에 `POST` | `204`. 아무것도 바뀌지 않는다 |
+| 담기지 않은 자료에 `DELETE` | `204` |
+| 없는 자료에 `POST` | `404 NOT_FOUND` — 확인 뒤 그 자료가 지워진 경우도 같다. FK 위반이 `500`으로 새지 않는다 |
+| 없는 자료에 `DELETE` | `204`. 자료가 지워지면 즐겨찾기도 함께 사라져 뺄 것이 이미 없다 |
+
+**멱등은 DB에서 보장한다** (MUST). 확인하고 저장하는 방식은 **동시에 도착한 요청들이 모두 "없다"를 읽고 지나가고**, 읽고 지우는 방식은 뒤의 요청이 지울 것을 잃어 터진다 — 재시도가 예상되는 경로라 그러면 안 된다. 담기는 있으면 넘어가는 한 문장으로, 빼기는 읽지 않는 한 문장으로 끝낸다.
+
+**토글이 아니다** (MUST). 같은 요청이 상태를 뒤집으면 **재시도가 방금 담은 것을 조용히 뺀다** — 응답이 오는 길에 끊겨 클라이언트가 다시 보내는 일은 흔하고, 그때 사용자는 한 번 눌렀는데 별표가 꺼진 것을 보게 되며 오류는 하나도 나지 않는다. 화면은 `bookmarked`를 보고 담을지 뺄지 고르므로 **사용자가 보는 동작은 토글과 같다.**
+
+**`GET /bookmarks` 응답은 `GET /notes`와 같은 형태다.** 같은 카드를 그리는 화면이라 응답이 다르면 화면이 두 벌이 된다. **그 목록의 `bookmarked`는 언제나 `true`다** (MUST) — 목록에 있다는 것이 곧 담겨 있다는 뜻이라 다시 묻지 않는다. 한 번 더 물으면 그 사이에 해제된 항목이 `false`로 돌아와 이 계약이 깨진다.
+
+**정렬은 내가 표시한 순서(최신)** 다 — 자료의 등록 시각이 아니다. 이 화면의 기준은 "언제 올라온 자료인가"가 아니라 "언제 내가 담았나"다. 마지막 기준으로 자료 `id`를 붙인다(§3-2-4의 정렬 규칙과 같은 이유).
+
+**검색·필터는 받지 않는다.** 이미 본인이 추린 목록이다.
+
 ## 3-2-5 API — 공지·사진
 
 | Method | Path | 권한 | 설명 |
@@ -296,10 +428,23 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | DELETE | `/notices/{id}` | ADMIN | 삭제 |
 | PATCH | `/notices/{id}/pin` | ADMIN | 고정 토글 |
 | GET | `/photos` | ACTIVE | 목록 |
-| POST | `/photos` | ADMIN | 다중 업로드 (multipart, 서버 리사이즈) |
+| POST | `/photos/upload-url` | ADMIN | 원본 파일별 presigned PUT URL 발급 (다중) |
+| POST | `/photos` | ADMIN | 메타데이터 등록 (JSON) — body에 업로드 완료된 원본 파일 키 목록. 서버가 그 키들을 S3에서 읽어 리사이즈한 뒤 최종 위치에 저장하고 사진마다 행을 만든다 |
 | DELETE | `/photos/{id}` | ADMIN | 삭제 |
 
-> `POST /photos`의 업로드 경로는 미결정이다 ([1-BACKGROUND §1-5](1-BACKGROUND.md) #5).
+### `POST /photos` — 업로드 경로 (확정, [1-BACKGROUND §1-5](1-BACKGROUND.md) #5)
+
+**원본은 presigned PUT으로 브라우저→S3 직접 올리고, 리사이즈는 서버가 동기로 한다** (MUST). 서버 리사이즈가 필요해([2-1 §2-1-7](2-1-USER-STORIES.md) MUST) `POST /photos`가 원본을 그대로 받는 방식(multipart)은 Vercel 프록시의 요청 본문 4.5MB 제한에 걸린다 — 요즘 휴대폰 사진은 그보다 흔히 크다. presigned PUT은 Vercel을 거치지 않고 브라우저가 S3에 직접 쓰므로 이 제한과 무관하다.
+
+절차:
+
+1. 관리자가 `POST /photos/upload-url`을 불러 올릴 개수만큼 presigned PUT URL을 받는다. 원본은 `photos/uploads/{uuid}.{ext}`에 임시로 쓴다 — 이 시점엔 `photoId`가 없다 (`note_files`의 `notes/{uuid}.{ext}`와 같은 이유, §3-2-2).
+2. 브라우저가 각 URL로 원본을 S3에 직접 올린다.
+3. 관리자가 `POST /photos`를 불러 업로드된 원본 키 목록(과 캡션)을 보낸다.
+4. **서버가 그 요청 처리 중에** 각 원본을 S3에서 읽어(이 트래픽도 Vercel을 거치지 않는다) 리사이즈하고, 최종 키(`photos/{photoId}/{uuid}.jpg`, 썸네일 `photos/{photoId}/thumb/{uuid}.jpg`)에 다시 쓴 뒤 DB 행을 만든다.
+5. 리사이즈가 끝나면 임시 원본(`photos/uploads/...`)을 지운다 — 남겨 둘 이유가 없고, 쌓이면 스토리지 비용만 는다.
+
+**대안이었던 "Lambda 등으로 비동기 리사이즈"는 채택하지 않는다.** 지금 규모(부원 수, 업로드 빈도)에서 얻는 이득보다 새 인프라(이벤트 트리거, 별도 실행 환경)와 "업로드 직후엔 리사이즈본이 아직 없는" 처리 지연을 다루는 비용이 크다. 업로드량이 실제로 늘면 그때 다시 검토한다.
 
 ### 성공 응답 본문
 
@@ -314,6 +459,7 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | POST | `/admin/users/reject` | ADMIN | 일괄 거부 — body: `{ "userIds": [1,2,3] }` |
 | PATCH | `/admin/users/{id}/status` | ADMIN | `ACTIVE` ↔ `SUSPENDED` (본인을 `SUSPENDED`로: 마지막 활성 관리자면 차단) |
 | PATCH | `/admin/users/{id}/role` | ADMIN | 권한 부여/회수 (본인 대상: 마지막 활성 관리자면 차단) |
+| GET | `/admin/users/{id}/content-summary` | ADMIN | 제거 확인 창이 쓰는 건수 — 그 회원이 남길 자료·공지·사진 |
 | DELETE | `/admin/users/{id}` | ADMIN | 회원 제거 (본인 대상: 마지막 활성 관리자면 차단) |
 
 ### 목록 파라미터
@@ -384,6 +530,20 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | `status`가 `ACTIVE`·`SUSPENDED`가 아님 | `400 VALIDATION_ERROR` |
 | 없는 `id` | `404 NOT_FOUND` |
 | **정지 뒤 활성 관리자가 0명이 됨** | `403 FORBIDDEN` ([§2-2-7](2-2-OPERATOR-REQUIREMENTS.md) MUST). 자기 대상인지와 무관하다 |
+
+### 제거 영향 조회
+
+`GET /admin/users/{id}/content-summary` — 제거 확인 창이 **"무엇이 남는지"** 를 보여주려면 필요하다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거) MUST).
+
+```json
+응답  200 { "notes": 12, "notices": 3, "photos": 0 }
+```
+
+**세 값 모두 항상 담는다** (MUST). `0`을 빼면 화면이 "없음"과 "모름"을 가르지 못한다.
+
+없는 `id`는 `404 NOT_FOUND`다. 이 값은 **확인 창을 여는 시점의 참고치**이지 제거의 조건이 아니다 — 그 사이 건수가 바뀌어도 제거는 그대로 진행한다. 건수를 맞추려고 제거까지 막으면 확인 창을 다시 열어도 같은 자리를 맴돌 수 있다.
+
+`Post Launch`다. 자료·사진 테이블이 생기기 전에는 셀 대상이 없다.
 
 **정지는 기존 세션에 즉시 반영된다** (MUST) — 세션을 지우지 않고 갱신하므로 다음 요청이 `403 SUSPENDED`다 ([3-1 §3-1-5](3-1-DESIGN-ARCHITECTURE.md), T-32).
 

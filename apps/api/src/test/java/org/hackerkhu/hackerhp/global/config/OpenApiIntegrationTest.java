@@ -189,12 +189,22 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
             jsonPath("$.paths['/api/v1/auth/application'].post.description")
                 .value(org.hamcrest.Matchers.containsString("hasAuthority('STATUS_PENDING')")))
         .andExpect(
-            jsonPath("$.paths['/api/v1/auth/me'].get.description")
+            jsonPath("$.paths['/api/v1/notices'].get.description")
                 .value(org.hamcrest.Matchers.containsString("isAuthenticated()")))
         // 공개 경로는 왜 열었는지까지 적는다 — 매트릭스에 없는 경로를 여는 것은 결정이다.
         .andExpect(
             jsonPath("$.paths['/api/v1/auth/csrf'].get.description")
-                .value(org.hamcrest.Matchers.containsString("인증 없이 호출한다")));
+                .value(org.hamcrest.Matchers.containsString("인증 없이 호출한다")))
+        /*
+         * 세션 확인도 공개다 (#190). 열려 있다는 것과 왜 열었는지가 함께 적혀야 한다 —
+         * "깜빡한 것"과 "일부러 연 것"을 문서에서도 구별할 수 있어야 한다.
+         */
+        .andExpect(
+            jsonPath("$.paths['/api/v1/auth/me'].get.description")
+                .value(org.hamcrest.Matchers.containsString("인증 없이 호출한다")))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/auth/me'].get.description")
+                .value(org.hamcrest.Matchers.containsString("204")));
   }
 
   /* 오류 응답도 본문 형태를 알려준다. 화면과 코드 생성기가 무엇을 받을지 알아야 한다. */

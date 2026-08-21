@@ -1,5 +1,6 @@
 package org.hackerkhu.hackerhp.global.config;
 
+import java.util.List;
 import org.hackerkhu.hackerhp.global.auth.AccessTokenCookie;
 import org.hackerkhu.hackerhp.global.auth.AccountStatusFilter;
 import org.hackerkhu.hackerhp.global.auth.JwtProperties;
@@ -53,17 +54,51 @@ public class SecurityConfig {
   /**
    * 인증 없이 열리는 경로. <b>여기 없는 것은 전부 로그인이 필요하다.</b>
    *
+   * <p><b>공개 경로의 목록은 이것 하나다</b> (#190 리뷰). 인라인으로 하나씩 열면 "무엇이 공개인가"를 물을 곳이 없어지고, 보안 점검이나 설정 변경에서
+   * 빠뜨리게 된다.
+   *
    * <p>{@code /actuator/health}가 빠지면 ALB 헬스체크가 401로 실패해 태스크가 무한 재시작한다.
    *
    * <p><b>springdoc 경로는 넣지 않는다</b> (#23에서 정했다). 승인제 사이트라 명세가 공개되면 엔드포인트·필드·검증 규칙이 전부 드러난다. 문서는 아래
    * {@link #API_DOCS_PATHS}가 {@code ACTIVE}에게만 연다.
    */
-  private static final String[] PUBLIC_PATHS = {
-    "/actuator/health",
-    "/actuator/health/**",
-    OAUTH_AUTHORIZATION_BASE_URI + "/**",
-    "/api/v1/login/oauth2/code/**"
-  };
+  private static final List<PublicPath> PUBLIC_PATHS =
+      List.of(
+          PublicPath.any("/actuator/health", "ALB 헬스체크. 막히면 태스크가 무한 재시작한다"),
+          PublicPath.any("/actuator/health/**", "위와 같다"),
+          PublicPath.any(OAUTH_AUTHORIZATION_BASE_URI + "/**", "구글 로그인 시작"),
+          PublicPath.any("/api/v1/login/oauth2/code/**", "구글 콜백"),
+          PublicPath.of(
+              HttpMethod.GET, "/api/v1/auth/csrf", "세션도 토큰도 없는 최초 진입에 필요하다 (3-2 §3-2-3 MUST)"),
+          /*
+           * 세션 확인 (#190). 화면은 랜딩을 포함해 최초 렌더마다 이것을 부르는데, 막으면
+           * 비로그인 방문자마다 실패 응답이 하나씩 남는다 — 브라우저가 콘솔에 남기는 줄은
+           * 앱이 지울 수 없고, 진짜 오류가 그 사이에 묻힌다.
+           *
+           * 여는 것은 "세션이 있는가"라는 답뿐이다. 비로그인에게는 204가 나가고 계정 정보는
+           * 한 줄도 실리지 않는다 (§3-2-3).
+           */
+          PublicPath.of(HttpMethod.GET, "/api/v1/auth/me", "최초 진입의 세션 확인. 비로그인에게는 204만 나간다"));
+
+  /**
+   * 공개 경로 한 줄.
+   *
+   * <p><b>메서드를 함께 적을 수 있어야 한다.</b> {@code GET /auth/me}는 열지만 그 경로의 다른 메서드까지 열 이유는 없다 — 경로만 나열하면 그것을
+   * 표현할 수 없어 인라인으로 새는 자리가 생긴다.
+   *
+   * @param method {@code null}이면 모든 메서드
+   * @param reason 왜 열어두는지. <b>매트릭스에 없는 경로를 여는 것은 결정이므로 근거를 남긴다</b> ({@code PublicApi}와 같은 이유다)
+   */
+  private record PublicPath(HttpMethod method, String pattern, String reason) {
+
+    static PublicPath any(String pattern, String reason) {
+      return new PublicPath(null, pattern, reason);
+    }
+
+    static PublicPath of(HttpMethod method, String pattern, String reason) {
+      return new PublicPath(method, pattern, reason);
+    }
+  }
 
   /**
    * API 문서. <b>{@code ACTIVE} 회원만 볼 수 있다</b> (#23).
@@ -114,32 +149,40 @@ public class SecurityConfig {
   @Bean
   public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
     http.authorizeHttpRequests(
-            auth ->
-                auth.requestMatchers(PUBLIC_PATHS)
-                    .permitAll()
-                    // 세션도 토큰도 없는 최초 진입에 필요하다 (3-2 §3-2-3 MUST).
-                    .requestMatchers(HttpMethod.GET, "/api/v1/auth/csrf")
-                    .permitAll()
-                    /*
-                     * 신청서 제출은 PENDING만이다 (권한 매트릭스 §3-1-3). 컨트롤러의 @PreAuthorize와
-                     * 겹쳐 보이지만 둘 다 필요하다 — MVC는 메서드를 부르기 전에 본문을 역직렬화하고
-                     * @Valid를 돌리므로, ACTIVE가 깨진 본문을 보내면 @PreAuthorize에 닿기도 전에
-                     * 400이 나간다. 그러면 "ACTIVE는 403"이라는 계약(T-50)이 본문에 따라 달라진다.
-                     */
-                    .requestMatchers(HttpMethod.POST, "/api/v1/auth/application")
-                    .hasAuthority("STATUS_PENDING")
-                    .requestMatchers(API_DOCS_PATHS)
-                    .hasAuthority("STATUS_ACTIVE")
-                    /*
-                     * 관리자 영역은 접두사로도 막는다. 컨트롤러의 @PreAuthorize와 겹쳐 보이지만
-                     * 둘 다 필요하다 — MVC는 메서드를 부르기 전에 본문을 역직렬화하고 @Valid를
-                     * 돌리므로, 권한 없는 사람이 깨진 본문을 보내면 @PreAuthorize에 닿기도 전에
-                     * 400이 나간다. 그러면 "권한이 없으면 403"이 본문에 따라 달라진다.
-                     */
-                    .requestMatchers("/api/v1/admin/**")
-                    .hasRole("ADMIN")
-                    .anyRequest()
-                    .authenticated())
+            auth -> {
+              /*
+               * 목록을 돌면서 연다. 여기서 한 줄씩 적으면 목록과 설정이 갈라져,
+               * 목록에 있는데 열리지 않거나 그 반대인 경로가 생긴다 (#190 리뷰).
+               */
+              for (PublicPath path : PUBLIC_PATHS) {
+                if (path.method() == null) {
+                  auth.requestMatchers(path.pattern()).permitAll();
+                } else {
+                  auth.requestMatchers(path.method(), path.pattern()).permitAll();
+                }
+              }
+              auth
+                  /*
+                   * 신청서 제출은 PENDING만이다 (권한 매트릭스 §3-1-3). 컨트롤러의 @PreAuthorize와
+                   * 겹쳐 보이지만 둘 다 필요하다 — MVC는 메서드를 부르기 전에 본문을 역직렬화하고
+                   * @Valid를 돌리므로, ACTIVE가 깨진 본문을 보내면 @PreAuthorize에 닿기도 전에
+                   * 400이 나간다. 그러면 "ACTIVE는 403"이라는 계약(T-50)이 본문에 따라 달라진다.
+                   */
+                  .requestMatchers(HttpMethod.POST, "/api/v1/auth/application")
+                  .hasAuthority("STATUS_PENDING")
+                  .requestMatchers(API_DOCS_PATHS)
+                  .hasAuthority("STATUS_ACTIVE")
+                  /*
+                   * 관리자 영역은 접두사로도 막는다. 컨트롤러의 @PreAuthorize와 겹쳐 보이지만
+                   * 둘 다 필요하다 — MVC는 메서드를 부르기 전에 본문을 역직렬화하고 @Valid를
+                   * 돌리므로, 권한 없는 사람이 깨진 본문을 보내면 @PreAuthorize에 닿기도 전에
+                   * 400이 나간다. 그러면 "권한이 없으면 403"이 본문에 따라 달라진다.
+                   */
+                  .requestMatchers("/api/v1/admin/**")
+                  .hasRole("ADMIN")
+                  .anyRequest()
+                  .authenticated();
+            })
         .oauth2Login(
             oauth2 ->
                 oauth2

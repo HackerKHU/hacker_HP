@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
+import org.hackerkhu.hackerhp.domain.auth.repository.BootstrapAttemptRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
@@ -35,12 +36,14 @@ class AdminBootstrapDisabledIntegrationTest extends AbstractIntegrationTest {
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository userRepository;
+  @Autowired private BootstrapAttemptRepository attempts;
   @Autowired private JwtProvider jwtProvider;
 
   private User founder;
 
   @BeforeEach
   void createAccount() {
+    attempts.deleteAll();
     userRepository.deleteAll();
     User user = User.createFromGoogle("sub-founder", "founder@khu.ac.kr", "구글이름");
     user.submitApplication("20200001", "본명", "컴퓨터공학과");
@@ -49,6 +52,7 @@ class AdminBootstrapDisabledIntegrationTest extends AbstractIntegrationTest {
 
   @AfterEach
   void clear() {
+    attempts.deleteAll();
     userRepository.deleteAll();
   }
 

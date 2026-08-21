@@ -1,10 +1,14 @@
 package org.hackerkhu.hackerhp.domain.user.service;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import org.hackerkhu.hackerhp.domain.audit.entity.AdminAction;
+import org.hackerkhu.hackerhp.domain.audit.service.AdminActionRecorder;
+import org.hackerkhu.hackerhp.domain.auth.service.BootstrapAttemptLimiter;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
@@ -35,16 +39,22 @@ public class AdminBootstrapService {
   private final UserRepository userRepository;
   private final BootstrapProperties bootstrap;
   private final SessionSynchronizer sessionSynchronizer;
+  private final AdminActionRecorder recorder;
+  private final BootstrapAttemptLimiter limiter;
   private final TransactionTemplate transaction;
 
   public AdminBootstrapService(
       UserRepository userRepository,
       BootstrapProperties bootstrap,
       SessionSynchronizer sessionSynchronizer,
+      AdminActionRecorder recorder,
+      BootstrapAttemptLimiter limiter,
       PlatformTransactionManager transactionManager) {
     this.userRepository = userRepository;
     this.bootstrap = bootstrap;
     this.sessionSynchronizer = sessionSynchronizer;
+    this.recorder = recorder;
+    this.limiter = limiter;
     this.transaction = new TransactionTemplate(transactionManager);
   }
 
@@ -62,7 +72,17 @@ public class AdminBootstrapService {
    * 채울 방법이 영영 없어진다</b> (T-20).
    */
   public void promote(Long requesterId, String token) {
-    transaction.executeWithoutResult(ignored -> apply(requesterId, token));
+    /*
+     * 자리를 잡는 것이 승격 트랜잭션 밖이다 (#144). 거절은 예외로 나가고 그 트랜잭션은
+     * 되돌아가므로, 안에서 잡으면 자리도 함께 사라져 아무것도 세지지 않는다.
+     *
+     * 확인과 자리 잡기가 한 연산이라, 병렬로 보내도 상한을 넘지 못한다.
+     */
+    limiter.reserve(requesterId);
+
+    // 승격이 일어난 때. 잠근 채 잡은 값이라 뒤이은 조작보다 반드시 앞선다 (#143 리뷰).
+    Instant[] promotedAt = {null};
+    transaction.executeWithoutResult(ignored -> promotedAt[0] = apply(requesterId, token));
     /*
      * 승격은 role·status를 바꾼다. 반영하지 않으면 본인이 재로그인해야 관리자 화면이 열린다.
      *
@@ -70,9 +90,31 @@ public class AdminBootstrapService {
      * 그래서 이미 승격된 계정의 재요청도 여기까지 온다 (apply 참고).
      */
     sessionSynchronizer.refresh(List.of(requesterId));
+
+    /*
+     * 승격은 스스로에게 하는 조작이라 actor와 target이 같다. 그래도 남긴다 — "관리자가 언제
+     * 어떻게 생겼는가"가 이 경로의 유일한 기록이고, 상시 열려 있는 문이라 더 그렇다 (§2-2-7).
+     *
+     * 이미 승격된 계정의 재요청은 남기지 않는다. 아무것도 바뀌지 않았다.
+     * 토큰은 넣지 않는다 — 시크릿이다.
+     */
+    if (promotedAt[0] != null) {
+      recorder.record(requesterId, requesterId, AdminAction.PROMOTE_ADMIN, promotedAt[0]);
+    }
+
+    /*
+     * 성공했으므로 이 계정의 시도를 지운다. 토큰을 몇 번 잘못 붙여넣고 성공하는 것은 흔한
+     * 일이고, 남겨 두면 바로 다음 사고의 복구가 막힌다.
+     *
+     * 이미 승격된 계정의 재요청도 여기까지 온다 — 그쪽도 자격을 지난 호출이라 같게 다룬다.
+     */
+    limiter.clear(requesterId);
   }
 
-  private void apply(Long requesterId, String token) {
+  /**
+   * @return 승격했으면 그 시각. 아무것도 바꾸지 않았으면 {@code null}
+   */
+  private Instant apply(Long requesterId, String token) {
     if (!bootstrap.configured()) {
       // 설정이 없으면 이 경로는 닫힌다. 응답은 다른 거절과 같아 설정 여부조차 드러나지 않는다.
       reject(requesterId, "부트스트랩 설정이 없다");
@@ -132,7 +174,7 @@ public class AdminBootstrapService {
      */
     if (requester.getRole() == Role.ADMIN && requester.getStatus() == Status.ACTIVE) {
       log.info("이미 승격된 계정의 재요청 — 세션만 다시 맞춘다: userId={}", requesterId);
-      return;
+      return null;
     }
 
     if (userRepository.countByRoleAndStatus(Role.ADMIN, Status.ACTIVE) > 0) {
@@ -149,6 +191,7 @@ public class AdminBootstrapService {
     requester.promoteToAdmin();
 
     log.warn("최초 관리자 승격: userId={} email={} — 활성 관리자가 0명이었다", requesterId, requester.getEmail());
+    return Instant.now();
   }
 
   private void requireCredentials(Long requesterId, String email, String token) {

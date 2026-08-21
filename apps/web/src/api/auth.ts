@@ -49,7 +49,17 @@ export function logout(): Promise<void> {
   return request('/auth/logout', { method: 'POST' })
 }
 
-export function getMe(): Promise<User> {
+/**
+ * 세션 확인. **비로그인이면 `null`이고 오류가 아니다** (#190).
+ *
+ * 서버는 세션이 없으면 `204`로 답한다 — 화면은 랜딩을 포함해 최초 렌더마다 이것을 부르므로,
+ * 실패로 답하면 비로그인 방문자마다 실패 응답이 하나씩 남고 브라우저가 콘솔에 남기는 그 줄은
+ * 앱이 지울 수 없다.
+ *
+ * `request()`는 본문이 없으면 `undefined`를 돌려준다. 여기서 `null`로 맞춰 준다 —
+ * `fromUser`가 이미 `null`을 "비로그인"으로 다루므로 호출부는 그대로다.
+ */
+export function getMe(): Promise<User | null> {
   if (import.meta.env.VITE_USE_FIXTURES === 'true') return fixtureMe()
-  return request<User>('/auth/me')
+  return request<User | undefined>('/auth/me').then((me) => me ?? null)
 }
