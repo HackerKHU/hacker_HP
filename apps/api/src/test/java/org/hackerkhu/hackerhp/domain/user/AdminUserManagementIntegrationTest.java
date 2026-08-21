@@ -345,6 +345,32 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
     assertThat(authorOfNotice(noticeId)).isNull();
   }
 
+  /**
+   * <b>빈 작성자 자리를 응답이 "탈퇴한 회원"으로 채운다</b> (§2-2-4, 3-2 §3-2-2 MUST).
+   *
+   * <p>FK가 비우는 것까지는 앞 테스트가 본다. 그런데 <b>화면이 읽는 것은 응답이다</b> — 서버가 채우지 않으면 목록·상세·자료마다 각자 다른 문구를 쓰거나 작성자
+   * 줄이 통째로 비어 "글이 깨진 것"처럼 보인다. 문구를 서버 한 곳에 두는 것이 이 계약의 요지다.
+   */
+  @Test
+  void aRemovedAuthorShowsAsWithdrawnInTheResponse() throws Exception {
+    User member =
+        userRepository.saveAndFlush(Accounts.approved("sub-m", "m@khu.ac.kr", "20250002", "김부원"));
+    Long noticeId = insertNotice(member.getId());
+
+    mockMvc
+        .perform(sessions.as(admin, get("/api/v1/notices/" + noticeId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.authorName").value("김부원"));
+
+    mockMvc.perform(removeRequest(admin, member.getId())).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(admin, get("/api/v1/notices/" + noticeId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.authorId").doesNotExist())
+        .andExpect(jsonPath("$.authorName").value("탈퇴한 회원"));
+  }
+
   /** 즐겨찾기는 <b>함께 사라진다</b> — 그 사람만 보던 목록이라 남길 이유가 없다. */
   @Test
   void removeDeletesTheirBookmarks() throws Exception {

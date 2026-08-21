@@ -48,7 +48,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 회원 관리 (spec 3-2 §3-2-6). 목록 조회·일괄 승인·상태 변경이다 — 거부·제거·권한 변경은 #58이다.
+ * 회원 관리 (spec 3-2 §3-2-6). 목록 조회·일괄 승인·거부, 상태 변경, 권한 변경, 제거다.
  *
  * <p><b>권한은 {@code hasRole('ADMIN')}만 적는다.</b> 매트릭스의 {@code ADMIN} 열은 "{@code ADMIN}이면서 {@code
  * ACTIVE}"지만 {@code ACTIVE} 조건은 {@code AccountStatusFilter}가 인가보다 먼저 보장한다 — 같은 규칙을 두 곳에 두면 한쪽만 고쳐진다
@@ -280,6 +280,21 @@ public class AdminUserController {
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
               schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description =
+          "`FORBIDDEN` — `ADMIN`이 아니거나 CSRF 토큰이 없다 · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
   @PostMapping("/reject")
   @PreAuthorize("hasRole('ADMIN')")
   public RejectResponse reject(
@@ -314,8 +329,16 @@ public class AdminUserController {
               mediaType = MediaType.APPLICATION_JSON_VALUE,
               schema = @Schema(implementation = ErrorResponse.class)))
   @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
       responseCode = "403",
-      description = "`FORBIDDEN` — 회수 뒤에 활성 관리자가 남지 않는다",
+      description =
+          "`FORBIDDEN` — `ADMIN`이 아니거나, CSRF 토큰이 없거나, **회수 뒤에 활성 관리자가 남지 않는다** · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -349,6 +372,21 @@ public class AdminUserController {
           """)
   @ApiResponse(responseCode = "200", description = "조회 성공")
   @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description =
+          "`FORBIDDEN` — `ADMIN`이 아니다 · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
       responseCode = "404",
       description = "`NOT_FOUND` — 그 id의 회원이 없다",
       content =
@@ -381,8 +419,16 @@ public class AdminUserController {
           """)
   @ApiResponse(responseCode = "204", description = "제거됨")
   @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
       responseCode = "403",
-      description = "`FORBIDDEN` — 제거 뒤에 활성 관리자가 남지 않는다",
+      description =
+          "`FORBIDDEN` — `ADMIN`이 아니거나, CSRF 토큰이 없거나, **제거 뒤에 활성 관리자가 남지 않는다** · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -390,6 +436,14 @@ public class AdminUserController {
   @ApiResponse(
       responseCode = "404",
       description = "`NOT_FOUND` — 그 id의 회원이 없다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "500",
+      description =
+          "`INTERNAL_ERROR` — 정지가 세션에 반영되지 않아 제거를 멈췄다. **대상은 정지된 채로 남으므로 같은 요청을 다시 보내면 된다**",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,

@@ -27,6 +27,8 @@ const NOTICE: Notice = {
   title: '지울 공지',
   content: '본문',
   isPinned: false,
+  authorId: 2,
+  authorName: '관리자',
   createdAt: '2026-08-05T09:00:00Z',
   updatedAt: '2026-08-05T09:00:00Z',
 }
@@ -45,6 +47,8 @@ vi.mock('@/api/notices', () => ({
           title: '지울 공지',
           content: '본문',
           isPinned: false,
+          authorId: 2,
+          authorName: '관리자',
           createdAt: '2026-08-05T09:00:00Z',
           updatedAt: '2026-08-05T09:00:00Z',
         },

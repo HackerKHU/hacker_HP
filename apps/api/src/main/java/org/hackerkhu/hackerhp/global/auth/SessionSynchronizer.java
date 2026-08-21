@@ -63,10 +63,26 @@ public class SessionSynchronizer {
    * 위에 커넥션을 겹쳐 잡는다. 잘못된 자리에서 부르면 <b>조용히</b> 어긋나므로 여기서 끊는다.
    */
   public void refresh(Collection<Long> userIds) {
+    requireCommitted();
+    userIds.stream().distinct().sorted().forEach(this::refresh);
+  }
+
+  /**
+   * 한 사람만 맞추고 <b>해냈는지 돌려준다.</b>
+   *
+   * <p>여럿을 맞추는 쪽은 실패를 로그로만 남기고 넘어간다 — 이미 커밋된 변경까지 실패한 것처럼 보이면 안 되기 때문이다. <b>그 뒤에 되돌릴 수 없는 일을 하는 경로는
+   * 다르다</b> (#58). 회원 제거는 정지가 세션에 실제로 반영된 것을 확인하고 나서 계정을 지운다 — 반영이 조용히 실패했는데 계정을 지우면, 그 세션은 {@code
+   * ACTIVE}·{@code ADMIN}인 채로 남고 <b>계정이 없어 되돌릴 방법도 없다.</b>
+   */
+  public boolean refreshReporting(Long userId) {
+    requireCommitted();
+    return refreshOne(userId);
+  }
+
+  private static void requireCommitted() {
     if (TransactionSynchronizationManager.isActualTransactionActive()) {
       throw new IllegalStateException("세션 반영은 변경이 커밋된 뒤에 불러야 한다 (spec 3-1 §3-1-5).");
     }
-    userIds.stream().distinct().sorted().forEach(this::refresh);
   }
 
   /**
@@ -81,6 +97,10 @@ public class SessionSynchronizer {
    * 이 잠금과 얽히지 않는다.
    */
   private void refresh(Long userId) {
+    refreshOne(userId);
+  }
+
+  private boolean refreshOne(Long userId) {
     try {
       boolean ran =
           NestedConnections.run(
@@ -88,6 +108,7 @@ public class SessionSynchronizer {
       if (!ran) {
         log.error("세션 갱신이 중단됐다: userId={}", userId);
       }
+      return ran;
     } catch (RuntimeException e) {
       /*
        * 여기서 던지면 이미 커밋된 변경까지 실패한 것처럼 보인다. 세션은 옛 값으로 남고
@@ -95,6 +116,7 @@ public class SessionSynchronizer {
        * 조용히 삼키지 않고 error로 남긴다. 관리자가 같은 요청을 다시 보내면 복구된다.
        */
       log.error("세션 갱신 실패: userId={}", userId, e);
+      return false;
     }
   }
 

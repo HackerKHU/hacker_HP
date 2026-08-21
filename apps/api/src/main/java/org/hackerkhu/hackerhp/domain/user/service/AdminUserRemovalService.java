@@ -81,6 +81,25 @@ public class AdminUserRemovalService {
      */
     suspendFirst(requesterId, targetId);
 
+    /*
+     * ①이 세션에 실제로 닿았는지 확인하고 나서 지운다 (#197 리뷰).
+     *
+     * 세션 반영은 실패를 삼킨다 — 이미 커밋된 변경까지 실패한 것처럼 보이면 안 되기
+     * 때문이다. 그 관용이 여기서는 위험하다: 반영이 조용히 실패했는데 계정을 지우면
+     * 그 세션은 ACTIVE·ADMIN인 채로 남고, 계정이 없어 되돌릴 방법도 없다.
+     *
+     * 여기서 멈추면 대상은 SUSPENDED로 남는다 — 이미 차단된 상태이고, 관리자가 같은
+     * 요청을 다시 보내 복구할 수 있다.
+     */
+    if (!sessionSynchronizer.refreshReporting(targetId)) {
+      /*
+       * 계약에 이 상황을 가리키는 코드가 없다 (§3-2-7). 그대로 올려 500 INTERNAL_ERROR가
+       * 나가게 둔다 — 실제로 서버 쪽 장애이고, 관리자가 할 수 있는 일은 다시 시도하는 것뿐이다.
+       */
+      throw new IllegalStateException(
+          "정지가 세션에 반영되지 않아 제거를 멈춘다: requesterId=" + requesterId + " targetId=" + targetId);
+    }
+
     // ② 잠근 채 지운다.
     Instant removedAt = transaction.execute(ignored -> delete(requesterId, targetId));
 
@@ -138,6 +157,20 @@ public class AdminUserRemovalService {
       throw new BusinessException(ErrorCode.NOT_FOUND, "회원을 찾을 수 없습니다.");
     }
 
+    /*
+     * 여기서 다시 센다 (#197 리뷰).
+     *
+     * ①의 검사는 그 트랜잭션이 커밋되며 잠금과 함께 풀렸다. 그 사이에 다른 관리자가
+     * 대상을 되살리고 자기 권한을 회수하면, 대상이 유일한 활성 관리자가 된 채로 이
+     * 삭제가 도착한다 — 그대로 지우면 활성 관리자가 0명이 된다.
+     *
+     * 지금 잠근 행들을 기준으로 보므로, 동시에 들어온 다른 조작은 기다렸다가 줄어든
+     * 수를 보게 된다 (§2-2-7의 원자성 요구).
+     */
+    if (isActiveAdmin(target)) {
+      guardLastActiveAdmin(requesterId, targetId);
+    }
+
     // 잠근 채로 잡는다. 이 시각이 이력의 "언제"가 된다 (#143 리뷰).
     Instant removedAt = Instant.now();
     userRepository.delete(target);
@@ -145,10 +178,28 @@ public class AdminUserRemovalService {
     return removedAt;
   }
 
+  private static boolean isActiveAdmin(User user) {
+    return user.getRole() == Role.ADMIN && user.getStatus() == Status.ACTIVE;
+  }
+
+  /**
+   * <b>제거 뒤에도 활성 관리자가 남는가</b> (§2-2-7 MUST).
+   *
+   * <p>자기 대상인지와 무관하다. 세기 전에 그 행들을 이미 잠갔으므로, 동시에 들어온 다른 조작은 기다렸다가 줄어든 수를 보게 된다.
+   */
+  private void guardLastActiveAdmin(Long requesterId, Long targetId) {
+    if (userRepository.countByRoleAndStatus(Role.ADMIN, Status.ACTIVE) > 1) {
+      return;
+    }
+    throw new BusinessException(
+        ErrorCode.FORBIDDEN,
+        requesterId.equals(targetId) ? "마지막 관리자는 스스로를 제거할 수 없습니다." : "마지막 관리자는 제거할 수 없습니다.");
+  }
+
   /**
    * <b>잠금 순서는 저장소 전체에서 하나다</b> — {@code users} 행은 id 오름차순.
    *
-   * <p>활성 관리자 전부를 함께 잠근다. 정지 단계에서 이미 검사했지만 그 잠금은 커밋과 함께 풀리므로, 삭제까지 오는 사이에 다른 관리자가 사라질 수 있다.
+   * <p>활성 관리자 전부를 함께 잠근다. 정지 단계에서 이미 검사했지만 그 잠금은 커밋과 함께 풀리므로, 삭제까지 오는 사이에 그 수가 달라질 수 있다.
    */
   private Map<Long, User> lockRowsInIdOrder(Long requesterId, Long targetId) {
     SortedSet<Long> ids = new TreeSet<>(List.of(requesterId, targetId));

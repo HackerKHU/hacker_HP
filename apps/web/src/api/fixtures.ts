@@ -254,6 +254,8 @@ const NOTICES: Notice[] = [
     content:
       '1학기 정기 세미나 일정을 안내합니다.\n\n매주 수요일 저녁 7시, 전자정보대학관 305호에서 진행합니다.\n주제는 격주로 바뀌며 첫 주는 리버싱 기초입니다.\n\n참가 신청은 동아리방 화이트보드에 이름을 적어주세요.',
     isPinned: true,
+    authorId: 2,
+    authorName: '관리자',
     // 1일 전 — 고정이면서 새글이다. 핀(강)과 NEW(약)의 위계가 한 행에서 보인다.
     createdAt: daysAgo(1),
     updatedAt: daysAgo(1),
@@ -264,6 +266,8 @@ const NOTICES: Notice[] = [
     content:
       '이번 학기부터 동아리방 출입 카드 등록이 필요합니다.\n\n미등록 상태로는 야간 출입이 제한됩니다.\n등록은 운영진에게 문의해주세요.',
     isPinned: true,
+    authorId: 2,
+    authorName: '관리자',
     createdAt: daysAgo(12),
     updatedAt: daysAgo(10),
   },
@@ -304,6 +308,8 @@ for (const [index, topic] of TOPICS.entries()) {
     title: topic,
     content: `${topic}에 대한 상세 내용입니다.\n\n자세한 사항은 운영진에게 문의해주세요.`,
     isPinned: false,
+    authorId: 2,
+    authorName: '관리자',
     createdAt: daysAgo(days),
     updatedAt: daysAgo(days),
   })
@@ -436,6 +442,8 @@ export function fixtureCreateNotice(body: {
     content: body.content.trim(),
     // 등록 직후에는 고정되지 않는다. 고정은 별도 토글이다.
     isPinned: false,
+    authorId: 2,
+    authorName: '관리자',
     createdAt: now,
     updatedAt: now,
   }
