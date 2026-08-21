@@ -233,14 +233,15 @@ function Stats() {
   return (
     <section id="stats" className={cn(SECTION, 'border-t border-border')}>
       <Heading>함께한 기록</Heading>
-      <dl className="mt-10 grid grid-cols-4 gap-6">
+      {/* 모바일은 2×2다. 4열 고정이면 390px에서 숫자가 잘린다 (#174). */}
+      <dl className="mt-10 grid grid-cols-2 gap-x-6 gap-y-10 md:grid-cols-4">
         {STATS.map((stat) => (
           <div key={stat.label}>
             {/*
               `tabular-nums`가 없으면 숫자가 바뀔 때마다 글자 폭이 달라져 카운트업 내내
               레이아웃이 덜컹거린다. 이 애니메이션에서 제일 티나는 결함이다.
             */}
-            <dd className="text-6xl font-semibold tracking-tight tabular-nums text-foreground">
+            <dd className="text-5xl font-semibold tracking-tight tabular-nums text-foreground md:text-6xl">
               <CountUp
                 value={stat.value}
                 unit={stat.unit}
@@ -329,7 +330,8 @@ function Support() {
 function Footer() {
   return (
     <footer className="border-t border-border">
-      <div className="mx-auto flex w-full max-w-[1152px] items-start justify-between gap-8 px-6 py-10 text-sm text-muted-foreground">
+      {/* 모바일은 세로로 쌓는다. 가로 고정이면 주소와 링크 일곱 개가 찌그러진다 (#174). */}
+      <div className="mx-auto flex w-full max-w-[1152px] flex-col gap-8 px-6 py-10 text-sm text-muted-foreground sm:flex-row sm:items-start sm:justify-between">
         <address className="not-italic">
           <span className="block text-foreground">{CLUB.fullName}</span>
           <span className="mt-2 block">
@@ -337,7 +339,10 @@ function Footer() {
           </span>
           <span className="block">{CLUB.address.detail}</span>
         </address>
-        <nav className="flex gap-4" aria-label="섹션 바로가기">
+        <nav
+          className="flex flex-wrap gap-x-4 gap-y-2"
+          aria-label="섹션 바로가기"
+        >
           {SECTIONS.map((section) => (
             <a
               key={section.id}
