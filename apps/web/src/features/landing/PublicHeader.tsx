@@ -5,7 +5,7 @@ import { hasApplied, homePath, useSession } from '@/auth/session'
 import { useLogout } from '@/auth/useLogout'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { CLUB, isPlaceholder, SECTIONS } from './content'
+import { CLUB, SECTIONS } from './content'
 
 /** 왼쪽 메뉴 한 칸. 앵커와 라우트 링크가 같은 무게로 읽히도록 클래스를 공유한다. */
 const NAV_ITEM =
@@ -90,33 +90,18 @@ export function PublicHeader() {
             session.state.kind === 'suspended' ? (
               <>
                 {/*
-                 * 아직 부원이 아닌 사람이다. 지원하기는 **외부 모집 폼**으로 나간다 —
-                 * 이 사이트 로그인이 아니라 동아리 가입이라 가는 곳이 다르다.
-                 * 강조(흰색)를 준 것은 랜딩을 처음 보는 사람이 대부분이기 때문이다.
+                 * 아직 부원이 아닌 사람이다. **지원은 이 사이트에서 받는다** — 구글
+                 * 로그인 뒤 신청서(학번·이름·학과)를 내면 그것이 동아리 지원이고,
+                 * 관리자 승인까지가 한 흐름이다. 외부 모집 폼을 두지 않는다.
+                 *
+                 * 그래서 목적지는 로그인과 같지만 **버튼을 합치지 않는다.** 처음 온
+                 * 사람에게 "로그인"은 이미 계정이 있는 사람의 말이라, 지원하러 온 사람이
+                 * 자기 자리를 못 찾는다. 강조(흰색)를 준 것도 랜딩을 처음 보는 사람이
+                 * 대부분이기 때문이다.
                  */}
-                {isPlaceholder(CLUB.applyUrl) ? (
-                  /*
-                   * 모집 폼 주소가 아직 없다. 링크를 살려두면 눌러서 `example.com`으로
-                   * 나간다 — 자리표시자가 아니라 **고장난 링크**다. 잠가서 티를 낸다.
-                   */
-                  <Button
-                    size="sm"
-                    disabled
-                    title="모집 폼 주소가 아직 없습니다"
-                  >
-                    지원하기
-                  </Button>
-                ) : (
-                  <Button asChild size="sm">
-                    <a
-                      href={CLUB.applyUrl}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                    >
-                      지원하기
-                    </a>
-                  </Button>
-                )}
+                <Button asChild size="sm">
+                  <Link to="/login">지원하기</Link>
+                </Button>
                 <Button asChild variant="outline" size="sm">
                   <Link to="/login">로그인</Link>
                 </Button>

@@ -129,13 +129,21 @@ describe('공개 랜딩', () => {
   })
 
   // 주소가 없는 mailto는 빈 메일 창만 띄운다. 위와 같은 이유로 조건 분기 없이 못박는다.
-  it('후원 문의 주소가 자리표시자인 동안 버튼이 잠겨 있다', async () => {
+  /*
+   * 주소가 들어왔으므로 잠금이 풀렸다 (#194). 잠긴 버튼을 기대하던 자리다.
+   *
+   * **주소를 `SUPPORT.email`에서 읽어 비교하지 않는다** — 구현과 같은 값을 보면 상수가
+   * 자리표시자로 되돌아가도 테스트가 따라가서 회귀를 못 잡는다. 지금 값으로 못박는다.
+   */
+  it('후원 문의하기가 공식 메일로 열린다', async () => {
     renderLanding()
 
-    expect(
-      await screen.findByRole('button', { name: '후원 문의하기' }),
-    ).toBeDisabled()
-    expect(screen.queryByRole('link', { name: '후원 문의하기' })).toBeNull()
+    const link = await screen.findByRole('link', { name: '후원 문의하기' })
+    expect(link).toHaveAttribute(
+      'href',
+      expect.stringContaining('mailto:hacker19870101@gmail.com'),
+    )
+    expect(screen.queryByRole('button', { name: '후원 문의하기' })).toBeNull()
   })
 
   it('FAQ 항목을 누르면 답이 펼쳐진다', async () => {
@@ -151,7 +159,7 @@ describe('공개 랜딩', () => {
   })
 })
 describe('랜딩 헤더 상태별 진입점', () => {
-  it('비로그인에게는 외부 모집 폼과 로그인만 보인다', async () => {
+  it('비로그인에게는 지원하기와 로그인만 보인다', async () => {
     auth.me = () => Promise.reject(new Error('비로그인'))
 
     renderLanding()
@@ -160,14 +168,16 @@ describe('랜딩 헤더 상태별 진입점', () => {
     ).toBeInTheDocument()
 
     /*
-     * 모집 폼 주소가 **아직 자리표시자라서** 링크가 아니라 잠긴 버튼이어야 한다.
+     * **지원은 이 사이트에서 받는다** (#194). 외부 모집 폼을 두지 않으므로 잠긴 버튼도
+     * 새 탭도 아니고, 로그인과 같은 곳으로 가는 라우트 링크다.
      *
-     * `isPlaceholder(CLUB.applyUrl)`로 기대값을 분기하지 않는다 — 구현과 같은 조건을
-     * 보면 판별이 망가져 링크가 살아나도 테스트가 같이 따라가서 회귀를 못 잡는다.
-     * 지금 값 기준으로 못박아 두고, 실제 주소가 들어오는 날 이 테스트를 같이 고친다.
+     * 목적지가 같아도 **버튼은 둘이어야 한다** — 처음 온 사람에게 "로그인"은 계정이
+     * 있는 사람의 말이라, 지원하러 온 사람이 자기 자리를 못 찾는다.
      */
-    expect(screen.getByRole('button', { name: '지원하기' })).toBeDisabled()
-    expect(screen.queryByRole('link', { name: '지원하기' })).toBeNull()
+    const apply = screen.getByRole('link', { name: '지원하기' })
+    expect(apply).toHaveAttribute('href', '/login')
+    expect(apply).not.toHaveAttribute('target')
+    expect(screen.queryByRole('button', { name: '지원하기' })).toBeNull()
     expect(screen.queryByRole('button', { name: '로그아웃' })).toBeNull()
   })
 
