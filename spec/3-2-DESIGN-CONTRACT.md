@@ -25,17 +25,29 @@
 
 ```mermaid
 erDiagram
-  USERS ||--o{ NOTES : uploads
+  USERS |o--o{ NOTES : uploads
   USERS ||--o{ BOOKMARKS : saves
   NOTES ||--o{ BOOKMARKS : saved_in
   NOTES ||--o{ NOTE_FILES : has
-  USERS ||--o{ NOTICES : writes
-  USERS ||--o{ PHOTOS : uploads
+  USERS |o--o{ NOTICES : writes
+  USERS |o--o{ PHOTOS : uploads
 ```
+
+**작성자 쪽이 `|o`(0 또는 1)인 것은 오타가 아니다.** 회원을 지워도 자료·공지·사진은 남고 작성자만 비므로([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)), 작성자가 없는 행이 정상으로 존재한다. `BOOKMARKS`만 `||`인데, 즐겨찾기는 주인과 함께 사라져 주인 없는 행이 생기지 않기 때문이다.
 
 ## 3-2-2 테이블 정의
 
 > **아래 표는 DB 컬럼 이름이다. JSON 응답의 필드 이름과는 층위가 다르다** — 컬럼은 `is_pinned`, JSON은 `isPinned`다. 서버는 Jackson을 Spring Boot 기본값(Java 필드명 그대로)으로 직렬화한다 — 엔티티·DTO를 camelCase로 쓰므로 JSON도 자연히 camelCase다 (확정, 2026-08-13, #33).
+
+### 작성자를 내려주는 규칙
+
+자료·공지·활동사진의 작성자를 응답에 담을 때는 **`uploaderName`**(자료·사진)과 **`authorName`**(공지)을 쓴다 — `string`, **null이 아니다** (MUST).
+
+작성자 행이 없으면(`uploader_id`/`author_id`가 `NULL`) 서버가 그 자리에 **`"탈퇴한 회원"`** 을 넣는다. **`null`을 내려보내고 화면이 알아서 채우게 하지 않는다** — 화면마다 다른 문구를 쓰게 되고, 문구를 바꾸려면 웹을 배포해야 한다.
+
+`uploaderId`/`authorId`를 함께 내릴 때는 그쪽이 `null`이 될 수 있다. **"본인 것만 수정·삭제" 판단은 id로 한다** ([3-1 §3-1-3](3-1-DESIGN-ARCHITECTURE.md)) — 이름으로 견주면 "탈퇴한 회원"끼리 서로의 자료를 지울 수 있다.
+
+근거는 [2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)다.
 
 ### users
 
@@ -96,12 +108,13 @@ erDiagram
 | `year` | int | NOT NULL | 개설 연도 |
 | `semester` | enum | NOT NULL | `SPRING`, `FALL` |
 | `exam_type` | enum | NULL | `MIDTERM`, `FINAL` |
-| `uploader_id` | bigint | FK → users.id | |
+| `uploader_id` | bigint | NULL, FK → users.id, **ON DELETE SET NULL** | `NULL`이면 탈퇴한 회원 |
 | `created_at` | datetime | NOT NULL | |
 | `updated_at` | datetime | NOT NULL | |
 
 - 인덱스: `(category, created_at)`, `(subject_name)`, `(year, semester)`
 - **CHECK 제약** (MUST): `category = 'EXAM'`이면 `exam_type IS NOT NULL`, `category = 'SUBJECT'`면 `exam_type IS NULL`. 애플리케이션 검증에만 맡기지 않는다.
+- `uploader_id`는 **`ON DELETE SET NULL`이다** (MUST) — [2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)가 회원을 지워도 자료는 남긴다고 정했다. 기본값(`NO ACTION`)으로 두면 자료를 올린 회원은 삭제 자체가 FK 위반으로 막힌다.
 
 ### note_files
 
@@ -125,6 +138,8 @@ erDiagram
 
 복합 PK `(user_id, note_id)`로 중복 등록을 막는다. 양쪽 FK 모두 CASCADE를 건다 (MUST) — [2-1 §2-1-3](2-1-USER-STORIES.md)이 자료 삭제 시 즐겨찾기도 지워진다고 정의하고 있다.
 
+**작성자 FK가 `SET NULL`인데 여기만 `CASCADE`인 이유** — 즐겨찾기는 그 사람이 *본* 기록이지 *남긴* 것이 아니다. 주인이 없어지면 남길 이유도 없다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)).
+
 ### notices
 
 | 컬럼 | 타입 | 제약 | 설명 |
@@ -133,11 +148,13 @@ erDiagram
 | `title` | varchar(200) | NOT NULL | |
 | `content` | text | NOT NULL | |
 | `is_pinned` | boolean | NOT NULL, default false | 상단 고정 여부 |
-| `author_id` | bigint | FK → users.id | |
+| `author_id` | bigint | NULL, FK → users.id, **ON DELETE SET NULL** | `NULL`이면 탈퇴한 회원 |
 | `created_at` | datetime | NOT NULL | |
 | `updated_at` | datetime | NOT NULL | |
 
 정렬 기준: `is_pinned DESC, created_at DESC`
+
+`author_id`도 `notes.uploader_id`와 같은 이유로 **`ON DELETE SET NULL`이다** (MUST). 공지는 동아리의 기록이라 작성한 관리자가 나가도 남아야 한다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)). **`V1__init.sql`은 `ON DELETE` 절 없이 만들어졌으므로 회원 제거 기능(#58)에서 마이그레이션으로 맞춘다.**
 
 ### photos
 
@@ -146,10 +163,12 @@ erDiagram
 | `id` | bigint | PK, auto | |
 | `caption` | varchar(200) | NULL | |
 | `stored_path` | varchar(500) | NOT NULL | 리사이즈된 이미지의 S3 오브젝트 키 |
-| `uploader_id` | bigint | FK → users.id | |
+| `uploader_id` | bigint | NULL, FK → users.id, **ON DELETE SET NULL** | `NULL`이면 탈퇴한 회원 |
 | `created_at` | datetime | NOT NULL | |
 
 저장 키 형식: `photos/{photoId}/{uuid}.jpg`, 썸네일은 `photos/{photoId}/thumb/{uuid}.jpg`
+
+`uploader_id`는 `ADMIN`만 채워진다(사진 업로드는 `ADMIN` 전용이다). 그래도 **`ON DELETE SET NULL`이다** (MUST) — 관리자도 삭제 대상이 될 수 있고, 활동사진은 아카이브라 남아야 한다.
 
 ---
 
@@ -314,6 +333,7 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | POST | `/admin/users/reject` | ADMIN | 일괄 거부 — body: `{ "userIds": [1,2,3] }` |
 | PATCH | `/admin/users/{id}/status` | ADMIN | `ACTIVE` ↔ `SUSPENDED` (본인을 `SUSPENDED`로: 마지막 활성 관리자면 차단) |
 | PATCH | `/admin/users/{id}/role` | ADMIN | 권한 부여/회수 (본인 대상: 마지막 활성 관리자면 차단) |
+| GET | `/admin/users/{id}/content-summary` | ADMIN | 제거 확인 창이 쓰는 건수 — 그 회원이 남길 자료·공지·사진 |
 | DELETE | `/admin/users/{id}` | ADMIN | 회원 제거 (본인 대상: 마지막 활성 관리자면 차단) |
 
 ### 목록 파라미터
@@ -384,6 +404,20 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | `status`가 `ACTIVE`·`SUSPENDED`가 아님 | `400 VALIDATION_ERROR` |
 | 없는 `id` | `404 NOT_FOUND` |
 | **정지 뒤 활성 관리자가 0명이 됨** | `403 FORBIDDEN` ([§2-2-7](2-2-OPERATOR-REQUIREMENTS.md) MUST). 자기 대상인지와 무관하다 |
+
+### 제거 영향 조회
+
+`GET /admin/users/{id}/content-summary` — 제거 확인 창이 **"무엇이 남는지"** 를 보여주려면 필요하다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거) MUST).
+
+```json
+응답  200 { "notes": 12, "notices": 3, "photos": 0 }
+```
+
+**세 값 모두 항상 담는다** (MUST). `0`을 빼면 화면이 "없음"과 "모름"을 가르지 못한다.
+
+없는 `id`는 `404 NOT_FOUND`다. 이 값은 **확인 창을 여는 시점의 참고치**이지 제거의 조건이 아니다 — 그 사이 건수가 바뀌어도 제거는 그대로 진행한다. 건수를 맞추려고 제거까지 막으면 확인 창을 다시 열어도 같은 자리를 맴돌 수 있다.
+
+`Post Launch`다. 자료·사진 테이블이 생기기 전에는 셀 대상이 없다.
 
 **정지는 기존 세션에 즉시 반영된다** (MUST) — 세션을 지우지 않고 갱신하므로 다음 요청이 `403 SUSPENDED`다 ([3-1 §3-1-5](3-1-DESIGN-ARCHITECTURE.md), T-32).
 
