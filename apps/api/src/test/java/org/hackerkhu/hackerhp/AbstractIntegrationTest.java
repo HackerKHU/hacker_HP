@@ -37,6 +37,11 @@ import org.testcontainers.containers.PostgreSQLContainer;
       // 버킷 이름은 기동 조건이다 (설정 누락이 조용히 지나가면 안 된다). 값은 가짜여도
       // 되는데, 테스트는 FileStorage를 갈아끼워 실제 S3를 부르지 않기 때문이다 (#53).
       "S3_BUCKET=test-uploads",
+      // app.photo-storage.bucket·region도 같은 이유로 @NotBlank다 (#57). 대부분의 테스트는
+      // 사진 S3를 실제로 쓰지 않으므로 기동 조건만 채우는 가짜 값이다 — 진짜 S3(MinIO)가
+      // 필요한 테스트는 PhotoApiIntegrationTest처럼 @DynamicPropertySource로 이 값을 덮어쓴다.
+      "app.photo-storage.bucket=test-photo-bucket",
+      "app.photo-storage.region=ap-northeast-2",
       /*
        * 컨텍스트마다 커넥션 풀이 한 벌씩 뜬다. 설정이 다른 테스트가 늘어날수록 캐시된
        * 컨텍스트도 늘어나는데, 기본 풀 크기(10)를 그대로 두면 컨테이너의 접속 상한(100)에
