@@ -48,20 +48,29 @@ public class NoteQueryService {
    */
   public Page<NoteSummaryResponse> list(
       Long viewerId, NoteSearch search, NoteSort sort, Pageable pageable) {
-    /*
-     * 정렬을 Pageable에서 걷어낸다. 계약의 sort는 latest|title이지 Spring Data의 속성 정렬이 아닌데,
-     * 그대로 넘기면 ?sort=bogus가 "Note에 그런 속성이 없다"로 500이 된다 — 화면이 보내는 값 하나에
-     * 서버가 터지는 셈이다. 순서는 NoteSpecifications가 만든다 (회원 목록과 같은 처리다).
-     */
-    Pageable unsorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
-    Page<Note> page = notes.findAll(NoteSpecifications.matching(search, sort), unsorted);
-    Map<Long, String> names = uploaderNames(page.getContent());
+    Page<Note> page =
+        notes.findAll(NoteSpecifications.matching(search, sort), fixedOrder(pageable));
     return toSummaries(viewerId, page);
   }
 
-  /** 내 즐겨찾기 목록 (#56). <b>정렬은 내가 표시한 순서</b>라 검색·필터를 받지 않는다 — 이미 본인이 추린 목록이다. */
+  /**
+   * 내 즐겨찾기 목록 (#56). <b>정렬은 내가 표시한 순서</b>라 검색·필터를 받지 않는다 — 이미 본인이 추린 목록이다.
+   *
+   * <p>여기도 정렬을 걷어낸다. 그대로 넘기면 {@code ?sort=...}가 질의에 붙어 <b>고정 정렬이 깨지고</b>, 없는 속성 이름 하나에 {@code 500}이
+   * 난다.
+   */
   public Page<NoteSummaryResponse> myBookmarks(Long viewerId, Pageable pageable) {
-    return toSummaries(viewerId, bookmarks.findMyNotes(viewerId, pageable));
+    return toSummaries(viewerId, bookmarks.findMyNotes(viewerId, fixedOrder(pageable)));
+  }
+
+  /**
+   * 쪽 번호와 크기만 남긴다.
+   *
+   * <p><b>순서는 서버가 정한다.</b> 자료 목록은 {@code NoteSpecifications}가, 즐겨찾기는 질의문이 만든다. {@code Pageable}의
+   * 정렬을 그대로 넘기면 그 순서를 덮어쓰고, 계약에 없는 속성 이름 하나에 {@code 500}이 난다 (#52·#189 리뷰).
+   */
+  private static Pageable fixedOrder(Pageable pageable) {
+    return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
   }
 
   public NoteDetailResponse get(Long viewerId, Long id) {

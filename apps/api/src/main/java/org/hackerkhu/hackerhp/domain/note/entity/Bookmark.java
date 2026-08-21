@@ -14,6 +14,9 @@ import java.time.Instant;
  * 물려 두면 목록을 그릴 때마다 {@code users}·{@code notes}를 따라 읽게 되는데, 이 표가 답하는 것은 <b>"그 조합이 있나"</b>뿐이다.
  *
  * <p>고쳐 쓰지 않는다. 즐겨찾기는 있거나 없거나다.
+ *
+ * <p><b>이 엔티티로 새로 만들지 않는다.</b> 담기·빼기는 {@code BookmarkRepository}의 한 문장짜리 질의가 한다 — 확인하고 저장하는 방식은 동시에
+ * 도착한 요청을 가르지 못한다. 여기 있는 것은 <b>읽기 위한 매핑</b>이다.
  */
 @Entity
 @Table(name = "bookmarks")
@@ -33,16 +36,6 @@ public class Bookmark {
   private Instant createdAt;
 
   protected Bookmark() {}
-
-  private Bookmark(Long userId, Long noteId, Instant createdAt) {
-    this.userId = userId;
-    this.noteId = noteId;
-    this.createdAt = createdAt;
-  }
-
-  public static Bookmark of(Long userId, Long noteId, Instant createdAt) {
-    return new Bookmark(userId, noteId, createdAt);
-  }
 
   public Long getUserId() {
     return userId;

@@ -8,6 +8,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.note.repository.BookmarkRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
@@ -289,5 +296,101 @@ class BookmarkIntegrationTest extends AbstractIntegrationTest {
     assertThat(bookmarks.findAll())
         .singleElement()
         .satisfies(bookmark -> assertThat(bookmark.getCreatedAt()).isAfter(before));
+  }
+
+  /* ------------------------------------------------------------------ 동시 */
+
+  /**
+   * <b>동시에 담아도 하나다.</b>
+   *
+   * <p>확인하고 저장하면 동시에 도착한 요청들이 모두 "없다"를 읽고 지나간다. 게다가 키를 직접 배정하는 엔티티라 INSERT가 커밋까지 미뤄져 PK 위반이 서비스의
+   * {@code try} 밖에서 터진다 — <b>멱등이어야 할 경로가 {@code 500}을 돌려준다.</b>
+   */
+  @Test
+  void concurrentAddsStayIdempotent() throws Exception {
+    Long noteId = insertNote("정리");
+    int burst = 8;
+    ExecutorService pool = Executors.newFixedThreadPool(burst);
+    CountDownLatch start = new CountDownLatch(1);
+    try {
+      List<Future<?>> shots = new ArrayList<>();
+      for (int shot = 0; shot < burst; shot++) {
+        shots.add(
+            pool.submit(
+                () -> {
+                  start.await();
+                  mockMvc.perform(add(me, noteId)).andExpect(status().isNoContent());
+                  return null;
+                }));
+      }
+      start.countDown();
+      for (Future<?> shot : shots) {
+        shot.get(60, TimeUnit.SECONDS);
+      }
+    } finally {
+      pool.shutdownNow();
+    }
+
+    assertThat(bookmarks.findAll()).hasSize(1);
+  }
+
+  /**
+   * <b>동시에 빼도 모두 성공이다.</b>
+   *
+   * <p>읽고 지우면 겹친 두 요청이 같은 행을 읽고, 뒤의 것은 지울 것을 잃어 stale-state로 터진다 — 재시도가 {@code 204} 대신 {@code 500}을
+   * 받는다.
+   */
+  @Test
+  void concurrentRemovesStayIdempotent() throws Exception {
+    Long noteId = insertNote("정리");
+    mockMvc.perform(add(me, noteId)).andExpect(status().isNoContent());
+
+    int burst = 8;
+    ExecutorService pool = Executors.newFixedThreadPool(burst);
+    CountDownLatch start = new CountDownLatch(1);
+    try {
+      List<Future<?>> shots = new ArrayList<>();
+      for (int shot = 0; shot < burst; shot++) {
+        shots.add(
+            pool.submit(
+                () -> {
+                  start.await();
+                  mockMvc.perform(remove(me, noteId)).andExpect(status().isNoContent());
+                  return null;
+                }));
+      }
+      start.countDown();
+      for (Future<?> shot : shots) {
+        shot.get(60, TimeUnit.SECONDS);
+      }
+    } finally {
+      pool.shutdownNow();
+    }
+
+    assertThat(bookmarks.findAll()).isEmpty();
+  }
+
+  /**
+   * <b>{@code ?sort=}가 이 목록의 순서를 건드리지 못한다.</b>
+   *
+   * <p>{@code Pageable}을 그대로 넘기면 Spring Data가 질의에 정렬을 덧붙여 <b>고정 정렬이 깨지고</b>, 없는 속성 이름 하나에 {@code
+   * 500}이 난다.
+   */
+  @Test
+  void theBookmarkListIgnoresRequestedSort() throws Exception {
+    Long older = insertNote("먼저 올라온 것");
+    Long newer = insertNote("나중에 올라온 것");
+    mockMvc.perform(add(me, newer)).andExpect(status().isNoContent());
+    Thread.sleep(10);
+    mockMvc.perform(add(me, older)).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(BOOKMARKS)).param("sort", "bogus"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.content[0].title").value("먼저 올라온 것"));
+    mockMvc
+        .perform(sessions.as(me, get(BOOKMARKS)).param("sort", "title,asc"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.content[0].title").value("먼저 올라온 것"));
   }
 }

@@ -1,12 +1,10 @@
 package org.hackerkhu.hackerhp.domain.note.service;
 
 import java.time.Instant;
-import org.hackerkhu.hackerhp.domain.note.entity.Bookmark;
 import org.hackerkhu.hackerhp.domain.note.repository.BookmarkRepository;
 import org.hackerkhu.hackerhp.domain.note.repository.NoteRepository;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,20 +40,12 @@ public class BookmarkService {
     if (!notes.existsById(noteId)) {
       throw new BusinessException(ErrorCode.NOT_FOUND, "자료를 찾을 수 없습니다.");
     }
-    if (bookmarks.existsByUserIdAndNoteId(userId, noteId)) {
-      return;
-    }
-    try {
-      bookmarks.save(Bookmark.of(userId, noteId, Instant.now()));
-    } catch (DataIntegrityViolationException e) {
-      /*
-       * 위의 확인과 저장 사이에 같은 요청이 하나 더 들어왔다. 복합 PK가 막아 준 것이므로
-       * 결과는 "담겨 있다"로 같다 — 확인만으로는 동시에 도착한 둘이 모두 통과한다.
-       */
-      if (!bookmarks.existsByUserIdAndNoteId(userId, noteId)) {
-        throw e;
-      }
-    }
+    /*
+     * 확인하고 저장하지 않는다. 동시에 도착한 둘이 모두 "없다"를 읽고 지나가고, 키를 직접
+     * 배정하는 엔티티라 INSERT가 커밋까지 미뤄져 PK 위반이 여기서 잡히지도 않는다.
+     * 있으면 아무것도 하지 않는 한 문장을 DB에게 맡긴다 (#189 리뷰).
+     */
+    bookmarks.insertIgnoringDuplicate(userId, noteId, Instant.now());
   }
 
   /**
@@ -66,6 +56,7 @@ public class BookmarkService {
    */
   @Transactional
   public void remove(Long userId, Long noteId) {
-    bookmarks.deleteByUserIdAndNoteId(userId, noteId);
+    // 읽지 않고 지운다. 읽고 지우면 겹친 두 요청 중 뒤의 것이 지울 것을 잃고 터진다.
+    bookmarks.deleteBookmark(userId, noteId);
   }
 }
