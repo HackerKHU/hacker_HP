@@ -76,10 +76,25 @@ public class SessionSynchronizer {
    * 위에 커넥션을 겹쳐 잡는다. 잘못된 자리에서 부르면 <b>조용히</b> 어긋나므로 여기서 끊는다.
    */
   public void refresh(Collection<Long> userIds) {
+    requireCommitted();
+    userIds.stream().distinct().sorted().forEach(this::refresh);
+  }
+
+  /**
+   * 한 사람만 맞추고 <b>해냈는지 돌려준다.</b>
+   *
+   * <p>여럿을 맞추는 쪽은 실패를 로그로만 남기고 넘어간다 — 이미 커밋된 변경까지 실패한 것처럼 보이면 안 되기 때문이다. <b>로그인은 다르다</b> (#127).
+   * 거기서는 대조하지 못한 세션을 그대로 두면 이 창이 닫히지 않으므로, 부르는 쪽이 결과를 보고 세션을 거둬들여야 한다.
+   */
+  public boolean refresh(Long userId) {
+    requireCommitted();
+    return refreshOne(userId);
+  }
+
+  private static void requireCommitted() {
     if (TransactionSynchronizationManager.isActualTransactionActive()) {
       throw new IllegalStateException("세션 반영은 변경이 커밋된 뒤에 불러야 한다 (spec 3-1 §3-1-5).");
     }
-    userIds.stream().distinct().sorted().forEach(this::refresh);
   }
 
   /**
@@ -93,17 +108,19 @@ public class SessionSynchronizer {
    * <p>계정 행을 고른 이유는 <b>상태를 바꾸는 트랜잭션이 이미 그 행을 잠그기 때문이다</b> — 갱신과 다음 변경도 자연히 순서가 선다. 세션 저장은 다른 테이블이라
    * 이 잠금과 얽히지 않는다.
    */
-  private void refresh(Long userId) {
+  private boolean refreshOne(Long userId) {
     try {
       NESTED_CONNECTIONS.acquire();
       try {
         serialize.executeWithoutResult(ignored -> refreshLocked(userId));
+        return true;
       } finally {
         NESTED_CONNECTIONS.release();
       }
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       log.error("세션 갱신이 중단됐다: userId={}", userId, e);
+      return false;
     } catch (RuntimeException e) {
       /*
        * 여기서 던지면 이미 커밋된 변경까지 실패한 것처럼 보인다. 세션은 옛 값으로 남고
@@ -111,16 +128,27 @@ public class SessionSynchronizer {
        * 조용히 삼키지 않고 error로 남긴다. 관리자가 같은 요청을 다시 보내면 복구된다.
        */
       log.error("세션 갱신 실패: userId={}", userId, e);
+      return false;
     }
   }
 
   private void refreshLocked(Long userId) {
     User user = userRepository.findByIdForUpdate(userId).orElse(null);
+    Map<String, Session> found = sessions.findByPrincipalName(String.valueOf(userId));
+
     if (user == null) {
-      // 계정이 사라졌다. 쓸 값이 없고, 인증은 계정을 못 찾아 어차피 성립하지 않는다.
+      /*
+       * 계정이 사라졌다. 세션도 함께 지운다 (2-2 §2-2-4 MUST).
+       *
+       * 남겨 두면 계정 없는 사람이 만료까지 인증된다 — JwtSessionAuthenticationFilter는
+       * 토큰의 id와 세션 값만 대조하고 users를 다시 읽지 않는다(3-3 결정 12). "계정이 없으니
+       * 어차피 인증되지 않는다"는 성립하지 않는다.
+       */
+      found.keySet().forEach(sessions::deleteById);
+      log.warn("계정이 없어 세션을 폐기했다: userId={} 세션 {}개", userId, found.size());
       return;
     }
-    Map<String, Session> found = sessions.findByPrincipalName(String.valueOf(userId));
+
     found.values().forEach(session -> save(session, user));
     log.info(
         "세션 갱신: userId={} status={} role={} 세션 {}개",

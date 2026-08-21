@@ -34,16 +34,19 @@ public class LoginSuccessHandler implements AuthenticationSuccessHandler {
   private final JwtProvider jwtProvider;
   private final AccessTokenCookie accessTokenCookie;
   private final LoginFailureHandler failureHandler;
+  private final LoginSessionIssuer sessionIssuer;
 
   public LoginSuccessHandler(
       GoogleAccountService accountService,
       JwtProvider jwtProvider,
       AccessTokenCookie accessTokenCookie,
-      LoginFailureHandler failureHandler) {
+      LoginFailureHandler failureHandler,
+      LoginSessionIssuer sessionIssuer) {
     this.accountService = accountService;
     this.jwtProvider = jwtProvider;
     this.accessTokenCookie = accessTokenCookie;
     this.failureHandler = failureHandler;
+    this.sessionIssuer = sessionIssuer;
   }
 
   @Override
@@ -69,20 +72,7 @@ public class LoginSuccessHandler implements AuthenticationSuccessHandler {
       return;
     }
 
-    /*
-     * 알려진 경쟁 — 로그인과 상태 변경이 겹치는 아주 좁은 창이 있다 (#85 리뷰).
-     *
-     * 여기서 읽은 값으로 세션을 채우는데, 이 세션이 DB에 쓰이는 것은 요청이 끝날 때
-     * SessionRepositoryFilter가 커밋하는 시점이다. 그 사이에 관리자가 이 사람을 승인·정지하면
-     * SessionSynchronizer의 조회가 아직 없는 세션을 놓치고, 뒤이어 저장된 세션은 옛 값을 들고
-     * 남는다 — DB는 ACTIVE인데 세션만 PENDING인 상태가 만료(30분)까지 간다.
-     *
-     * 여기서 한 번 더 읽는 것으로는 닫히지 않는다. 창의 끝은 "다시 읽는 시점"이 아니라 "세션이
-     * 실제로 저장되는 시점"이라, 조회를 늘려도 창이 조금 줄 뿐이다. 닫으려면 세션을 저장소로
-     * 직접 만들어 먼저 쓰고 그 뒤에 대조해야 하는데, 그것은 로그인 경로의 구조를 바꾸는 일이라
-     * #127로 둔다.
-     */
-    AuthSession.store(request.getSession(true), user);
+    String sessionId = sessionIssuer.open(request, user).getId();
     accessTokenCookie.write(response, jwtProvider.issue(user.getId()), jwtProvider.expiry());
 
     /*
@@ -90,6 +80,19 @@ public class LoginSuccessHandler implements AuthenticationSuccessHandler {
      * 토큰과 세션을 대조해 세운다 — 여기 남겨 두면 그 대조를 거치지 않은 인증이 한 번 존재하게 된다.
      */
     SecurityContextHolder.clearContext();
+
+    /*
+     * 여기서 응답이 커밋되고, 그때 SessionRepositoryFilter가 세션을 저장하며 SESSION 쿠키를 굽는다.
+     * 세션을 저장소에 넣는 시점이 여기다 (#127).
+     */
     response.sendRedirect(SPA_ROOT);
+
+    /*
+     * 대조는 저장 뒤에 한다. 앞에서 하면 아직 없는 세션을 두고 대조하는 셈이라 창이 닫히지 않는다.
+     *
+     * 그래서 실패를 응답으로 알릴 수 없다 — 응답은 이미 나갔다. 대신 세션을 거둬들인다.
+     * 다음 요청이 401이 되고 화면이 로그인으로 되돌리므로 결과는 로그인 실패와 같다.
+     */
+    sessionIssuer.settle(sessionId, user.getId());
   }
 }
