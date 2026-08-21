@@ -5,6 +5,7 @@ import org.hackerkhu.hackerhp.domain.note.repository.BookmarkRepository;
 import org.hackerkhu.hackerhp.domain.note.repository.NoteRepository;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,7 +46,18 @@ public class BookmarkService {
      * 배정하는 엔티티라 INSERT가 커밋까지 미뤄져 PK 위반이 여기서 잡히지도 않는다.
      * 있으면 아무것도 하지 않는 한 문장을 DB에게 맡긴다 (#189 리뷰).
      */
-    bookmarks.insertIgnoringDuplicate(userId, noteId, Instant.now());
+    try {
+      bookmarks.insertIgnoringDuplicate(userId, noteId, Instant.now());
+    } catch (DataIntegrityViolationException e) {
+      /*
+       * 위 확인과 이 삽입 사이에 그 자료가 지워졌다. ON CONFLICT는 중복만 넘기고 FK 위반은
+       * 그대로 올린다 — 그냥 두면 500이 나가지만, 사용자에게 일어난 일은 "그 자료가 없다"이다.
+       *
+       * 자료 행을 잠그지 않는 이유는 잠글 값이 없기 때문이다. 담기는 자료를 바꾸지 않으므로
+       * 잠금은 삭제를 기다리게 할 뿐이고, 결과는 어차피 404다 (#189 리뷰).
+       */
+      throw new BusinessException(ErrorCode.NOT_FOUND, "자료를 찾을 수 없습니다.");
+    }
   }
 
   /**

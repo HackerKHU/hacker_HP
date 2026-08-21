@@ -50,7 +50,7 @@ public class NoteQueryService {
       Long viewerId, NoteSearch search, NoteSort sort, Pageable pageable) {
     Page<Note> page =
         notes.findAll(NoteSpecifications.matching(search, sort), fixedOrder(pageable));
-    return toSummaries(viewerId, page);
+    return toSummaries(page, bookmarkedIds(viewerId, page.getContent()));
   }
 
   /**
@@ -60,7 +60,14 @@ public class NoteQueryService {
    * 난다.
    */
   public Page<NoteSummaryResponse> myBookmarks(Long viewerId, Pageable pageable) {
-    return toSummaries(viewerId, bookmarks.findMyNotes(viewerId, fixedOrder(pageable)));
+    Page<Note> page = bookmarks.findMyNotes(viewerId, fixedOrder(pageable));
+    /*
+     * 다시 묻지 않는다. 이 목록에 있다는 것이 곧 담겨 있다는 뜻이고, 한 번 더 물으면 그
+     * 사이에 해제된 항목이 bookmarked=false로 돌아온다 — "이 목록에서는 언제나 true"라는
+     * 계약이 깨진다 (#189 리뷰). 질의도 하나 준다.
+     */
+    return toSummaries(
+        page, page.getContent().stream().map(Note::getId).collect(Collectors.toSet()));
   }
 
   /**
@@ -87,12 +94,13 @@ public class NoteQueryService {
   /**
    * 페이지를 응답으로 옮긴다.
    *
-   * <p><b>업로더 이름·파일 개수·즐겨찾기 여부를 각각 한 번에 모아 읽는다.</b> 행마다 읽으면 20건에 질의가 20번씩 붙는다.
+   * <p><b>업로더 이름·파일 개수를 각각 한 번에 모아 읽는다.</b> 행마다 읽으면 20건에 질의가 20번씩 붙는다.
+   *
+   * @param bookmarked 이 페이지에서 <b>내가 담은</b> 자료의 id. 부르는 쪽이 정한다 — 즐겨찾기 목록에서는 물어볼 필요가 없다
    */
-  private Page<NoteSummaryResponse> toSummaries(Long viewerId, Page<Note> page) {
+  private Page<NoteSummaryResponse> toSummaries(Page<Note> page, Set<Long> bookmarked) {
     Map<Long, String> names = uploaderNames(page.getContent());
     Map<Long, Integer> fileCounts = fileCounts(page.getContent());
-    Set<Long> bookmarked = bookmarkedIds(viewerId, page.getContent());
     return page.map(
         note ->
             NoteSummaryResponse.of(
