@@ -96,12 +96,13 @@ erDiagram
 | `year` | int | NOT NULL | 개설 연도 |
 | `semester` | enum | NOT NULL | `SPRING`, `FALL` |
 | `exam_type` | enum | NULL | `MIDTERM`, `FINAL` |
-| `uploader_id` | bigint | FK → users.id | |
+| `uploader_id` | bigint | NULL, FK → users.id, **ON DELETE SET NULL** | `NULL`이면 탈퇴한 회원 |
 | `created_at` | datetime | NOT NULL | |
 | `updated_at` | datetime | NOT NULL | |
 
 - 인덱스: `(category, created_at)`, `(subject_name)`, `(year, semester)`
 - **CHECK 제약** (MUST): `category = 'EXAM'`이면 `exam_type IS NOT NULL`, `category = 'SUBJECT'`면 `exam_type IS NULL`. 애플리케이션 검증에만 맡기지 않는다.
+- `uploader_id`는 **`ON DELETE SET NULL`이다** (MUST) — [2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)가 회원을 지워도 자료는 남긴다고 정했다. 기본값(`NO ACTION`)으로 두면 자료를 올린 회원은 삭제 자체가 FK 위반으로 막힌다.
 
 ### note_files
 
@@ -125,6 +126,8 @@ erDiagram
 
 복합 PK `(user_id, note_id)`로 중복 등록을 막는다. 양쪽 FK 모두 CASCADE를 건다 (MUST) — [2-1 §2-1-3](2-1-USER-STORIES.md)이 자료 삭제 시 즐겨찾기도 지워진다고 정의하고 있다.
 
+**작성자 FK가 `SET NULL`인데 여기만 `CASCADE`인 이유** — 즐겨찾기는 그 사람이 *본* 기록이지 *남긴* 것이 아니다. 주인이 없어지면 남길 이유도 없다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)).
+
 ### notices
 
 | 컬럼 | 타입 | 제약 | 설명 |
@@ -133,11 +136,13 @@ erDiagram
 | `title` | varchar(200) | NOT NULL | |
 | `content` | text | NOT NULL | |
 | `is_pinned` | boolean | NOT NULL, default false | 상단 고정 여부 |
-| `author_id` | bigint | FK → users.id | |
+| `author_id` | bigint | NULL, FK → users.id, **ON DELETE SET NULL** | `NULL`이면 탈퇴한 회원 |
 | `created_at` | datetime | NOT NULL | |
 | `updated_at` | datetime | NOT NULL | |
 
 정렬 기준: `is_pinned DESC, created_at DESC`
+
+`author_id`도 `notes.uploader_id`와 같은 이유로 **`ON DELETE SET NULL`이다** (MUST). 공지는 동아리의 기록이라 작성한 관리자가 나가도 남아야 한다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)). **`V1__init.sql`은 `ON DELETE` 절 없이 만들어졌으므로 회원 제거 기능(#58)에서 마이그레이션으로 맞춘다.**
 
 ### photos
 
@@ -146,10 +151,12 @@ erDiagram
 | `id` | bigint | PK, auto | |
 | `caption` | varchar(200) | NULL | |
 | `stored_path` | varchar(500) | NOT NULL | 리사이즈된 이미지의 S3 오브젝트 키 |
-| `uploader_id` | bigint | FK → users.id | |
+| `uploader_id` | bigint | NULL, FK → users.id, **ON DELETE SET NULL** | `NULL`이면 탈퇴한 회원 |
 | `created_at` | datetime | NOT NULL | |
 
 저장 키 형식: `photos/{photoId}/{uuid}.jpg`, 썸네일은 `photos/{photoId}/thumb/{uuid}.jpg`
+
+`uploader_id`는 `ADMIN`만 채워진다(사진 업로드는 `ADMIN` 전용이다). 그래도 **`ON DELETE SET NULL`이다** (MUST) — 관리자도 삭제 대상이 될 수 있고, 활동사진은 아카이브라 남아야 한다.
 
 ---
 
