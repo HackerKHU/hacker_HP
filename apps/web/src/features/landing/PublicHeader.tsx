@@ -1,7 +1,10 @@
+import { MenuIcon, XIcon } from 'lucide-react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { hasApplied, homePath, useSession } from '@/auth/session'
 import { useLogout } from '@/auth/useLogout'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { CLUB, isPlaceholder, SECTIONS } from './content'
 
 /** 왼쪽 메뉴 한 칸. 앵커와 라우트 링크가 같은 무게로 읽히도록 클래스를 공유한다. */
@@ -20,6 +23,11 @@ export function PublicHeader() {
    * 다시 그려져 로그아웃된 것이 화면에 드러난다.
    */
   const { logout, failed } = useLogout()
+  /*
+   * 모바일 메뉴. 항목을 누르면 닫는다 — 앵커는 페이지를 안 바꾸므로 저절로 닫히지 않고,
+   * 열린 채 두면 이동한 섹션을 메뉴가 가린다.
+   */
+  const [menuOpen, setMenuOpen] = useState(false)
   const isActive = session.state.kind === 'active'
   // PENDING일 때만 의미가 있다. `null`이면 403으로만 알아내 신청 여부를 모르는 상태다.
   const applied = hasApplied(session)
@@ -42,7 +50,7 @@ export function PublicHeader() {
          * `nav[aria-label="섹션 이동"]` 안에 넣지 않는 이유도 같다. 라우트 링크가 그
          * 이름 아래 들어가면 스크린리더에게 거짓말이 된다.
          */}
-        <div className="flex items-center gap-1">
+        <div className="hidden items-center gap-1 md:flex">
           <nav className="flex items-center gap-1" aria-label="섹션 이동">
             {SECTIONS.map((section) => (
               <a key={section.id} href={`#${section.id}`} className={NAV_ITEM}>
@@ -145,7 +153,70 @@ export function PublicHeader() {
             )}
           </div>
         )}
+
+        {/*
+         * 섹션 메뉴만 여기로 접는다. 지원하기·로그인은 밖에 남긴다 — 랜딩을 처음 보는
+         * 사람의 다음 행동이라 한 번의 탭 뒤로 숨기지 않는다. 버튼이 `size="sm"`이라
+         * 390px에서도 로고와 함께 들어간다.
+         *
+         * 세션 확인 중에도 그린다 — 섹션 이동은 세션과 무관하다.
+         */}
+        <button
+          type="button"
+          className={cn(
+            NAV_ITEM,
+            'md:hidden',
+            // 액션 묶음이 없을 때(세션 확인 중)도 오른쪽에 붙도록. 있으면 그 옆이다.
+            session.state.kind === 'loading' && 'ml-auto',
+          )}
+          aria-expanded={menuOpen}
+          aria-controls="mobile-menu"
+          aria-label={menuOpen ? '메뉴 닫기' : '메뉴 열기'}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          {menuOpen ? (
+            <XIcon className="size-5" aria-hidden="true" />
+          ) : (
+            <MenuIcon className="size-5" aria-hidden="true" />
+          )}
+        </button>
       </div>
+
+      {/*
+       * 데스크톱과 같은 구분 원칙이다 — 섹션 앵커는 nav 안, 공지사항(라우트)은 밖.
+       * 헤더 안에 두어 sticky를 같이 탄다.
+       */}
+      {menuOpen && (
+        <div
+          id="mobile-menu"
+          className="border-t border-border px-4 pb-4 pt-2 md:hidden"
+        >
+          <nav className="flex flex-col" aria-label="섹션 이동">
+            {SECTIONS.map((section) => (
+              <a
+                key={section.id}
+                href={`#${section.id}`}
+                className={NAV_ITEM}
+                onClick={() => setMenuOpen(false)}
+              >
+                {section.label}
+              </a>
+            ))}
+          </nav>
+          {isActive && (
+            <>
+              <div aria-hidden="true" className="my-2 h-px bg-border" />
+              <Link
+                to={homePath(session)}
+                className={cn(NAV_ITEM, 'block')}
+                onClick={() => setMenuOpen(false)}
+              >
+                공지사항
+              </Link>
+            </>
+          )}
+        </div>
+      )}
     </header>
   )
 }
