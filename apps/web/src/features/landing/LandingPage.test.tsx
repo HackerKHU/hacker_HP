@@ -227,11 +227,9 @@ describe('랜딩 헤더 상태별 진입점', () => {
    * 본다 — 되돌리지 않으면 라이트인 내부 화면까지 검은 크롬을 물려받는다.
    */
   it('랜딩을 떠나면 html 배경과 theme-color를 되돌린다', () => {
-    const spy = vi
-      .spyOn(window, 'getComputedStyle')
-      .mockReturnValue({
-        backgroundColor: 'rgb(0, 0, 0)',
-      } as CSSStyleDeclaration)
+    const spy = vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+      backgroundColor: 'rgb(0, 0, 0)',
+    } as CSSStyleDeclaration)
 
     const { unmount } = render(
       <MemoryRouter initialEntries={['/']}>
