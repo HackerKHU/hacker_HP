@@ -1,7 +1,8 @@
 name: Lint PR title
 
 # 일반 작업과 release PR 모두 CONTRIBUTING.md의 PR 규칙을 따른다.
-# squash merge에서는 PR 제목이 그대로 커밋 메시지가 된다.
+# squash merge에서는 PR 제목이 그대로 커밋 메시지가 된다 — 그래서 여기가 히스토리의 관문이다.
+# 로컬 commit-msg 훅은 편의라서 설치하지 않은 사람도 막지 않는다 (#91).
 
 on:
   pull_request:
@@ -15,6 +16,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # 커밋 메시지 훅이 쓰는 규칙이다. 커밋을 검사하는 것이 아니라 규칙 자체를 검사한다 —
+      # 켜 놓고 확인하지 않으면 오타 하나로 모든 메시지가 통과해도 아무도 모른다 (#91).
+      - name: 커밋 메시지 규칙 설치
+        run: npm ci
+      - name: 커밋 메시지 규칙 검사
+        run: npm run test:commitlint
       - name: PR 출발 브랜치 규칙 테스트
         run: bash .github/scripts/test-validate-pr-source.sh
       - name: PR 출발 브랜치 검사
