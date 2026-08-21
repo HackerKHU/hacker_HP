@@ -2,7 +2,6 @@ package org.hackerkhu.hackerhp.global.auth;
 
 import java.util.Collection;
 import java.util.Map;
-import java.util.concurrent.Semaphore;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.slf4j.Logger;
@@ -44,18 +43,6 @@ public class SessionSynchronizer {
   private final TransactionTemplate serialize;
 
   /**
-   * 동시에 갱신하는 스레드 수의 상한.
-   *
-   * <p><b>이 작업은 커넥션을 두 개 겹쳐 잡는다</b> — 계정 행을 잠근 트랜잭션이 하나를 쥔 채, 세션 저장소가 자기 트랜잭션으로 하나를 더 연다({@code
-   * JdbcIndexedSessionRepository}는 그 전파 방식을 생성자에서만 받아 바깥에서 바꿀 수 없다). 겹쳐 잡는 스레드가 풀 크기만큼 모이면 <b>모두가 두
-   * 번째 커넥션을 기다리며 서로를 막는다.</b>
-   *
-   * <p>기다림은 아래 {@code catch}가 삼키므로 <b>정지 API는 성공하고 세션만 옛 값으로 남는다</b> — 조용히 틀리는 쪽이라 상한을 둔다. 풀 기본값이
-   * 10이므로 둘이면 넉넉하다. 관리자 조작은 초당 몇 건이 아니어서 이 상한이 병목이 되지 않는다.
-   */
-  private static final Semaphore NESTED_CONNECTIONS = new Semaphore(2);
-
-  /**
    * 저장소의 실제 세션 타입({@code JdbcSession})은 공개되어 있지 않아 와일드카드로 주입받고 여기서 좁힌다. {@code save(S)}가 {@code
    * Session}을 받으려면 타입이 정해져 있어야 한다.
    */
@@ -95,15 +82,12 @@ public class SessionSynchronizer {
    */
   private void refresh(Long userId) {
     try {
-      NESTED_CONNECTIONS.acquire();
-      try {
-        serialize.executeWithoutResult(ignored -> refreshLocked(userId));
-      } finally {
-        NESTED_CONNECTIONS.release();
+      boolean ran =
+          NestedConnections.run(
+              () -> serialize.executeWithoutResult(ignored -> refreshLocked(userId)));
+      if (!ran) {
+        log.error("세션 갱신이 중단됐다: userId={}", userId);
       }
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      log.error("세션 갱신이 중단됐다: userId={}", userId, e);
     } catch (RuntimeException e) {
       /*
        * 여기서 던지면 이미 커밋된 변경까지 실패한 것처럼 보인다. 세션은 옛 값으로 남고
@@ -116,11 +100,21 @@ public class SessionSynchronizer {
 
   private void refreshLocked(Long userId) {
     User user = userRepository.findByIdForUpdate(userId).orElse(null);
+    Map<String, Session> found = sessions.findByPrincipalName(String.valueOf(userId));
+
     if (user == null) {
-      // 계정이 사라졌다. 쓸 값이 없고, 인증은 계정을 못 찾아 어차피 성립하지 않는다.
+      /*
+       * 계정이 사라졌다. 세션도 함께 지운다 (2-2 §2-2-4 MUST).
+       *
+       * 남겨 두면 계정 없는 사람이 만료까지 인증된다 — JwtSessionAuthenticationFilter는
+       * 토큰의 id와 세션 값만 대조하고 users를 다시 읽지 않는다(3-3 결정 12). "계정이 없으니
+       * 어차피 인증되지 않는다"는 성립하지 않는다.
+       */
+      found.keySet().forEach(sessions::deleteById);
+      log.warn("계정이 없어 세션을 폐기했다: userId={} 세션 {}개", userId, found.size());
       return;
     }
-    Map<String, Session> found = sessions.findByPrincipalName(String.valueOf(userId));
+
     found.values().forEach(session -> save(session, user));
     log.info(
         "세션 갱신: userId={} status={} role={} 세션 {}개",
