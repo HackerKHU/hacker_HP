@@ -10,6 +10,7 @@ import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.audit.entity.AdminAction;
 import org.hackerkhu.hackerhp.domain.audit.entity.AdminActionLog;
 import org.hackerkhu.hackerhp.domain.audit.repository.AdminActionLogRepository;
+import org.hackerkhu.hackerhp.domain.auth.repository.BootstrapAttemptRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
@@ -47,6 +48,7 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository userRepository;
+  @Autowired private BootstrapAttemptRepository attempts;
   @Autowired private JwtProvider jwtProvider;
   @Autowired private AdminActionLogRepository adminActions;
 
@@ -55,6 +57,7 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
   @BeforeEach
   void createAccounts() {
     adminActions.deleteAll();
+    attempts.deleteAll();
     userRepository.deleteAll();
     // 최초 관리자가 될 사람 — 정상 가입 절차를 마친 PENDING이다.
     founder =
@@ -65,6 +68,7 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
   @AfterEach
   void clear() {
     adminActions.deleteAll();
+    attempts.deleteAll();
     userRepository.deleteAll();
   }
 
@@ -135,6 +139,7 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
   @Test
   void recoversAnAlreadyApprovedMemberWithoutRewritingApprovedAt() throws Exception {
     // 이메일이 유일해야 하므로 최초 계정을 먼저 지운다.
+    attempts.deleteAll();
     userRepository.deleteAll();
     User member = Accounts.applied("sub-ok", "founder@khu.ac.kr", "20200002");
     member.approve();
@@ -262,6 +267,7 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void accountWithoutAnApplicationIsRejected() throws Exception {
+    attempts.deleteAll();
     userRepository.deleteAll();
     User justSignedIn =
         userRepository.saveAndFlush(User.createFromGoogle("sub-new", "founder@khu.ac.kr", "이름"));
@@ -276,6 +282,7 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
   /** 정지된 계정이 이 경로로 되살아나면 안 된다. */
   @Test
   void suspendedAccountIsRejected() throws Exception {
+    attempts.deleteAll();
     userRepository.deleteAll();
     User banned = Accounts.applied("sub-ban", "founder@khu.ac.kr", "20200004");
     banned.approve();
