@@ -241,7 +241,11 @@ function Stats() {
               `tabular-nums`가 없으면 숫자가 바뀔 때마다 글자 폭이 달라져 카운트업 내내
               레이아웃이 덜컹거린다. 이 애니메이션에서 제일 티나는 결함이다.
             */}
-            <dd className="text-5xl font-semibold tracking-tight tabular-nums text-foreground md:text-6xl">
+            {/*
+              모바일은 4xl까지 내린다. 5xl이면 가장 긴 값("2000+명" ≈ 186px)이 390px
+              화면의 열 폭(159px)을 넘어 두 줄로 갈라지고, 카운트업 중 행 높이가 튄다.
+            */}
+            <dd className="text-4xl font-semibold tracking-tight tabular-nums text-foreground sm:text-5xl md:text-6xl">
               <CountUp
                 value={stat.value}
                 unit={stat.unit}

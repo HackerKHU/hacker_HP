@@ -98,6 +98,23 @@ describe('공개 랜딩', () => {
    * 근사치와 확정값이 화면에서 구분되어야 한다. 전부 `+`가 붙으면 확정된 창립 연차까지
    * 추정처럼 읽히고, 아무 데도 안 붙으면 근사치가 정확한 집계처럼 읽힌다.
    */
+  /*
+   * #174 — 기록 그리드와 푸터는 모바일에서 접힌다. jsdom은 레이아웃을 계산하지 않으므로
+   * 실제 줄바꿈은 못 보고, 반응형 클래스가 빠지는 회귀만 지킨다 — 이 클래스가 사라지면
+   * 390px에서 숫자 네 개가 4열에 눌려 잘린다.
+   */
+  it('기록 그리드와 푸터에 모바일 대응 클래스가 있다', async () => {
+    renderLanding()
+
+    const grid = (await screen.findByText('함께한 시간')).closest('dl')
+    expect(grid?.className).toContain('grid-cols-2')
+    expect(grid?.className).toContain('md:grid-cols-4')
+
+    const footer = screen.getByRole('contentinfo').firstElementChild
+    expect(footer?.className).toContain('flex-col')
+    expect(footer?.className).toContain('sm:flex-row')
+  })
+
   it('근사 표기를 켠 수치에만 +가 붙는다', async () => {
     renderLanding()
 
