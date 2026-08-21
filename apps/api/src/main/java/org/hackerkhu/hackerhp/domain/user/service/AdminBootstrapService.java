@@ -73,19 +73,16 @@ public class AdminBootstrapService {
    */
   public void promote(Long requesterId, String token) {
     /*
-     * 세는 것도 보는 것도 승격 트랜잭션 밖이다 (#144). 거절은 예외로 나가고 그 트랜잭션은
-     * 되돌아가므로, 안에서 세면 기록이 함께 사라져 아무것도 세지지 않는다.
+     * 자리를 잡는 것이 승격 트랜잭션 밖이다 (#144). 거절은 예외로 나가고 그 트랜잭션은
+     * 되돌아가므로, 안에서 잡으면 자리도 함께 사라져 아무것도 세지지 않는다.
+     *
+     * 확인과 자리 잡기가 한 연산이라, 병렬로 보내도 상한을 넘지 못한다.
      */
-    limiter.requireAllowed(requesterId);
+    limiter.reserve(requesterId);
 
     // 승격이 일어난 때. 잠근 채 잡은 값이라 뒤이은 조작보다 반드시 앞선다 (#143 리뷰).
     Instant[] promotedAt = {null};
-    try {
-      transaction.executeWithoutResult(ignored -> promotedAt[0] = apply(requesterId, token));
-    } catch (RuntimeException e) {
-      limiter.recordFailure(requesterId);
-      throw e;
-    }
+    transaction.executeWithoutResult(ignored -> promotedAt[0] = apply(requesterId, token));
     /*
      * 승격은 role·status를 바꾼다. 반영하지 않으면 본인이 재로그인해야 관리자 화면이 열린다.
      *
@@ -106,7 +103,7 @@ public class AdminBootstrapService {
     }
 
     /*
-     * 성공했으므로 이 계정의 실패를 지운다. 토큰을 몇 번 잘못 붙여넣고 성공하는 것은 흔한
+     * 성공했으므로 이 계정의 시도를 지운다. 토큰을 몇 번 잘못 붙여넣고 성공하는 것은 흔한
      * 일이고, 남겨 두면 바로 다음 사고의 복구가 막힌다.
      *
      * 이미 승격된 계정의 재요청도 여기까지 온다 — 그쪽도 자격을 지난 호출이라 같게 다룬다.

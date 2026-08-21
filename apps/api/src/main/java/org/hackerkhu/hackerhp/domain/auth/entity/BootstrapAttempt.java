@@ -35,7 +35,7 @@ public class BootstrapAttempt {
     this.createdAt = createdAt;
   }
 
-  public static BootstrapAttempt failedAt(Long accountId, Instant createdAt) {
+  public static BootstrapAttempt attemptedAt(Long accountId, Instant createdAt) {
     return new BootstrapAttempt(accountId, createdAt);
   }
 
