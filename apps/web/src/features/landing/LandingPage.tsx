@@ -388,8 +388,50 @@ function Footer() {
  * 로그인 이후 화면은 라이트 그대로다.
  */
 export function LandingPage() {
+  const root = useRef<HTMLDivElement>(null)
+
+  /*
+   * 다크를 브라우저 크롬까지 확장한다 (#192).
+   *
+   * `.dark`는 이 div 안에서만 유효하고 `html`은 `:root`(라이트, 흰색)다. iOS Safari는
+   * 상태바 뒤와 오버스크롤(바운스) 영역에 **html 배경**을 그리므로, 검은 랜딩의 위아래에
+   * 흰 띠가 뜬다. `theme-color`가 없으면 주소창 주변도 따라오지 않는다.
+   *
+   * 전역 CSS로 못 박지 않는 이유 — 내부 화면은 라이트라서, 이 화면에 있는 동안만 바꾸고
+   * 떠날 때 되돌려야 한다. 값은 렌더된 화면에서 읽는다. 여기 하드코딩하면 `.dark` 토큰을
+   * 고칠 때 이 줄만 낡는다.
+   */
+  useEffect(() => {
+    const surface = root.current
+      ? getComputedStyle(root.current).backgroundColor
+      : ''
+    if (!surface) return // jsdom은 CSS를 계산하지 않는다 — 테스트에서는 할 일이 없다
+
+    const html = document.documentElement
+    const previousBackground = html.style.backgroundColor
+    html.style.backgroundColor = surface
+
+    let meta = document.querySelector<HTMLMetaElement>(
+      'meta[name="theme-color"]',
+    )
+    const created = meta === null
+    if (!meta) {
+      meta = document.createElement('meta')
+      meta.name = 'theme-color'
+      document.head.appendChild(meta)
+    }
+    const previousContent = meta.content
+    meta.content = surface
+
+    return () => {
+      html.style.backgroundColor = previousBackground
+      if (created) meta.remove()
+      else meta.content = previousContent
+    }
+  }, [])
+
   return (
-    <div className="dark min-h-screen bg-background text-foreground">
+    <div ref={root} className="dark min-h-screen bg-background text-foreground">
       <PublicHeader />
       <main>
         <Hero />

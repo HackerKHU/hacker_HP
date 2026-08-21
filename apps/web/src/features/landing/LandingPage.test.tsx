@@ -221,6 +221,37 @@ describe('랜딩 헤더 상태별 진입점', () => {
    * "무엇이 보이는가"가 아니라 열림·닫힘 동작만 본다. 항목을 누르면 닫혀야 한다 —
    * 앵커는 페이지를 안 바꿔서 저절로 닫히지 않고, 열린 채 두면 이동한 섹션을 가린다.
    */
+  /*
+   * #192 — 랜딩에 있는 동안만 html 배경·theme-color가 다크다. jsdom은 CSS를 계산하지
+   * 않아 실제 색은 못 읽으므로 getComputedStyle을 대역으로 세워 마운트/언마운트 대칭만
+   * 본다 — 되돌리지 않으면 라이트인 내부 화면까지 검은 크롬을 물려받는다.
+   */
+  it('랜딩을 떠나면 html 배경과 theme-color를 되돌린다', () => {
+    const spy = vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+      backgroundColor: 'rgb(0, 0, 0)',
+    } as CSSStyleDeclaration)
+
+    const { unmount } = render(
+      <MemoryRouter initialEntries={['/']}>
+        <SessionProvider>
+          <App />
+        </SessionProvider>
+      </MemoryRouter>,
+    )
+    expect(document.documentElement.style.backgroundColor).toBe('rgb(0, 0, 0)')
+    expect(
+      document
+        .querySelector('meta[name="theme-color"]')
+        ?.getAttribute('content'),
+    ).toBe('rgb(0, 0, 0)')
+
+    unmount()
+    expect(document.documentElement.style.backgroundColor).toBe('')
+    expect(document.querySelector('meta[name="theme-color"]')).toBeNull()
+
+    spy.mockRestore()
+  })
+
   it('햄버거가 섹션 메뉴를 열고 항목을 누르면 닫는다', async () => {
     renderLanding()
 
