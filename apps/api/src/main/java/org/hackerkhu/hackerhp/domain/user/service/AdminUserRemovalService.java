@@ -158,17 +158,24 @@ public class AdminUserRemovalService {
     }
 
     /*
-     * 여기서 다시 센다 (#197 리뷰).
+     * ①이 만든 차단이 아직 서 있는지 확인한다 (#197 리뷰 2차).
      *
-     * ①의 검사는 그 트랜잭션이 커밋되며 잠금과 함께 풀렸다. 그 사이에 다른 관리자가
-     * 대상을 되살리고 자기 권한을 회수하면, 대상이 유일한 활성 관리자가 된 채로 이
-     * 삭제가 도착한다 — 그대로 지우면 활성 관리자가 0명이 된다.
+     * ①은 커밋되며 잠금을 놓는다. 그 사이에 다른 관리자가 PATCH .../status로 대상을 다시
+     * ACTIVE로 돌리면, 여기까지 오는 동안 그 사람의 세션도 ACTIVE로 되살아난다 — 그대로
+     * 지우면 "정지를 먼저 확정한다"는 전제가 무너진 채 계정만 사라지고, 세션 폐기가
+     * 실패하면 계정 없는 ACTIVE 세션이 만료까지 인증된다.
      *
-     * 지금 잠근 행들을 기준으로 보므로, 동시에 들어온 다른 조작은 기다렸다가 줄어든
-     * 수를 보게 된다 (§2-2-7의 원자성 요구).
+     * 지우지 않고 멈춘다. 대상은 다른 관리자가 의도적으로 되살린 ACTIVE 상태이므로,
+     * 여기서 조용히 다시 정지시키는 것보다 관리자에게 되돌려 판단하게 하는 편이 맞다.
+     * 같은 요청을 다시 보내면 ①부터 다시 밟는다.
+     *
+     * ★ 이 검사가 §2-2-7의 "활성 관리자 0명" 도 함께 막는다. 활성이 아닌 계정은 활성
+     *   관리자로 세지 않으므로, 여기를 통과한 대상을 지워도 그 수는 줄지 않는다. 잠근
+     *   행을 기준으로 보기 때문에 동시에 들어온 다른 조작은 기다렸다가 줄어든 수를
+     *   본다 — "0명이 되는" 조작이 남아 있다면 그쪽이 자기 검사에 걸린다.
      */
-    if (isActiveAdmin(target)) {
-      guardLastActiveAdmin(requesterId, targetId);
+    if (target.getStatus() == Status.ACTIVE) {
+      throw new BusinessException(ErrorCode.CONCURRENT_CHANGE);
     }
 
     // 잠근 채로 잡는다. 이 시각이 이력의 "언제"가 된다 (#143 리뷰).
@@ -176,24 +183,6 @@ public class AdminUserRemovalService {
     userRepository.delete(target);
     log.warn("회원 제거: requesterId={} targetId={}", requesterId, targetId);
     return removedAt;
-  }
-
-  private static boolean isActiveAdmin(User user) {
-    return user.getRole() == Role.ADMIN && user.getStatus() == Status.ACTIVE;
-  }
-
-  /**
-   * <b>제거 뒤에도 활성 관리자가 남는가</b> (§2-2-7 MUST).
-   *
-   * <p>자기 대상인지와 무관하다. 세기 전에 그 행들을 이미 잠갔으므로, 동시에 들어온 다른 조작은 기다렸다가 줄어든 수를 보게 된다.
-   */
-  private void guardLastActiveAdmin(Long requesterId, Long targetId) {
-    if (userRepository.countByRoleAndStatus(Role.ADMIN, Status.ACTIVE) > 1) {
-      return;
-    }
-    throw new BusinessException(
-        ErrorCode.FORBIDDEN,
-        requesterId.equals(targetId) ? "마지막 관리자는 스스로를 제거할 수 없습니다." : "마지막 관리자는 제거할 수 없습니다.");
   }
 
   /**

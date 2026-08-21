@@ -624,6 +624,7 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | 403 | `FORBIDDEN` | 권한 부족 / 마지막 활성 관리자의 본인 권한 회수·삭제·정지 시도 / 허용 도메인이 아닌 구글 계정의 로그인 / **`ACTIVE` 계정의 `POST /auth/application` 호출** ([3-1 §3-1-6](3-1-DESIGN-ARCHITECTURE.md) MUST) |
 | 404 | `NOT_FOUND` | 리소스 없음 |
 | 409 | `DUPLICATE_STUDENT_NO` | 신청서의 학번이 다른 계정에 이미 쓰이고 있음 |
+| 409 | `CONCURRENT_CHANGE` | **다른 관리자가 그 사이에 같은 회원을 바꿨다.** 회원 제거는 정지를 먼저 확정하는데([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거) MUST), 그 사이에 대상이 다시 `ACTIVE`가 되면 전제가 무너지므로 지우지 않고 멈춘다. 화면은 목록을 새로고침하고 다시 시도하게 안내한다 |
 | 413 | `FILE_TOO_LARGE` | 파일 용량 초과 |
 | 415 | `UNSUPPORTED_FILE_TYPE` | 허용되지 않는 확장자 |
 

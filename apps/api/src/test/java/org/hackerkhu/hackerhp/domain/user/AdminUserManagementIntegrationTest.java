@@ -9,6 +9,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.audit.entity.AdminAction;
 import org.hackerkhu.hackerhp.domain.audit.entity.AdminActionLog;
@@ -17,6 +23,7 @@ import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.domain.user.service.AdminUserRoleService;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
@@ -46,6 +53,7 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
   @Autowired private UserRepository userRepository;
   @Autowired private AdminActionLogRepository actions;
   @Autowired private JdbcTemplate jdbcTemplate;
+  @Autowired private AdminUserRoleService roleService;
 
   private User admin;
 
@@ -246,6 +254,57 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
     userRepository.saveAndFlush(Accounts.suspendedAdmin("sub-sa", "sa@khu.ac.kr", "20200002"));
 
     mockMvc.perform(roleRequest(admin, admin.getId(), Role.USER)).andExpect(status().isForbidden());
+  }
+
+  /**
+   * T-272 — 활성 관리자 둘이 <b>동시에 각자 자기 권한을 회수한다</b> (§2-2-7 MUST, #197 리뷰 2차).
+   *
+   * <p><b>순차 테스트로는 못 잡는다.</b> 한 번에 하나씩 부르면 뒤엣것이 이미 줄어든 수를 보고 자기 검사에 걸린다. 둘이 동시에 오면 <b>같은 "관리자 2명"을
+   * 보고 둘 다 통과해</b> 0명이 된다.
+   *
+   * <p><b>서로를 회수하는 조합이 아니라 각자 자기 것을 회수하는 조합이어야 한다.</b> 서로를 대상으로 하면 두 요청이 같은 두 행({@code
+   * requester}·{@code target})을 잠그므로 활성 관리자 전부를 모으는 코드가 없어도 자연히 줄이 선다 — 그 조합으로는 이 사례를 재현하지 못한다. 각자
+   * 자기 것을 회수하면 잠그는 행이 자기 하나뿐이라 <b>모아 잠그는 코드만이 유일한 방어</b>가 된다.
+   */
+  @Test
+  void twoAdminsRevokingThemselvesAtOnceCannotBothSucceed() throws Exception {
+    User other = userRepository.saveAndFlush(Accounts.admin("sub-a3", "a3@khu.ac.kr", "20200003"));
+
+    CyclicBarrier ready = new CyclicBarrier(2);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      List<Future<Boolean>> results =
+          pool.invokeAll(
+              List.of(
+                  revoke(admin.getId(), admin.getId(), ready),
+                  revoke(other.getId(), other.getId(), ready)));
+
+      assertThat(results.stream().filter(AdminUserManagementIntegrationTest::succeeded).count())
+          .as("둘 다 성공하면 활성 관리자가 0명이 된다")
+          .isLessThanOrEqualTo(1);
+    } finally {
+      pool.shutdownNow();
+      pool.awaitTermination(10, TimeUnit.SECONDS);
+    }
+
+    // 무엇보다 중요한 것 — 아무도 시스템에 들어가지 못하는 상태가 되지 않는다.
+    assertThat(userRepository.countByRoleAndStatus(Role.ADMIN, Status.ACTIVE)).isPositive();
+  }
+
+  private Callable<Boolean> revoke(Long requesterId, Long targetId, CyclicBarrier ready) {
+    return () -> {
+      ready.await(10, TimeUnit.SECONDS);
+      roleService.change(requesterId, targetId, Role.USER);
+      return true;
+    };
+  }
+
+  private static boolean succeeded(Future<Boolean> result) {
+    try {
+      return Boolean.TRUE.equals(result.get());
+    } catch (Exception e) {
+      return false;
+    }
   }
 
   /** 마지막 활성 관리자는 제거도 막힌다 — 정지·회수와 같은 규칙이다. */

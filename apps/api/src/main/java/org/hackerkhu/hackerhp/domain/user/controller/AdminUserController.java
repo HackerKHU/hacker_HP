@@ -441,6 +441,13 @@ public class AdminUserController {
               mediaType = MediaType.APPLICATION_JSON_VALUE,
               schema = @Schema(implementation = ErrorResponse.class)))
   @ApiResponse(
+      responseCode = "409",
+      description = "`CONCURRENT_CHANGE` — 다른 관리자가 그 사이에 대상을 다시 `ACTIVE`로 돌렸다. **지우지 않고 멈춘다**",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
       responseCode = "500",
       description =
           "`INTERNAL_ERROR` — 정지가 세션에 반영되지 않아 제거를 멈췄다. **대상은 정지된 채로 남으므로 같은 요청을 다시 보내면 된다**",
