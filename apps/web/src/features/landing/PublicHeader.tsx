@@ -34,7 +34,8 @@ export function PublicHeader() {
 
   return (
     <header className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur">
-      <div className="mx-auto flex h-20 w-full max-w-[1152px] items-center gap-8 px-6">
+      {/* 모바일은 간격을 줄인다 — 320px에서 "승인 대기 중"+로그아웃+햄버거가 gap-8을 못 버틴다. */}
+      <div className="mx-auto flex h-20 w-full max-w-[1152px] items-center gap-4 px-4 md:gap-8 md:px-6">
         <a href="#top" className="text-xl font-semibold tracking-tight">
           {CLUB.name}
         </a>
@@ -165,7 +166,7 @@ export function PublicHeader() {
           type="button"
           className={cn(
             NAV_ITEM,
-            'md:hidden',
+            'px-2 md:hidden',
             // 액션 묶음이 없을 때(세션 확인 중)도 오른쪽에 붙도록. 있으면 그 옆이다.
             session.state.kind === 'loading' && 'ml-auto',
           )}
