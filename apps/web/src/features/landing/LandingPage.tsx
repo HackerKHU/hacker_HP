@@ -8,15 +8,7 @@ import {
 } from '@/components/ui/accordion'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import {
-  ACTIVITIES,
-  CLUB,
-  FAQS,
-  isPlaceholder,
-  SECTIONS,
-  STATS,
-  SUPPORT,
-} from './content'
+import { ACTIVITIES, CLUB, FAQS, SECTIONS, STATS, SUPPORT } from './content'
 import { PublicHeader } from './PublicHeader'
 
 /** 본문 컨테이너. 다른 섹션과 좌우 정렬을 맞추는 기준이다. */
@@ -312,21 +304,9 @@ function Support() {
       <p className="mt-8 max-w-2xl leading-8 text-muted-foreground">
         {SUPPORT.description}
       </p>
-      {isPlaceholder(SUPPORT.email) ? (
-        /* 주소가 없는 mailto는 빈 메일 창만 띄운다. 잠가서 아직 없다는 걸 드러낸다. */
-        <Button
-          size="lg"
-          className="mt-8"
-          disabled
-          title="문의 주소가 아직 없습니다"
-        >
-          후원 문의하기
-        </Button>
-      ) : (
-        <Button asChild size="lg" className="mt-8">
-          <a href={mailto}>후원 문의하기</a>
-        </Button>
-      )}
+      <Button asChild size="lg" className="mt-8">
+        <a href={mailto}>후원 문의하기</a>
+      </Button>
     </section>
   )
 }
