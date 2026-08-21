@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
@@ -98,6 +98,23 @@ describe('공개 랜딩', () => {
    * 근사치와 확정값이 화면에서 구분되어야 한다. 전부 `+`가 붙으면 확정된 창립 연차까지
    * 추정처럼 읽히고, 아무 데도 안 붙으면 근사치가 정확한 집계처럼 읽힌다.
    */
+  /*
+   * #174 — 기록 그리드와 푸터는 모바일에서 접힌다. jsdom은 레이아웃을 계산하지 않으므로
+   * 실제 줄바꿈은 못 보고, 반응형 클래스가 빠지는 회귀만 지킨다 — 이 클래스가 사라지면
+   * 390px에서 숫자 네 개가 4열에 눌려 잘린다.
+   */
+  it('기록 그리드와 푸터에 모바일 대응 클래스가 있다', async () => {
+    renderLanding()
+
+    const grid = (await screen.findByText('함께한 시간')).closest('dl')
+    expect(grid?.className).toContain('grid-cols-2')
+    expect(grid?.className).toContain('md:grid-cols-4')
+
+    const footer = screen.getByRole('contentinfo').firstElementChild
+    expect(footer?.className).toContain('flex-col')
+    expect(footer?.className).toContain('sm:flex-row')
+  })
+
   it('근사 표기를 켠 수치에만 +가 붙는다', async () => {
     renderLanding()
 
@@ -199,6 +216,49 @@ describe('랜딩 헤더 상태별 진입점', () => {
    * 다만 `섹션 이동` 내비 안에 넣지는 않는다 — 그 이름 아래 라우트 링크가 들어가면
    * 스크린리더에게 거짓말이 된다. 묶이되 안에 들어가지는 않는다는 두 가지를 함께 본다.
    */
+  /*
+   * #176 — 모바일에서는 섹션 메뉴가 햄버거 뒤로 접힌다. jsdom은 뷰포트가 없으므로
+   * "무엇이 보이는가"가 아니라 열림·닫힘 동작만 본다. 항목을 누르면 닫혀야 한다 —
+   * 앵커는 페이지를 안 바꿔서 저절로 닫히지 않고, 열린 채 두면 이동한 섹션을 가린다.
+   */
+  it('햄버거가 섹션 메뉴를 열고 항목을 누르면 닫는다', async () => {
+    renderLanding()
+
+    const toggle = await screen.findByRole('button', { name: '메뉴 열기' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(toggle)
+    const menu = document.getElementById('mobile-menu')
+    expect(menu).not.toBeNull()
+    expect(screen.getByRole('button', { name: '메뉴 닫기' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
+
+    fireEvent.click(
+      within(menu as HTMLElement).getByRole('link', { name: '소개' }),
+    )
+    expect(document.getElementById('mobile-menu')).toBeNull()
+  })
+
+  it('부원이면 모바일 메뉴에도 공지사항이 있다', async () => {
+    auth.me = () => Promise.resolve(BASE)
+
+    renderLanding()
+    // 세션 확인이 끝나 데스크톱 헤더에 공지사항이 뜬 뒤에 연다.
+    await screen.findByRole('link', { name: '공지사항' })
+
+    fireEvent.click(screen.getByRole('button', { name: '메뉴 열기' }))
+    const menu = document.getElementById('mobile-menu') as HTMLElement
+    expect(
+      within(menu).getByRole('link', { name: '공지사항' }),
+    ).toBeInTheDocument()
+    // 데스크톱과 같은 원칙 — 라우트 링크는 섹션 nav 밖이다 (#148).
+    expect(
+      within(menu).getByRole('navigation', { name: '섹션 이동' }),
+    ).not.toContainElement(within(menu).getByRole('link', { name: '공지사항' }))
+  })
+
   it('공지사항이 섹션 메뉴와 같은 묶음에 놓인다', async () => {
     auth.me = () => Promise.resolve(BASE)
 
