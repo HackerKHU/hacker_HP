@@ -72,27 +72,25 @@ public class LoginSuccessHandler implements AuthenticationSuccessHandler {
       return;
     }
 
-    String sessionId = sessionIssuer.open(request, user).getId();
-    accessTokenCookie.write(response, jwtProvider.issue(user.getId()), jwtProvider.expiry());
-
     /*
+     * 토큰 쿠키를 먼저 굽는다. 아래에서 응답이 커밋되므로 그 뒤에는 헤더를 더할 수 없다.
+     *
      * 이 요청의 SecurityContext는 버린다. 인증은 다음 요청부터 JwtSessionAuthenticationFilter가
      * 토큰과 세션을 대조해 세운다 — 여기 남겨 두면 그 대조를 거치지 않은 인증이 한 번 존재하게 된다.
      */
+    accessTokenCookie.write(response, jwtProvider.issue(user.getId()), jwtProvider.expiry());
     SecurityContextHolder.clearContext();
 
     /*
-     * 여기서 응답이 커밋되고, 그때 SessionRepositoryFilter가 세션을 저장하며 SESSION 쿠키를 굽는다.
-     * 세션을 저장소에 넣는 시점이 여기다 (#127).
+     * 발급과 되돌리기를 함께 맡긴다. 응답을 내보내는 순간이 곧 세션이 저장되는 순간이라,
+     * 그 호출이 계정 행 잠금 안에 있어야 창이 닫힌다 (#127).
      */
-    response.sendRedirect(SPA_ROOT);
+    if (sessionIssuer.issue(request, response, user.getId(), SPA_ROOT)) {
+      return;
+    }
 
-    /*
-     * 대조는 저장 뒤에 한다. 앞에서 하면 아직 없는 세션을 두고 대조하는 셈이라 창이 닫히지 않는다.
-     *
-     * 그래서 실패를 응답으로 알릴 수 없다 — 응답은 이미 나갔다. 대신 세션을 거둬들인다.
-     * 다음 요청이 401이 되고 화면이 로그인으로 되돌리므로 결과는 로그인 실패와 같다.
-     */
-    sessionIssuer.settle(sessionId, user.getId());
+    // 세션도 응답도 만들어지지 않았다. 여기서 실패를 알린다.
+    accessTokenCookie.clear(response);
+    failureHandler.redirect(response, LoginErrorCode.FAILED);
   }
 }
