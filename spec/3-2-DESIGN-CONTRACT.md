@@ -25,17 +25,29 @@
 
 ```mermaid
 erDiagram
-  USERS ||--o{ NOTES : uploads
+  USERS |o--o{ NOTES : uploads
   USERS ||--o{ BOOKMARKS : saves
   NOTES ||--o{ BOOKMARKS : saved_in
   NOTES ||--o{ NOTE_FILES : has
-  USERS ||--o{ NOTICES : writes
-  USERS ||--o{ PHOTOS : uploads
+  USERS |o--o{ NOTICES : writes
+  USERS |o--o{ PHOTOS : uploads
 ```
+
+**작성자 쪽이 `|o`(0 또는 1)인 것은 오타가 아니다.** 회원을 지워도 자료·공지·사진은 남고 작성자만 비므로([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)), 작성자가 없는 행이 정상으로 존재한다. `BOOKMARKS`만 `||`인데, 즐겨찾기는 주인과 함께 사라져 주인 없는 행이 생기지 않기 때문이다.
 
 ## 3-2-2 테이블 정의
 
 > **아래 표는 DB 컬럼 이름이다. JSON 응답의 필드 이름과는 층위가 다르다** — 컬럼은 `is_pinned`, JSON은 `isPinned`다. 서버는 Jackson을 Spring Boot 기본값(Java 필드명 그대로)으로 직렬화한다 — 엔티티·DTO를 camelCase로 쓰므로 JSON도 자연히 camelCase다 (확정, 2026-08-13, #33).
+
+### 작성자를 내려주는 규칙
+
+자료·공지·활동사진의 작성자를 응답에 담을 때는 **`uploaderName`**(자료·사진)과 **`authorName`**(공지)을 쓴다 — `string`, **null이 아니다** (MUST).
+
+작성자 행이 없으면(`uploader_id`/`author_id`가 `NULL`) 서버가 그 자리에 **`"탈퇴한 회원"`** 을 넣는다. **`null`을 내려보내고 화면이 알아서 채우게 하지 않는다** — 화면마다 다른 문구를 쓰게 되고, 문구를 바꾸려면 웹을 배포해야 한다.
+
+`uploaderId`/`authorId`를 함께 내릴 때는 그쪽이 `null`이 될 수 있다. **"본인 것만 수정·삭제" 판단은 id로 한다** ([3-1 §3-1-3](3-1-DESIGN-ARCHITECTURE.md)) — 이름으로 견주면 "탈퇴한 회원"끼리 서로의 자료를 지울 수 있다.
+
+근거는 [2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)다.
 
 ### users
 
