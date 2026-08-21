@@ -246,6 +246,14 @@ public class AdminUserController {
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
               schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "500",
+      description =
+          "`INTERNAL_ERROR` — **정지가 세션에 반영되지 않았다.** 상태는 이미 바뀌었으므로 같은 요청을 다시 보내면 복구된다 (2-2 §2-2-5)",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
   @PatchMapping("/{id}/status")
   @PreAuthorize("hasRole('ADMIN')")
   public AdminUserResponse changeStatus(
@@ -346,6 +354,14 @@ public class AdminUserController {
   @ApiResponse(
       responseCode = "404",
       description = "`NOT_FOUND` — 그 id의 회원이 없다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "500",
+      description =
+          "`INTERNAL_ERROR` — **권한 회수가 세션에 반영되지 않았다.** 권한은 이미 바뀌었으므로 같은 요청을 다시 보내면 복구된다 (2-2 §2-2-5)",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,

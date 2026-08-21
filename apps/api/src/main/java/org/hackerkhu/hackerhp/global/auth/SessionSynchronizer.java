@@ -79,6 +79,28 @@ public class SessionSynchronizer {
     return refreshOne(userId);
   }
 
+  /**
+   * <b>차단이 강해지는 변경은 세션에 닿아야 성공이다</b> (#58, #197 리뷰 3차).
+   *
+   * <p>정지와 권한 회수는 "즉시 차단"을 약속한다 (2-2 §2-2-3 §2-2-5 MUST). 그런데 인가는 매 요청 세션 값으로 판단하고 필터는 {@code
+   * users}를 다시 읽지 않으므로(3-3 결정 12), 세션 반영이 조용히 실패하면 <b>DB만 바뀐 채 정지된 사람이 만료(30분)까지 계속 쓴다.</b> 그 사이
+   * 응답은 {@code 200}이라 관리자는 차단된 줄 안다.
+   *
+   * <p>그래서 실패를 알린다. 변경 자체는 이미 커밋됐으므로 <b>되돌리지 않는다</b> — 관리자가 같은 요청을 다시 보내면 이 경로를 다시 밟아 복구된다 (그래서 값이
+   * 이미 목표와 같아도 반영을 건너뛰지 않는다).
+   *
+   * <p><b>완화되는 변경은 이 길로 오지 않는다.</b> 승인·권한 부여가 세션에 늦게 닿는 것은 그 사람이 아직 못 쓰는 것이라, 실패로 알려 되레 관리자를 헷갈리게 할
+   * 이유가 없다.
+   *
+   * <p><b>던지는 것은 이력을 남긴 뒤여야 한다.</b> 변경은 이미 커밋됐으므로, 여기서 곧장 빠져나가면 "누가 무엇을 했는지"만 사라진다 (§2-2-7).
+   *
+   * <p>계약에 이 상황을 가리키는 코드가 없다 (3-2 §3-2-7). 그대로 올려 {@code 500 INTERNAL_ERROR}가 나가게 둔다 — 실제로 서버 쪽
+   * 장애이고, 관리자가 할 수 있는 일은 다시 시도하는 것뿐이다.
+   */
+  public static IllegalStateException notReflected(String what, Long userId) {
+    return new IllegalStateException(what + "이(가) 세션에 반영되지 않았다: userId=" + userId);
+  }
+
   private static void requireCommitted() {
     if (TransactionSynchronizationManager.isActualTransactionActive()) {
       throw new IllegalStateException("세션 반영은 변경이 커밋된 뒤에 불러야 한다 (spec 3-1 §3-1-5).");

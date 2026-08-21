@@ -58,8 +58,19 @@ public class AdminUserRoleService {
     /*
      * 세션 반영은 커밋 뒤다 (3-1 §3-1-5). 권한이 회수된 사람의 다음 관리자 API 요청이
      * 403이 되어야 한다 (T-34) — DB만 바꾸면 세션 만료까지 그대로 쓴다.
+     *
+     * 회수는 반영을 확인해야 성공이다 (#197 리뷰 3차). 세션 반영은 실패를 삼키므로,
+     * 확인하지 않으면 저장소 장애로 반영이 실패해도 200이 나가고 그 사람은 만료까지
+     * ADMIN으로 관리자 API를 계속 부른다 — 관리자는 회수된 줄 안다.
+     *
+     * 부여는 반대 방향이라 그냥 알린다. 늦게 닿아도 그 사람이 아직 못 쓰는 것뿐이다.
      */
-    sessionSynchronizer.refresh(List.of(changed.id()));
+    boolean reflected = true;
+    if (changed.role() == Role.USER) {
+      reflected = sessionSynchronizer.refreshReporting(changed.id());
+    } else {
+      sessionSynchronizer.refresh(List.of(changed.id()));
+    }
 
     // 이력은 세션 반영보다 뒤다. 차단이 먼저이고 이력은 늦어도 되는 정보다 (§2-2-7).
     if (applied.changed()) {
@@ -68,6 +79,14 @@ public class AdminUserRoleService {
           changed.id(),
           desired == Role.ADMIN ? AdminAction.GRANT_ADMIN : AdminAction.REVOKE_ADMIN,
           applied.occurredAt());
+    }
+
+    /*
+     * 이력을 남긴 뒤에 던진다. 변경은 이미 커밋됐으므로 여기서 곧장 빠져나가면
+     * "누가 무엇을 했는지"만 사라진다.
+     */
+    if (!reflected) {
+      throw SessionSynchronizer.notReflected("권한 회수", changed.id());
     }
     return changed;
   }

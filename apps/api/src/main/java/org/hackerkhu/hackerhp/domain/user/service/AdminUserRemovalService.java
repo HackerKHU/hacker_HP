@@ -90,14 +90,13 @@ public class AdminUserRemovalService {
      *
      * 여기서 멈추면 대상은 SUSPENDED로 남는다 — 이미 차단된 상태이고, 관리자가 같은
      * 요청을 다시 보내 복구할 수 있다.
+     *
+     * ①의 정지 경로도 이제 같은 확인을 스스로 한다 (#197 리뷰 3차). 그래도 여기를 남기는
+     * 것은, ①이 PENDING 대상에서는 정지를 아예 밟지 않기 때문이다 — 그 갈래까지 덮어야
+     * "지우기 전에 세션이 정리됐다"가 이 메서드 안에서 성립한다.
      */
     if (!sessionSynchronizer.refreshReporting(targetId)) {
-      /*
-       * 계약에 이 상황을 가리키는 코드가 없다 (§3-2-7). 그대로 올려 500 INTERNAL_ERROR가
-       * 나가게 둔다 — 실제로 서버 쪽 장애이고, 관리자가 할 수 있는 일은 다시 시도하는 것뿐이다.
-       */
-      throw new IllegalStateException(
-          "정지가 세션에 반영되지 않아 제거를 멈춘다: requesterId=" + requesterId + " targetId=" + targetId);
+      throw SessionSynchronizer.notReflected("정지", targetId);
     }
 
     // ② 잠근 채 지운다.
