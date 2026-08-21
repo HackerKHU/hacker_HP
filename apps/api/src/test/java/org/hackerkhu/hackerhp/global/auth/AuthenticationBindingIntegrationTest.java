@@ -9,19 +9,13 @@ import jakarta.servlet.http.Cookie;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.testsupport.auth.TestSessions.SignedIn;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.mock.web.MockHttpServletResponse;
-import org.springframework.session.Session;
-import org.springframework.session.SessionRepository;
-import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
-import org.springframework.session.web.http.CookieSerializer;
-import org.springframework.session.web.http.DefaultCookieSerializer;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -52,11 +46,6 @@ class AuthenticationBindingIntegrationTest extends AbstractIntegrationTest {
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository userRepository;
-  @Autowired private JwtProvider jwtProvider;
-  // JdbcSession 타입이 공개되어 있지 않아 인터페이스로 받는다.
-  @Autowired private SessionRepository<? extends Session> sessionRepository;
-  @Autowired private JdbcIndexedSessionRepository jdbcSessions;
-  @Autowired private DefaultCookieSerializer cookieSerializer;
 
   private User alice;
   private User bob;
@@ -73,29 +62,16 @@ class AuthenticationBindingIntegrationTest extends AbstractIntegrationTest {
     userRepository.deleteAll();
   }
 
-  /** 로그인한 것과 같은 상태의 세션을 저장소에 만들고, 브라우저가 받았을 쿠키를 돌려준다. */
-  private SignedInSession signIn(User user) {
-    Session session = sessionRepository.createSession();
-    session.setAttribute(AuthSession.USER_ID, user.getId());
-    session.setAttribute(AuthSession.ROLE, user.getRole());
-    session.setAttribute(AuthSession.STATUS, user.getStatus());
-    save(session);
-
-    MockHttpServletResponse carrier = new MockHttpServletResponse();
-    cookieSerializer.writeCookieValue(
-        new CookieSerializer.CookieValue(new MockHttpServletRequest(), carrier, session.getId()));
-    return new SignedInSession(session.getId(), carrier.getCookie(SESSION_COOKIE));
-  }
-
-  private record SignedInSession(String id, Cookie cookie) {}
-
-  @SuppressWarnings("unchecked")
-  private void save(Session session) {
-    ((SessionRepository<Session>) sessionRepository).save(session);
-  }
+  /*
+   * 세션과 토큰은 공용 테스트 지원(TestSessions)이 만든다 (#190 리뷰).
+   *
+   * 예전에는 이 클래스가 직접 조립했는데, 그러면 실제 로그인이 세션에 무엇을 담는지 바뀌어도
+   * 이 대역만 옛 형태로 남는다 — 실제로 PRINCIPAL_NAME과 VERSION이 빠져 있었다. 그 둘이
+   * 없으면 상태 변경이 이 세션을 찾지 못하는데(#85), 여기서는 결합만 보므로 통과했다.
+   */
 
   private Cookie accessToken(User user) {
-    return new Cookie("ACCESS_TOKEN", jwtProvider.issue(user.getId()));
+    return sessions.token(user);
   }
 
   private static boolean expired(MvcResult result, String name) {
@@ -105,10 +81,10 @@ class AuthenticationBindingIntegrationTest extends AbstractIntegrationTest {
 
   @Test
   void matchingCredentialsPassThroughTheWholeChain() throws Exception {
-    SignedInSession signedIn = signIn(alice);
+    SignedIn signedIn = sessions.signIn(alice);
 
     mockMvc
-        .perform(get(IDENTITY_PATH).cookie(signedIn.cookie(), accessToken(alice)))
+        .perform(get(IDENTITY_PATH).cookie(signedIn.session(), accessToken(alice)))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.email").value("alice@khu.ac.kr"));
   }
@@ -121,18 +97,18 @@ class AuthenticationBindingIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void aPublicPathStillRefusesMismatchedCredentials() throws Exception {
-    SignedInSession bobsSession = signIn(bob);
+    SignedIn bobsSession = sessions.signIn(bob);
 
     MvcResult result =
         mockMvc
-            .perform(get(IDENTITY_PATH).cookie(bobsSession.cookie(), accessToken(alice)))
+            .perform(get(IDENTITY_PATH).cookie(bobsSession.session(), accessToken(alice)))
             .andExpect(status().isNoContent())
             .andReturn();
 
     assertThat(result.getResponse().getContentAsString()).isEmpty();
     assertThat(expired(result, "ACCESS_TOKEN")).isTrue();
     assertThat(expired(result, SESSION_COOKIE)).isTrue();
-    assertThat(jdbcSessions.findById(bobsSession.id())).isNull();
+    assertThat(bobsSession.storedInRepository()).isFalse();
   }
 
   /*
@@ -143,18 +119,18 @@ class AuthenticationBindingIntegrationTest extends AbstractIntegrationTest {
    */
   @Test
   void aliceTokenWithBobSessionIsRejectedAndBothDiscarded() throws Exception {
-    SignedInSession bobsSession = signIn(bob);
+    SignedIn bobsSession = sessions.signIn(bob);
 
     MvcResult result =
         mockMvc
-            .perform(get(PROTECTED_PATH).cookie(bobsSession.cookie(), accessToken(alice)))
+            .perform(get(PROTECTED_PATH).cookie(bobsSession.session(), accessToken(alice)))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
             .andReturn();
 
     assertThat(expired(result, "ACCESS_TOKEN")).isTrue();
     assertThat(expired(result, SESSION_COOKIE)).isTrue();
-    assertThat(jdbcSessions.findById(bobsSession.id())).isNull();
+    assertThat(bobsSession.storedInRepository()).isFalse();
   }
 
   /* T-30 — 서명이 유효한 토큰만 있고 세션이 없다. 로그아웃·만료 이후의 상태다. */
@@ -169,14 +145,14 @@ class AuthenticationBindingIntegrationTest extends AbstractIntegrationTest {
   /* T-31 — 세션만 있고 토큰이 없다. */
   @Test
   void sessionWithoutTokenIsRejected() throws Exception {
-    SignedInSession signedIn = signIn(alice);
+    SignedIn signedIn = sessions.signIn(alice);
 
     mockMvc
-        .perform(get(PROTECTED_PATH).cookie(signedIn.cookie()))
+        .perform(get(PROTECTED_PATH).cookie(signedIn.session()))
         .andExpect(status().isUnauthorized())
         .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
 
     // 로그인 흐름 중일 수 있으므로 세션은 지우지 않는다.
-    assertThat(jdbcSessions.findById(signedIn.id())).isNotNull();
+    assertThat(signedIn.storedInRepository()).isTrue();
   }
 }
