@@ -71,4 +71,4 @@ docs/               운영 문서 — 어떻게 띄우고 고치는가
 
 ## 아직 없는 것
 
-API에는 Spotless, Web에는 Biome이 적용되어 있다. 커밋 메시지 훅(husky + commitlint)은 별도 이슈로 도입한다. 지금은 PR 제목 린트만 있다.
+API에는 Spotless, Web에는 Biome이 적용되어 있다. 커밋 메시지는 저장소 루트의 husky + commitlint가 검사한다 — 규칙의 원본은 [CONTRIBUTING.md](CONTRIBUTING.md) 1절이고, 훅은 편의라 설치하지 않아도 막히지 않는다. 관문은 `Lint PR title` 워크플로다.

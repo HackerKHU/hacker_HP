@@ -1,0 +1,6 @@
+# 커밋 메시지가 CONTRIBUTING.md 1절 형식을 지키는지 본다 (#91).
+#
+# 이 훅은 편의다. 설치하지 않은 사람은 그냥 검사를 받지 않고, 아무것도 막히지 않는다 —
+# 최종 히스토리를 지키는 관문은 CI의 `Lint PR title`이다. squash merge에서 남는 것은
+# 커밋 제목이 아니라 PR 제목이기 때문이다.
+npx --no -- commitlint --edit "$1"
