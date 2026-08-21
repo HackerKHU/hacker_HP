@@ -255,6 +255,20 @@ describe('오류 코드 목록', () => {
   })
 })
 
+describe('세션 확인', () => {
+  /**
+   * **비로그인은 오류가 아니라 답이다** (#190).
+   *
+   * 화면은 랜딩을 포함해 최초 렌더마다 이것을 부른다. 오류로 만들면 비로그인 방문자마다
+   * 실패 응답이 하나씩 남고, 브라우저가 콘솔에 남기는 그 줄은 앱이 지울 수 없다.
+   */
+  it('세션 확인은 비로그인에게 오류가 아니다', async () => {
+    const fixtures = await loadFixtures('guest')
+
+    await expect(fixtures.fixtureMe()).resolves.toBeNull()
+  })
+})
+
 describe('오류 본문 형태', () => {
   /**
    * 픽스처가 던지는 것은 HTTP 본문이 아니라 `ApiError`다. 그래서 **본문이 계약대로 왔다면
@@ -266,7 +280,10 @@ describe('오류 본문 형태', () => {
    * 흉내내는 것이라 실패시킨다.
    */
   const failing: [string, string, (f: FixtureModule) => Promise<unknown>][] = [
-    ['비로그인 조회', 'guest', (f) => f.fixtureMe()],
+    /*
+     * 비로그인 세션 확인은 여기 없다. 서버가 204로 답하므로 오류가 아니다 (#190) —
+     * 그 경우는 아래 `세션 확인은 비로그인에게 오류가 아니다`가 따로 본다.
+     */
     ['승인 대기 차단', 'blocked', (f) => f.fixtureMe()],
     [
       '승인된 계정의 신청서 제출',

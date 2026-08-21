@@ -1,10 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { User } from './types'
 
 /**
  * 시나리오는 모듈 로드 시점에 한 번 읽힌다(`const SCENARIO = ...`). 그래서 값을 바꾸려면
  * 스텁을 먼저 걸고 모듈을 다시 불러야 한다 — `vi.resetModules()` 없이 import하면
  * 앞 테스트가 읽은 값이 그대로 남는다.
  */
+/**
+ * 로그인 시나리오의 세션 확인.
+ *
+ * `fixtureMe()`는 비로그인이면 `null`이다 (#190). 아래 사례들은 모두 로그인 시나리오라
+ * `null`이 나올 수 없는데, 타입은 그것을 모른다 — 캐스트로 덮는 대신 여기서 끊는다.
+ * 정말 비면 그 사실이 실패 메시지로 드러난다.
+ */
+async function signedIn(fixtureMe: () => Promise<User | null>): Promise<User> {
+  const me = await fixtureMe()
+  if (!me) throw new Error('로그인 시나리오인데 세션 확인이 비었다')
+  return me
+}
+
 async function loadFixtures(scenario: string) {
   vi.stubEnv('VITE_FIXTURE_SCENARIO', scenario)
   vi.resetModules()
@@ -25,7 +39,7 @@ describe('신청 픽스처', () => {
   it('신청 전에는 학번과 신청일이 비어 있다', async () => {
     const { fixtureMe } = await loadFixtures('applying')
 
-    const me = await fixtureMe()
+    const me = await signedIn(fixtureMe)
 
     expect(me.status).toBe('PENDING')
     expect(me.studentNo).toBeNull()
@@ -40,7 +54,7 @@ describe('신청 픽스처', () => {
       name: '김신입',
       department: '컴퓨터공학과',
     })
-    const me = await fixtureMe()
+    const me = await signedIn(fixtureMe)
 
     // 이 전환이 없으면 폼을 제출해도 화면이 폼에 머문다.
     expect(me.appliedAt).not.toBeNull()
@@ -63,7 +77,7 @@ describe('신청 픽스처', () => {
       name: '김정정',
       department: '컴퓨터공학과',
     })
-    const me = await fixtureMe()
+    const me = await signedIn(fixtureMe)
 
     expect(me.studentNo).toBe('2024003344')
     expect(me.name).toBe('김정정')
@@ -77,7 +91,7 @@ describe('신청 픽스처', () => {
       name: '박수정',
       department: '컴퓨터공학과',
     })
-    const me = await fixtureMe()
+    const me = await signedIn(fixtureMe)
 
     expect(me.studentNo).toBe('2024005566')
     expect(me.name).toBe('박수정')
@@ -104,7 +118,7 @@ describe('신청 픽스처', () => {
         'VALIDATION_ERROR',
       )
       // 거부됐으면 신청 상태가 남아서는 안 된다 — 남으면 승인 대상이 된다.
-      const me = await fixtureMe()
+      const me = await signedIn(fixtureMe)
       expect(me.appliedAt).toBeNull()
     },
   )
@@ -128,7 +142,7 @@ describe('신청 픽스처', () => {
   it('pending 시나리오는 처음부터 신청 완료 상태다', async () => {
     const { fixtureMe } = await loadFixtures('pending')
 
-    const me = await fixtureMe()
+    const me = await signedIn(fixtureMe)
 
     expect(me.status).toBe('PENDING')
     expect(me.appliedAt).not.toBeNull()
@@ -188,7 +202,7 @@ describe('신청 픽스처', () => {
       department: '컴퓨터공학과',
     })
 
-    const me = await fixtureMe()
+    const me = await signedIn(fixtureMe)
     expect(me.studentNo).toBe('9999999999')
     expect(me.appliedAt).not.toBeNull()
   })
@@ -601,12 +615,12 @@ describe('회원 관리 픽스처', () => {
   it('본인을 정지하면 다음 세션 조회가 정지 상태를 돌려준다', async () => {
     const { fixtureMe, fixtureUpdateUserStatus } = await loadFixtures('admin')
 
-    const before = await fixtureMe()
+    const before = await signedIn(fixtureMe)
     expect(before.status).toBe('ACTIVE')
 
     await fixtureUpdateUserStatus(before.id, 'SUSPENDED')
 
-    const after = await fixtureMe()
+    const after = await signedIn(fixtureMe)
     expect(after.id).toBe(before.id)
     expect(after.status).toBe('SUSPENDED')
   })
@@ -615,7 +629,7 @@ describe('회원 관리 픽스처', () => {
     const { fixtureMe, fixtureUpdateUserStatus, fixtureAdminUsers, ApiError } =
       await loadFixtures('admin')
 
-    const me = await fixtureMe()
+    const me = await signedIn(fixtureMe)
     await fixtureUpdateUserStatus(me.id, 'SUSPENDED')
 
     const error = await fixtureAdminUsers().catch((caught: unknown) => caught)

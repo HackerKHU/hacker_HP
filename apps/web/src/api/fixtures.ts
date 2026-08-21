@@ -42,7 +42,7 @@ import type { Page, User } from './types'
  * - `admin`     ACTIVE / ADMIN
  * - `applying`  PENDING, 신청서 미제출 — 신청 폼을 봐야 하는 상태 (spec 3-1-6)
  * - `pending`   PENDING, 신청서 제출 완료 — 승인 대기 안내를 봐야 하는 상태
- * - `guest`     세션 없음. getMe가 401 UNAUTHENTICATED
+ * - `guest`     세션 없음. getMe가 `null` (서버는 204, #190)
  * - `blocked`   세션은 있으나 서버가 403 PENDING_APPROVAL로 막는 상태 (spec 3-1-6)
  *
  * 정지·도메인 위반 같은 OAuth 실패는 여기에 없다. 서버가 세션을 만들지 않고
@@ -124,12 +124,9 @@ let application: {
   department: string
 } | null = null
 
-export function fixtureMe(): Promise<User> {
-  if (SCENARIO === 'guest') {
-    return Promise.reject(
-      new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
-    )
-  }
+export function fixtureMe(): Promise<User | null> {
+  // 서버가 세션이 없으면 204로 답한다 (#190). 오류가 아니라 "비로그인"이라는 답이다.
+  if (SCENARIO === 'guest') return Promise.resolve(null)
   if (SCENARIO === 'blocked') {
     return Promise.reject(
       new ApiError('PENDING_APPROVAL', 403, '가입 승인 대기 중입니다.'),
