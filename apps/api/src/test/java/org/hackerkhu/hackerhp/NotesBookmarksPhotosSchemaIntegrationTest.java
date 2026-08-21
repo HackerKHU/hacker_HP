@@ -115,9 +115,9 @@ class NotesBookmarksPhotosSchemaIntegrationTest extends AbstractIntegrationTest 
   /*
    * bookmarks도 user_id에 CASCADE가 걸려 있다 — 회원이 지워지면 그 즐겨찾기도 지워진다.
    *
-   * 업로더와는 다른 사람으로 즐겨찾기한다. 같은 사람이면 notes.uploader_id의 FK(CASCADE
-   * 없음 — #4 미결정이라 지금은 업로더가 있는 자료는 삭제를 막아야 한다)에 먼저 걸려,
-   * 이 테스트가 보려는 것과 무관한 이유로 삭제 자체가 거부된다.
+   * 업로더와는 다른 사람으로 즐겨찾기한다. bookmarks의 CASCADE만 독립적으로 보려는
+   * 것이지, 업로더를 같이 써도 실패하지는 않는다 — notes.uploader_id는 SET NULL이라
+   * 업로더가 있는 자료라도 삭제 자체는 막히지 않는다(아래 deletingUploaderSetsNoteUploaderIdToNull).
    */
   @Test
   void deletingUserCascadesToBookmarks() {
@@ -156,6 +156,44 @@ class NotesBookmarksPhotosSchemaIntegrationTest extends AbstractIntegrationTest 
                     uploaderId,
                     noteId))
         .isInstanceOf(DataIntegrityViolationException.class);
+  }
+
+  /*
+   * notes.uploader_id는 ON DELETE SET NULL이다 (spec 2-2 §2-2-4 MUST) — 회원을 지워도
+   * 자료는 남고, uploader_id만 비어 "탈퇴한 회원"으로 표시할 수 있게 된다. 기본값
+   * (NO ACTION)이면 자료를 한 번이라도 올린 회원은 삭제 자체가 FK 위반으로 막힌다.
+   */
+  @Test
+  void deletingUploaderSetsNoteUploaderIdToNull() {
+    Long uploaderId = uploaderId();
+    Long noteId = insertNote(uploaderId, "SUBJECT", null);
+
+    jdbcTemplate.update("DELETE FROM users WHERE id = ?", uploaderId);
+
+    Long remainingUploaderId =
+        jdbcTemplate.queryForObject(
+            "SELECT uploader_id FROM notes WHERE id = ?", Long.class, noteId);
+    assertThat(remainingUploaderId).isNull();
+  }
+
+  /* photos.uploader_id도 같은 이유로 SET NULL이다 — 관리자가 나가도 활동사진은 아카이브로 남는다. */
+  @Test
+  void deletingUploaderSetsPhotoUploaderIdToNull() {
+    Long uploaderId = uploaderId();
+    jdbcTemplate.update(
+        "INSERT INTO photos (caption, stored_path, uploader_id, created_at) VALUES (?, ?, ?,"
+            + " now())",
+        "사진 설명",
+        "photos/1/uuid.jpg",
+        uploaderId);
+    Long photoId = jdbcTemplate.queryForObject("SELECT max(id) FROM photos", Long.class);
+
+    jdbcTemplate.update("DELETE FROM users WHERE id = ?", uploaderId);
+
+    Long remainingUploaderId =
+        jdbcTemplate.queryForObject(
+            "SELECT uploader_id FROM photos WHERE id = ?", Long.class, photoId);
+    assertThat(remainingUploaderId).isNull();
   }
 
   @Test
