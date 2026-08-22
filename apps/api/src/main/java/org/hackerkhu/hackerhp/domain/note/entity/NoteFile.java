@@ -41,6 +41,21 @@ public class NoteFile {
 
   protected NoteFile() {}
 
+  /**
+   * 업로드를 마친 파일을 자료에 붙인다 (#53).
+   *
+   * <p>{@code sizeBytes}는 <b>브라우저가 말한 값이 아니라 S3에 실제로 올라온 크기다</b> (2-1 §2-1-2 MUST) — presigned PUT은
+   * 용량을 강제하지 못하므로, 등록 단계에서 직접 재서 넣는다.
+   */
+  public static NoteFile stored(Note note, String originalName, String storedPath, long sizeBytes) {
+    NoteFile file = new NoteFile();
+    file.note = note;
+    file.originalName = originalName;
+    file.storedPath = storedPath;
+    file.sizeBytes = sizeBytes;
+    return file;
+  }
+
   public Long getId() {
     return id;
   }

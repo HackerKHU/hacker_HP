@@ -33,7 +33,10 @@ import org.testcontainers.containers.PostgreSQLContainer;
       "GOOGLE_CLIENT_SECRET=test-client-secret",
       "OAUTH_REDIRECT_URI=http://localhost:5173/api/v1/login/oauth2/code/google",
       "ALLOWED_EMAIL_DOMAIN=khu.ac.kr",
-      "JWT_SECRET=integration-test-only-jwt-secret-32bytes-or-more"
+      "JWT_SECRET=integration-test-only-jwt-secret-32bytes-or-more",
+      // 버킷 이름은 기동 조건이다 (설정 누락이 조용히 지나가면 안 된다). 값은 가짜여도
+      // 되는데, 테스트는 FileStorage를 갈아끼워 실제 S3를 부르지 않기 때문이다 (#53).
+      "S3_BUCKET=test-uploads"
     })
 public abstract class AbstractIntegrationTest {
 

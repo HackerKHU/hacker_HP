@@ -35,3 +35,10 @@ app:
       # 운영에서는 절대 쓰지 않는다. 운영 값은 SSM의 /hacker/dev/JWT_SECRET에서 온다.
       # HS256은 32바이트 이상을 요구한다.
       secret: local-development-only-jwt-secret-do-not-use-in-production
+  storage:
+    # 로컬에는 버킷이 없다. 공통 설정의 ${S3_BUCKET}은 값이 없으면 기동을 막으므로
+    # (설정 누락이 조용히 지나가면 안 된다) 자리를 채우는 가짜 값을 둔다 — 구글 클라이언트
+    # 자리표시자와 같은 이유다. 이 값으로 실제 업로드를 시도하면 AWS가 거부한다.
+    #
+    # 실제 버킷을 보려면 S3_BUCKET과 자격증명을 환경변수로 넣는다.
+    bucket: ${S3_BUCKET:local-bucket-not-set}

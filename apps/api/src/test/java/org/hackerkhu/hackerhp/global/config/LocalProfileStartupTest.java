@@ -2,9 +2,11 @@ package org.hackerkhu.hackerhp.global.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hackerkhu.hackerhp.global.storage.StorageProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.security.oauth2.client.servlet.OAuth2ClientAutoConfiguration;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.util.TestPropertyValues;
@@ -31,6 +33,43 @@ class LocalProfileStartupTest {
           .withInitializer(
               new org.springframework.boot.test.context.ConfigDataApplicationContextInitializer())
           .withConfiguration(AutoConfigurations.of(OAuth2ClientAutoConfiguration.class));
+
+  /**
+   * T-297 — <b>S3 버킷 없이도 뜬다</b> (#207 리뷰).
+   *
+   * <p>공통 설정의 {@code ${S3_BUCKET}}은 값이 없으면 기동을 막는다 — 설정 누락이 조용히 지나가면 업로드가 엉뚱한 버킷을 가리키기 때문이다. 그 엄격함이
+   * <b>로컬에서는 반대로 작동한다</b>: 저장소가 안내하는 실행 명령에는 그 값이 없어, 업로드 API를 부르기도 전에 서버가 뜨지 않는다.
+   *
+   * <p>구글 자격 자리표시자와 같은 이유이고 같은 함정의 다른 자리다.
+   */
+  @Test
+  void localProfileStartsWithoutAnS3Bucket() {
+    new ApplicationContextRunner()
+        .withInitializer(
+            context ->
+                TestPropertyValues.of("spring.profiles.active=local")
+                    .applyTo(context.getEnvironment()))
+        .withInitializer(
+            new org.springframework.boot.test.context.ConfigDataApplicationContextInitializer())
+        .withUserConfiguration(StorageBinding.class)
+        .run(
+            (AssertableApplicationContext context) -> {
+              assertThat(context).hasNotFailed();
+              /*
+               * "비어 있지 않다"로는 부족하다. 이 러너는 자리표시자를 풀어 주지 않아, 값이 없으면
+               * "${S3_BUCKET}"이라는 글자가 그대로 바인딩되고 그 검사는 통과한다 — 정작 진짜
+               * 애플리케이션은 기동에 실패하는데도 초록불이 뜬다.
+               *
+               * 그래서 "로컬이 스스로 값을 채웠는가"를 본다.
+               */
+              assertThat(context.getBean(StorageProperties.class).bucket())
+                  .as("local 프로파일이 버킷 기본값을 채워야 한다")
+                  .doesNotContain("${");
+            });
+  }
+
+  @EnableConfigurationProperties(StorageProperties.class)
+  static class StorageBinding {}
 
   /* T-135 — 구글 자격이 없어도 local 프로파일 컨텍스트가 뜬다. */
   @Test
