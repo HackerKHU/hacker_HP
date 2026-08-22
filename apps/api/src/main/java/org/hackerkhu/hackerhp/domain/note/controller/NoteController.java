@@ -13,11 +13,13 @@ import org.hackerkhu.hackerhp.domain.note.dto.NoteFilterOptions;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteSearch;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteSort;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteSummaryResponse;
+import org.hackerkhu.hackerhp.domain.note.dto.NoteUpdateRequest;
 import org.hackerkhu.hackerhp.domain.note.dto.UploadUrlRequest;
 import org.hackerkhu.hackerhp.domain.note.dto.UploadUrlResponse;
 import org.hackerkhu.hackerhp.domain.note.service.BookmarkService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteCreateService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteDownloadService;
+import org.hackerkhu.hackerhp.domain.note.service.NoteEditService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteQueryService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteUploadUrlService;
 import org.hackerkhu.hackerhp.global.error.ErrorResponse;
@@ -30,6 +32,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -44,7 +47,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p><b>{@code isAuthenticated()}만 적는다.</b> 매트릭스의 {@code ACTIVE} 조건은 {@code AccountStatusFilter}가
  * 인가보다 먼저 보장한다 — 같은 규칙을 두 곳에 두면 한쪽만 고쳐진다 ({@code NoticeController}와 같은 관례).
  *
- * <p>수정·삭제는 여기 없다 (#54).
+ * <p>자료 기능이 여기 다 있다 — 목록·상세·업로드·등록·수정·삭제·내려받기.
  */
 @Tag(name = "자료", description = "쌓인 정리본을 찾는다. 조회는 ACTIVE 전용")
 @RestController
@@ -56,18 +59,21 @@ public class NoteController {
   private final NoteUploadUrlService noteUploadUrlService;
   private final NoteCreateService noteCreateService;
   private final NoteDownloadService noteDownloadService;
+  private final NoteEditService noteEditService;
 
   public NoteController(
       NoteQueryService noteQueryService,
       BookmarkService bookmarkService,
       NoteUploadUrlService noteUploadUrlService,
       NoteCreateService noteCreateService,
-      NoteDownloadService noteDownloadService) {
+      NoteDownloadService noteDownloadService,
+      NoteEditService noteEditService) {
     this.noteQueryService = noteQueryService;
     this.bookmarkService = bookmarkService;
     this.noteUploadUrlService = noteUploadUrlService;
     this.noteCreateService = noteCreateService;
     this.noteDownloadService = noteDownloadService;
+    this.noteEditService = noteEditService;
   }
 
   /**
@@ -256,6 +262,125 @@ public class NoteController {
   @PreAuthorize("isAuthenticated()")
   public NoteDetailResponse get(@AuthenticationPrincipal Long viewerId, @PathVariable Long id) {
     return noteQueryService.get(viewerId, id);
+  }
+
+  /**
+   * 자료 수정 (spec 2-1 §2-1-3 MUST, 3-1 §3-1-7).
+   *
+   * <p><b>본인 것만. {@code ADMIN}은 전체.</b> 화면이 버튼을 숨기는 것과 별개로 서버가 소유자를 확인한다.
+   */
+  @Operation(
+      summary = "자료 수정",
+      description =
+          """
+          메타데이터와 **수정 뒤에 남을 첨부 전부**를 받는다.
+
+          **보낸 것으로 통째로 바꾼다.** 경로는 `PATCH`지만 동작은 전체 교체다 — 부분 수정이면
+          `professor`를 지우려는 의도와 건드리지 않는 의도를 구별할 수 없다.
+
+          **`files`에 없는 기존 파일은 삭제된다.** 각 항목은 그대로 둘 기존 파일의 `fileId`이거나,
+          새로 올린 파일의 `key`+`originalName`이다 — **둘 중 하나만** 채운다.
+
+          **업로더는 바뀌지 않는다.** 관리자가 남의 자료를 고쳐도 그렇다.
+          """)
+  @ApiResponse(responseCode = "200", description = "수정됨. 본문은 갱신된 자료다")
+  @ApiResponse(
+      responseCode = "400",
+      description =
+          "`VALIDATION_ERROR` — 필수값 누락 · `category`와 `examType`의 짝이 어긋남 · **`fileId`와 `key`를 둘 다 보내거나 둘 다 비움** · 이 자료의 파일이 아닌 `fileId` · 아직 올라오지 않은 `key`",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description =
+          "`FORBIDDEN` — **남의 자료다** 또는 남이 올린 파일 키다 또는 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL`",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "404",
+      description = "`NOT_FOUND` — 없는 자료",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "413",
+      description = "`FILE_TOO_LARGE` — 새로 붙이는 파일이 상한을 넘었다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "415",
+      description = "`UNSUPPORTED_FILE_TYPE` — 새로 붙이는 파일의 확장자가 허용되지 않는다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @PatchMapping("/{id}")
+  @PreAuthorize("isAuthenticated()")
+  public NoteDetailResponse update(
+      @AuthenticationPrincipal Long requesterId,
+      @PathVariable Long id,
+      @Valid @RequestBody NoteUpdateRequest request) {
+    return noteEditService.update(requesterId, id, request);
+  }
+
+  /**
+   * 자료 삭제 (spec 2-1 §2-1-3 MUST).
+   *
+   * <p><b>첨부와 즐겨찾기는 DB가 함께 지운다</b> — {@code ON DELETE CASCADE}다.
+   */
+  @Operation(
+      summary = "자료 삭제",
+      description =
+          """
+          자료와 **딸린 첨부·즐겨찾기 레코드**를 함께 지운다. 그 보장은 DB 제약이 한다.
+
+          **S3 오브젝트 정리는 응답의 조건이 아니다.** 정리에 실패해도 `204`다 — 사용자에게
+          삭제는 이미 끝난 일이고, 여기서 실패로 답하면 재요청해도 자료가 없어 영원히 실패한다.
+          실패한 키는 로그에 남는다.
+
+          **본인 것만. `ADMIN`은 전체.**
+          """)
+  @ApiResponse(responseCode = "204", description = "삭제됨")
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description = "`FORBIDDEN` — **남의 자료다** 또는 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL`",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "404",
+      description = "`NOT_FOUND` — 없는 자료",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @DeleteMapping("/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  @PreAuthorize("isAuthenticated()")
+  public void delete(@AuthenticationPrincipal Long requesterId, @PathVariable Long id) {
+    noteEditService.delete(requesterId, id);
   }
 
   /**

@@ -424,6 +424,26 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | `403 FORBIDDEN` | 남이 발급받은 키로 등록 |
 | `400 VALIDATION_ERROR` | 개수 상한 초과 · `category`와 `examType`의 짝이 어긋남 · **아직 올라오지 않은 키** |
 
+**수정·삭제 (2026-08-22 확정, #54)**
+
+`PATCH /notes/{id}`는 **보낸 것으로 통째로 바꾼다.** 경로는 `PATCH`지만 동작은 전체 교체다 — 부분 수정이면 `professor`를 **지우려는 의도(`null`)와 건드리지 않는 의도를 JSON으로 구별**해야 하는데, 자료 수정은 폼 하나를 통째로 다시 내는 화면이라 그 구별이 필요 없다.
+
+```json
+{ "category": "SUBJECT", "title": "…", "subjectName": "…", "professor": null,
+  "year": 2025, "semester": "SPRING",
+  "files": [ { "fileId": 12 }, { "key": "notes/uploads/7/…pdf", "originalName": "추가본.pdf" } ] }
+```
+
+`files`는 **수정 뒤에 남을 첨부 전부**다. 각 항목은 그대로 둘 기존 파일의 `fileId`이거나, 새로 올린 파일의 `key`+`originalName`이며 **둘 중 하나만** 채운다 (둘 다이거나 둘 다 비면 `400` — 무엇을 뜻하는지 서버가 정할 수 없다). **목록에 없는 기존 파일은 삭제된다.** 하나도 남기지 않을 수는 없다 ([§2-1-2](2-1-USER-STORIES.md) MUST).
+
+**업로더는 바뀌지 않는다** (MUST). `ADMIN`이 남의 자료를 고쳐도 그렇다 — 업로더는 "누가 이 자료를 제공했나"이지 "누가 마지막에 만졌나"가 아니다.
+
+`DELETE /notes/{id}`는 `204`다. **첨부와 즐겨찾기는 DB가 함께 지운다** (`ON DELETE CASCADE`).
+
+**S3 정리는 응답의 조건이 아니다** (§2-1-3 SHOULD). 정리에 실패해도 `204`이고 실패한 키는 로그에 남는다 — 사용자에게 삭제는 이미 끝난 일이고, 여기서 실패로 답하면 **재요청해도 자료가 없어 영원히 실패한다.**
+
+**둘 다 본인 것만, `ADMIN`은 전체다** ([3-1 §3-1-3](3-1-DESIGN-ARCHITECTURE.md)). 남의 것이면 `403 FORBIDDEN`, 없으면 `404`다. **업로더가 비어 있는 자료(탈퇴한 회원의 것)는 `ADMIN`만 손댈 수 있다** — 주인이 없으므로 "본인"이 성립하지 않는다.
+
 **내려받기 (2026-08-22 확정, #55)**
 
 `GET /notes/{id}/files/{fileId}`는 **짧은 수명의 presigned GET URL**을 준다. 파일 바이트는 서버를 거치지 않는다 ([2-1 §2-1-4](2-1-USER-STORIES.md) MUST).
