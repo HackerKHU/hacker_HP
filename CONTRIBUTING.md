@@ -28,6 +28,7 @@ chore: ECS 태스크 메모리 1024로 상향
 | `refactor` | 기능·결과 변경 없는 코드 구조 개선 |
 | `test` | 테스트 추가/수정. 프로덕션 코드 변경은 포함하지 않는다 |
 | `chore` | 설정, 의존성, 그 외 유지보수 |
+| `release` | 출시 PR (`release/vX.Y.Z → main`) 전용 |
 
 **`design` vs `refactor` vs `feat`/`fix` 경계** — "리뷰어가 스크린샷 없이 diff만 보고 뭐가 바뀌었는지 알 수 있는가"로 가른다.
 
@@ -71,6 +72,7 @@ fix/31-render-loop  ──PR──> develop
 - 기능 브랜치는 `develop`에서 분기해 `develop`으로 PR을 보냅니다.
 - 출시 준비가 끝난 최신 `origin/develop`에서 `release/vX.Y.Z` 브랜치를 만들고, 이 브랜치에서 출시 후보를 검증합니다.
 - `main`에는 `release/vX.Y.Z` 브랜치만 PR을 보냅니다. `develop → main` 직접 PR은 만들지 않습니다.
+- 출시 PR의 제목은 `release: vX.Y.Z 출시`입니다. 이 PR은 Merge commit이라 **제목이 히스토리에 남지 않지만**, 목록에서 출시를 한눈에 가르기 위해 타입을 따로 둡니다 — 없으면 `chore`로 흘러들어가 잡일과 섞입니다.
 - release 브랜치를 만든 뒤에는 새 기능을 넣지 않고 출시를 막는 수정만 PR로 반영합니다.
 - 출시 차단 수정 브랜치는 대상 `release/vX.Y.Z`에서 분기해 같은 release 브랜치로 PR을 보냅니다. `develop`에 추가된 다음 기능을 출시 후보에 섞지 않습니다.
 - release 브랜치에만 반영된 수정이 있으면 출시 후 `release/vX.Y.Z → develop` 동기화 PR을 만듭니다. 동기화가 끝나면 ruleset 우회 권한을 가진 Organization Owner 또는 저장소 관리자가 release 브랜치를 삭제합니다.

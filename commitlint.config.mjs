@@ -18,6 +18,14 @@ const TYPES = [
   'refactor',
   'test',
   'chore',
+  /*
+   * 출시 PR 전용 (`release/vX.Y.Z → main`). Conventional Commits 표준에는 없지만
+   * 이 저장소는 `design`·`cicd`처럼 자체 타입을 이미 쓴다.
+   *
+   * 출시 PR은 Merge commit이라 제목이 히스토리에 남지 않는다. 그래도 타입을 두는 것은
+   * **PR 목록에서 출시를 가르기 위해서**다 — 없으면 `chore`로 흘러들어 잡일과 섞인다.
+   */
+  'release',
 ]
 
 /**
