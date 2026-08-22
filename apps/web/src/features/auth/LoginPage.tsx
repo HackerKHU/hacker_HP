@@ -45,17 +45,11 @@ const COPYRIGHT_YEAR = 2026
  * 된다). 반대로 가로로 긴 자리는 정사각형 마크를 넣으면 좌우가 남는다. 아직 로고
  * 파일이 없어 실물을 잴 수 없으므로, **더 넓은 쪽을 전제로 잡아 두는 편이 안전하다.**
  *
- * **비어 있는 것은 빠뜨린 것이 아니다.** 동아리 로고는 **공모전이 진행 중이라 아직
- * 확정되지 않았다** — 우리가 정할 수 있는 것이 아니라 외부 일정을 기다리는 상태다.
- * 그러니 **임시 로고나 텍스트 워드마크로 채우지 마라.** 확정본이 오면 비율과 여백이
- * 달라져서 임시로 넣은 것을 다시 걷어내야 하고, 그사이 임시 마크가 다른 화면으로
- * 퍼지면 걷어낼 자리가 늘어난다.
+ * 2026 로고 공모전 1등 작품이 확정되어 자리표시자를 걷었다. 자산은 `brand/`에서 파생한
+ * 것을 쓴다 (`brand/README.md`) — **원본만이 정본이고 파생본을 직접 손보지 않는다.**
  *
- * TODO: 공모전이 끝나 로고가 확정되면 `public/`에 넣고 아래 자리표시자 `<div>`를 그
- * 이미지로 바꾼다. 같은 파일을 좁은 화면용으로도 쓴다 — 아래 `lg:hidden` eyebrow
- * 자리에 작은 크기로 넣으면 좁은 화면에서도 마크가 보인다. **파비콘·OG 이미지
- * (`/landing/og-image.png`)·앱 헤더 워드마크도 같은 때 한 번에 처리한다** — 지금
- * 비어 있는 것은 전부 같은 이유다.
+ * 이 패널은 배경이 검정(`.dark`)이라 **잉크가 흰색이고 배경이 투명한** 마크를 쓴다.
+ * `-on-white`/`-on-black`은 배경이 채워진 버전이라 여기서는 네모가 비쳐 보인다.
  */
 function LogoPanel() {
   return (
@@ -65,11 +59,17 @@ function LogoPanel() {
        * `00명`을 자리표시자로 남긴 것과 같은 원칙). 점선 테두리 하나와 작은 글자면
        * 충분하다 — 이 패널의 주인공은 나중에 들어올 로고지 이 안내가 아니다.
        */}
-      <div className="flex aspect-square w-full items-center justify-center rounded-xl border border-dashed border-muted-foreground/40">
-        <span className="text-xs tracking-[0.2em] text-muted-foreground/70">
-          LOGO
-        </span>
-      </div>
+      {/*
+        장식이 아니라 이 화면이 어디인지 말하는 요소라 `alt`를 비우지 않는다. 다만 옆
+        카드에 "로그인" 제목이 이미 있으므로 동아리 이름까지만 읽히면 충분하다.
+      */}
+      <img
+        src="/brand/mark-white-512.png"
+        alt="해커"
+        width={512}
+        height={512}
+        className="aspect-square w-full object-contain"
+      />
     </div>
   )
 }
@@ -153,12 +153,16 @@ export function LoginPage() {
            * 정체 표시**가 된다. 그래서 좁은 화면에서만 나오게 하고, 제목이 아니라
            * eyebrow 꼴로 둔다 — 어느 폭에서든 첫 제목은 `로그인`이다.
            *
-           * TODO: 공모전이 끝나 로고가 확정되면 이 줄을 그 이미지(작은 크기)로 바꾼다.
-           * 그때까지는 글자로 둔다 — 임시 마크를 만들지 않는다.
+           * 로고가 확정되어 마크로 바꿨다. **여기는 라이트 배경**이라 잉크가 검정인
+           * 파일을 쓴다 — 왼쪽 패널(다크)과 파일이 다른 이유다.
            */}
-          <p className="text-xs tracking-[0.2em] text-muted-foreground lg:hidden">
-            {CLUB.eyebrow}
-          </p>
+          <img
+            src="/brand/mark-black-256.png"
+            alt={CLUB.fullName}
+            width={256}
+            height={256}
+            className="size-10 object-contain lg:hidden"
+          />
 
           {/*
            * **`tracking-tight`를 쓰지 않는다.** `로그인`은 세 글자의 아래 가로획

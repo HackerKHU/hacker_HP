@@ -9,6 +9,16 @@
     />
 
     <!--
+      파비콘·홈 화면 아이콘. 자산은 `brand/`에서 파생했다 (`brand/README.md`).
+
+      **16px는 뭉갠다** — 심볼 획이 얇고 밀도가 높아 그 크기에서는 형태가 안 남는다.
+      단순화한 별도 글리프가 필요한데 그건 새 디자인 결정이라 임의로 만들지 않았다.
+      `favicon.ico`에 16·32·48이 함께 들어 있어 브라우저가 큰 쪽을 고를 수 있다.
+    -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon-180.png" />
+
+    <!--
       링크 미리보기용 OG 태그.
 
       **검색 색인보다 이쪽이 실질적이다.** 카카오톡·인스타그램 같은 링크 미리보기 봇은
@@ -19,9 +29,8 @@
       읽지 못해 그림이 비어 나온다. 도메인은 `site.config.ts`의 `SITE_ORIGIN` 한 곳에서
       주입하므로, 도메인이 정해지면 그 상수만 고치면 된다.
 
-      TODO: `SITE_ORIGIN`을 실제 배포 도메인으로 교체한다 (#47). 지금은 `example.com`이다.
-      TODO: `public/landing/og-image.png`를 넣는다 (1200×630). **아직 파일이 없다** —
-           없으면 미리보기에 이미지가 비어 나온다.
+      그림은 `brand/`에서 파생한 것을 쓴다 (`brand/README.md`) — 원본은 2026 로고 공모전
+      1등 작품이고, 파생본을 직접 손보지 말고 원본을 바꾼 뒤 다시 생성한다.
     -->
     <meta property="og:type" content="website" />
     <meta property="og:title" content="해커 — 경희대학교 소프트웨어융합대학 학술동아리" />
@@ -29,10 +38,10 @@
       property="og:description"
       content="모니터 앞에서의 뜨거운 몰입과 필드 위의 활기찬 에너지가 공존하는 공동체입니다."
     />
-    <meta
-      property="og:image"
-      content="%SITE_ORIGIN%/landing/og-image.png"
-    />
+
+    <meta property="og:image" content="%SITE_ORIGIN%/brand/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
     <meta property="og:url" content="%SITE_ORIGIN%/" />
     <!--
       Pretendard 동적 서브셋. 한글 웹폰트 전체는 수 MB라, unicode-range로 쪼개
