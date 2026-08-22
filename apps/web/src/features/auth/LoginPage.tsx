@@ -62,15 +62,19 @@ function LogoPanel() {
         카드에 "로그인" 제목이 이미 있으므로 동아리 이름까지만 읽히면 충분하다.
       */}
       {/*
-        락업이 세로로 길어(811×1024) 정사각 상자에 넣으면 좌우가 남는다. 패널 높이를
-        채우도록 두고 `object-contain`으로 비율을 지킨다 — 늘리지 않는다.
+        락업이 세로로 길어(811×1024) 정사각 상자에 넣으면 좌우가 남는다. `object-contain`
+        으로 비율을 지킨다 — 늘리지 않는다.
+
+        **패널을 꽉 채우지 않는다.** 이 패널은 로고를 전시하는 자리가 아니라 화면의 정체를
+        말하는 자리라, 가장자리까지 밀면 답답하고 옆 카드와 무게가 맞지 않는다. 폭의 3/4만
+        쓰고 나머지는 여백으로 둔다.
       */}
       <img
         src="/brand/lockup-vertical-white-1024.png"
         alt="해커"
         width={811}
         height={1024}
-        className="max-h-[22rem] w-full object-contain"
+        className="max-h-64 w-3/4 object-contain"
       />
     </div>
   )
