@@ -4,6 +4,7 @@ import { useSession } from '@/auth/session'
 import { Button } from '@/components/ui/button'
 import { CLUB } from '@/features/landing/content'
 import { lookup } from '@/lib/lookup'
+import { useDarkChrome } from '@/lib/use-dark-chrome'
 import { GoogleLogo } from './GoogleLogo'
 
 /**
@@ -42,34 +43,48 @@ const COPYRIGHT_YEAR = 2026
  * 자리는 **정사각형**이다. 이 사이트가 마크를 필요로 하는 자리가 둘인데 요구 비율이
  * 서로 다르다 — 헤더(`PublicHeader`)는 가로로 긴 워드마크, 파비콘·앱 아이콘은
  * 정사각형이다. 정사각형 자리는 둘 다 받는다(가로형 마크는 폭을 채우고 가운데 정렬하면
- * 된다). 반대로 가로로 긴 자리는 정사각형 마크를 넣으면 좌우가 남는다. 아직 로고
- * 파일이 없어 실물을 잴 수 없으므로, **더 넓은 쪽을 전제로 잡아 두는 편이 안전하다.**
+ * 된다). 반대로 가로로 긴 자리는 정사각형 마크를 넣으면 좌우가 남는다.
  *
- * **비어 있는 것은 빠뜨린 것이 아니다.** 동아리 로고는 **공모전이 진행 중이라 아직
- * 확정되지 않았다** — 우리가 정할 수 있는 것이 아니라 외부 일정을 기다리는 상태다.
- * 그러니 **임시 로고나 텍스트 워드마크로 채우지 마라.** 확정본이 오면 비율과 여백이
- * 달라져서 임시로 넣은 것을 다시 걷어내야 하고, 그사이 임시 마크가 다른 화면으로
- * 퍼지면 걷어낼 자리가 늘어난다.
+ * 2026 로고 공모전 1등 작품이 확정되어 자리표시자를 걷었다. 자산은 `brand/`에서 파생한
+ * 것을 쓴다 (`brand/README.md`) — **원본만이 정본이고 파생본을 직접 손보지 않는다.**
  *
- * TODO: 공모전이 끝나 로고가 확정되면 `public/`에 넣고 아래 자리표시자 `<div>`를 그
- * 이미지로 바꾼다. 같은 파일을 좁은 화면용으로도 쓴다 — 아래 `lg:hidden` eyebrow
- * 자리에 작은 크기로 넣으면 좁은 화면에서도 마크가 보인다. **파비콘·OG 이미지
- * (`/landing/og-image.png`)·앱 헤더 워드마크도 같은 때 한 번에 처리한다** — 지금
- * 비어 있는 것은 전부 같은 이유다.
+ * **화면 전체가 검정이다.** 배경·로고 카드·로그인 카드 조합을 브라우저에 띄워 12칸 중
+ * 8칸까지 비교한 끝에 셋 다 검정으로 정했다 (#212). 랜딩에서 넘어올 때 화면이 끊기지
+ * 않고, 흰 잉크 로고가 카드 안에서 가장 또렷하게 선다.
+ *
+ * 카드는 배경(`#000000`)보다 한 단계 밝은 `bg-card`(`#121212`)라 테두리와 함께 떠 보인다.
+ *
+ * 테두리와 `shadow-sm`도 옆 카드와 같은 값이다. 한쪽만 다르면 높이가 어긋나 보인다.
+ *
+ * 카드가 검정이므로 **잉크는 흰색**이다. 배경이 채워진 `-on-black`이 아니라 투명 배경을
+ * 써야 카드 안에서 네모가 비치지 않는다.
+ *
+ * **심볼만이 아니라 세로 락업(심볼 + `HACKER` + 태그라인)을 쓴다.** 이 패널이 이 화면의
+ * 정체를 말하는 자리라 이름까지 읽혀야 한다 — 심볼만 두면 처음 온 사람은 그것이 무엇의
+ * 마크인지 알 수 없다. 세로 락업은 원작 그대로의 조합이다 (`brand/README.md`).
  */
 function LogoPanel() {
   return (
-    <div className="dark hidden w-[22rem] shrink-0 items-center justify-center rounded-xl bg-background p-10 text-foreground lg:flex">
+    <div className="hidden w-[22rem] shrink-0 items-center justify-center rounded-xl border border-border bg-card p-10 text-foreground shadow-sm lg:flex">
       {/*
-       * 비어 있는 것이 아니라 **비워 둔 것**임이 화면에 드러나야 한다 (#68에서 통계
-       * `00명`을 자리표시자로 남긴 것과 같은 원칙). 점선 테두리 하나와 작은 글자면
-       * 충분하다 — 이 패널의 주인공은 나중에 들어올 로고지 이 안내가 아니다.
-       */}
-      <div className="flex aspect-square w-full items-center justify-center rounded-xl border border-dashed border-muted-foreground/40">
-        <span className="text-xs tracking-[0.2em] text-muted-foreground/70">
-          LOGO
-        </span>
-      </div>
+        장식이 아니라 이 화면이 어디인지 말하는 요소라 `alt`를 비우지 않는다. 다만 옆
+        카드에 "로그인" 제목이 이미 있으므로 동아리 이름까지만 읽히면 충분하다.
+      */}
+      {/*
+        락업이 세로로 길어(811×1024) 정사각 상자에 넣으면 좌우가 남는다. `object-contain`
+        으로 비율을 지킨다 — 늘리지 않는다.
+
+        **패널을 꽉 채우지 않는다.** 이 패널은 로고를 전시하는 자리가 아니라 화면의 정체를
+        말하는 자리라, 가장자리까지 밀면 답답하고 옆 카드와 무게가 맞지 않는다. 폭의 3/4만
+        쓰고 나머지는 여백으로 둔다.
+      */}
+      <img
+        src="/brand/lockup-vertical-white-1024.png"
+        alt="해커"
+        width={811}
+        height={1024}
+        className="max-h-64 w-3/4 object-contain"
+      />
     </div>
   )
 }
@@ -95,6 +110,12 @@ const ERROR_MESSAGE: Record<string, string> = {
 export function LoginPage() {
   const [searchParams] = useSearchParams()
   const { state } = useSession()
+
+  /*
+   * 이 화면도 랜딩과 같은 검정이라 브라우저 크롬까지 함께 뒤집는다 (#192). 안 하면 iOS에서
+   * 상태바·툴바가 흰 띠로 남는다 — 아래 `.dark`는 첫 페인트용이라 body까지 미치지 않는다.
+   */
+  useDarkChrome()
 
   /*
    * 정지 안내에 도달하는 길이 둘이다 (spec §3-1-5).
@@ -125,12 +146,12 @@ export function LoginPage() {
      * 높아져(420px 폭이면 340px 넘는 검정 덩어리다) 버튼이 접힌 아래로 내려간다 —
      * 로그인하러 온 사람이 스크롤을 해야 한다.
      *
-     * 로고가 들어와도 이 판단은 유지된다. 좁은 화면에서 마크가 사라지는 것이 문제인데,
-     * 그건 패널을 되살리는 대신 **오른쪽 카드 맨 위 자리로 해결한다** — 아래 `lg:hidden`
-     * 줄이 그 자리이고, 지금은 글자로 채워져 있다. 같은 마크를 폭에 맞는 크기로 보이는
-     * 것이지 정보가 없어지는 것이 아니다.
+     * 로고가 들어온 뒤에도 이 판단은 유지된다. 좁은 화면에서 마크가 사라지는 것이
+     * 문제인데, 그건 패널을 되살리는 대신 **오른쪽 카드 맨 위 자리로 해결한다** — 아래
+     * `lg:hidden` 마크가 그 자리다. 같은 심볼을 폭에 맞는 크기로 보이는 것이지 정보가
+     * 없어지는 것이 아니다.
      */
-    <div className="flex min-h-screen justify-center bg-muted p-6">
+    <div className="dark flex min-h-screen justify-center bg-background p-6">
       {/*
        * 세로 가운데는 **`items-center`가 아니라 자식의 `my-auto`로 맞춘다.**
        *
@@ -144,7 +165,7 @@ export function LoginPage() {
       <div className="my-auto flex w-full max-w-4xl gap-6">
         <LogoPanel />
 
-        <section className="flex-1 rounded-xl border border-border bg-background p-8 shadow-sm sm:p-10">
+        <section className="flex-1 rounded-xl border border-border bg-card p-8 text-foreground shadow-sm sm:p-10">
           {/*
            * **넓은 화면에서는 제목부터 시작한다.** 왼쪽 패널이 이 화면의 정체를
            * 말하므로 서비스명을 여기 또 적으면 한 화면에서 같은 말을 두 번 한다.
@@ -153,12 +174,16 @@ export function LoginPage() {
            * 정체 표시**가 된다. 그래서 좁은 화면에서만 나오게 하고, 제목이 아니라
            * eyebrow 꼴로 둔다 — 어느 폭에서든 첫 제목은 `로그인`이다.
            *
-           * TODO: 공모전이 끝나 로고가 확정되면 이 줄을 그 이미지(작은 크기)로 바꾼다.
-           * 그때까지는 글자로 둔다 — 임시 마크를 만들지 않는다.
+           * 로고가 확정되어 마크로 바꿨다. **이 카드도 검정**이라 왼쪽 패널과 같은
+           * 흰 잉크를 쓴다. 락업이 아니라 심볼만 두는 것은 폭이 좁아서다.
            */}
-          <p className="text-xs tracking-[0.2em] text-muted-foreground lg:hidden">
-            {CLUB.eyebrow}
-          </p>
+          <img
+            src="/brand/mark-white-512.png"
+            alt={CLUB.fullName}
+            width={512}
+            height={512}
+            className="size-10 object-contain lg:hidden"
+          />
 
           {/*
            * **`tracking-tight`를 쓰지 않는다.** `로그인`은 세 글자의 아래 가로획
@@ -214,8 +239,9 @@ export function LoginPage() {
           {/*
            * **로고는 공식 것, 버튼과 문구는 우리 것이다** (spec §3-1-5).
            *
-           * 색·테두리·글씨색을 가이드라인 Light 값으로 이 버튼에서만 맞춘다. 전역 토큰을
-           * 건드리지 않는다 — 사이트의 다른 버튼까지 구글 규격이 될 이유가 없다.
+           * 색·테두리·글씨색을 가이드라인 값으로 이 버튼에서만 맞춘다(어느 테마인지는
+           * 아래 참조). 전역 토큰을 건드리지 않는다 — 사이트의 다른 버튼까지 구글
+           * 규격이 될 이유가 없다.
            * 여백은 공식 배포본(180×40)에서 잰 값이다 — 좌우 12px, 로고와 글씨 사이 14px.
            *
            * 폭만 채운다. 로고 비율은 그대로다 (가이드라인 MUST).
@@ -245,7 +271,25 @@ export function LoginPage() {
           <Button
             type="button"
             variant="outline"
-            className="mt-6 h-[2.8571em] w-full gap-[1em] border-[#747775] px-[0.8571em] text-base leading-[1.4286] text-[#1f1f1f] has-[>svg]:px-[0.8571em]"
+            /*
+             * **구글이 정한 다크 테마 값이다** (Sign in with Google 브랜딩 가이드라인).
+             * 카드가 검정이라 Light 규격을 그대로 두면 흰 버튼이 검정 카드 위에 홀로 떠서
+             * 이 버튼만 다른 화면에서 오려 붙인 것처럼 보인다 — 색을 임의로 바꾸는 대신
+             * 구글이 같은 가이드라인에서 준 다크 한 벌로 통째로 갈아탄다 (spec §3-1-5).
+             *
+             *   Light  배경 #FFFFFF  테두리 #747775  글자 #1F1F1F
+             *   Dark   배경 #131314  테두리 #8E918F  글자 #E3E3E3
+             *
+             * **배경도 명시한다.** 전에는 `variant="outline"`의 테마 토큰에 맡겼는데,
+             * 그러면 카드 테마가 바뀔 때 규격 밖 색이 들어온다. G 로고는 두 테마가 같다 —
+             * 크기·색을 바꾸지 않는다(가이드라인 MUST).
+             *
+             * **`dark:` 변이를 덮어써야 한다.** shadcn `Button`의 `outline`이
+             * `dark:border-input`·`dark:bg-input/30`을 들고 있어, 카드에 `.dark`가 걸리면
+             * 그쪽이 이겨 테두리가 `#2e2e2e`로 나왔다 — 규격값이 아니다. 같은 변이로
+             * 맞받아야 우리 값이 남는다.
+             */
+            className="mt-6 h-[2.8571em] w-full gap-[1em] border-[#8E918F] bg-[#131314] px-[0.8571em] text-base leading-[1.4286] text-[#E3E3E3] hover:bg-[#131314] hover:text-[#E3E3E3] has-[>svg]:px-[0.8571em] dark:border-[#8E918F] dark:bg-[#131314] dark:hover:bg-[#131314]"
             onClick={() => {
               window.location.assign(GOOGLE_LOGIN_PATH)
             }}
