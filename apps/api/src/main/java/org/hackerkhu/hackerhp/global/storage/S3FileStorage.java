@@ -1,6 +1,8 @@
 package org.hackerkhu.hackerhp.global.storage;
 
 import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,11 +10,13 @@ import org.springframework.stereotype.Component;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
 /** {@link FileStorage}의 실제 구현. 자격증명은 ECS 태스크 롤에서 온다 (infra/terraform/ecs.tf). */
@@ -43,6 +47,38 @@ public class S3FileStorage implements FileStorage {
                 PutObjectRequest.builder().bucket(properties.bucket()).key(key).build())
             .build();
     return URI.create(presigner.presignPutObject(request).url().toString());
+  }
+
+  /**
+   * 내려받기 URL. <b>파일명과 {@code attachment}를 서명에 담는다</b> (#55).
+   *
+   * <p>서명에 들어가므로 <b>받는 쪽이 바꿀 수 없다.</b> 쿼리스트링을 손대면 서명이 깨져 S3가 거절한다.
+   *
+   * <p>파일명은 RFC 5987의 {@code filename*}로만 싣는다. 한글·공백·따옴표가 들어간 이름이 흔한데, 옛 {@code filename="…"} 형식은
+   * 그것을 안전하게 담지 못한다 — 지금 브라우저는 모두 {@code filename*}을 읽는다.
+   */
+  @Override
+  public URI presignGet(String key, String originalName) {
+    GetObjectPresignRequest request =
+        GetObjectPresignRequest.builder()
+            .signatureDuration(properties.downloadPresignTtl())
+            .getObjectRequest(
+                GetObjectRequest.builder()
+                    .bucket(properties.bucket())
+                    .key(key)
+                    .responseContentDisposition(contentDisposition(originalName))
+                    .build())
+            .build();
+    return URI.create(presigner.presignGetObject(request).url().toString());
+  }
+
+  /** {@code attachment; filename*=UTF-8''%EC%A0%95%EB%A6%AC%EB%B3%B8.pdf} 꼴로 만든다. */
+  private static String contentDisposition(String originalName) {
+    String encoded =
+        URLEncoder.encode(originalName, StandardCharsets.UTF_8)
+            // URLEncoder는 폼 인코딩이라 공백을 +로 바꾼다. RFC 5987은 %20이다.
+            .replace("+", "%20");
+    return "attachment; filename*=UTF-8''" + encoded;
   }
 
   /**

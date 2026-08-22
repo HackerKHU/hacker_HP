@@ -25,6 +25,9 @@ public class FakeFileStorage implements FileStorage {
 
   private final AtomicLong etags = new AtomicLong();
 
+  /** 키 → 마지막 내려받기 발급이 담은 {@code Content-Disposition}. */
+  private final Map<String, String> dispositions = new LinkedHashMap<>();
+
   /** 삭제가 터지는 상황을 만든다. 정리 실패를 삼키는지 보려면 필요하다. */
   private boolean deleteFails;
 
@@ -64,6 +67,7 @@ public class FakeFileStorage implements FileStorage {
 
   public void clear() {
     objects.clear();
+    dispositions.clear();
     swapAfterDescribe.clear();
     deleteFails = false;
   }
@@ -71,6 +75,23 @@ public class FakeFileStorage implements FileStorage {
   @Override
   public URI presignPut(String key) {
     return URI.create("https://fake-bucket.s3.test/" + key + "?signed=1");
+  }
+
+  /**
+   * 발급된 내려받기 URL.
+   *
+   * <p>서명을 흉내내지 않는 대신 <b>무엇을 담으라고 했는지 따로 적어 둔다</b> ({@link #dispositionOf}). 확인해야 할 것은 서명 자체가 아니라
+   * 담긴 값이고, 그것을 URL 문자열에서 다시 파내면 인코딩 규칙에 얽매인 검사가 된다 — 실제 형식은 {@code S3FileStorageTest}가 본다.
+   */
+  @Override
+  public URI presignGet(String key, String originalName) {
+    dispositions.put(key, "attachment; filename*=UTF-8''" + originalName);
+    return URI.create("https://fake-bucket.s3.test/" + key + "?signed=1&download=1");
+  }
+
+  /** 그 키의 마지막 발급이 무엇을 담으라고 했는가. */
+  public String dispositionOf(String key) {
+    return dispositions.get(key);
   }
 
   @Override

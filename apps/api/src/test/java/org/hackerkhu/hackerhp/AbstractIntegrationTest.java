@@ -36,7 +36,16 @@ import org.testcontainers.containers.PostgreSQLContainer;
       "JWT_SECRET=integration-test-only-jwt-secret-32bytes-or-more",
       // 버킷 이름은 기동 조건이다 (설정 누락이 조용히 지나가면 안 된다). 값은 가짜여도
       // 되는데, 테스트는 FileStorage를 갈아끼워 실제 S3를 부르지 않기 때문이다 (#53).
-      "S3_BUCKET=test-uploads"
+      "S3_BUCKET=test-uploads",
+      /*
+       * 컨텍스트마다 커넥션 풀이 한 벌씩 뜬다. 설정이 다른 테스트가 늘어날수록 캐시된
+       * 컨텍스트도 늘어나는데, 기본 풀 크기(10)를 그대로 두면 컨테이너의 접속 상한(100)에
+       * 먼저 부딪혀 "sorry, too many clients already"로 뒤늦게 뜬 컨텍스트가 통째로 죽는다.
+       *
+       * 테스트 한 벌이 동시에 쥐는 커넥션은 많아야 둘이다 (세션 반영이 겹쳐 잡는 경우, #145).
+       */
+      "spring.datasource.hikari.maximum-pool-size=4",
+      "spring.datasource.hikari.minimum-idle=0"
     })
 public abstract class AbstractIntegrationTest {
 

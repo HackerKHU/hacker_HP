@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.hackerkhu.hackerhp.domain.note.dto.DownloadUrlResponse;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteCreateRequest;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteDetailResponse;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteFilterOptions;
@@ -16,6 +17,7 @@ import org.hackerkhu.hackerhp.domain.note.dto.UploadUrlRequest;
 import org.hackerkhu.hackerhp.domain.note.dto.UploadUrlResponse;
 import org.hackerkhu.hackerhp.domain.note.service.BookmarkService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteCreateService;
+import org.hackerkhu.hackerhp.domain.note.service.NoteDownloadService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteQueryService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteUploadUrlService;
 import org.hackerkhu.hackerhp.global.error.ErrorResponse;
@@ -42,7 +44,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p><b>{@code isAuthenticated()}만 적는다.</b> 매트릭스의 {@code ACTIVE} 조건은 {@code AccountStatusFilter}가
  * 인가보다 먼저 보장한다 — 같은 규칙을 두 곳에 두면 한쪽만 고쳐진다 ({@code NoticeController}와 같은 관례).
  *
- * <p>수정·삭제와 다운로드 URL 발급은 여기 없다 (#54·#55).
+ * <p>수정·삭제는 여기 없다 (#54).
  */
 @Tag(name = "자료", description = "쌓인 정리본을 찾는다. 조회는 ACTIVE 전용")
 @RestController
@@ -53,16 +55,19 @@ public class NoteController {
   private final BookmarkService bookmarkService;
   private final NoteUploadUrlService noteUploadUrlService;
   private final NoteCreateService noteCreateService;
+  private final NoteDownloadService noteDownloadService;
 
   public NoteController(
       NoteQueryService noteQueryService,
       BookmarkService bookmarkService,
       NoteUploadUrlService noteUploadUrlService,
-      NoteCreateService noteCreateService) {
+      NoteCreateService noteCreateService,
+      NoteDownloadService noteDownloadService) {
     this.noteQueryService = noteQueryService;
     this.bookmarkService = bookmarkService;
     this.noteUploadUrlService = noteUploadUrlService;
     this.noteCreateService = noteCreateService;
+    this.noteDownloadService = noteDownloadService;
   }
 
   /**
@@ -251,6 +256,55 @@ public class NoteController {
   @PreAuthorize("isAuthenticated()")
   public NoteDetailResponse get(@AuthenticationPrincipal Long viewerId, @PathVariable Long id) {
     return noteQueryService.get(viewerId, id);
+  }
+
+  /**
+   * 내려받기 URL 발급 (spec 2-1 §2-1-4 MUST).
+   *
+   * <p><b>영구적인 공개 URL은 존재하지 않는다.</b> 버킷은 완전 비공개이고, 파일에 닿는 길은 여기서 주는 짧은 수명의 서명된 주소뿐이다.
+   */
+  @Operation(
+      summary = "내려받기 URL 발급",
+      description =
+          """
+          그 파일을 받을 수 있는 **짧은 수명의 presigned GET URL**을 준다. 브라우저가 그 주소로
+          S3에서 직접 받는다 — **파일 바이트는 서버를 거치지 않는다.**
+
+          **저장될 이름이 URL에 서명돼 있다.** S3 키는 `uuid`라 그냥 받으면 알아볼 수 없는
+          이름으로 저장되는데, 프론트의 `<a download="…">`로는 고칠 수 없다(다른 오리진
+          링크에서 무시된다). 서명에 들어 있으므로 **받는 쪽이 바꿀 수도 없다.**
+
+          **전송이 만료보다 오래 걸려도 끊기지 않는다.** S3는 요청이 시작될 때 서명을 본다.
+
+          **`fileId`는 그 자료의 것이어야 한다.** 다른 자료의 파일 번호를 끼워 넣으면 `404`다.
+          """)
+  @ApiResponse(responseCode = "200", description = "발급됨")
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description = "`SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "404",
+      description = "`NOT_FOUND` — 없는 자료이거나, **그 자료의 파일이 아니다**",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @GetMapping("/{id}/files/{fileId}")
+  @PreAuthorize("isAuthenticated()")
+  public DownloadUrlResponse downloadUrl(
+      @AuthenticationPrincipal Long viewerId, @PathVariable Long id, @PathVariable Long fileId) {
+    return noteDownloadService.issue(viewerId, id, fileId);
   }
 
   @Operation(

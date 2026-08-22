@@ -12,6 +12,7 @@ import org.hackerkhu.hackerhp.domain.note.repository.NoteRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.testsupport.storage.FakeFileStorage;
+import org.hackerkhu.testsupport.storage.FakeStorageConfig;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
@@ -21,9 +22,7 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -38,18 +37,10 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@Import(FakeStorageConfig.class)
 class NoteCreateRollbackIntegrationTest extends AbstractIntegrationTest {
 
   private static final String NOTES = "/api/v1/notes";
-
-  @TestConfiguration
-  static class FakeStorageConfig {
-    @Bean
-    @Primary
-    FakeFileStorage fakeFileStorage() {
-      return new FakeFileStorage();
-    }
-  }
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository userRepository;

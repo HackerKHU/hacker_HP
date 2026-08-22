@@ -4,11 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.stubbing.Answer;
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
@@ -18,6 +24,8 @@ import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 
 /**
  * S3가 <b>실제로 어떤 예외를 던지는지</b>에 걸려 있는 부분만 본다 (#207 리뷰).
@@ -30,16 +38,19 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 class S3FileStorageTest {
 
   private S3Client s3;
+  private S3Presigner presigner;
   private S3FileStorage storage;
 
   @BeforeEach
   void setUp() {
     s3 = mock(S3Client.class);
+    presigner = mock(S3Presigner.class);
     storage =
         new S3FileStorage(
             s3,
-            mock(S3Presigner.class),
-            new StorageProperties("test-bucket", "ap-northeast-2", Duration.ofMinutes(5)));
+            presigner,
+            new StorageProperties(
+                "test-bucket", "ap-northeast-2", Duration.ofMinutes(5), Duration.ofMinutes(1)));
   }
 
   private static S3Exception withStatus(int status) {
@@ -114,5 +125,71 @@ class S3FileStorageTest {
 
     assertThatThrownBy(() -> storage.copyIfUnchanged("from", "to", "\"abc\""))
         .isInstanceOf(S3Exception.class);
+  }
+
+  /* ------------------------------------------------- 내려받기 서명 (#55) */
+
+  /**
+   * <b>파일명을 서명에 담는다.</b>
+   *
+   * <p>S3 키는 {@code uuid}라, 담지 않으면 사용자 디스크에 알아볼 수 없는 이름으로 저장된다. 프론트의 {@code <a download="…">}로는 고칠
+   * 수 없다 — 그 힌트는 다른 오리진 링크에서 무시된다.
+   */
+  @Test
+  void theDownloadSignatureCarriesTheOriginalName() {
+    when(presigner.presignGetObject(any(GetObjectPresignRequest.class))).thenAnswer(presignedGet());
+
+    storage.presignGet("notes/uuid.pdf", "정리본.pdf");
+
+    ArgumentCaptor<GetObjectPresignRequest> captured =
+        ArgumentCaptor.forClass(GetObjectPresignRequest.class);
+    verify(presigner).presignGetObject(captured.capture());
+    String disposition = captured.getValue().getObjectRequest().responseContentDisposition();
+
+    assertThat(disposition).startsWith("attachment; filename*=UTF-8''");
+    // 한글은 퍼센트 인코딩된다 — 옛 filename="…" 형식으로는 안전하게 담기지 않는다.
+    assertThat(disposition).contains(URLEncoder.encode("정리본.pdf", StandardCharsets.UTF_8));
+  }
+
+  /**
+   * <b>공백은 {@code +}가 아니라 {@code %20}이다.</b>
+   *
+   * <p>{@code URLEncoder}는 폼 인코딩이라 공백을 {@code +}로 바꾸는데, RFC 5987은 그것을 더하기 기호로 읽는다 — 파일명에 {@code +}가
+   * 박힌 채 저장된다.
+   */
+  @Test
+  void spacesAreEncodedForRfc5987NotForForms() {
+    when(presigner.presignGetObject(any(GetObjectPresignRequest.class))).thenAnswer(presignedGet());
+
+    storage.presignGet("notes/uuid.pdf", "운영체제 정리본.pdf");
+
+    ArgumentCaptor<GetObjectPresignRequest> captured =
+        ArgumentCaptor.forClass(GetObjectPresignRequest.class);
+    verify(presigner).presignGetObject(captured.capture());
+    String disposition = captured.getValue().getObjectRequest().responseContentDisposition();
+
+    assertThat(disposition).contains("%20").doesNotContain("+");
+  }
+
+  /** 내려받기는 업로드보다 짧은 수명을 쓴다 (#55 D3). */
+  @Test
+  void theDownloadUrlUsesTheShorterTtl() {
+    when(presigner.presignGetObject(any(GetObjectPresignRequest.class))).thenAnswer(presignedGet());
+
+    storage.presignGet("notes/uuid.pdf", "정리본.pdf");
+
+    ArgumentCaptor<GetObjectPresignRequest> captured =
+        ArgumentCaptor.forClass(GetObjectPresignRequest.class);
+    verify(presigner).presignGetObject(captured.capture());
+
+    assertThat(captured.getValue().signatureDuration()).isEqualTo(Duration.ofMinutes(1));
+  }
+
+  private static Answer<PresignedGetObjectRequest> presignedGet() {
+    return invocation -> {
+      PresignedGetObjectRequest presigned = mock(PresignedGetObjectRequest.class);
+      when(presigned.url()).thenReturn(new URL("https://bucket.s3.test/notes/uuid.pdf?sig=1"));
+      return presigned;
+    };
   }
 }

@@ -34,6 +34,20 @@ public interface FileStorage {
   URI presignPut(String key);
 
   /**
+   * 그 키를 <b>내려받을 수 있는</b> 임시 URL을 만든다 (2-1 §2-1-4 MUST, #55).
+   *
+   * <p><b>파일명을 서명에 함께 넣는다.</b> S3 키는 {@code uuid}라, 그냥 받으면 사용자 디스크에 {@code 0f8c….pdf}로 저장된다. 프론트의
+   * {@code <a download="…">}로는 고칠 수 없다 — <b>그 힌트는 다른 오리진 링크에서 브라우저가 무시하기 때문이다.</b> S3가 {@code
+   * Content-Disposition}을 직접 내려주는 길뿐이다.
+   *
+   * <p><b>언제나 {@code attachment}다.</b> 자료 사이트의 기본 동작은 "받는" 것이고, {@code inline}은 저장소가 내려준 것을 브라우저가
+   * 렌더링하게 만드는 길이다.
+   *
+   * @param originalName 사용자에게 보일 이름. 한글이면 RFC 5987로 인코딩해 싣는다
+   */
+  URI presignGet(String key, String originalName);
+
+  /**
    * 실제로 올라온 오브젝트를 잰다.
    *
    * <p>없으면 비어 있다 — <b>"올리지 않고 등록만 시도했다"와 "올렸다"를 가르는 유일한 방법</b>이다. 없는 것을 예외로 만들지 않는 이유는, 그것이 흔한
