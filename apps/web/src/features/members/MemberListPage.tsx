@@ -1,3 +1,4 @@
+import { MoreHorizontalIcon } from 'lucide-react'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
@@ -25,8 +26,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -135,6 +145,24 @@ function statusLabel(user: User): string {
     return user.appliedAt === null ? '미승인' : '승인 대기'
   }
   return user.status === 'ACTIVE' ? '활동중' : '정지'
+}
+
+/**
+ * 상태 배지의 무게 (#99).
+ *
+ * **무채색 안에서 가른다** — 새 색을 들이지 않는다. `destructive`도 이 팔레트에서는
+ * 회색(`--destructive: #525252`)이라 붉은색이 아니다.
+ *
+ * 주의가 필요한 순서로 무게를 준다: 정지(가장 진함) → 승인 대기 → 활동중 → 미승인.
+ * **승인 대기가 활동중보다 무겁다** — 관리자가 이 화면에서 찾는 것이 그 사람들이다.
+ */
+function statusVariant(
+  user: User,
+): 'default' | 'secondary' | 'outline' | 'destructive' {
+  if (user.status === 'SUSPENDED') return 'destructive'
+  if (user.status === 'ACTIVE') return 'outline'
+  // PENDING 둘 — 신청서를 낸 쪽만 승인 대상이라 눈에 걸려야 한다.
+  return user.appliedAt === null ? 'outline' : 'default'
 }
 
 /**
@@ -271,6 +299,31 @@ export function MemberListPage() {
   function setConfirm(next: PendingAction | null) {
     pendingRef.current = next
     setPending(next)
+  }
+
+  /**
+   * 확인 창을 닫은 뒤 돌아갈 자리 (#99 검수).
+   *
+   * 행 메뉴에서 열면 **메뉴가 먼저 닫히고 그 항목이 사라진다.** 확인 창에는
+   * `AlertDialogTrigger`도 없어서 Radix가 돌려보낼 곳을 못 찾고 포커스가 `<body>`로
+   * 떨어진다 — 실제 브라우저에서 확인했다. 키보드로 쓰는 사람은 25행짜리 표에서 자기
+   * 위치를 잃는다.
+   *
+   * 그래서 **트리거(`⋯`)를 직접 들고 있다가** 되돌린다. 활성 요소를 읽는 방식은 안 된다 —
+   * 그 시점의 활성 요소는 곧 사라질 메뉴 항목이다.
+   */
+  const openerRef = useRef<string | null>(null)
+
+  /**
+   * 행 메뉴에서 확인 창을 연다. 돌아갈 자리를 **이름으로** 기억한다.
+   *
+   * 요소를 들고 있지 않는 이유는, 확인이 끝나면 목록을 다시 불러와 그 버튼이 새로
+   * 그려지기 때문이다 — 옛 요소는 이미 문서에서 빠져 있다. 이름으로 찾으면 재조회 뒤에도
+   * 같은 행을 가리킨다.
+   */
+  function confirmFromMenu(user: User, next: PendingAction) {
+    openerRef.current = user.name
+    setConfirm(next)
   }
   const [working, setWorking] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -789,6 +842,13 @@ export function MemberListPage() {
 
       {data !== null && (
         <>
+          {/*
+           * **선택했을 때만 일괄 액션이 나온다** (#99). 늘 띄워 두면 "선택한 0명 승인"
+           * 이라는 뜻 없는 버튼이 화면에 남고, 진짜 눌러야 할 때와 구분이 안 된다.
+           *
+           * 요약은 항상 보인다 — 몇 명이 있고 그중 몇이 승인 대상인지는 선택과 무관하게
+           * 알아야 하는 정보다.
+           */}
           <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
             {/*
              * **선택 범위를 화면이 분명히 말한다.** 전체 선택은 이 페이지만이다 — 검색
@@ -799,169 +859,201 @@ export function MemberListPage() {
               이 페이지에서 {selected.length}명 선택됨 (승인 가능{' '}
               {approvableHere.length}명 · 전체 {data.page.totalElements}명)
             </p>
-            <Button
-              type="button"
-              disabled={selected.length === 0 || working}
-              onClick={() => setConfirm({ kind: 'approve', ids: selected })}
-            >
-              선택한 {selected.length}명 승인
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={selected.length === 0 || working}
-              onClick={() => setConfirm({ kind: 'reject', ids: selected })}
-            >
-              선택한 {selected.length}명 거부
-            </Button>
+            {selected.length > 0 && (
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={working}
+                  onClick={() => setConfirm({ kind: 'approve', ids: selected })}
+                >
+                  선택한 {selected.length}명 승인
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={working}
+                  onClick={() => setConfirm({ kind: 'reject', ids: selected })}
+                >
+                  선택한 {selected.length}명 거부
+                </Button>
+              </div>
+            )}
           </div>
 
-          <Table className="mt-4">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-10">
-                  <Checkbox
-                    checked={allSelected}
-                    disabled={approvableHere.length === 0}
-                    onCheckedChange={(next) => toggleAll(next === true)}
-                    aria-label="이 페이지의 승인 대상 전체 선택"
-                  />
-                </TableHead>
-                <TableHead>이름</TableHead>
-                <TableHead>학번</TableHead>
-                <TableHead>학과</TableHead>
-                <TableHead>이메일</TableHead>
-                <TableHead>권한</TableHead>
-                <TableHead>상태</TableHead>
-                <TableHead>가입 신청일</TableHead>
-                <TableHead>승인일</TableHead>
-                <TableHead className="text-right">관리</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((user) => {
-                const approvable = isApprovable(user)
-                return (
-                  <TableRow key={user.id}>
-                    <TableCell>
-                      <Checkbox
-                        checked={selected.includes(user.id)}
-                        disabled={!approvable}
-                        onCheckedChange={(next) =>
-                          toggleOne(user.id, next === true)
-                        }
-                        aria-label={`${user.name} 선택`}
-                      />
-                    </TableCell>
-                    <TableCell className="font-medium">{user.name}</TableCell>
-                    <TableCell>{user.studentNo ?? '—'}</TableCell>
-                    {/*
-                     * 학과 필드가 생기기 전에 승인된 회원과 신청 전 계정은 값이 없다
-                     * (§3-2-2 — 일괄로 채우지 않는다). 학번과 같은 방식으로 —를 그린다.
-                     */}
-                    <TableCell>{user.department ?? '—'}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {user.email}
-                    </TableCell>
-                    <TableCell>
-                      {lookup(ROLE_LABEL, user.role) ?? '—'}
-                    </TableCell>
-                    {/*
-                     * "미승인"과 "승인 대기"가 여기서 갈린다. 그래서 액션 칸이 왜
-                     * 비어 있는지 상태만 봐도 자명하다 — 문구를 덧붙이지 않는다.
-                     */}
-                    <TableCell>{statusLabel(user)}</TableCell>
-                    <TableCell>{formatDate(user.appliedAt)}</TableCell>
-                    <TableCell>{formatDate(user.approvedAt)}</TableCell>
-                    {/*
-                     * **액션은 상태마다 버튼 하나다.** 한 명만 승인하려고 체크박스를
-                     * 거치게 하지 않는다 — 여럿은 체크박스, 한 명은 이 자리다.
-                     * "미승인"(신청서를 내지 않은 계정)은 할 수 있는 것이 없어 비어 있다.
-                     */}
-                    <TableCell className="text-right">
-                      {approvable && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={working}
-                          onClick={() =>
-                            setConfirm({ kind: 'approve', ids: [user.id] })
+          <Card className="mt-4 overflow-hidden py-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={allSelected}
+                      disabled={approvableHere.length === 0}
+                      onCheckedChange={(next) => toggleAll(next === true)}
+                      aria-label="이 페이지의 승인 대상 전체 선택"
+                    />
+                  </TableHead>
+                  <TableHead>이름</TableHead>
+                  <TableHead>학번</TableHead>
+                  <TableHead>학과</TableHead>
+                  <TableHead>이메일</TableHead>
+                  <TableHead>권한</TableHead>
+                  <TableHead>상태</TableHead>
+                  <TableHead>가입 신청일</TableHead>
+                  <TableHead>승인일</TableHead>
+                  <TableHead className="text-right">관리</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((user) => {
+                  const approvable = isApprovable(user)
+                  return (
+                    <TableRow key={user.id}>
+                      <TableCell>
+                        <Checkbox
+                          checked={selected.includes(user.id)}
+                          disabled={!approvable}
+                          onCheckedChange={(next) =>
+                            toggleOne(user.id, next === true)
                           }
-                        >
-                          승인
-                        </Button>
-                      )}
-                      {user.status !== 'PENDING' && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={working}
-                          onClick={() =>
-                            setConfirm({
-                              kind: 'status',
-                              user,
-                              next:
-                                user.status === 'SUSPENDED'
-                                  ? 'ACTIVE'
-                                  : 'SUSPENDED',
-                            })
-                          }
-                        >
-                          {user.status === 'SUSPENDED' ? '정지 해제' : '정지'}
-                        </Button>
-                      )}
+                          aria-label={`${user.name} 선택`}
+                        />
+                      </TableCell>
+                      <TableCell className="font-medium">{user.name}</TableCell>
+                      <TableCell>{user.studentNo ?? '—'}</TableCell>
                       {/*
-                       * **`PENDING`만 제외한다** (2-2 §2-2-5) — 승인 전에 관리자로 만들면
-                       * 승인일시가 없는 `ADMIN`이 생긴다. `SUSPENDED`는 대상이다.
-                       * 권한과 상태는 서로 독립이고, 정지된 관리자의 권한을 회수하는 것은
-                       * 오히려 필요한 조작이다.
+                       * 학과 필드가 생기기 전에 승인된 회원과 신청 전 계정은 값이 없다
+                       * (§3-2-2 — 일괄로 채우지 않는다). 학번과 같은 방식으로 —를 그린다.
                        */}
-                      {user.status !== 'PENDING' && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={working}
-                          onClick={() =>
-                            setConfirm({
-                              kind: 'role',
-                              user,
-                              next: user.role === 'ADMIN' ? 'USER' : 'ADMIN',
-                            })
-                          }
-                        >
-                          {user.role === 'ADMIN' ? '권한 회수' : '관리자 지정'}
-                        </Button>
-                      )}
+                      <TableCell>{user.department ?? '—'}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {user.email}
+                      </TableCell>
+                      <TableCell>
+                        {lookup(ROLE_LABEL, user.role) ?? '—'}
+                      </TableCell>
                       {/*
-                       * **`PENDING`은 제거가 아니라 거부다** (§2-2-2). 남긴 것이 없어
-                       * 세션 폐기·콘텐츠 처리 규칙이 붙지 않고, 위 일괄 흐름이 담당한다.
+                       * "미승인"과 "승인 대기"가 여기서 갈린다. 그래서 액션 칸이 왜
+                       * 비어 있는지 상태만 봐도 자명하다 — 문구를 덧붙이지 않는다.
                        */}
-                      {user.status !== 'PENDING' && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={working}
-                          onClick={() => openRemove(user)}
-                        >
-                          제거
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
+                      <TableCell>
+                        <Badge variant={statusVariant(user)}>
+                          {statusLabel(user)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{formatDate(user.appliedAt)}</TableCell>
+                      <TableCell>{formatDate(user.approvedAt)}</TableCell>
+                      {/*
+                       * **액션은 상태마다 버튼 하나다.** 한 명만 승인하려고 체크박스를
+                       * 거치게 하지 않는다 — 여럿은 체크박스, 한 명은 이 자리다.
+                       * "미승인"(신청서를 내지 않은 계정)은 할 수 있는 것이 없어 비어 있다.
+                       */}
+                      {/*
+                       * **행 액션은 버튼이 아니라 메뉴다** (#99).
+                       *
+                       * 버튼으로 늘어놓으면 한 행에 셋, 25행이면 75개가 화면을 채운다. 더
+                       * 나쁜 것은 **위계가 사라지는 것**이다 — 되돌릴 수 없는 `제거`가
+                       * `정지`와 똑같이 생긴다. 메뉴로 접으면 표는 데이터만 보여주고,
+                       * 위험한 조작은 한 단계 안쪽에서 `destructive`로 구분된다.
+                       *
+                       * 승인만 예외로 밖에 남긴다 — 이 화면에서 가장 자주 하는 일이라
+                       * 메뉴 뒤로 숨기면 한 번 더 누르게 된다.
+                       */}
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {approvable && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={working}
+                              onClick={() =>
+                                setConfirm({ kind: 'approve', ids: [user.id] })
+                              }
+                            >
+                              승인
+                            </Button>
+                          )}
+                          {user.status !== 'PENDING' && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={working}
+                                  aria-label={`${user.name} 관리 메뉴`}
+                                >
+                                  <MoreHorizontalIcon aria-hidden="true" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onSelect={() =>
+                                    confirmFromMenu(user, {
+                                      kind: 'status',
+                                      user,
+                                      next:
+                                        user.status === 'SUSPENDED'
+                                          ? 'ACTIVE'
+                                          : 'SUSPENDED',
+                                    })
+                                  }
+                                >
+                                  {user.status === 'SUSPENDED'
+                                    ? '정지 해제'
+                                    : '정지'}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() =>
+                                    confirmFromMenu(user, {
+                                      kind: 'role',
+                                      user,
+                                      next:
+                                        user.role === 'ADMIN'
+                                          ? 'USER'
+                                          : 'ADMIN',
+                                    })
+                                  }
+                                >
+                                  {user.role === 'ADMIN'
+                                    ? '권한 회수'
+                                    : '관리자 지정'}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                {/*
+                                되돌릴 수 없는 조작만 여기 아래다. 구분선과 `destructive`가
+                                "다른 종류"임을 말한다 — 확인 창이 마지막 방어선이고, 그
+                                앞에서도 손이 미끄러지지 않게 한다.
+                              */}
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onSelect={() => {
+                                    openerRef.current = user.name
+                                    openRemove(user)
+                                  }}
+                                >
+                                  제거
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
 
-          {rows.length === 0 && (
-            <p className="mt-6 text-sm text-muted-foreground">
-              조건에 맞는 회원이 없습니다.
-            </p>
-          )}
+            {/* 빈 상태도 카드 안이다 — 밖에 두면 표만 사라지고 테두리가 남는다. */}
+            {rows.length === 0 && (
+              <p className="px-6 py-10 text-center text-sm text-muted-foreground">
+                조건에 맞는 회원이 없습니다.
+              </p>
+            )}
+          </Card>
 
           {data.page.totalPages > 1 && (
             <div className="mt-8 flex items-center justify-center gap-4">
@@ -1001,7 +1093,23 @@ export function MemberListPage() {
           if (!open) setConfirm(null)
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            const name = openerRef.current
+            openerRef.current = null
+            if (!name) return
+            /*
+             * 그 행이 아직 있으면 트리거로 돌아간다. 제거·거부처럼 행이 사라졌으면
+             * 아무것도 하지 않는다 — Radix 기본 동작에 맡긴다.
+             */
+            const trigger = document.querySelector<HTMLElement>(
+              `[aria-label="${CSS.escape(name)} 관리 메뉴"]`,
+            )
+            if (!trigger) return
+            event.preventDefault()
+            trigger.focus()
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>
               {pending ? describe(pending).title : ''}

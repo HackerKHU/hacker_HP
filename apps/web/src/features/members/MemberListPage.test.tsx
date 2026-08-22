@@ -207,6 +207,52 @@ function loaded() {
   return screen.findByRole('checkbox', { name: '신청한하나 선택' })
 }
 
+/**
+ * 행 액션 메뉴를 열고 항목을 누른다 (#99).
+ *
+ * 정지·권한·제거는 이제 버튼이 아니라 `⋯` 메뉴 안이다 — 표에 버튼이 행마다 셋씩
+ * 늘어서면 되돌릴 수 없는 `제거`가 `정지`와 같은 무게로 보인다.
+ */
+async function rowAction(name: string, label: string | RegExp) {
+  openRowMenu(
+    within(row(name)).getByRole('button', { name: `${name} 관리 메뉴` }),
+  )
+  const item = await screen.findByRole('menuitem', { name: label })
+  fireEvent.click(item)
+}
+
+/**
+ * Radix 메뉴는 `pointerdown`으로 열린다 — `click`만 쏘면 안 열린다.
+ *
+ * `user-event`를 들이면 한 줄이지만, 이 검사 하나 때문에 의존성을 늘리지 않는다.
+ * jsdom에 `PointerEvent`가 없어 `MouseEvent`로 대신 만든다.
+ */
+function openRowMenu(trigger: HTMLElement) {
+  fireEvent.pointerDown(
+    trigger,
+    new MouseEvent('pointerdown', { bubbles: true, button: 0 }),
+  )
+}
+
+/**
+ * 행 메뉴에 그 항목이 있는지. 메뉴를 열어 확인하고 다시 닫는다.
+ *
+ * **요소가 아니라 있고 없음을 돌려준다** — 닫고 나면 요소가 문서에서 사라져
+ * `toBeInTheDocument()`가 항상 실패한다.
+ */
+async function hasRowMenuItem(name: string, label: string | RegExp) {
+  const trigger = within(row(name)).queryByRole('button', {
+    name: `${name} 관리 메뉴`,
+  })
+  if (!trigger) return false
+  openRowMenu(trigger)
+  // 메뉴는 포털로 늦게 붙는다. 열릴 때까지 기다린 뒤에 항목을 찾는다.
+  await screen.findByRole('menu')
+  const found = screen.queryAllByRole('menuitem', { name: label }).length > 0
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+  return found
+}
+
 /** 이름으로 행을 집는다. */
 function row(name: string): HTMLElement {
   const cell = screen.getByRole('cell', { name })
@@ -338,9 +384,7 @@ describe('승인 대상', () => {
     renderAt()
     await loaded()
 
-    fireEvent.click(
-      within(row('활동회원')).getByRole('button', { name: '관리자 지정' }),
-    )
+    await rowAction('활동회원', '관리자 지정')
     // 누른 것만으로는 요청이 나가지 않는다.
     expect(api.roleAttempts).toEqual([])
 
@@ -378,9 +422,7 @@ describe('승인 대상', () => {
     renderAt()
     await loaded()
 
-    fireEvent.click(
-      within(row('활동회원')).getByRole('button', { name: '제거' }),
-    )
+    await rowAction('활동회원', '제거')
 
     const dialog = await screen.findByRole('alertdialog')
     expect(api.summaryCalls).toEqual([4])
@@ -409,9 +451,7 @@ describe('승인 대상', () => {
 
     renderAt()
     await loaded()
-    fireEvent.click(
-      within(row('활동회원')).getByRole('button', { name: '제거' }),
-    )
+    await rowAction('활동회원', '제거')
 
     const dialog = await screen.findByRole('alertdialog')
     await waitFor(() => {
@@ -457,13 +497,9 @@ describe('승인 대상', () => {
     await loaded()
 
     for (const name of ['신청한하나', '미신청']) {
-      expect(
-        within(row(name)).queryByRole('button', { name: '제거' }),
-      ).toBeNull()
+      expect(await hasRowMenuItem(name, '제거')).toBe(false)
     }
-    expect(
-      within(row('정지회원')).getByRole('button', { name: '제거' }),
-    ).toBeInTheDocument()
+    expect(await hasRowMenuItem('정지회원', '제거')).toBe(true)
   })
 
   /*
@@ -475,16 +511,14 @@ describe('승인 대상', () => {
     renderAt()
     await loaded()
 
-    expect(
-      within(row('정지회원')).getByRole('button', { name: '관리자 지정' }),
-    ).toBeInTheDocument()
+    expect(await hasRowMenuItem('정지회원', '관리자 지정')).toBe(true)
 
+    /*
+     * **메뉴를 열어서 확인한다.** 행 안의 버튼만 찾으면 항목이 잘못 노출돼도 닫힌 메뉴
+     * 안에 있어 잡히지 않는다 — 부재 검사가 아무것도 지키지 못하게 된다.
+     */
     for (const name of ['신청한하나', '미신청']) {
-      expect(
-        within(row(name)).queryByRole('button', {
-          name: /관리자 지정|권한 회수/,
-        }),
-      ).toBeNull()
+      expect(await hasRowMenuItem(name, /관리자 지정|권한 회수/)).toBe(false)
     }
   })
 
@@ -503,12 +537,9 @@ describe('승인 대상', () => {
     renderAt()
     await loaded()
 
-    const button = within(row('김관리')).getByRole('button', {
-      name: '권한 회수',
-    })
-    expect(button).toBeEnabled() // 화면이 미리 막지 않았다는 증거
+    // 메뉴에 항목이 살아 있다는 것 자체가 "화면이 미리 막지 않았다"는 증거다.
+    await rowAction('김관리', '권한 회수')
 
-    fireEvent.click(button)
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: '권한 회수' }))
 
@@ -811,13 +842,18 @@ describe('일괄 승인', () => {
     expect(within(row('신청한둘')).getByRole('checkbox')).not.toBeChecked()
   })
 
-  it('아무도 선택하지 않으면 승인 버튼이 잠겨 있다', async () => {
+  /*
+   * #99 — 선택이 없으면 일괄 액션을 **아예 그리지 않는다.** 전에는 "선택한 0명 승인"이
+   * 잠긴 채 떠 있었는데, 뜻 없는 버튼이 화면에 남아 진짜 눌러야 할 때와 구분이 안 됐다.
+   * 요약 문구는 선택과 무관하게 계속 보인다.
+   */
+  it('아무도 선택하지 않으면 일괄 액션이 보이지 않는다', async () => {
     renderAt()
     await loaded()
 
-    expect(
-      screen.getByRole('button', { name: /선택한 0명 승인/ }),
-    ).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /명 승인/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /명 거부/ })).toBeNull()
+    expect(screen.getByText(/이 페이지에서 0명 선택됨/)).toBeInTheDocument()
   })
 })
 
@@ -830,9 +866,7 @@ describe('상태 변경', () => {
     renderAt()
     await loaded()
 
-    fireEvent.click(
-      within(row('활동회원')).getByRole('button', { name: '정지' }),
-    )
+    await rowAction('활동회원', '정지')
 
     const dialog = await screen.findByRole('alertdialog')
     expect(dialog).toHaveTextContent('활동회원')
@@ -851,9 +885,7 @@ describe('상태 변경', () => {
     renderAt()
     await loaded()
 
-    fireEvent.click(
-      within(row('활동회원')).getByRole('button', { name: '정지' }),
-    )
+    await rowAction('활동회원', '정지')
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: '정지' }))
 
@@ -867,9 +899,7 @@ describe('상태 변경', () => {
     renderAt()
     await loaded()
 
-    fireEvent.click(
-      within(row('정지회원')).getByRole('button', { name: '정지 해제' }),
-    )
+    await rowAction('정지회원', '정지 해제')
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: '정지 해제' }))
 
@@ -894,7 +924,7 @@ describe('상태 변경', () => {
     await loaded()
 
     // **로그인한 관리자 본인(id 99)의 행**을 누른다. 남의 행을 누르면 자기 정지가 아니다.
-    fireEvent.click(within(row('김관리')).getByRole('button', { name: '정지' }))
+    await rowAction('김관리', '정지')
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: '정지' }))
 
@@ -913,11 +943,9 @@ describe('상태 변경', () => {
 
     // 승인 버튼은 있고 정지 버튼은 없다. 승인 전에는 로그인 자체가 막혀 있다.
     expect(
-      within(row('신청한하나')).getByRole('button', { name: '승인' }),
+      within(row('신청한하나')).queryByRole('button', { name: '승인' }),
     ).toBeInTheDocument()
-    expect(
-      within(row('신청한하나')).queryByRole('button', { name: '정지' }),
-    ).toBeNull()
+    expect(await hasRowMenuItem('신청한하나', '정지')).toBe(false)
   })
 })
 
