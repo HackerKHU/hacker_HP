@@ -28,6 +28,10 @@ const api = vi.hoisted(() => ({
   statusCalls: [] as { id: number; status: string }[],
   roleAttempts: [] as { id: number; role: string }[],
   roleError: null as ApiError | null,
+  rejected: [] as number[][],
+  removed: [] as number[],
+  summaryCalls: [] as number[],
+  removeError: null as ApiError | null,
   /** 실패하든 말든 **시도한 것**. 화면이 미리 막지 않았는지 보려면 이게 필요하다. */
   statusAttempts: [] as { id: number; status: string }[],
   approveResult: null as ApproveResult | null,
@@ -117,6 +121,19 @@ vi.mock('@/api/adminUsers', () => ({
     }
     return Promise.resolve(result)
   },
+  reject: (userIds: number[]) => {
+    api.rejected.push(userIds)
+    return Promise.resolve({ rejected: userIds, failed: [] })
+  },
+  contentSummary: (id: number) => {
+    api.summaryCalls.push(id)
+    return Promise.resolve({ notes: 3, notices: 1, photos: 5 })
+  },
+  remove: (id: number): Promise<void> => {
+    api.removed.push(id)
+    if (api.removeError) return Promise.reject(api.removeError)
+    return Promise.resolve()
+  },
   updateRole: (id: number, role: string): Promise<User> => {
     api.roleAttempts.push({ id, role })
     if (api.roleError) return Promise.reject(api.roleError)
@@ -201,6 +218,10 @@ beforeEach(() => {
   api.statusAttempts = []
   api.roleAttempts = []
   api.roleError = null
+  api.rejected = []
+  api.removed = []
+  api.summaryCalls = []
+  api.removeError = null
   api.approveResult = null
   api.approveError = null
   api.statusError = null
@@ -324,6 +345,67 @@ describe('승인 대상', () => {
     await waitFor(() => {
       expect(api.roleAttempts).toEqual([{ id: 4, role: 'ADMIN' }])
     })
+  })
+
+  /*
+   * #201 — 거부는 승인과 같은 선택 흐름이다. 되돌릴 수 없으니 확인 창을 거친다.
+   */
+  it('선택한 신청을 거부한다', async () => {
+    renderAt()
+    // `loaded()`가 돌려주는 것이 곧 그 회원의 체크박스다.
+    fireEvent.click(await loaded())
+    fireEvent.click(screen.getByRole('button', { name: /1명 거부/ }))
+    expect(api.rejected).toEqual([])
+
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '거부' }))
+
+    await waitFor(() => expect(api.rejected).toEqual([[1]]))
+  })
+
+  /*
+   * **제거 확인 창은 남을 콘텐츠 건수를 보여준다** (2-2 §2-2-4 MUST). 제거는 되돌아갈
+   * 수단을 없애는 유일한 조작이고, 관계가 끊기면 운영자도 그 회원의 콘텐츠를 못 찾는다.
+   * 건수를 안 보여주면 무엇이 남는지 모르는 채로 되돌릴 수 없는 조작을 하게 된다.
+   */
+  it('제거 확인 창이 남을 콘텐츠 건수를 보여준다', async () => {
+    renderAt()
+    await loaded()
+
+    fireEvent.click(
+      within(row('활동회원')).getByRole('button', { name: '제거' }),
+    )
+
+    const dialog = await screen.findByRole('alertdialog')
+    expect(api.summaryCalls).toEqual([4])
+    await waitFor(() => {
+      expect(dialog).toHaveTextContent('자료 3건')
+      expect(dialog).toHaveTextContent('공지 1건')
+      expect(dialog).toHaveTextContent('활동사진 5건')
+    })
+    // 아직 요청은 안 나갔다 — 확인을 눌러야 한다.
+    expect(api.removed).toEqual([])
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '제거' }))
+    await waitFor(() => expect(api.removed).toEqual([4]))
+  })
+
+  /*
+   * `PENDING`은 제거가 아니라 거부다 (§2-2-2) — 남긴 것이 없어 세션 폐기·콘텐츠 처리
+   * 규칙이 붙지 않고, 일괄 거부가 담당한다.
+   */
+  it('제거 버튼은 PENDING에 없다', async () => {
+    renderAt()
+    await loaded()
+
+    for (const name of ['신청한하나', '미신청']) {
+      expect(
+        within(row(name)).queryByRole('button', { name: '제거' }),
+      ).toBeNull()
+    }
+    expect(
+      within(row('정지회원')).getByRole('button', { name: '제거' }),
+    ).toBeInTheDocument()
   })
 
   /*
