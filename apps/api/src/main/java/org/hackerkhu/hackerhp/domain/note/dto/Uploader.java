@@ -1,5 +1,7 @@
 package org.hackerkhu.hackerhp.domain.note.dto;
 
+import org.hackerkhu.hackerhp.domain.user.dto.WithdrawnMember;
+
 /**
  * 응답에 담는 업로더 (spec 3-2 §3-2-2 "작성자를 내려주는 규칙", #49).
  *
@@ -14,8 +16,8 @@ package org.hackerkhu.hackerhp.domain.note.dto;
  */
 public record Uploader(Long id, String name) {
 
-  /** 계정이 사라졌을 때 그 자리에 넣는 문구. 원본은 [2-2 §2-2-4]다. */
-  public static final String WITHDRAWN = "탈퇴한 회원";
+  /** 계정이 사라졌을 때 그 자리에 넣는 문구. 자료·공지·사진이 같은 문구를 써야 해서 한 곳에 둔다. */
+  public static final String WITHDRAWN = WithdrawnMember.NAME;
 
   public static Uploader of(Long id, String name) {
     return (id == null || name == null) ? new Uploader(null, WITHDRAWN) : new Uploader(id, name);

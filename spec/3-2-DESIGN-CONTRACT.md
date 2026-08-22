@@ -450,6 +450,8 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 
 `POST /notices`, `PATCH /notices/{id}`, `PATCH /notices/{id}/pin`은 저장된 공지를 본문으로 돌려준다 (확정, 2026-08-13, #33·#34) — `POST`는 `201`, 두 `PATCH`는 `200`이다. 화면은 등록·수정 응답 본문의 `id`로 상세 화면으로 이동한다. `DELETE /notices/{id}`는 본문 없이 `204`다.
 
+공지 응답은 **`authorId`(`null` 가능)와 `authorName`(`null` 아님)을 함께 담는다** (MUST, #58) — 규칙은 [§3-2-2 "작성자를 내려주는 규칙"](#작성자를-내려주는-규칙)과 같다. 작성자가 제거되어 `author_id`가 `NULL`이면 서버가 `authorName`에 `"탈퇴한 회원"`을 넣는다.
+
 ## 3-2-6 API — 회원 관리
 
 | Method | Path | 권한 | 설명 |
@@ -531,6 +533,54 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | 없는 `id` | `404 NOT_FOUND` |
 | **정지 뒤 활성 관리자가 0명이 됨** | `403 FORBIDDEN` ([§2-2-7](2-2-OPERATOR-REQUIREMENTS.md) MUST). 자기 대상인지와 무관하다 |
 
+### 가입 거부 (2026-08-22 확정, #58)
+
+```json
+요청  { "userIds": [1, 2, 3] }
+응답  200 { "rejected": [1], "failed": [{ "userId": 2, "reason": "NOT_PENDING" }] }
+```
+
+**일부가 실패해도 `200`이다** — 승인과 같은 규칙이다. 한 건 때문에 되돌리면 성공한 거부까지 사라진다. 상한도 승인과 같은 **100개**다(같은 화면에서 같은 체크박스로 고른다).
+
+**대상은 `PENDING`뿐이다** (MUST). 이용 중인 회원을 이 경로로 지우면 "제거"가 되는데, 그쪽은 세션 폐기·정지 선행 같은 규칙이 따로 붙는다([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)). 그 건은 `NOT_PENDING`으로 집계한다.
+
+| `reason` | |
+|---|---|
+| `NOT_FOUND` | 그 id의 계정이 없다 |
+| `NOT_PENDING` | `PENDING`이 아니다 — 제거 경로를 우회하는 것을 막는다 |
+
+**계정 레코드를 지운다. 별도 상태를 두지 않는다** ([2-2 §2-2-2](2-2-OPERATOR-REQUIREMENTS.md)). 상태로 남기면 그 계정이 `email`·`google_sub` UNIQUE를 붙잡아 **같은 사람이 다시 가입할 수 없다.**
+
+### 권한 부여·회수
+
+```json
+요청  { "role": "ADMIN" }
+응답  200 — 갱신된 회원 (목록의 한 행과 같은 형태)
+```
+
+**뒤집는 것이 아니라 원하는 권한을 말한다** — 상태 변경과 같은 모양이다. 화면이 들고 있는 값이 낡았을 때 의도와 반대로 바뀌지 않는다.
+
+| 요청 | |
+|---|---|
+| 이미 그 권한 | 아무것도 하지 않고 `200`. **이력도 쌓이지 않는다** |
+| 대상이 `PENDING` | `400 VALIDATION_ERROR` — 승인일시 없는 `ADMIN`이 생긴다 |
+| 없는 `id` | `404 NOT_FOUND` |
+| **회수 뒤 활성 관리자가 0명** | `403 FORBIDDEN` ([§2-2-7](2-2-OPERATOR-REQUIREMENTS.md) MUST). 자기 대상인지와 무관하다 |
+
+**Role만 바꾼다. Status는 건드리지 않는다** ([2-2 §2-2-5](2-2-OPERATOR-REQUIREMENTS.md)). 회수는 **그 사람의 기존 세션에도 즉시 반영된다** (T-34).
+
+### 회원 제거
+
+성공하면 `204`다. 본문은 없다.
+
+| 요청 | |
+|---|---|
+| 없는 `id` | `404 NOT_FOUND` |
+| **제거 뒤 활성 관리자가 0명** | `403 FORBIDDEN` |
+| **본인 제거** | `204`. 응답이 **세션과 토큰 쿠키를 함께 버린다** (MUST) |
+
+**본인을 지우면 지금 요청의 세션도 끝난다** (MUST). 저장소에서 세션 행을 지워도 **이 요청에 붙어 있는 세션은 응답을 내보낼 때 다시 저장되어** 방금 지운 `ADMIN` 세션이 되살아난다.
+
 ### 제거 영향 조회
 
 `GET /admin/users/{id}/content-summary` — 제거 확인 창이 **"무엇이 남는지"** 를 보여주려면 필요하다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거) MUST).
@@ -574,6 +624,7 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | 403 | `FORBIDDEN` | 권한 부족 / 마지막 활성 관리자의 본인 권한 회수·삭제·정지 시도 / 허용 도메인이 아닌 구글 계정의 로그인 / **`ACTIVE` 계정의 `POST /auth/application` 호출** ([3-1 §3-1-6](3-1-DESIGN-ARCHITECTURE.md) MUST) |
 | 404 | `NOT_FOUND` | 리소스 없음 |
 | 409 | `DUPLICATE_STUDENT_NO` | 신청서의 학번이 다른 계정에 이미 쓰이고 있음 |
+| 409 | `CONCURRENT_CHANGE` | **다른 관리자가 그 사이에 같은 회원을 바꿨다.** 회원 제거는 정지를 먼저 확정하는데([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거) MUST), 그 사이에 대상이 다시 `ACTIVE`가 되면 전제가 무너지므로 지우지 않고 멈춘다. 화면은 목록을 새로고침하고 다시 시도하게 안내한다 |
 | 413 | `FILE_TOO_LARGE` | 파일 용량 초과 |
 | 415 | `UNSUPPORTED_FILE_TYPE` | 허용되지 않는 확장자 |
 

@@ -5,7 +5,9 @@ import java.util.List;
 import java.util.Set;
 import org.hackerkhu.hackerhp.domain.user.dto.AdminUserResponse;
 import org.hackerkhu.hackerhp.domain.user.dto.AdminUserSearch;
+import org.hackerkhu.hackerhp.domain.user.dto.ContentSummaryResponse;
 import org.hackerkhu.hackerhp.domain.user.repository.AdminUserSpecifications;
+import org.hackerkhu.hackerhp.domain.user.repository.AuthoredContentRepository;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
@@ -37,8 +39,11 @@ public class AdminUserService {
   private static final List<Sort.Order> DEFAULT_ORDER = List.of(Sort.Order.desc("appliedAt"));
 
   private final UserRepository userRepository;
+  private final AuthoredContentRepository authoredContent;
 
-  public AdminUserService(UserRepository userRepository) {
+  public AdminUserService(
+      UserRepository userRepository, AuthoredContentRepository authoredContent) {
+    this.authoredContent = authoredContent;
     this.userRepository = userRepository;
   }
 
@@ -67,5 +72,19 @@ public class AdminUserService {
       orders.add(order);
     }
     return orders.isEmpty() ? DEFAULT_ORDER : orders;
+  }
+
+  /**
+   * 제거하면 <b>무엇이 남는지</b> (spec 2-2 §2-2-4 MUST).
+   *
+   * <p>제거는 관리자가 혼자 시작할 수 있고 사전 통지도 없다. 작성자 관계가 끊기고 나면 <b>운영자도 그 회원의 콘텐츠를 찾을 수 없으므로</b>, 관계를 끊기 전에
+   * 무엇이 남는지 보여준다.
+   */
+  public ContentSummaryResponse contentSummary(Long userId) {
+    if (!userRepository.existsById(userId)) {
+      throw new BusinessException(ErrorCode.NOT_FOUND, "회원을 찾을 수 없습니다.");
+    }
+    AuthoredContentRepository.Counts counts = authoredContent.countBy(userId);
+    return new ContentSummaryResponse(counts.notes(), counts.notices(), counts.photos());
   }
 }

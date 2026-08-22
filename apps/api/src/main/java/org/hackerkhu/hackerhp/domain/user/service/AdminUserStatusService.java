@@ -61,8 +61,19 @@ public class AdminUserStatusService {
      * 세션 반영은 커밋 뒤다 (3-1 §3-1-5). @Transactional 대신 템플릿을 쓰는 이유가 이것이다 —
      * execute가 돌아온 시점에는 커밋도 끝나고 커넥션도 반납돼 있어, 갱신이 커넥션을 겹쳐 잡지
      * 않는다. 트랜잭션 안에서 부르면 되돌아간 변경이 세션에만 남는다.
+     *
+     * 정지는 반영을 확인해야 성공이다 (#197 리뷰 3차). 세션 반영은 실패를 삼키므로,
+     * 확인하지 않으면 저장소 장애로 반영이 실패해도 200이 나가고 그 사람은 만료(30분)까지
+     * 계속 쓴다 — "정지는 즉시 차단"(§2-2-3 MUST)이 조용히 깨진다.
+     *
+     * 해제는 반대 방향이라 그냥 알린다. 늦게 닿아도 그 사람이 아직 못 쓰는 것뿐이다.
      */
-    sessionSynchronizer.refresh(List.of(changed.id()));
+    boolean reflected = true;
+    if (changed.status() == Status.SUSPENDED) {
+      reflected = sessionSynchronizer.refreshReporting(changed.id());
+    } else {
+      sessionSynchronizer.refresh(List.of(changed.id()));
+    }
 
     /*
      * 이력은 세션 반영보다 뒤다. 정지는 즉시 차단이어야 하고(2-2 §2-2-3 MUST) 이력은 늦어도
@@ -77,6 +88,14 @@ public class AdminUserStatusService {
           changed.id(),
           target == Target.SUSPENDED ? AdminAction.SUSPEND : AdminAction.ACTIVATE,
           applied.occurredAt());
+    }
+
+    /*
+     * 이력을 남긴 뒤에 던진다. 변경은 이미 커밋됐으므로 여기서 곧장 빠져나가면
+     * "누가 무엇을 했는지"만 사라진다.
+     */
+    if (!reflected) {
+      throw SessionSynchronizer.notReflected("정지", changed.id());
     }
     return changed;
   }

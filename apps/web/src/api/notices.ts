@@ -14,6 +14,10 @@ export interface Notice {
   title: string
   content: string
   isPinned: boolean
+  /** 작성자. 회원이 제거되면 비고, 그때 `authorName`이 "탈퇴한 회원"이 된다 (#58). */
+  authorId: number | null
+  /** **절대 비지 않는다.** 서버가 채운다 — 화면마다 문구가 갈리지 않게 (spec §3-2-2). */
+  authorName: string
   createdAt: string
   updatedAt: string
 }
