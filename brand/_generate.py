@@ -60,7 +60,13 @@ word_a = master.crop((0, SPLIT_Y, master.width, master.height))
 parts = {"lockup": master, "mark": mark_a, "wordmark": word_a}
 art = {k: {"black": tinted(a, INK), "white": tinted(a, PAPER)} for k, a in parts.items()}
 
-WORD_SCALE = 2.4   # 가로형에서 워드마크를 원본 비율보다 키운다. 1.0이면 엠블럼에 눌려 안 읽힌다
+# 가로형에서 워드마크를 원본 비율보다 키운다. 1.0이면 엠블럼에 눌려 안 읽힌다.
+#
+# 원작의 `HACKER` 줄은 심볼 높이의 0.10배(90px vs 858px)다 — 세로 락업에서는 심볼 아래
+# 받침이라 그 비율이 맞지만, 옆에 나란히 놓으면 글자가 심볼에 먹힌다. 2.4배(=0.25)로는
+# 헤더 크기(높이 36px)에서 여전히 안 읽혔다. 6.5배면 `HACKER`가 심볼의 0.68배가 되어
+# 둘이 대등하게 읽힌다.
+WORD_SCALE = 4.0
 
 
 def headline_center(rgba):
@@ -77,7 +83,12 @@ def horizontal(color):
     m, w = art["mark"][color], art["wordmark"][color]
     h = round(w.height * WORD_SCALE)
     w = w.resize((round(w.width * h / w.height), h), Image.LANCZOS)
-    gap = round(m.width * 0.14)
+    # 심볼과 워드마크 사이. 심볼 폭 기준이라 크기를 바꿔도 비율이 유지된다.
+    #
+    # 0.14는 둘이 붙어 한 글자처럼 뭉쳐 보였다. 0.14/0.24/0.34/0.44를 헤더 크기로 줄여
+    # 비교해 0.34로 정했다 — 분명히 떨어지면서도 한 덩어리로 읽히는 지점이다.
+    # 0.44는 심볼과 글자가 따로 노는 것처럼 보인다.
+    gap = round(m.width * 0.34)
     y = m.height // 2 - round(headline_center(w))
     canvas = Image.new("RGBA", (m.width + gap + w.width, max(m.height, y + w.height)), (0, 0, 0, 0))
     canvas.paste(m, (0, 0), m)

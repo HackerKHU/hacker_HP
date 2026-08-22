@@ -233,8 +233,12 @@ describe('로고', () => {
   it('배경에 맞는 잉크의 마크를 쓴다', async () => {
     renderAt('/login')
 
+    /*
+     * 좌측 패널은 **세로 락업**이다 — 심볼만 두면 처음 온 사람이 무엇의 마크인지
+     * 알 수 없어, 이름까지 든 조합을 쓴다.
+     */
     const dark = await screen.findByAltText('해커')
-    expect(dark).toHaveAttribute('src', '/brand/mark-white-512.png')
+    expect(dark).toHaveAttribute('src', '/brand/lockup-vertical-white-1024.png')
 
     const light = screen.getByAltText(CLUB.fullName)
     expect(light).toHaveAttribute('src', '/brand/mark-black-256.png')

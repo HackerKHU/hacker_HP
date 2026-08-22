@@ -47,8 +47,12 @@ const COPYRIGHT_YEAR = 2026
  * 2026 로고 공모전 1등 작품이 확정되어 자리표시자를 걷었다. 자산은 `brand/`에서 파생한
  * 것을 쓴다 (`brand/README.md`) — **원본만이 정본이고 파생본을 직접 손보지 않는다.**
  *
- * 이 패널은 배경이 검정(`.dark`)이라 **잉크가 흰색이고 배경이 투명한** 마크를 쓴다.
+ * 이 패널은 배경이 검정(`.dark`)이라 **잉크가 흰색이고 배경이 투명한** 파일을 쓴다.
  * `-on-white`/`-on-black`은 배경이 채워진 버전이라 여기서는 네모가 비쳐 보인다.
+ *
+ * **심볼만이 아니라 세로 락업(심볼 + `HACKER` + 태그라인)을 쓴다.** 이 패널이 이 화면의
+ * 정체를 말하는 자리라 이름까지 읽혀야 한다 — 심볼만 두면 처음 온 사람은 그것이 무엇의
+ * 마크인지 알 수 없다. 세로 락업은 원작 그대로의 조합이다 (`brand/README.md`).
  */
 function LogoPanel() {
   return (
@@ -57,12 +61,16 @@ function LogoPanel() {
         장식이 아니라 이 화면이 어디인지 말하는 요소라 `alt`를 비우지 않는다. 다만 옆
         카드에 "로그인" 제목이 이미 있으므로 동아리 이름까지만 읽히면 충분하다.
       */}
+      {/*
+        락업이 세로로 길어(811×1024) 정사각 상자에 넣으면 좌우가 남는다. 패널 높이를
+        채우도록 두고 `object-contain`으로 비율을 지킨다 — 늘리지 않는다.
+      */}
       <img
-        src="/brand/mark-white-512.png"
+        src="/brand/lockup-vertical-white-1024.png"
         alt="해커"
-        width={512}
-        height={512}
-        className="aspect-square w-full object-contain"
+        width={811}
+        height={1024}
+        className="max-h-[22rem] w-full object-contain"
       />
     </div>
   )
