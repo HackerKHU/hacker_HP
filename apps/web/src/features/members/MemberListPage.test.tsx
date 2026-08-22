@@ -327,6 +327,28 @@ describe('승인 대상', () => {
   })
 
   /*
+   * 노출 조건은 **`PENDING`만 제외**다 (2-2 §2-2-5). 승인 전에 관리자로 만들면 승인일시
+   * 없는 ADMIN이 생기지만, 정지된 회원은 대상이다 — 권한과 상태는 독립이고 정지된
+   * 관리자의 권한을 회수하는 것은 오히려 필요한 조작이다.
+   */
+  it('권한 버튼은 PENDING에만 없고 정지된 회원에는 있다', async () => {
+    renderAt()
+    await loaded()
+
+    expect(
+      within(row('정지회원')).getByRole('button', { name: '관리자 지정' }),
+    ).toBeInTheDocument()
+
+    for (const name of ['신청한하나', '미신청']) {
+      expect(
+        within(row(name)).queryByRole('button', {
+          name: /관리자 지정|권한 회수/,
+        }),
+      ).toBeNull()
+    }
+  })
+
+  /*
    * **화면이 미리 막지 않는다** (2-2 §2-2-7 MUST — 검사는 서버에서). 활성 관리자가 몇
    * 명인지 화면은 모른다. 미리 비활성화하면 서버만 아는 조건을 화면이 흉내 내게 되고,
    * 틀리는 순간 되돌릴 방법이 없다. T-80과 같은 뿌리다.

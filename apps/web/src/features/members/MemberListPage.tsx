@@ -738,10 +738,12 @@ export function MemberListPage() {
                         </Button>
                       )}
                       {/*
-                       * 승인된 회원에게만 의미가 있다. PENDING·SUSPENDED는 로그인 자체가
-                       * 막혀 있거나 아직 부원이 아니라 권한을 줘도 쓸 수 없다.
+                       * **`PENDING`만 제외한다** (2-2 §2-2-5) — 승인 전에 관리자로 만들면
+                       * 승인일시가 없는 `ADMIN`이 생긴다. `SUSPENDED`는 대상이다.
+                       * 권한과 상태는 서로 독립이고, 정지된 관리자의 권한을 회수하는 것은
+                       * 오히려 필요한 조작이다.
                        */}
-                      {user.status === 'ACTIVE' && (
+                      {user.status !== 'PENDING' && (
                         <Button
                           type="button"
                           variant="outline"

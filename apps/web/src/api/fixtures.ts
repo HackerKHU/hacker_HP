@@ -706,6 +706,17 @@ export function fixtureUpdateUserRole(id: number, role: Role): Promise<User> {
     )
   }
 
+  // 승인 대기 계정은 이 경로의 대상이 아니다 (§2-2-5) — 승인일시 없는 ADMIN이 생긴다.
+  if (found.status === 'PENDING') {
+    return Promise.reject(
+      new ApiError(
+        'FORBIDDEN',
+        403,
+        '승인 대기 중인 계정은 권한을 바꿀 수 없습니다.',
+      ),
+    )
+  }
+
   const remaining = MEMBERS.filter(
     (user) =>
       user.status === 'ACTIVE' &&
@@ -713,10 +724,13 @@ export function fixtureUpdateUserRole(id: number, role: Role): Promise<User> {
   )
   if (remaining.length === 0) {
     return Promise.reject(
+      // 자기 대상과 남 대상을 가른다 (§2-2-7 — 화면이 서버 문구를 그대로 보여준다).
       new ApiError(
         'FORBIDDEN',
         403,
-        '활성 관리자가 없어집니다. 다른 관리자를 먼저 지정해 주세요.',
+        id === SELF_ID
+          ? '마지막 활성 관리자는 자기 권한을 회수할 수 없습니다.'
+          : '활성 관리자가 없어집니다. 다른 관리자를 먼저 지정해 주세요.',
       ),
     )
   }
