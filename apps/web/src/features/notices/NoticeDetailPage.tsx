@@ -142,7 +142,15 @@ export function NoticeDetailPage() {
 
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button variant="outline" size="sm" disabled={deleting}>
+                    {/*
+                     * **되돌릴 수 없는 조작은 무게가 달라야 한다.** `수정`과 같은
+                     * `outline`이면 손이 미끄러진 곳이 어디였는지 알 수 없다 — 회원 관리의
+                     * `제거`를 메뉴 안에서 가른 것과 같은 이유다 (#99).
+                     *
+                     * 이 팔레트에서 `destructive`는 붉은색이 아니라 회색(`#525252`)이라
+                     * 무채색 규칙을 깨지 않는다.
+                     */}
+                    <Button variant="destructive" size="sm" disabled={deleting}>
                       삭제
                     </Button>
                   </AlertDialogTrigger>

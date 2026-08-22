@@ -4,7 +4,9 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { list, type Notice, togglePin } from '@/api/notices'
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import {
   Pagination,
   PaginationContent,
@@ -247,69 +249,82 @@ export function NoticeListPage() {
       )}
 
       {data !== null && data.content.length > 0 && (
-        <ul className="mt-6 border-t border-border">
-          {data.content.map((notice) => (
-            <li
-              key={notice.id}
-              className="flex items-center border-b border-border"
-            >
-              <Link
-                to={`/notices/${notice.id}`}
-                className={cn(
-                  'flex min-w-0 flex-1 items-center gap-4 py-3 pr-2 pl-3 transition-colors hover:bg-accent',
-                  // 무채색 팔레트라 색으로 구분할 수 없다. 고정 공지는 좌측 세로 바와
-                  // 핀 아이콘, 순검정 제목으로 가른다.
-                  notice.isPinned
-                    ? 'border-l-[3px] border-l-primary'
-                    : 'border-l-[3px] border-l-transparent',
-                )}
+        <Card className="mt-6 overflow-hidden py-0">
+          <ul>
+            {data.content.map((notice) => (
+              <li
+                key={notice.id}
+                className="flex items-center border-b border-border last:border-b-0"
               >
-                <span
+                <Link
+                  to={`/notices/${notice.id}`}
                   className={cn(
-                    'flex min-w-0 flex-1 items-center gap-2 text-sm',
+                    'flex min-w-0 flex-1 items-center gap-4 py-3 pr-2 pl-3 transition-colors hover:bg-accent',
+                    /*
+                     * **포커스 표시를 안쪽에 그린다.** 카드가 `overflow-hidden`이라 밖으로
+                     * 나가는 브라우저 기본 `outline`이 경계에서 잘려, 키보드로 훑을 때 지금
+                     * 어느 행에 있는지 보이지 않는다.
+                     *
+                     * 다른 컨트롤과 같은 링을 쓰되 `ring-inset`으로 안쪽에 둔다.
+                     */
+                    'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset',
+                    // 무채색 팔레트라 색으로 구분할 수 없다. 고정 공지는 좌측 세로 바와
+                    // 핀 아이콘, 순검정 제목으로 가른다.
                     notice.isPinned
-                      ? 'font-medium text-primary'
-                      : 'text-foreground',
+                      ? 'border-l-[3px] border-l-primary'
+                      : 'border-l-[3px] border-l-transparent',
                   )}
                 >
-                  {notice.isPinned && (
-                    <>
-                      <Pin className="size-3.5 shrink-0" aria-hidden="true" />
-                      {/* 아이콘만 두면 스크린리더가 못 읽는다. 의미는 남긴다. */}
-                      <span className="sr-only">고정</span>
-                    </>
-                  )}
-                  <span className="truncate">{notice.title}</span>
-                  {isNew(notice.createdAt) && (
-                    // 고정(핀 + 세로 바)이 강한 표시라 새글은 테두리만 있는 약한 라벨로
-                    // 둔다. 둘 다 채우면 위계가 사라져 아무것도 안 튄다.
-                    <span className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-[10px] leading-none font-medium tracking-wide text-muted-foreground">
-                      NEW
-                    </span>
-                  )}
-                </span>
-                <time
-                  dateTime={notice.createdAt}
-                  className="shrink-0 text-sm text-muted-foreground"
-                >
-                  {formatDate(notice.createdAt)}
-                </time>
-              </Link>
+                  <span
+                    className={cn(
+                      'flex min-w-0 flex-1 items-center gap-2 text-sm',
+                      notice.isPinned
+                        ? 'font-medium text-primary'
+                        : 'text-foreground',
+                    )}
+                  >
+                    {notice.isPinned && (
+                      <>
+                        <Pin className="size-3.5 shrink-0" aria-hidden="true" />
+                        {/* 아이콘만 두면 스크린리더가 못 읽는다. 의미는 남긴다. */}
+                        <span className="sr-only">고정</span>
+                      </>
+                    )}
+                    <span className="truncate">{notice.title}</span>
+                    {isNew(notice.createdAt) && (
+                      // 고정(핀 + 세로 바)이 강한 표시라 새글은 테두리만 있는 약한 라벨로
+                      // 둔다. 둘 다 채우면 위계가 사라져 아무것도 안 튄다.
+                      <Badge
+                        variant="outline"
+                        className="shrink-0 rounded-sm px-1.5 py-0 text-[10px] leading-none tracking-wide text-muted-foreground"
+                      >
+                        NEW
+                      </Badge>
+                    )}
+                  </span>
+                  <time
+                    dateTime={notice.createdAt}
+                    className="shrink-0 text-sm text-muted-foreground"
+                  >
+                    {formatDate(notice.createdAt)}
+                  </time>
+                </Link>
 
-              {managing && isAdmin && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="ml-2 shrink-0"
-                  disabled={pinning}
-                  onClick={() => handleTogglePin(notice.id)}
-                >
-                  {notice.isPinned ? '고정 해제' : '고정'}
-                </Button>
-              )}
-            </li>
-          ))}
-        </ul>
+                {managing && isAdmin && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-2 shrink-0"
+                    disabled={pinning}
+                    onClick={() => handleTogglePin(notice.id)}
+                  >
+                    {notice.isPinned ? '고정 해제' : '고정'}
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Card>
       )}
 
       {data !== null && data.page.totalPages > 1 && (
