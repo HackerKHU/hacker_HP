@@ -99,6 +99,14 @@ function loaded() {
 
 const GUEST = new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.')
 
+/*
+ * `public/`에 실제로 있는 파일 목록. `import.meta.glob`은 빌드 시점에 펼쳐지므로
+ * `node:fs`가 필요 없다 — `meta.test.ts`가 `og:image`에 쓰는 것과 같은 방식이다.
+ */
+const PUBLIC_FILES = Object.keys(
+  import.meta.glob('../../../public/**/*', { eager: false }),
+).map((key) => key.replace('../../../public', ''))
+
 beforeEach(() => {
   auth.me = () => Promise.reject(GUEST)
 })
@@ -223,23 +231,24 @@ describe('정지된 세션', () => {
 
 describe('로고', () => {
   /*
-   * 자리표시자를 걷고 확정 로고를 넣었다. **배경에 맞는 잉크를 골라야 한다** — 왼쪽
-   * 패널은 `.dark`라 흰색, 좁은 화면 자리는 라이트라 검정이다. 바뀌면 마크가 배경에
-   * 묻혀 안 보이는데, 화면을 안 열어보면 모른다.
+   * 자리표시자를 걷고 확정 로고를 넣었다. **화면 전체가 다크라 잉크는 둘 다 흰색**이다.
+   * 검정으로 바뀌면 마크가 카드 안에서 통째로 사라지는데, 화면을 안 열어보면 모른다.
    *
-   * 파일 존재는 `meta.test.ts`가 `og:image`에 대해 하는 것과 같은 종류의 검사다 —
-   * 태그만 있고 그림이 없으면 화면에 깨진 아이콘이 뜬다.
+   * 세 가지를 한 번에 못박는다 — 어느 하나만으로는 안 걸리는 것이 있다.
+   *
+   * ① **파일 이름**. 이것만 보면 잉크가 바뀐 것은 잡지만 나머지 둘은 못 잡는다.
+   * ② **다크 문맥**. 잉크가 흰색인 근거는 카드가 검정이라는 것이다. 카드만 라이트로
+   *    되돌리면 파일 이름 검사는 그대로 통과하는데 화면에서는 마크가 사라진다.
+   * ③ **파일 존재**. `mark-white-256.png`처럼 없는 이름을 가리켜도 ①②는 통과한다 —
+   *    실제로 그렇게 404가 난 적이 있고, `lg` 미만에서만 나오는 자리라 넓은 화면
+   *    확인으로는 드러나지 않았다. `meta.test.ts`가 `og:image`에 하는 검사와 같다.
    */
-  it('배경에 맞는 잉크의 마크를 쓴다', async () => {
+  it('다크 카드 위에 실재하는 흰 잉크 마크를 쓴다', async () => {
     renderAt('/login')
 
     /*
      * 좌측 패널은 **세로 락업**이다 — 심볼만 두면 처음 온 사람이 무엇의 마크인지
      * 알 수 없어, 이름까지 든 조합을 쓴다.
-     */
-    /*
-     * 화면 전체가 다크다 — 배경도 카드 두 장도 검정이라 **잉크는 둘 다 흰색**이다.
-     * 검정 잉크로 바뀌면 카드 안에서 통째로 사라지는데, 화면을 안 열어보면 모른다.
      */
     const panel = await screen.findByAltText('해커')
     expect(panel).toHaveAttribute(
@@ -247,9 +256,24 @@ describe('로고', () => {
       '/brand/lockup-vertical-white-1024.png',
     )
 
-    /* 좁은 화면 폴백 마크도 같은 다크 카드 위에 놓인다. */
+    /* 좁은 화면에서 좌측 패널이 사라지는 자리를 메우는 폴백. 같은 검정 카드 위다. */
     const narrow = screen.getByAltText(CLUB.fullName)
     expect(narrow).toHaveAttribute('src', '/brand/mark-white-512.png')
+
+    for (const mark of [panel, narrow]) {
+      /*
+       * **`html`이 아니라 화면 안쪽에서 다크를 찾는다.** `useDarkChrome`이 `html`에도
+       * 클래스를 거는데, 거기까지 타고 올라가는 것을 허용하면 최상위 div의 `.dark`가
+       * 빠져도 통과한다 — 실제로 그렇게 헛돌았다. 그 div는 첫 페인트를 담당한다.
+       * 훅은 effect라 페인트 뒤에 도므로, 빠지면 라이트로 한 프레임 번쩍인다.
+       */
+      const context = mark.closest('.dark')
+      expect(context).not.toBeNull()
+      expect(context).not.toBe(document.documentElement)
+
+      const src = mark.getAttribute('src') ?? ''
+      expect(PUBLIC_FILES, `${src}가 public/에 없다`).toContain(src)
+    }
   })
 
   /*
@@ -538,6 +562,12 @@ describe('구글 버튼', () => {
     renderAt('/login')
     const button = await loaded()
 
+    /*
+     * **부분 문자열이 아니라 토큰으로 본다.** `className.toContain('bg-[#131314]')`은
+     * `dark:bg-[#131314]`에도 걸려서, 짝만 남고 본체가 사라져도 통과한다 — 잠금이
+     * 되지 않는다.
+     */
+    const classes = button.className.split(/\s+/)
     for (const token of [
       'border-[#8E918F]',
       'bg-[#131314]',
@@ -545,7 +575,7 @@ describe('구글 버튼', () => {
       'dark:border-[#8E918F]',
       'dark:bg-[#131314]',
     ]) {
-      expect(button.className).toContain(token)
+      expect(classes, `${token} 없음`).toContain(token)
     }
     expect(button).toHaveTextContent('Google로 계속하기')
   })
@@ -784,3 +814,29 @@ function canonical(markup: string): LogoNode[] {
 function isNode(node: LogoNode | null): node is LogoNode {
   return node !== null
 }
+
+describe('다크 크롬', () => {
+  /*
+   * 이 화면은 전면 검정이다. **최상위 div의 `.dark`만으로는 `body`까지 미치지 않는다** —
+   * `body`가 `@apply bg-background`로 `:root`(라이트)를 읽어 흰색으로 덮고, iOS Safari가
+   * 상태바·툴바에 그 색을 쓴다. 그래서 위아래에 흰 띠가 남는다 (#192).
+   *
+   * 랜딩에서 같은 증상을 고친 처리를 `useDarkChrome`으로 모아 이 화면도 쓴다. 훅 호출이
+   * 빠지면 화면 안쪽은 그대로 검게 보여서 **브라우저에서도 데스크톱에서는 티가 안 난다.**
+   */
+  it('html에 다크를 걸고 나갈 때 되돌린다', async () => {
+    const html = document.documentElement
+    expect(html.classList.contains('dark')).toBe(false)
+
+    renderAt('/login')
+    await loaded()
+    expect(html.classList.contains('dark')).toBe(true)
+
+    /*
+     * **되돌리는 것까지 본다.** 로그인 이후 화면은 라이트라, 나가면서 벗기지 않으면
+     * 공지사항이 검정으로 남는다.
+     */
+    cleanup()
+    expect(html.classList.contains('dark')).toBe(false)
+  })
+})
