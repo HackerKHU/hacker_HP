@@ -30,7 +30,7 @@ import { DEPARTMENTS } from '@/features/auth/departments'
 import type { AdminUserQuery, ApproveResult } from './adminUsers'
 import { ApiError } from './client'
 import type { Notice } from './notices'
-import type { Page, User } from './types'
+import type { Page, Role, User } from './types'
 
 /**
  * 어떤 사용자로 볼지 / 어떤 실패를 볼지 고르는 스위치. `.env.local`에서 바꾼다.
@@ -685,6 +685,44 @@ export function fixtureApproveUsers(userIds: number[]): Promise<ApproveResult> {
     result.approved.push(id)
   }
   return Promise.resolve(result)
+}
+
+/**
+ * 권한 부여·회수 (2-2 §2-2-5). **이 조작 뒤에 활성 관리자가 0명이 되면 막는다** (§2-2-7 MUST).
+ *
+ * 자기 자신인지만 보지 않는다 — 관리자가 둘일 때 서로의 권한을 동시에 회수하면 각자
+ * "남을 회수하는 것"이라 자기 검사에 걸리지 않는다. 조작 뒤에 남는지를 센다.
+ *
+ * 픽스처가 서버처럼 거부해야 그 실패 화면을 만들 수 있다.
+ */
+export function fixtureUpdateUserRole(id: number, role: Role): Promise<User> {
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const found = MEMBERS.find((user) => user.id === id)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '회원을 찾을 수 없습니다.'),
+    )
+  }
+
+  const remaining = MEMBERS.filter(
+    (user) =>
+      user.status === 'ACTIVE' &&
+      (user.id === id ? role === 'ADMIN' : user.role === 'ADMIN'),
+  )
+  if (remaining.length === 0) {
+    return Promise.reject(
+      new ApiError(
+        'FORBIDDEN',
+        403,
+        '활성 관리자가 없어집니다. 다른 관리자를 먼저 지정해 주세요.',
+      ),
+    )
+  }
+
+  found.role = role
+  return Promise.resolve(found)
 }
 
 /**

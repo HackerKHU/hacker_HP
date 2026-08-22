@@ -2,6 +2,7 @@ import { request, toQuery } from './client'
 import {
   fixtureAdminUsers,
   fixtureApproveUsers,
+  fixtureUpdateUserRole,
   fixtureUpdateUserStatus,
 } from './fixtures'
 import type { Page, Role, User, UserStatus } from './types'
@@ -61,6 +62,22 @@ export function approve(userIds: number[]): Promise<ApproveResult> {
   return request<ApproveResult>('/admin/users/approve', {
     method: 'POST',
     body: JSON.stringify({ userIds }),
+  })
+}
+
+/**
+ * 권한 부여·회수 (spec 2-2 §2-2-5).
+ *
+ * **마지막 활성 관리자인지는 화면이 판단하지 않는다** — 서버가 잠금을 걸고 원자적으로 센다
+ * (§2-2-7 MUST). 화면은 거부 사유를 그대로 보여준다.
+ */
+export function updateRole(id: number, role: Role): Promise<User> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true') {
+    return fixtureUpdateUserRole(id, role)
+  }
+  return request<User>(`/admin/users/${id}/role`, {
+    method: 'PATCH',
+    body: JSON.stringify({ role }),
   })
 }
 

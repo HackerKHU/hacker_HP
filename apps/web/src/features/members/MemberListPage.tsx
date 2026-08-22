@@ -4,6 +4,7 @@ import {
   type ApproveFailureReason,
   approve,
   list,
+  updateRole,
   updateStatus,
 } from '@/api/adminUsers'
 import { ApiError } from '@/api/client'
@@ -83,6 +84,7 @@ function describeFailures(
 type PendingAction =
   | { kind: 'approve'; ids: number[] }
   | { kind: 'status'; user: User; next: 'ACTIVE' | 'SUSPENDED' }
+  | { kind: 'role'; user: User; next: Role }
 
 /**
  * 상태 표시. **`PENDING`을 신청 여부로 가른다** (spec §3-1-4).
@@ -390,6 +392,15 @@ export function MemberListPage() {
         body: `${action.ids.length}명을 승인합니다: ${names}`,
       }
     }
+    if (action.kind === 'role') {
+      const granting = action.next === 'ADMIN'
+      return {
+        title: granting ? '관리자 권한을 줄까요?' : '관리자 권한을 회수할까요?',
+        body: granting
+          ? `${action.user.name} 회원이 회원 승인과 공지 작성을 할 수 있게 됩니다.`
+          : `${action.user.name} 회원의 관리자 권한을 회수합니다.`,
+      }
+    }
     const suspending = action.next === 'SUSPENDED'
     return {
       title: suspending ? '회원을 정지할까요?' : '정지를 해제할까요?',
@@ -412,9 +423,9 @@ export function MemberListPage() {
   }
 
   function run(action: PendingAction) {
-    return action.kind === 'approve'
-      ? runApprove(action.ids)
-      : runStatus(action.user, action.next)
+    if (action.kind === 'approve') return runApprove(action.ids)
+    if (action.kind === 'role') return runRole(action.user, action.next)
+    return runStatus(action.user, action.next)
   }
 
   async function runApprove(ids: number[]) {
@@ -472,6 +483,32 @@ export function MemberListPage() {
    * 화면은 활성 관리자가 몇 명인지 모른다. 서버가 403으로 거부하면 그 메시지를 그대로
    * 보여준다 — 막힌 것을 성공처럼 보이게 하면 관리자가 정지된 줄 알고 자리를 뜬다.
    */
+  /*
+   * **화면이 마지막 활성 관리자를 판단하지 않는다** (2-2 §2-2-7 MUST — 검사는 서버에서).
+   * 활성 관리자가 몇 명인지 이 화면은 모른다. 서버가 막으면 그 사유를 그대로 보여준다.
+   */
+  async function runRole(user: User, next: Role) {
+    setWorking(true)
+    setNotice(null)
+    try {
+      await updateRole(user.id, next)
+      setNotice(
+        `${user.name} 회원에게 관리자 권한을 ${next === 'ADMIN' ? '부여' : '회수'}했습니다.`,
+      )
+      setReloadKey((key) => key + 1)
+    } catch (error: unknown) {
+      reportApiError(error)
+      setNotice(
+        error instanceof ApiError
+          ? `권한을 바꾸지 못했습니다. ${error.message}`
+          : '권한을 바꾸지 못했습니다. 잠시 후 다시 시도해 주세요.',
+      )
+    } finally {
+      setWorking(false)
+      setConfirm(null)
+    }
+  }
+
   async function runStatus(user: User, next: 'ACTIVE' | 'SUSPENDED') {
     setWorking(true)
     setNotice(null)
@@ -700,6 +737,27 @@ export function MemberListPage() {
                           {user.status === 'SUSPENDED' ? '정지 해제' : '정지'}
                         </Button>
                       )}
+                      {/*
+                       * 승인된 회원에게만 의미가 있다. PENDING·SUSPENDED는 로그인 자체가
+                       * 막혀 있거나 아직 부원이 아니라 권한을 줘도 쓸 수 없다.
+                       */}
+                      {user.status === 'ACTIVE' && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={working}
+                          onClick={() =>
+                            setConfirm({
+                              kind: 'role',
+                              user,
+                              next: user.role === 'ADMIN' ? 'USER' : 'ADMIN',
+                            })
+                          }
+                        >
+                          {user.role === 'ADMIN' ? '권한 회수' : '관리자 지정'}
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 )
@@ -770,9 +828,13 @@ export function MemberListPage() {
             >
               {pending?.kind === 'approve'
                 ? '승인'
-                : pending?.next === 'SUSPENDED'
-                  ? '정지'
-                  : '정지 해제'}
+                : pending?.kind === 'role'
+                  ? pending.next === 'ADMIN'
+                    ? '관리자 지정'
+                    : '권한 회수'
+                  : pending?.next === 'SUSPENDED'
+                    ? '정지'
+                    : '정지 해제'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
