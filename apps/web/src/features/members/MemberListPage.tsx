@@ -3,7 +3,12 @@ import { useSearchParams } from 'react-router-dom'
 import {
   type ApproveFailureReason,
   approve,
+  type ContentSummary,
+  contentSummary,
   list,
+  type RejectFailureReason,
+  reject,
+  remove,
   updateRole,
   updateStatus,
 } from '@/api/adminUsers'
@@ -49,6 +54,17 @@ const FAILURE_TEXT: Record<ApproveFailureReason, string> = {
   NOT_FOUND: '찾을 수 없는 계정',
 }
 
+/**
+ * 거부 실패 문구 (§3-2-6). 승인과 사유 집합이 달라 따로 둔다 — `NOT_APPLIED`가 없다.
+ *
+ * `NOT_PENDING`을 "이미 처리됨"으로 뭉개지 않는다. 이 경로로는 이용 중인 회원을 지울 수
+ * 없고, 그것은 제거(§2-2-4)라는 별개 조작이다.
+ */
+const REJECT_FAILURE_TEXT: Record<RejectFailureReason, string> = {
+  NOT_PENDING: '승인 대기 상태가 아닌 계정',
+  NOT_FOUND: '찾을 수 없는 계정',
+}
+
 const FAILURE_ORDER: ApproveFailureReason[] = [
   'NOT_APPLIED',
   'NOT_PENDING',
@@ -85,6 +101,27 @@ type PendingAction =
   | { kind: 'approve'; ids: number[] }
   | { kind: 'status'; user: User; next: 'ACTIVE' | 'SUSPENDED' }
   | { kind: 'role'; user: User; next: Role }
+  | { kind: 'reject'; ids: number[] }
+  /*
+   * 제거만 확인 창에 **무엇이 남는지**까지 담는다 (2-2 §2-2-4 MUST). 되돌아갈 수단을
+   * 없애는 유일한 조작이라, 관계가 끊기고 나면 운영자도 그 회원의 콘텐츠를 찾을 수 없다.
+   * `summary`가 `null`이면 아직 불러오는 중이다.
+   */
+  | {
+      kind: 'remove'
+      user: User
+      /*
+       * `null`이면 아직 불러오는 중, `'failed'`면 못 받았다. 셋을 가르는 이유는 확인 창이
+       * "0건"과 "모름"을 다르게 말해야 하기 때문이다 — 모르는데 0건으로 보이면 남는 것이
+       * 없다고 읽혀 되돌릴 수 없는 조작을 그 전제로 하게 된다.
+       */
+      summary: ContentSummary | 'failed' | null
+      /**
+       * 이 확인 창을 연 요청의 세대. 같은 회원을 닫았다 다시 열면 값이 달라진다 —
+       * 회원 id만 비교하면 A→닫기→A나 A→B→A에서 취소된 응답이 새 창을 덮는다.
+       */
+      token: number
+    }
 
 /**
  * 상태 표시. **`PENDING`을 신청 여부로 가른다** (spec §3-1-4).
@@ -228,6 +265,8 @@ export function MemberListPage() {
   const [pending, setPending] = useState<PendingAction | null>(null)
   /** 조회 조건이 바뀔 때 "확인창이 열려 있었는지"를 읽으려고 둔다. `selectedRef`와 같은 이유다. */
   const pendingRef = useRef<PendingAction | null>(null)
+  /** 제거 확인 창의 건수 요청 세대. 늦게 도착한 응답을 가려낸다. */
+  const removeToken = useRef(0)
 
   function setConfirm(next: PendingAction | null) {
     pendingRef.current = next
@@ -392,6 +431,33 @@ export function MemberListPage() {
         body: `${action.ids.length}명을 승인합니다: ${names}`,
       }
     }
+    if (action.kind === 'reject') {
+      const names = action.ids
+        .map((id) => rows.find((user) => user.id === id)?.name)
+        .filter(Boolean)
+        .join(', ')
+      return {
+        title: '선택한 신청을 거부할까요?',
+        body: `${action.ids.length}명의 신청을 거부하고 계정을 지웁니다: ${names}`,
+      }
+    }
+    if (action.kind === 'remove') {
+      const { user, summary } = action
+      /*
+       * 건수를 아직 모르면 그렇게 말한다. "0건"으로 보이면 남는 것이 없다고 읽혀,
+       * 관리자가 그 전제로 되돌릴 수 없는 조작을 한다.
+       */
+      const leaves =
+        summary === null
+          ? '남을 콘텐츠를 확인하는 중입니다.'
+          : summary === 'failed'
+            ? '남을 콘텐츠 건수를 불러오지 못했습니다. 다시 시도해 주세요.'
+            : `자료 ${summary.notes}건, 공지 ${summary.notices}건, 활동사진 ${summary.photos}건이 "탈퇴한 회원"으로 남습니다.`
+      return {
+        title: '이 회원을 제거할까요?',
+        body: `${user.name} 회원의 계정을 지웁니다. 되돌릴 수 없습니다. ${leaves}`,
+      }
+    }
     if (action.kind === 'role') {
       const granting = action.next === 'ADMIN'
       return {
@@ -424,6 +490,8 @@ export function MemberListPage() {
 
   function run(action: PendingAction) {
     if (action.kind === 'approve') return runApprove(action.ids)
+    if (action.kind === 'reject') return runReject(action.ids)
+    if (action.kind === 'remove') return runRemove(action.user)
     if (action.kind === 'role') return runRole(action.user, action.next)
     return runStatus(action.user, action.next)
   }
@@ -483,6 +551,105 @@ export function MemberListPage() {
    * 화면은 활성 관리자가 몇 명인지 모른다. 서버가 403으로 거부하면 그 메시지를 그대로
    * 보여준다 — 막힌 것을 성공처럼 보이게 하면 관리자가 정지된 줄 알고 자리를 뜬다.
    */
+  /*
+   * 확인 창을 **먼저 열고** 건수를 뒤이어 채운다. 다 받고 나서 열면 누른 뒤 아무 반응이
+   * 없는 구간이 생겨 두 번 누르게 된다. 그동안 창은 "확인하는 중"이라고 말한다.
+   *
+   * 건수를 못 받아도 창을 닫지 않는다 — 제거 자체는 건수와 무관하게 진행할 수 있고
+   * (§2-2-4 — 참고치이지 조건이 아니다), 닫아 버리면 왜 닫혔는지 알 수 없다.
+   */
+  async function openRemove(user: User) {
+    const token = ++removeToken.current
+    setConfirm({ kind: 'remove', user, summary: null, token })
+
+    /** 이 응답이 아직 화면에 붙어 있는 창의 것인가. */
+    const current = () => {
+      const pending = pendingRef.current
+      return pending?.kind === 'remove' && pending.token === token
+        ? pending
+        : null
+    }
+
+    try {
+      const summary = await contentSummary(user.id)
+      const open = current()
+      if (open) setConfirm({ ...open, summary })
+    } catch (error: unknown) {
+      reportApiError(error)
+      const open = current()
+      /*
+       * 취소된 요청의 실패는 삼킨다. 창을 닫은 뒤 뜨는 오류나, 제거가 먼저 성공한 뒤
+       * 늦게 도착한 404가 성공 안내를 덮는 것을 막는다.
+       */
+      if (open) {
+        setConfirm({ ...open, summary: 'failed' })
+        setNotice('남을 콘텐츠 건수를 불러오지 못했습니다.')
+      }
+    }
+  }
+
+  async function runReject(ids: number[]) {
+    setWorking(true)
+    setNotice(null)
+    try {
+      const result = await reject(ids)
+      const failures = result.failed
+        .map(({ userId, reason }) => {
+          const who =
+            rows.find((user) => user.id === userId)?.name ?? `#${userId}`
+          return `${REJECT_FAILURE_TEXT[reason]}: ${who}`
+        })
+        .join(' / ')
+      setNotice(
+        failures
+          ? `${result.rejected.length}명을 거부했습니다. ${result.failed.length}명은 거부하지 못했습니다 — ${failures}`
+          : `${result.rejected.length}명의 신청을 거부했습니다.`,
+      )
+      setReloadKey((key) => key + 1)
+    } catch (error: unknown) {
+      reportApiError(error)
+      setNotice(
+        error instanceof ApiError
+          ? `거부하지 못했습니다. ${error.message}`
+          : '거부하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+      )
+    } finally {
+      /*
+       * **보낸 사람만 선택에서 뺀다** (T-161) — 성공·실패·요청 실패 모두 같다. 통째로
+       * 비우면 응답을 기다리는 사이 새로 고른 사람까지 풀리고, 실패 때 그냥 두면 해제할
+       * 수 없는 선택이 남는다. 승인과 같은 규칙이다.
+       */
+      setSelection(selectedRef.current.filter((id) => !ids.includes(id)))
+      setWorking(false)
+      setConfirm(null)
+    }
+  }
+
+  async function runRemove(user: User) {
+    setWorking(true)
+    setNotice(null)
+    try {
+      await remove(user.id)
+      setNotice(`${user.name} 회원을 제거했습니다.`)
+      /*
+       * 선택은 건드리지 않는다. 제거 대상은 비-`PENDING`이고 선택 가능한 것은 신청서를
+       * 낸 `PENDING`뿐이라, 제거 대상이 선택에 들어갈 수 없다 — 여기서 비우면 무관한
+       * 신청자 선택만 조용히 풀린다.
+       */
+      setReloadKey((key) => key + 1)
+    } catch (error: unknown) {
+      reportApiError(error)
+      setNotice(
+        error instanceof ApiError
+          ? `제거하지 못했습니다. ${error.message}`
+          : '제거하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+      )
+    } finally {
+      setWorking(false)
+      setConfirm(null)
+    }
+  }
+
   /*
    * **화면이 마지막 활성 관리자를 판단하지 않는다** (2-2 §2-2-7 MUST — 검사는 서버에서).
    * 활성 관리자가 몇 명인지 이 화면은 모른다. 서버가 막으면 그 사유를 그대로 보여준다.
@@ -639,6 +806,14 @@ export function MemberListPage() {
             >
               선택한 {selected.length}명 승인
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={selected.length === 0 || working}
+              onClick={() => setConfirm({ kind: 'reject', ids: selected })}
+            >
+              선택한 {selected.length}명 거부
+            </Button>
           </div>
 
           <Table className="mt-4">
@@ -760,6 +935,21 @@ export function MemberListPage() {
                           {user.role === 'ADMIN' ? '권한 회수' : '관리자 지정'}
                         </Button>
                       )}
+                      {/*
+                       * **`PENDING`은 제거가 아니라 거부다** (§2-2-2). 남긴 것이 없어
+                       * 세션 폐기·콘텐츠 처리 규칙이 붙지 않고, 위 일괄 흐름이 담당한다.
+                       */}
+                      {user.status !== 'PENDING' && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={working}
+                          onClick={() => openRemove(user)}
+                        >
+                          제거
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 )
@@ -823,20 +1013,33 @@ export function MemberListPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
+            {/*
+              **건수를 보여주기 전에는 제거를 누를 수 없다** (2-2 §2-2-4 MUST). 느린 조회나
+              실패 때 그냥 열어 두면 무엇이 남는지 한 번도 못 본 채로 되돌릴 수 없는 조작을
+              하게 된다 — 그것이 이 확인 창의 존재 이유다.
+            */}
             <AlertDialogAction
+              disabled={
+                pending?.kind === 'remove' &&
+                (pending.summary === null || pending.summary === 'failed')
+              }
               onClick={() => {
                 if (pending) run(pending)
               }}
             >
               {pending?.kind === 'approve'
                 ? '승인'
-                : pending?.kind === 'role'
-                  ? pending.next === 'ADMIN'
-                    ? '관리자 지정'
-                    : '권한 회수'
-                  : pending?.next === 'SUSPENDED'
-                    ? '정지'
-                    : '정지 해제'}
+                : pending?.kind === 'reject'
+                  ? '거부'
+                  : pending?.kind === 'remove'
+                    ? '제거'
+                    : pending?.kind === 'role'
+                      ? pending.next === 'ADMIN'
+                        ? '관리자 지정'
+                        : '권한 회수'
+                      : pending?.next === 'SUSPENDED'
+                        ? '정지'
+                        : '정지 해제'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

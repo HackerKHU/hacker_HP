@@ -2,6 +2,9 @@ import { request, toQuery } from './client'
 import {
   fixtureAdminUsers,
   fixtureApproveUsers,
+  fixtureContentSummary,
+  fixtureRejectUsers,
+  fixtureRemoveUser,
   fixtureUpdateUserRole,
   fixtureUpdateUserStatus,
 } from './fixtures'
@@ -63,6 +66,64 @@ export function approve(userIds: number[]): Promise<ApproveResult> {
     method: 'POST',
     body: JSON.stringify({ userIds }),
   })
+}
+
+/**
+ * 일괄 거부 결과 (§3-2-6). 승인과 같은 모양이다 — 배열 길이가 곧 건수다.
+ */
+export interface RejectResult {
+  rejected: number[]
+  failed: { userId: number; reason: RejectFailureReason }[]
+}
+
+/**
+ * 거부 실패 사유 (§3-2-6).
+ *
+ * **`NOT_PENDING`을 "이미 처리됨"으로 뭉개지 않는다.** 이 경로로는 이용 중인 회원을 지울
+ * 수 없다 — 그것은 "제거"이고 세션 폐기·정지 선행 같은 규칙이 따로 붙는다 (2-2 §2-2-4).
+ */
+export type RejectFailureReason = 'NOT_FOUND' | 'NOT_PENDING'
+
+/** 일괄 거부. 남긴 것이 없는 `PENDING` 계정을 지운다 (2-2 §2-2-2). */
+export function reject(userIds: number[]): Promise<RejectResult> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true') {
+    return fixtureRejectUsers(userIds)
+  }
+  return request<RejectResult>('/admin/users/reject', {
+    method: 'POST',
+    body: JSON.stringify({ userIds }),
+  })
+}
+
+/**
+ * 제거하면 무엇이 남는지 (2-2 §2-2-4 MUST).
+ *
+ * **세 값이 항상 온다.** `0`을 빼면 화면이 "없음"과 "모름"을 가르지 못한다.
+ */
+export interface ContentSummary {
+  notes: number
+  notices: number
+  photos: number
+}
+
+export function contentSummary(id: number): Promise<ContentSummary> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true') {
+    return fixtureContentSummary(id)
+  }
+  return request<ContentSummary>(`/admin/users/${id}/content-summary`)
+}
+
+/**
+ * 회원 제거 (2-2 §2-2-4). **되돌릴 수 없다.**
+ *
+ * 자료·공지·활동사진은 남고 업로더 표시만 "탈퇴한 회원"이 된다. 즐겨찾기는 함께 지워진다.
+ * 서버가 정지를 먼저 확정하고 세션까지 폐기한다 — 화면이 그 순서를 흉내 내지 않는다.
+ */
+export function remove(id: number): Promise<void> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true') {
+    return fixtureRemoveUser(id)
+  }
+  return request<void>(`/admin/users/${id}`, { method: 'DELETE' })
 }
 
 /**
