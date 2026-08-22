@@ -26,6 +26,8 @@ const api = vi.hoisted(() => ({
   queries: [] as AdminUserQuery[],
   approved: [] as number[][],
   statusCalls: [] as { id: number; status: string }[],
+  roleAttempts: [] as { id: number; role: string }[],
+  roleError: null as ApiError | null,
   /** 실패하든 말든 **시도한 것**. 화면이 미리 막지 않았는지 보려면 이게 필요하다. */
   statusAttempts: [] as { id: number; status: string }[],
   approveResult: null as ApproveResult | null,
@@ -115,6 +117,11 @@ vi.mock('@/api/adminUsers', () => ({
     }
     return Promise.resolve(result)
   },
+  updateRole: (id: number, role: string): Promise<User> => {
+    api.roleAttempts.push({ id, role })
+    if (api.roleError) return Promise.reject(api.roleError)
+    return Promise.resolve({ ...MEMBERS[0], role: role as 'USER' | 'ADMIN' })
+  },
   updateStatus: (id: number, status: string): Promise<User> => {
     api.statusAttempts.push({ id, status })
     if (api.statusError) return Promise.reject(api.statusError)
@@ -192,6 +199,8 @@ beforeEach(() => {
   api.approved = []
   api.statusCalls = []
   api.statusAttempts = []
+  api.roleAttempts = []
+  api.roleError = null
   api.approveResult = null
   api.approveError = null
   api.statusError = null
@@ -294,6 +303,80 @@ describe('승인 대상', () => {
    * 아니다. 둘은 며칠 차이가 나므로 바꿔 쓰면 운영자가 다른 날짜를 보고 판단한다.
    * 픽스처 데이터의 두 날짜를 일부러 벌려 놓아, 어느 쪽을 그리는지 눈으로 갈린다.
    */
+  /*
+   * #200 — 임원진을 여럿 두려면 화면에서 관리자를 지정할 수 있어야 한다. 되돌릴 수 없는
+   * 조작이라 확인 창을 거친다 (T-77과 같은 규칙).
+   */
+  it('관리자 지정은 확인 창을 거쳐 role만 바꾼다', async () => {
+    renderAt()
+    await loaded()
+
+    fireEvent.click(
+      within(row('활동회원')).getByRole('button', { name: '관리자 지정' }),
+    )
+    // 누른 것만으로는 요청이 나가지 않는다.
+    expect(api.roleAttempts).toEqual([])
+
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('활동회원')
+    fireEvent.click(within(dialog).getByRole('button', { name: '관리자 지정' }))
+
+    await waitFor(() => {
+      expect(api.roleAttempts).toEqual([{ id: 4, role: 'ADMIN' }])
+    })
+  })
+
+  /*
+   * 노출 조건은 **`PENDING`만 제외**다 (2-2 §2-2-5). 승인 전에 관리자로 만들면 승인일시
+   * 없는 ADMIN이 생기지만, 정지된 회원은 대상이다 — 권한과 상태는 독립이고 정지된
+   * 관리자의 권한을 회수하는 것은 오히려 필요한 조작이다.
+   */
+  it('권한 버튼은 PENDING에만 없고 정지된 회원에는 있다', async () => {
+    renderAt()
+    await loaded()
+
+    expect(
+      within(row('정지회원')).getByRole('button', { name: '관리자 지정' }),
+    ).toBeInTheDocument()
+
+    for (const name of ['신청한하나', '미신청']) {
+      expect(
+        within(row(name)).queryByRole('button', {
+          name: /관리자 지정|권한 회수/,
+        }),
+      ).toBeNull()
+    }
+  })
+
+  /*
+   * **화면이 미리 막지 않는다** (2-2 §2-2-7 MUST — 검사는 서버에서). 활성 관리자가 몇
+   * 명인지 화면은 모른다. 미리 비활성화하면 서버만 아는 조건을 화면이 흉내 내게 되고,
+   * 틀리는 순간 되돌릴 방법이 없다. T-80과 같은 뿌리다.
+   */
+  it('권한 회수가 서버에서 막히면 그 사유를 그대로 보여준다', async () => {
+    api.roleError = new ApiError(
+      'FORBIDDEN',
+      403,
+      '활성 관리자가 없어집니다. 다른 관리자를 먼저 지정해 주세요.',
+    )
+
+    renderAt()
+    await loaded()
+
+    const button = within(row('김관리')).getByRole('button', {
+      name: '권한 회수',
+    })
+    expect(button).toBeEnabled() // 화면이 미리 막지 않았다는 증거
+
+    fireEvent.click(button)
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '권한 회수' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '활성 관리자가 없어집니다. 다른 관리자를 먼저 지정해 주세요.',
+    )
+  })
+
   it('가입 신청일 칸에 createdAt이 아니라 appliedAt이 나온다', async () => {
     renderAt()
     await loaded()

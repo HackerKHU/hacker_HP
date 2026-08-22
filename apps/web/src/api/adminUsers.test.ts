@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearCookies, setCookie } from '@/test/cookies'
-import { approve, list, updateStatus } from './adminUsers'
+import { approve, list, updateRole, updateStatus } from './adminUsers'
 
 /**
  * 회원 관리 API 어댑터가 **실제로 어떤 method와 경로로 나가는지.**
@@ -113,14 +113,28 @@ describe('회원 관리 API method와 경로', () => {
   })
 
   /*
-   * 제외 범위 확인 (Post Launch) — 가입 거부·회원 제거·권한 변경은 이번에 만들지 않는다.
-   * 계약에는 엔드포인트가 있지만 어댑터에 함수를 두면 화면이 곧 부르게 된다.
+   * 권한 변경은 이제 있다 (#200) — 임원진을 여럿 두려면 화면에서 지정할 수 있어야 한다.
+   * **거부·제거는 아직 아니다** (#201). 계약에는 엔드포인트가 있지만 어댑터에 함수를
+   * 두면 화면이 곧 부르게 된다.
    */
-  it('거부·제거·권한 변경 함수를 두지 않는다', async () => {
+  it('거부·제거 함수는 아직 두지 않는다', async () => {
     const module = await import('./adminUsers')
 
-    for (const name of ['reject', 'remove', 'updateRole']) {
-      expect(module, `${name}은 Post Launch다`).not.toHaveProperty(name)
+    for (const name of ['reject', 'remove']) {
+      expect(module, `${name}은 #201이다`).not.toHaveProperty(name)
     }
+  })
+
+  it('권한 변경은 PATCH로 role만 보낸다', async () => {
+    const fetchMock = stubFetch({ id: 7, role: 'ADMIN' })
+
+    await updateRole(7, 'ADMIN')
+
+    expect(lastCall(fetchMock)).toEqual(['/api/v1/admin/users/7/role', 'PATCH'])
+    const [, init] = fetchMock.mock.calls.at(-1) as unknown as [
+      string,
+      RequestInit,
+    ]
+    expect(JSON.parse(String(init.body))).toEqual({ role: 'ADMIN' })
   })
 })
