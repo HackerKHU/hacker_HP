@@ -275,10 +275,21 @@ describe('로고', () => {
       expect(context).toHaveClass('min-h-screen', 'bg-background')
 
       /*
+       * **위에 우리 것이 아무것도 없어야 한다.** 클래스만 보면, 바깥에 `p-6` 껍데기를
+       * 하나 두고 안쪽 래퍼에 `dark min-h-screen bg-background`를 통째로 옮겨도 통과한다
+       * — 그 껍데기는 라이트로 남는다. 이 화면의 최상위 요소가 곧 다크를 세우는 요소여야
+       * 하므로, 부모가 렌더 컨테이너(클래스 없는 div)인 것을 본다.
+       */
+      expect(context?.parentElement?.className).toBe('')
+
+      /*
        * **카드 배경은 토큰에서 온다.** `bg-white` 같은 값을 직접 박으면 다크 문맥
        * 안에서도 흰 카드가 되어 흰 잉크가 통째로 사라지는데, 위 단언은 전부 통과한다.
        */
-      expect(mark.closest('.rounded-xl')).toHaveClass('bg-card')
+      const card = mark.closest<HTMLElement>('.rounded-xl')
+      expect(card).toHaveClass('bg-card')
+      /* 클래스를 남긴 채 인라인으로 덮어써도 실제 카드는 흰색이 된다. */
+      expect(card?.style.backgroundColor).toBe('')
 
       const src = mark.getAttribute('src') ?? ''
       expect(PUBLIC_FILES, `${src}가 public/에 없다`).toContain(src)
@@ -834,13 +845,15 @@ describe('다크 크롬', () => {
    * 빠지면 화면 안쪽은 그대로 검게 보여서 **브라우저에서도 데스크톱에서는 티가 안 난다.**
    */
   /*
-   * **훅이 손대는 것은 전역이다.** 단언이 중간에 실패하면 `html`의 클래스와 `meta`가
-   * 남아 **같은 파일의 뒤 테스트를 오염시킨다** — 공통 `afterEach(cleanup)`은 React
-   * 컨테이너만 걷을 뿐 이 둘은 되돌리지 못한다. 그래서 여기서 직접 원상복구한다.
+   * **훅이 손대는 것은 전역이다.** 정상 경로라면 공통 `afterEach(cleanup)`이 언마운트하며
+   * 훅의 정리를 태우므로 알아서 복원된다. 이 안전망은 **그 정리가 깨졌을 때**를 위한
+   * 것이다 — 그러면 `html`의 클래스와 `meta`가 남아 같은 파일의 뒤 테스트를 오염시키고,
+   * 진짜 원인인 이 테스트 대신 엉뚱한 테스트가 실패한다.
    */
   afterEach(() => {
     document.documentElement.classList.remove('dark')
     document.querySelector('meta[name="theme-color"]')?.remove()
+    document.body.style.removeProperty('background-color')
   })
 
   function themeColor(): string | null {
@@ -855,16 +868,24 @@ describe('다크 크롬', () => {
     expect(html.classList.contains('dark')).toBe(false)
     expect(themeColor()).toBeNull()
 
+    /*
+     * **`body` 색을 직접 정해 둔다.** 훅은 뒤집힌 팔레트에서 색을 읽는데, jsdom은 우리
+     * CSS를 적용하지 않아 기본값이 `rgba(0, 0, 0, 0)`(투명)이다. 그대로 두면 `toHex`가
+     * 우연히 `#000000`을 내놓아 **변환이 맞는지 틀린지 구별되지 않는다.** 값을 정해 두면
+     * `rgb()` → 16진수 변환까지 함께 검증된다 — Safari가 함수 표기를 무시하는 경우가
+     * 있어 그 변환이 이 훅의 몫이다.
+     */
+    document.body.style.backgroundColor = 'rgb(18, 18, 18)'
+
     renderAt('/login')
     await loaded()
 
     expect(html.classList.contains('dark')).toBe(true)
     /*
      * **`theme-color`까지 본다.** 클래스만 확인하면, 훅을 쓰지 않고 `classList`를 직접
-     * 토글하는 코드도 통과한다 — 그러면 iOS 주소창 색이 빠진다. jsdom은 색을 계산하지
-     * 않아 `body` 배경이 빈 문자열이므로, 값이 아니라 **태그가 생겼는지**를 본다.
+     * 토글하는 코드도 통과한다 — 그러면 iOS 주소창 색이 빠진다.
      */
-    expect(themeColor()).not.toBeNull()
+    expect(themeColor()).toBe('#121212')
 
     /*
      * **되돌리는 것까지 본다.** 로그인 이후 화면은 라이트라, 나가면서 벗기지 않으면
