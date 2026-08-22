@@ -32,6 +32,8 @@ const api = vi.hoisted(() => ({
   removed: [] as number[],
   summaryCalls: [] as number[],
   removeError: null as ApiError | null,
+  summaryError: null as ApiError | null,
+  rejectError: null as ApiError | null,
   /** 실패하든 말든 **시도한 것**. 화면이 미리 막지 않았는지 보려면 이게 필요하다. */
   statusAttempts: [] as { id: number; status: string }[],
   approveResult: null as ApproveResult | null,
@@ -121,13 +123,15 @@ vi.mock('@/api/adminUsers', () => ({
     }
     return Promise.resolve(result)
   },
-  reject: (userIds: number[]) => {
+  reject: async (userIds: number[]) => {
     api.rejected.push(userIds)
-    return Promise.resolve({ rejected: userIds, failed: [] })
+    if (api.rejectError) throw api.rejectError
+    return { rejected: userIds, failed: [] }
   },
-  contentSummary: (id: number) => {
+  contentSummary: async (id: number) => {
     api.summaryCalls.push(id)
-    return Promise.resolve({ notes: 3, notices: 1, photos: 5 })
+    if (api.summaryError) throw api.summaryError
+    return { notes: 3, notices: 1, photos: 5 }
   },
   remove: (id: number): Promise<void> => {
     api.removed.push(id)
@@ -222,6 +226,8 @@ beforeEach(() => {
   api.removed = []
   api.summaryCalls = []
   api.removeError = null
+  api.summaryError = null
+  api.rejectError = null
   api.approveResult = null
   api.approveError = null
   api.statusError = null
@@ -388,6 +394,57 @@ describe('승인 대상', () => {
 
     fireEvent.click(within(dialog).getByRole('button', { name: '제거' }))
     await waitFor(() => expect(api.removed).toEqual([4]))
+  })
+
+  /*
+   * **건수를 보여주기 전에는 제거를 누를 수 없다** (2-2 §2-2-4 MUST). 확인 창의 존재
+   * 이유가 "무엇이 남는지 보고 정한다"인데, 못 본 채로 누를 수 있으면 그 MUST가 무의미해진다.
+   */
+  it('건수를 못 받으면 제거 버튼이 잠긴다', async () => {
+    api.summaryError = new ApiError(
+      'NOT_FOUND',
+      404,
+      '회원을 찾을 수 없습니다.',
+    )
+
+    renderAt()
+    await loaded()
+    fireEvent.click(
+      within(row('활동회원')).getByRole('button', { name: '제거' }),
+    )
+
+    const dialog = await screen.findByRole('alertdialog')
+    await waitFor(() => {
+      expect(dialog).toHaveTextContent('불러오지 못했습니다')
+    })
+    expect(within(dialog).getByRole('button', { name: '제거' })).toBeDisabled()
+    expect(api.removed).toEqual([])
+  })
+
+  /*
+   * T-161 — **보낸 사람은 성공이든 실패든 선택에서 빠진다.** 실패 때 남겨 두면 해제할 수
+   * 없는 선택이 된다. 원래 이 경로에 정리가 없어 요청이 실패하면 그대로 남았다.
+   */
+  it('거부가 실패해도 보낸 사람은 선택에서 빠진다', async () => {
+    api.rejectError = new ApiError(
+      'INTERNAL_ERROR',
+      500,
+      '잠시 후 다시 시도해 주세요.',
+    )
+
+    renderAt()
+    fireEvent.click(await loaded())
+    fireEvent.click(screen.getByRole('button', { name: /1명 거부/ }))
+
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '거부' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '거부하지 못했습니다',
+    )
+    await waitFor(() => {
+      expect(within(row('신청한하나')).getByRole('checkbox')).not.toBeChecked()
+    })
   })
 
   /*

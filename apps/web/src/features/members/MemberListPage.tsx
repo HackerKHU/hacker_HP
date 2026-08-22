@@ -107,7 +107,21 @@ type PendingAction =
    * 없애는 유일한 조작이라, 관계가 끊기고 나면 운영자도 그 회원의 콘텐츠를 찾을 수 없다.
    * `summary`가 `null`이면 아직 불러오는 중이다.
    */
-  | { kind: 'remove'; user: User; summary: ContentSummary | null }
+  | {
+      kind: 'remove'
+      user: User
+      /*
+       * `null`이면 아직 불러오는 중, `'failed'`면 못 받았다. 셋을 가르는 이유는 확인 창이
+       * "0건"과 "모름"을 다르게 말해야 하기 때문이다 — 모르는데 0건으로 보이면 남는 것이
+       * 없다고 읽혀 되돌릴 수 없는 조작을 그 전제로 하게 된다.
+       */
+      summary: ContentSummary | 'failed' | null
+      /**
+       * 이 확인 창을 연 요청의 세대. 같은 회원을 닫았다 다시 열면 값이 달라진다 —
+       * 회원 id만 비교하면 A→닫기→A나 A→B→A에서 취소된 응답이 새 창을 덮는다.
+       */
+      token: number
+    }
 
 /**
  * 상태 표시. **`PENDING`을 신청 여부로 가른다** (spec §3-1-4).
@@ -251,6 +265,8 @@ export function MemberListPage() {
   const [pending, setPending] = useState<PendingAction | null>(null)
   /** 조회 조건이 바뀔 때 "확인창이 열려 있었는지"를 읽으려고 둔다. `selectedRef`와 같은 이유다. */
   const pendingRef = useRef<PendingAction | null>(null)
+  /** 제거 확인 창의 건수 요청 세대. 늦게 도착한 응답을 가려낸다. */
+  const removeToken = useRef(0)
 
   function setConfirm(next: PendingAction | null) {
     pendingRef.current = next
@@ -434,7 +450,9 @@ export function MemberListPage() {
       const leaves =
         summary === null
           ? '남을 콘텐츠를 확인하는 중입니다.'
-          : `자료 ${summary.notes}건, 공지 ${summary.notices}건, 활동사진 ${summary.photos}건이 "탈퇴한 회원"으로 남습니다.`
+          : summary === 'failed'
+            ? '남을 콘텐츠 건수를 불러오지 못했습니다. 다시 시도해 주세요.'
+            : `자료 ${summary.notes}건, 공지 ${summary.notices}건, 활동사진 ${summary.photos}건이 "탈퇴한 회원"으로 남습니다.`
       return {
         title: '이 회원을 제거할까요?',
         body: `${user.name} 회원의 계정을 지웁니다. 되돌릴 수 없습니다. ${leaves}`,
@@ -541,20 +559,32 @@ export function MemberListPage() {
    * (§2-2-4 — 참고치이지 조건이 아니다), 닫아 버리면 왜 닫혔는지 알 수 없다.
    */
   async function openRemove(user: User) {
-    setConfirm({ kind: 'remove', user, summary: null })
+    const token = ++removeToken.current
+    setConfirm({ kind: 'remove', user, summary: null, token })
+
+    /** 이 응답이 아직 화면에 붙어 있는 창의 것인가. */
+    const current = () => {
+      const pending = pendingRef.current
+      return pending?.kind === 'remove' && pending.token === token
+        ? pending
+        : null
+    }
+
     try {
       const summary = await contentSummary(user.id)
-      /*
-       * 기다리는 사이에 창이 닫혔거나 다른 대상으로 바뀌었을 수 있다. 그때는 덮지 않는다 —
-       * 덮으면 닫은 창이 되살아나거나 남의 건수가 다른 사람 자리에 그려진다.
-       */
-      const current = pendingRef.current
-      if (current?.kind === 'remove' && current.user.id === user.id) {
-        setConfirm({ ...current, summary })
-      }
+      const open = current()
+      if (open) setConfirm({ ...open, summary })
     } catch (error: unknown) {
       reportApiError(error)
-      setNotice('남을 콘텐츠 건수를 불러오지 못했습니다.')
+      const open = current()
+      /*
+       * 취소된 요청의 실패는 삼킨다. 창을 닫은 뒤 뜨는 오류나, 제거가 먼저 성공한 뒤
+       * 늦게 도착한 404가 성공 안내를 덮는 것을 막는다.
+       */
+      if (open) {
+        setConfirm({ ...open, summary: 'failed' })
+        setNotice('남을 콘텐츠 건수를 불러오지 못했습니다.')
+      }
     }
   }
 
@@ -575,8 +605,6 @@ export function MemberListPage() {
           ? `${result.rejected.length}명을 거부했습니다. ${result.failed.length}명은 거부하지 못했습니다 — ${failures}`
           : `${result.rejected.length}명의 신청을 거부했습니다.`,
       )
-      // 보낸 사람은 선택에서 뺀다 — 실패한 사람을 남기면 해제할 수 없는 선택이 된다 (T-161).
-      setSelection([])
       setReloadKey((key) => key + 1)
     } catch (error: unknown) {
       reportApiError(error)
@@ -586,6 +614,12 @@ export function MemberListPage() {
           : '거부하지 못했습니다. 잠시 후 다시 시도해 주세요.',
       )
     } finally {
+      /*
+       * **보낸 사람만 선택에서 뺀다** (T-161) — 성공·실패·요청 실패 모두 같다. 통째로
+       * 비우면 응답을 기다리는 사이 새로 고른 사람까지 풀리고, 실패 때 그냥 두면 해제할
+       * 수 없는 선택이 남는다. 승인과 같은 규칙이다.
+       */
+      setSelection(selectedRef.current.filter((id) => !ids.includes(id)))
       setWorking(false)
       setConfirm(null)
     }
@@ -597,7 +631,11 @@ export function MemberListPage() {
     try {
       await remove(user.id)
       setNotice(`${user.name} 회원을 제거했습니다.`)
-      setSelection([])
+      /*
+       * 선택은 건드리지 않는다. 제거 대상은 비-`PENDING`이고 선택 가능한 것은 신청서를
+       * 낸 `PENDING`뿐이라, 제거 대상이 선택에 들어갈 수 없다 — 여기서 비우면 무관한
+       * 신청자 선택만 조용히 풀린다.
+       */
       setReloadKey((key) => key + 1)
     } catch (error: unknown) {
       reportApiError(error)
@@ -975,7 +1013,16 @@ export function MemberListPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
+            {/*
+              **건수를 보여주기 전에는 제거를 누를 수 없다** (2-2 §2-2-4 MUST). 느린 조회나
+              실패 때 그냥 열어 두면 무엇이 남는지 한 번도 못 본 채로 되돌릴 수 없는 조작을
+              하게 된다 — 그것이 이 확인 창의 존재 이유다.
+            */}
             <AlertDialogAction
+              disabled={
+                pending?.kind === 'remove' &&
+                (pending.summary === null || pending.summary === 'failed')
+              }
               onClick={() => {
                 if (pending) run(pending)
               }}
