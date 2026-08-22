@@ -358,13 +358,18 @@ function Footer() {
 
 /**
  * `rgb(r, g, b)` → `#rrggbb`. Safari가 `theme-color`에서 함수 표기를 무시하는 경우가 있어
- * 16진수로 바꿔 넣는다. 파싱에 실패하면 원본을 그대로 돌려준다 — 색을 지어내지 않는다.
+ * 16진수로 바꿔 넣는다.
+ *
+ * **정수 세 채널인 `rgb()`/`rgba()`만 바꾼다.** 계산된 색은 소수 채널을 돌려줄 수 있고
+ * (`rgb(146.06, 107.46, 131.2)`), `oklch()` 같은 다른 표기도 온다 — 숫자만 긁어 모으면
+ * 엉뚱한 색이 된다. 확신이 없으면 원본을 그대로 넘긴다. 브라우저가 못 읽으면 `theme-color`가
+ * 무시될 뿐이지만, 틀린 색을 넣으면 크롬이 엉뚱하게 칠해진다.
  */
 function toHex(color: string): string {
-  const parts = color.match(/\d+/g)
-  if (!parts || parts.length < 3) return color
-  return `#${parts
-    .slice(0, 3)
+  const rgb = color.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:[,)])/)
+  if (!rgb) return color
+  return `#${rgb
+    .slice(1, 4)
     .map((part) => Number(part).toString(16).padStart(2, '0'))
     .join('')}`
 }

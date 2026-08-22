@@ -260,6 +260,37 @@ describe('랜딩 헤더 상태별 진입점', () => {
    * 그래서 클래스를 걸어 토큰째 뒤집는다. 되돌리지 않으면 라이트인 내부 화면까지
    * 검은 크롬을 물려받는다.
    */
+  /*
+   * 원래 다크였거나 theme-color가 이미 있던 문서는 **우리가 만든 것이 아니므로 남긴다.**
+   * 무조건 지우면 남의 설정을 랜딩 한 번 들렀다고 날린다.
+   */
+  it('원래 있던 다크와 theme-color는 건드리지 않는다', () => {
+    document.documentElement.classList.add('dark')
+    const mine = document.createElement('meta')
+    mine.name = 'theme-color'
+    mine.content = '#123456'
+    document.head.appendChild(mine)
+
+    const { unmount } = render(
+      <MemoryRouter initialEntries={['/']}>
+        <SessionProvider>
+          <App />
+        </SessionProvider>
+      </MemoryRouter>,
+    )
+    unmount()
+
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+    expect(
+      document
+        .querySelector('meta[name="theme-color"]')
+        ?.getAttribute('content'),
+    ).toBe('#123456')
+
+    document.documentElement.classList.remove('dark')
+    mine.remove()
+  })
+
   it('랜딩을 떠나면 html의 다크와 theme-color를 되돌린다', () => {
     expect(document.documentElement.classList.contains('dark')).toBe(false)
 
