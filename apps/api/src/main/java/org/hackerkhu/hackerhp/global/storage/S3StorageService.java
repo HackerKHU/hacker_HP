@@ -8,6 +8,7 @@ import software.amazon.awssdk.core.sync.ResponseTransformer;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
@@ -60,6 +61,15 @@ public class S3StorageService {
             .getObjectRequest(request)
             .build();
     return s3Presigner.presignGetObject(presignRequest).url().toString();
+  }
+
+  /**
+   * 바이트를 내려받지 않고 크기만 확인한다. presigned PUT은 용량을 강제하지 못하므로, {@link #download}로 전체를 메모리에 올리기 전에 이걸로 상한을
+   * 먼저 검사한다 — 안 그러면 큰 오브젝트 하나가 태스크 메모리를 다 먹고 OOM으로 죽을 수 있다.
+   */
+  public long size(String key) {
+    HeadObjectRequest request = HeadObjectRequest.builder().bucket(bucket).key(key).build();
+    return s3Client.headObject(request).contentLength();
   }
 
   public byte[] download(String key) {

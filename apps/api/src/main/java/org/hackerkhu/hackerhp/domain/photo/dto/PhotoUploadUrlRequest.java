@@ -1,5 +1,6 @@
 package org.hackerkhu.hackerhp.domain.photo.dto;
 
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
 import java.util.List;
@@ -12,8 +13,9 @@ import java.util.List;
  *
  * <p><b>확장자(jpg/jpeg/png) 자체는 여기서 검증하지 않는다.</b> {@code @Pattern}으로 걸면 {@code 400 VALIDATION_ERROR}가
  * 되는데, "지원하지 않는 형식"은 계약상 {@code 415 UNSUPPORTED_FILE_TYPE}이다 (§3-2-7). 그 판단은 {@code PhotoService}가
- * 한다 — 여기서는 비었는지·개수만 본다.
+ * 한다 — 여기서는 비었는지·개수만 본다. 다만 원소 자체가 {@code null}/공백이면 {@code PhotoService}가 형식을 판단하기도 전에 {@code
+ * NullPointerException}으로 500이 나가므로, 그건 여기서 {@code @NotBlank}로 막는다.
  */
 public record PhotoUploadUrlRequest(
     @NotEmpty(message = "올릴 파일이 없습니다.") @Size(max = 20, message = "한 번에 20장까지 올릴 수 있습니다.")
-        List<String> extensions) {}
+        List<@NotBlank(message = "확장자가 비어 있습니다.") String> extensions) {}

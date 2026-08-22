@@ -75,12 +75,14 @@ class PhotoResizerTest {
   }
 
   @Test
-  void thumbnailDoesNotUpscaleImagesSmallerThanThumbnailWidth() {
-    byte[] small = image(200, 150, "jpg");
+  void thumbnailDoesNotUpscaleImagesSmallerThanThumbnailWidth() throws IOException {
+    byte[] small = image(200, 150, "png");
 
     byte[] thumbnail = PhotoResizer.thumbnail(small);
 
-    assertThat(thumbnail).isEqualTo(small);
+    // 폭은 그대로 두되(업스케일하지 않는다), 본 이미지 포맷과 무관하게 항상 JPEG로 다시 인코딩한다
+    // — 원본과 바이트가 같을 수는 없다.
+    assertThat(widthOf(thumbnail)).isEqualTo(200);
   }
 
   @Test
@@ -90,5 +92,17 @@ class PhotoResizerTest {
     byte[] thumbnail = PhotoResizer.thumbnail(large);
 
     assertThat(widthOf(thumbnail)).isLessThan(1920);
+  }
+
+  @Test
+  void thumbnailIsAlwaysJpegRegardlessOfSourceFormat() throws IOException {
+    byte[] png = image(3840, 2160, "png");
+
+    byte[] thumbnail = PhotoResizer.thumbnail(png);
+
+    var readers =
+        ImageIO.getImageReaders(
+            ImageIO.createImageInputStream(new ByteArrayInputStream(thumbnail)));
+    assertThat(readers.next().getFormatName()).isEqualToIgnoringCase("jpeg");
   }
 }

@@ -46,6 +46,16 @@ resource "aws_s3_bucket_lifecycle_configuration" "uploads" {
     filter { prefix = "notes/uploads/" }
     expiration { days = 1 }
   }
+
+  # presigned PUT으로 photos/uploads/에 올렸지만 POST /photos로 등록되지 않은 임시 원본은
+  # 서버가 지우지 않는다(#57) — 등록 API가 부르는 delete는 성공 경로에서만 실행된다.
+  # 방치된 만큼 계속 쌓이므로 만료로 정리한다.
+  rule {
+    id     = "expire-unregistered-temp-uploads"
+    status = "Enabled"
+    filter { prefix = "photos/uploads/" }
+    expiration { days = 1 }
+  }
 }
 
 # 버킷은 완전 비공개, presigned URL로만 접근한다 (docs/ops/infra.md).

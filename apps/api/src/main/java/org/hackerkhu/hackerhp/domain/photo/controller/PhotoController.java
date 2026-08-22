@@ -142,7 +142,7 @@ public class PhotoController {
   @DeleteMapping("/{id}")
   @PreAuthorize("hasRole('ADMIN')")
   @ResponseStatus(HttpStatus.NO_CONTENT)
-  public void delete(@PathVariable Long id) {
-    photoService.delete(id);
+  public void delete(@AuthenticationPrincipal Long userId, @PathVariable Long id) {
+    photoService.delete(userId, id);
   }
 }

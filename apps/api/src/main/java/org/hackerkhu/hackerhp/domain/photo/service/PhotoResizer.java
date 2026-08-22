@@ -50,18 +50,20 @@ final class PhotoResizer {
   }
 
   /**
-   * 그리드용 썸네일을 만든다 (spec 3-2 §3-2-5 4단계). 이미 {@code THUMBNAIL_WIDTH}보다 작으면 업스케일하지 않고 그대로 쓴다 — 작은 원본을
-   * 억지로 키우면 화질만 나빠지고 얻는 것이 없다.
+   * 그리드용 썸네일을 만든다 (spec 3-2 §3-2-5 4단계). 이미 {@code THUMBNAIL_WIDTH}보다 작으면 폭은 그대로 두고 업스케일하지 않는다 — 작은
+   * 원본을 억지로 키우면 화질만 나빠지고 얻는 것이 없다.
+   *
+   * <p><b>항상 JPEG로 만든다.</b> 본 이미지({@code resize})는 기준(1920px) 미만이면 원본 포맷(PNG 등)을 그대로 두지만, 썸네일까지 그
+   * 규칙을 따르면 "본 이미지는 PNG인데 썸네일만 리사이즈되어 JPEG"인 조합이 생긴다. 저장 키는 확장자 하나로 고정해 두므로(파일명 자체엔 포맷을 담지 않는다) 포맷이
+   * 요청마다 달라지면 그 키의 실제 바이트와 어긋난다 — 항상 JPEG면 이 문제가 애초에 생기지 않는다.
    */
   static byte[] thumbnail(byte[] source) {
     BufferedImage image = decode(source);
-    if (image.getWidth() <= THUMBNAIL_WIDTH) {
-      return source;
-    }
+    int targetWidth = Math.min(image.getWidth(), THUMBNAIL_WIDTH);
     try {
       ByteArrayOutputStream out = new ByteArrayOutputStream();
       Thumbnails.of(image)
-          .width(THUMBNAIL_WIDTH)
+          .width(targetWidth)
           .outputFormat("jpg")
           .outputQuality(JPEG_QUALITY)
           .toOutputStream(out);
