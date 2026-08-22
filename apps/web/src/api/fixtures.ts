@@ -27,10 +27,15 @@
  */
 
 import { DEPARTMENTS } from '@/features/auth/departments'
-import type { AdminUserQuery, ApproveResult } from './adminUsers'
+import type {
+  AdminUserQuery,
+  ApproveResult,
+  ContentSummary,
+  RejectResult,
+} from './adminUsers'
 import { ApiError } from './client'
 import type { Notice } from './notices'
-import type { Page, User } from './types'
+import type { Page, Role, User } from './types'
 
 /**
  * 어떤 사용자로 볼지 / 어떤 실패를 볼지 고르는 스위치. `.env.local`에서 바꾼다.
@@ -685,6 +690,146 @@ export function fixtureApproveUsers(userIds: number[]): Promise<ApproveResult> {
     result.approved.push(id)
   }
   return Promise.resolve(result)
+}
+
+/**
+ * 일괄 거부 (2-2 §2-2-2). `PENDING` 계정을 지운다.
+ *
+ * **`PENDING`이 아니면 거부하지 않는다** (§3-2-6). 이 경로로 이용 중인 회원을 지울 수
+ * 없다 — 그것은 "제거"이고 세션 폐기·정지 선행 같은 규칙이 따로 붙는다 (§2-2-4).
+ * 픽스처가 통과시키면 화면이 그 구분을 잃는다.
+ */
+export function fixtureRejectUsers(userIds: number[]): Promise<RejectResult> {
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const result: RejectResult = { rejected: [], failed: [] }
+  // 승인과 같이 중복을 먼저 지운다 — 그대로 두면 실제로는 나올 수 없는 부분 실패가 생긴다.
+  for (const id of [...new Set(userIds)]) {
+    const index = MEMBERS.findIndex((user) => user.id === id)
+    if (index < 0) {
+      result.failed.push({ userId: id, reason: 'NOT_FOUND' })
+      continue
+    }
+    if (MEMBERS[index].status !== 'PENDING') {
+      result.failed.push({ userId: id, reason: 'NOT_PENDING' })
+      continue
+    }
+    MEMBERS.splice(index, 1)
+    result.rejected.push(id)
+  }
+  return Promise.resolve(result)
+}
+
+/**
+ * 제거하면 남을 콘텐츠 건수 (2-2 §2-2-4 MUST).
+ *
+ * **세 값을 항상 담는다.** `0`을 빼면 화면이 "없음"과 "모름"을 가르지 못한다.
+ * 값은 id로 갈라 둔다 — 전부 같은 수를 주면 화면이 엉뚱한 칸을 그려도 티가 안 난다.
+ */
+export function fixtureContentSummary(id: number): Promise<ContentSummary> {
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const found = MEMBERS.find((user) => user.id === id)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '회원을 찾을 수 없습니다.'),
+    )
+  }
+  return Promise.resolve({
+    notes: id % 5,
+    notices: id % 3,
+    photos: id % 7,
+  })
+}
+
+/**
+ * 회원 제거 (2-2 §2-2-4). **되돌릴 수 없다.**
+ *
+ * 서버는 정지를 먼저 확정하고 세션까지 폐기하지만, 픽스처가 흉내 낼 수 있는 것은
+ * 명부에서 사라지는 것까지다. 마지막 활성 관리자 보호는 서버 규칙이므로 함께 흉내 낸다 —
+ * 통과시키면 그 실패 화면을 만들 수 없다 (§2-2-7).
+ */
+export function fixtureRemoveUser(id: number): Promise<void> {
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const index = MEMBERS.findIndex((user) => user.id === id)
+  if (index < 0) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '회원을 찾을 수 없습니다.'),
+    )
+  }
+
+  const remaining = MEMBERS.filter(
+    (user) =>
+      user.id !== id && user.role === 'ADMIN' && user.status === 'ACTIVE',
+  )
+  if (MEMBERS[index].role === 'ADMIN' && remaining.length === 0) {
+    return Promise.reject(
+      new ApiError(
+        'FORBIDDEN',
+        403,
+        '마지막 활성 관리자는 제거할 수 없습니다.',
+      ),
+    )
+  }
+
+  MEMBERS.splice(index, 1)
+  return Promise.resolve()
+}
+
+/**
+ * 권한 부여·회수 (2-2 §2-2-5). **이 조작 뒤에 활성 관리자가 0명이 되면 막는다** (§2-2-7 MUST).
+ *
+ * 자기 자신인지만 보지 않는다 — 관리자가 둘일 때 서로의 권한을 동시에 회수하면 각자
+ * "남을 회수하는 것"이라 자기 검사에 걸리지 않는다. 조작 뒤에 남는지를 센다.
+ *
+ * 픽스처가 서버처럼 거부해야 그 실패 화면을 만들 수 있다.
+ */
+export function fixtureUpdateUserRole(id: number, role: Role): Promise<User> {
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const found = MEMBERS.find((user) => user.id === id)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '회원을 찾을 수 없습니다.'),
+    )
+  }
+
+  // 승인 대기 계정은 이 경로의 대상이 아니다 (§2-2-5) — 승인일시 없는 ADMIN이 생긴다.
+  if (found.status === 'PENDING') {
+    return Promise.reject(
+      new ApiError(
+        'FORBIDDEN',
+        403,
+        '승인 대기 중인 계정은 권한을 바꿀 수 없습니다.',
+      ),
+    )
+  }
+
+  const remaining = MEMBERS.filter(
+    (user) =>
+      user.status === 'ACTIVE' &&
+      (user.id === id ? role === 'ADMIN' : user.role === 'ADMIN'),
+  )
+  if (remaining.length === 0) {
+    return Promise.reject(
+      // 자기 대상과 남 대상을 가른다 (§2-2-7 — 화면이 서버 문구를 그대로 보여준다).
+      new ApiError(
+        'FORBIDDEN',
+        403,
+        id === SELF_ID
+          ? '마지막 활성 관리자는 자기 권한을 회수할 수 없습니다.'
+          : '활성 관리자가 없어집니다. 다른 관리자를 먼저 지정해 주세요.',
+      ),
+    )
+  }
+
+  found.role = role
+  return Promise.resolve(found)
 }
 
 /**

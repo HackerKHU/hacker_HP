@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearCookies, setCookie } from '@/test/cookies'
-import { approve, list, updateStatus } from './adminUsers'
+import {
+  approve,
+  contentSummary,
+  list,
+  reject,
+  remove,
+  updateRole,
+  updateStatus,
+} from './adminUsers'
 
 /**
  * 회원 관리 API 어댑터가 **실제로 어떤 method와 경로로 나가는지.**
@@ -112,15 +120,53 @@ describe('회원 관리 API method와 경로', () => {
     expect(lastCall(fetchMock)[0]).not.toMatch(/^https?:\/\//)
   })
 
-  /*
-   * 제외 범위 확인 (Post Launch) — 가입 거부·회원 제거·권한 변경은 이번에 만들지 않는다.
-   * 계약에는 엔드포인트가 있지만 어댑터에 함수를 두면 화면이 곧 부르게 된다.
-   */
-  it('거부·제거·권한 변경 함수를 두지 않는다', async () => {
-    const module = await import('./adminUsers')
+  it('거부는 POST로 userIds만 보낸다', async () => {
+    const fetchMock = stubFetch({ rejected: [], failed: [] })
 
-    for (const name of ['reject', 'remove', 'updateRole']) {
-      expect(module, `${name}은 Post Launch다`).not.toHaveProperty(name)
-    }
+    await reject([1, 2])
+
+    expect(lastCall(fetchMock)).toEqual(['/api/v1/admin/users/reject', 'POST'])
+    const [, init] = fetchMock.mock.calls.at(-1) as unknown as [
+      string,
+      RequestInit,
+    ]
+    expect(JSON.parse(String(init.body))).toEqual({ userIds: [1, 2] })
+  })
+
+  it('제거는 DELETE이고 본문을 보내지 않는다', async () => {
+    const fetchMock = stubFetch()
+
+    await remove(7)
+
+    expect(lastCall(fetchMock)).toEqual(['/api/v1/admin/users/7', 'DELETE'])
+    const [, init] = fetchMock.mock.calls.at(-1) as unknown as [
+      string,
+      RequestInit,
+    ]
+    expect(init.body).toBeUndefined()
+  })
+
+  it('콘텐츠 건수는 GET으로 읽는다', async () => {
+    const fetchMock = stubFetch({ notes: 0, notices: 0, photos: 0 })
+
+    await contentSummary(7)
+
+    expect(lastCall(fetchMock)).toEqual([
+      '/api/v1/admin/users/7/content-summary',
+      'GET',
+    ])
+  })
+
+  it('권한 변경은 PATCH로 role만 보낸다', async () => {
+    const fetchMock = stubFetch({ id: 7, role: 'ADMIN' })
+
+    await updateRole(7, 'ADMIN')
+
+    expect(lastCall(fetchMock)).toEqual(['/api/v1/admin/users/7/role', 'PATCH'])
+    const [, init] = fetchMock.mock.calls.at(-1) as unknown as [
+      string,
+      RequestInit,
+    ]
+    expect(JSON.parse(String(init.body))).toEqual({ role: 'ADMIN' })
   })
 })

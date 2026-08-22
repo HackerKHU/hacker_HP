@@ -44,10 +44,13 @@ expect_pass 'chore: ECS 태스크 메모리 1024로 상향'
 expect_pass 'docs: 활동사진 업로드 경로 확정'
 expect_pass 'fix: 로그인 세션 발급과 상태 변경이 겹치는 창을 닫는다'
 
-# 표의 8종이 모두 살아 있어야 한다. 하나라도 빠지면 그 type을 쓰는 사람이 막힌다.
-for type in feat fix docs design cicd refactor test chore; do
+# 표의 9종이 모두 살아 있어야 한다. 하나라도 빠지면 그 type을 쓰는 사람이 막힌다.
+for type in feat fix docs design cicd refactor test chore release; do
   expect_pass "$type: 형식 확인"
 done
+
+# 출시 PR 제목 (CONTRIBUTING.md 2절). 이 형태가 막히면 릴리스를 올릴 수 없다.
+expect_pass 'release: v0.1.0 출시'
 
 # 영문도 막지 않는다. 한글을 권할 뿐 강제하지 않는다.
 expect_pass 'chore: bump dependencies'
