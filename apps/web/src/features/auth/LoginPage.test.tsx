@@ -64,7 +64,7 @@ function Address() {
 }
 
 function renderAt(path: string) {
-  render(
+  return render(
     <MemoryRouter initialEntries={[path]}>
       <SessionProvider>
         <Address />
@@ -244,7 +244,7 @@ describe('로고', () => {
    *    확인으로는 드러나지 않았다. `meta.test.ts`가 `og:image`에 하는 검사와 같다.
    */
   it('다크 카드 위에 실재하는 흰 잉크 마크를 쓴다', async () => {
-    renderAt('/login')
+    const { container } = renderAt('/login')
 
     /*
      * 좌측 패널은 **세로 락업**이다 — 심볼만 두면 처음 온 사람이 무엇의 마크인지
@@ -277,10 +277,13 @@ describe('로고', () => {
       /*
        * **위에 우리 것이 아무것도 없어야 한다.** 클래스만 보면, 바깥에 `p-6` 껍데기를
        * 하나 두고 안쪽 래퍼에 `dark min-h-screen bg-background`를 통째로 옮겨도 통과한다
-       * — 그 껍데기는 라이트로 남는다. 이 화면의 최상위 요소가 곧 다크를 세우는 요소여야
-       * 하므로, 부모가 렌더 컨테이너(클래스 없는 div)인 것을 본다.
+       * — 그 껍데기는 라이트로 남는다.
+       *
+       * 그래서 **렌더 컨테이너 그 자체와 견준다.** "클래스가 비었는지"로 대신하면 클래스
+       * 없는 래퍼가 하나 끼는 순간 다시 열린다 — 지금 라우트에 그런 것이 없을 뿐 경로는
+       * 열려 있다. 동일성은 그 여지를 남기지 않는다.
        */
-      expect(context?.parentElement?.className).toBe('')
+      expect(context?.parentElement).toBe(container)
 
       /*
        * **카드 배경은 토큰에서 온다.** `bg-white` 같은 값을 직접 박으면 다크 문맥
