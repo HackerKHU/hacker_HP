@@ -29,6 +29,10 @@ dependencies {
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.9")
     // 세션은 RDS에 둔다. Fargate Spot이라 메모리에 두면 회수 시 전원 로그아웃된다 (3-1 §3-1-5).
     implementation("org.springframework.session:spring-session-jdbc")
+    // 파일 바이트는 서버를 거치지 않는다 (2-1 §2-1-2 MUST). presigned URL 발급과
+    // 업로드 뒤 크기 검증에만 쓴다. BOM으로 묶어 모듈 버전이 갈리지 않게 한다.
+    implementation(platform("software.amazon.awssdk:bom:2.54.2"))
+    implementation("software.amazon.awssdk:s3")
     implementation("org.flywaydb:flyway-core")
     runtimeOnly("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")

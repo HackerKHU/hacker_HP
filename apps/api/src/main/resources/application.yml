@@ -86,6 +86,23 @@ app:
       email: ${ADMIN_BOOTSTRAP_EMAIL:}
       token: ${ADMIN_BOOTSTRAP_TOKEN:}
 
+  storage:
+    # 자료·사진이 들어가는 버킷. 태스크 정의가 S3_BUCKET으로 항상 주입한다
+    # (infra/terraform/ecs.tf). 기본값을 심으면 설정 누락이 조용히 지나가고
+    # 업로드가 엉뚱한 버킷을 가리킨다.
+    bucket: ${S3_BUCKET}
+    region: ${AWS_REGION:ap-northeast-2}
+    # 발급한 URL의 수명. 20MB를 올리기엔 충분하고, 새어나가도 창이 좁다.
+    # 만료되면 다시 발급받으면 된다.
+    presign-ttl: 5m
+  notes:
+    upload:
+      # 2-1 §2-1-2 MUST — "허용 확장자와 최대 용량은 설정값으로 제한한다".
+      # hwp를 더 받거나 상한을 늘리는 일은 배포가 아니라 설정으로 끝나야 한다.
+      allowed-extensions: [pdf, docx, pptx, hwp, zip, png, jpg]
+      max-file-size: 20MB
+      max-file-count: 10
+
 management:
   endpoints:
     web:

@@ -5,13 +5,19 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import org.hackerkhu.hackerhp.domain.note.dto.NoteCreateRequest;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteDetailResponse;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteFilterOptions;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteSearch;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteSort;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteSummaryResponse;
+import org.hackerkhu.hackerhp.domain.note.dto.UploadUrlRequest;
+import org.hackerkhu.hackerhp.domain.note.dto.UploadUrlResponse;
 import org.hackerkhu.hackerhp.domain.note.service.BookmarkService;
+import org.hackerkhu.hackerhp.domain.note.service.NoteCreateService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteQueryService;
+import org.hackerkhu.hackerhp.domain.note.service.NoteUploadUrlService;
 import org.hackerkhu.hackerhp.global.error.ErrorResponse;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
@@ -24,6 +30,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -35,7 +42,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p><b>{@code isAuthenticated()}만 적는다.</b> 매트릭스의 {@code ACTIVE} 조건은 {@code AccountStatusFilter}가
  * 인가보다 먼저 보장한다 — 같은 규칙을 두 곳에 두면 한쪽만 고쳐진다 ({@code NoticeController}와 같은 관례).
  *
- * <p>등록·수정·삭제와 다운로드 URL 발급은 여기 없다 (#53·#54·#55).
+ * <p>수정·삭제와 다운로드 URL 발급은 여기 없다 (#54·#55).
  */
 @Tag(name = "자료", description = "쌓인 정리본을 찾는다. 조회는 ACTIVE 전용")
 @RestController
@@ -44,10 +51,136 @@ public class NoteController {
 
   private final NoteQueryService noteQueryService;
   private final BookmarkService bookmarkService;
+  private final NoteUploadUrlService noteUploadUrlService;
+  private final NoteCreateService noteCreateService;
 
-  public NoteController(NoteQueryService noteQueryService, BookmarkService bookmarkService) {
+  public NoteController(
+      NoteQueryService noteQueryService,
+      BookmarkService bookmarkService,
+      NoteUploadUrlService noteUploadUrlService,
+      NoteCreateService noteCreateService) {
     this.noteQueryService = noteQueryService;
     this.bookmarkService = bookmarkService;
+    this.noteUploadUrlService = noteUploadUrlService;
+    this.noteCreateService = noteCreateService;
+  }
+
+  /**
+   * 업로드용 presigned URL 발급 — 흐름의 ① (spec 2-1 §2-1-2 MUST).
+   *
+   * <p><b>서버는 파일 바이트를 받지 않는다.</b> 브라우저가 받은 URL로 S3에 직접 올린다.
+   */
+  @Operation(
+      summary = "업로드 URL 발급",
+      description =
+          """
+          올릴 파일들의 이름과 크기를 주면 **파일마다 presigned PUT URL**을 돌려준다.
+          브라우저는 각 `url`에 파일을 `PUT`으로 올리고, 끝나면 `key`를 모아
+          `POST /notes`에 낸다 — **파일 바이트는 서버를 거치지 않는다.**
+
+          **여기서 보는 크기는 브라우저가 말한 값이다.** 올리기 전에 알려 주는 것이 목적이고,
+          실제 강제는 등록 단계가 S3에 올라온 오브젝트를 직접 재서 한다.
+
+          **받은 `key`는 임시 자리다.** 등록하지 않으면 하루 뒤에 사라진다.
+          """)
+  @ApiResponse(responseCode = "200", description = "발급됨")
+  @ApiResponse(
+      responseCode = "400",
+      description = "`VALIDATION_ERROR` — 파일이 없거나 개수 상한을 넘었다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description = "CSRF 토큰이 없다 · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "413",
+      description = "`FILE_TOO_LARGE` — 파일 하나가 상한을 넘었다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "415",
+      description = "`UNSUPPORTED_FILE_TYPE` — 허용되지 않는 확장자. **크기보다 먼저 본다**",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @PostMapping("/upload-url")
+  @PreAuthorize("isAuthenticated()")
+  public UploadUrlResponse uploadUrl(
+      @AuthenticationPrincipal Long uploaderId, @Valid @RequestBody UploadUrlRequest request) {
+    return noteUploadUrlService.issue(uploaderId, request);
+  }
+
+  /**
+   * 자료 등록 — 흐름의 ③ (spec 2-1 §2-1-2 MUST).
+   *
+   * <p><b>업로더는 인증 주체로만 정한다.</b> 본문으로 받으면 다른 사람 이름으로 올릴 수 있다.
+   */
+  @Operation(
+      summary = "자료 등록",
+      description =
+          """
+          메타데이터와 **업로드를 마친 파일 키 목록**을 받아 자료를 만든다.
+
+          **여기가 용량의 진짜 방어선이다.** presigned PUT은 용량을 강제하지 못하므로,
+          S3에 올라온 오브젝트를 직접 재서 상한을 넘으면 **지우고 거절한다.**
+
+          **남이 올린 키는 등록할 수 없다** — 키에 업로더가 박혀 있어 대조한다.
+
+          **업로더는 로그인한 사람이다.** 본문으로 받지 않는다.
+          """)
+  @ApiResponse(responseCode = "201", description = "등록됨. 본문은 저장된 자료다")
+  @ApiResponse(
+      responseCode = "400",
+      description =
+          "`VALIDATION_ERROR` — 필수값 누락, `category`와 `examType`의 짝이 어긋남, **아직 올라오지 않은 파일**",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description =
+          "`FORBIDDEN` — **남이 올린 파일 키다** 또는 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL`",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "413",
+      description = "`FILE_TOO_LARGE` — **실제로 올라온** 파일이 상한을 넘었다. 그 오브젝트는 지워진다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @PostMapping
+  @ResponseStatus(HttpStatus.CREATED)
+  @PreAuthorize("isAuthenticated()")
+  public NoteDetailResponse create(
+      @AuthenticationPrincipal Long uploaderId, @Valid @RequestBody NoteCreateRequest request) {
+    return noteCreateService.create(uploaderId, request);
   }
 
   @Operation(
