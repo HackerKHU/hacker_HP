@@ -11,6 +11,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.note.repository.BookmarkRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
@@ -353,6 +359,102 @@ class NoteEditIntegrationTest extends AbstractIntegrationTest {
         .perform(Csrf.with(sessions.as(owner, delete(NOTES + "/" + noteId))))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("SUSPENDED"));
+  }
+
+  /* --------------------------------------------------- 요청 형식 (#211 리뷰) */
+
+  /**
+   * T-317 — <b>{@code files}에 {@code null}이 섞여도 {@code 400}이다.</b>
+   *
+   * <p>Bean Validation의 {@code @Valid}는 <b>원소가 {@code null}인 것 자체는 위반으로 보지 않는다</b> — 그대로 두면 뒤에서
+   * {@code NullPointerException}이 나 잘못된 입력이 {@code 500}으로 나간다.
+   */
+  @Test
+  void aNullElementInFilesIsAValidationError() throws Exception {
+    mockMvc
+        .perform(updateRequest(owner, noteId, "null"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+  }
+
+  /**
+   * T-318 — <b>새로 붙이는 파일에 이름이 없으면 {@code 400}이다.</b>
+   *
+   * <p>없어도 뒤에서 걸리기는 한다 — 빈 확장자가 허용 목록에 없어 {@code 415}가 나간다. 그런데 이것은 <b>파일 형식 문제가 아니라 요청 형식 문제다.</b>
+   * {@code 415}로 답하면 화면은 "이 파일은 못 올린다"고 안내하고, 사용자는 멀쩡한 파일을 바꾸려 든다.
+   */
+  @Test
+  void aNewFileWithoutANameIsAValidationErrorNotAMediaTypeError() throws Exception {
+    String added = upload(owner, "추가본.pdf");
+
+    mockMvc
+        .perform(updateRequest(owner, noteId, "{\"key\":\"" + added + "\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+    mockMvc
+        .perform(
+            updateRequest(owner, noteId, "{\"key\":\"" + added + "\",\"originalName\":\"  \"}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  /**
+   * T-319 — 같은 자료를 <b>동시에</b> 수정하면 한 줄로 선다 (#211 리뷰).
+   *
+   * <p>수정은 "남길 첨부 전부"를 받아 통째로 갈아끼운다. 두 요청이 각자 기존 목록을 읽고 각자 갈아끼우면 <b>보낸 목록이 최종 상태라는 계약이 깨진다</b> — A를
+   * B로 바꾸는 요청과 A를 C로 바꾸는 요청이 겹치면 B와 C가 함께 남는다.
+   *
+   * <p><b>요청자 계정 행을 잠그는 것으로는 막히지 않는다.</b> 소유자와 관리자는 서로 다른 사람이라 다른 행을 잠근다 — 자료 행을 잠가야 한다.
+   *
+   * <p><b>확인하는 것은 "둘 다 남지 않는다"만이 아니다.</b> 잠그지 않아도 뒤엣것은 낡은 목록을 들고 저장하다 터져 {@code 500}을 낸다 — 데이터는 멀쩡해
+   * 보이지만 <b>멀쩡한 요청이 서버 오류로 거절된다.</b> 잠그면 기다렸다가 새 목록을 보고 제대로 끝낸다.
+   */
+  @Test
+  void twoEditsOfTheSameNoteAtOnceAreSerialized() throws Exception {
+    String byOwner = upload(owner, "주인추가.pdf");
+    String byAdmin = upload(admin, "관리자추가.pdf");
+
+    CyclicBarrier ready = new CyclicBarrier(2);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    List<Integer> statuses;
+    try {
+      statuses =
+          pool
+              .invokeAll(
+                  List.of(
+                      edit(owner, addNew(byOwner, "주인추가.pdf"), ready),
+                      edit(admin, addNew(byAdmin, "관리자추가.pdf"), ready)))
+              .stream()
+              .map(NoteEditIntegrationTest::valueOf)
+              .toList();
+    } finally {
+      pool.shutdownNow();
+      pool.awaitTermination(10, TimeUnit.SECONDS);
+    }
+
+    assertThat(statuses).as("어느 쪽도 서버 오류로 끝나면 안 된다").doesNotContain(500);
+    assertThat(statuses).as("적어도 한쪽은 성공한다").contains(200);
+    // 어느 쪽이 이기든 남는 첨부는 하나다. 둘 다 남으면 "보낸 목록이 최종 상태"가 깨진 것이다.
+    assertThat(countNoteFiles()).as("두 요청의 파일이 함께 남으면 안 된다").isEqualTo(1);
+  }
+
+  private Callable<Integer> edit(User caller, String files, CyclicBarrier ready) {
+    return () -> {
+      ready.await(10, TimeUnit.SECONDS);
+      return mockMvc
+          .perform(updateRequest(caller, noteId, files))
+          .andReturn()
+          .getResponse()
+          .getStatus();
+    };
+  }
+
+  private static int valueOf(Future<Integer> result) {
+    try {
+      return result.get();
+    } catch (Exception e) {
+      return -1;
+    }
   }
 
   private int countNoteFiles() {

@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.util.List;
@@ -22,7 +23,7 @@ public record UploadUrlRequest(
         @NotEmpty(message = "파일을 하나 이상 선택해 주세요.")
         @Size(max = 100, message = "파일이 너무 많습니다.")
         @Valid
-        List<File> files) {
+        List<@NotNull(message = "파일 정보가 비었습니다.") File> files) {
 
   /**
    * @param originalName 확장자를 여기서 뽑는다

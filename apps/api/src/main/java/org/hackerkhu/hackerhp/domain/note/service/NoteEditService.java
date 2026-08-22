@@ -116,7 +116,7 @@ public class NoteEditService {
       List<NoteUpdateRequest.FileRef> refs,
       List<StagedUploads.Stored> stored) {
     User requester = lockRequester(requesterId);
-    Note note = loadNote(noteId);
+    Note note = lockNote(noteId);
     requireOwnerOrAdmin(requester, note, requesterId);
 
     Map<Long, NoteFile> existing =
@@ -192,7 +192,7 @@ public class NoteEditService {
 
   private List<String> remove(Long requesterId, Long noteId) {
     User requester = lockRequester(requesterId);
-    Note note = loadNote(noteId);
+    Note note = lockNote(noteId);
     requireOwnerOrAdmin(requester, note, requesterId);
 
     List<String> storedKeys = note.getFiles().stream().map(NoteFile::getStoredPath).toList();
@@ -219,6 +219,22 @@ public class NoteEditService {
     User requester = users.findByIdForUpdate(requesterId).orElse(null);
     RequesterCheck.requireActive(requester, requesterId);
     return requester;
+  }
+
+  /**
+   * <b>같은 자료의 수정·삭제를 한 줄로 세운다</b> (#211 리뷰).
+   *
+   * <p>잠금 순서는 <b>계정 → 자료</b>로 고정한다. 수정과 삭제가 같은 순서로 잡으므로 서로를 기다리다 엇갈리지 않는다.
+   *
+   * <p>파일은 잠근 <b>뒤에</b> 읽는다 — {@code FOR UPDATE}는 바깥 조인의 널 쪽에 걸 수 없어 함께 읽어올 수 없다.
+   */
+  private Note lockNote(Long noteId) {
+    Note note =
+        notes
+            .findByIdForUpdate(noteId)
+            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "자료를 찾을 수 없습니다."));
+    note.getFiles().size();
+    return note;
   }
 
   private Note loadNote(Long noteId) {
@@ -249,6 +265,16 @@ public class NoteEditService {
           if (ref.isExisting() == ref.isNew()) {
             throw new BusinessException(
                 ErrorCode.VALIDATION_ERROR, "남길 파일은 기존 파일이거나 새로 올린 파일이어야 합니다.");
+          }
+          /*
+           * 새로 붙이는 파일에는 이름이 있어야 한다 (#211 리뷰).
+           *
+           * 없어도 뒤에서 걸리기는 한다 — 빈 확장자가 허용 목록에 없어 415가 나간다. 그런데
+           * 이것은 파일 형식 문제가 아니라 요청 형식 문제다. 415로 답하면 화면은 "이 파일은
+           * 못 올린다"고 안내하고, 사용자는 멀쩡한 파일을 바꾸려 든다.
+           */
+          if (ref.isNew() && (ref.originalName() == null || ref.originalName().isBlank())) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "새로 붙이는 파일에는 파일명이 있어야 합니다.");
           }
         });
     return NoteMetadata.distinctByKey(

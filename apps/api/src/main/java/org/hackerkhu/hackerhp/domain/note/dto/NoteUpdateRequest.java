@@ -36,7 +36,7 @@ public record NoteUpdateRequest(
         @NotEmpty(message = "파일을 하나 이상 남겨 주세요.")
         @Size(max = 100, message = "파일이 너무 많습니다.")
         @Valid
-        List<FileRef> files) {
+        List<@NotNull(message = "파일 정보가 비었습니다.") FileRef> files) {
 
   /**
    * 남길 파일 하나.
