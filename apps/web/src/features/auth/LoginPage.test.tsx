@@ -6,7 +6,7 @@ import {
   waitFor,
 } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { GOOGLE_LOGIN_PATH } from '@/api/auth'
 import { ApiError } from '@/api/client'
@@ -262,14 +262,23 @@ describe('로고', () => {
 
     for (const mark of [panel, narrow]) {
       /*
-       * **`html`이 아니라 화면 안쪽에서 다크를 찾는다.** `useDarkChrome`이 `html`에도
-       * 클래스를 거는데, 거기까지 타고 올라가는 것을 허용하면 최상위 div의 `.dark`가
-       * 빠져도 통과한다 — 실제로 그렇게 헛돌았다. 그 div는 첫 페인트를 담당한다.
-       * 훅은 effect라 페인트 뒤에 도므로, 빠지면 라이트로 한 프레임 번쩍인다.
+       * **다크를 세우는 것이 화면 최상위여야 한다.**
+       *
+       * `closest('.dark')`가 있는 것만으로는 부족하다. 두 가지가 통과해 버린다 —
+       * `useDarkChrome`이 `html`에도 클래스를 걸어서 거기까지 타고 올라가는 경우, 그리고
+       * `.dark`가 안쪽 래퍼로 내려간 경우다. 둘 다 **바깥 배경이 첫 프레임에 라이트로
+       * 칠해진다** — 훅은 effect라 페인트 뒤에 돈다. 그래서 화면을 덮는 그 요소
+       * (`min-h-screen`)를 직접 지목한다.
        */
       const context = mark.closest('.dark')
-      expect(context).not.toBeNull()
       expect(context).not.toBe(document.documentElement)
+      expect(context).toHaveClass('min-h-screen', 'bg-background')
+
+      /*
+       * **카드 배경은 토큰에서 온다.** `bg-white` 같은 값을 직접 박으면 다크 문맥
+       * 안에서도 흰 카드가 되어 흰 잉크가 통째로 사라지는데, 위 단언은 전부 통과한다.
+       */
+      expect(mark.closest('.rounded-xl')).toHaveClass('bg-card')
 
       const src = mark.getAttribute('src') ?? ''
       expect(PUBLIC_FILES, `${src}가 public/에 없다`).toContain(src)
@@ -824,13 +833,38 @@ describe('다크 크롬', () => {
    * 랜딩에서 같은 증상을 고친 처리를 `useDarkChrome`으로 모아 이 화면도 쓴다. 훅 호출이
    * 빠지면 화면 안쪽은 그대로 검게 보여서 **브라우저에서도 데스크톱에서는 티가 안 난다.**
    */
-  it('html에 다크를 걸고 나갈 때 되돌린다', async () => {
+  /*
+   * **훅이 손대는 것은 전역이다.** 단언이 중간에 실패하면 `html`의 클래스와 `meta`가
+   * 남아 **같은 파일의 뒤 테스트를 오염시킨다** — 공통 `afterEach(cleanup)`은 React
+   * 컨테이너만 걷을 뿐 이 둘은 되돌리지 못한다. 그래서 여기서 직접 원상복구한다.
+   */
+  afterEach(() => {
+    document.documentElement.classList.remove('dark')
+    document.querySelector('meta[name="theme-color"]')?.remove()
+  })
+
+  function themeColor(): string | null {
+    return (
+      document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+        ?.content ?? null
+    )
+  }
+
+  it('html에 다크를 걸고 theme-color를 주며 나갈 때 되돌린다', async () => {
     const html = document.documentElement
     expect(html.classList.contains('dark')).toBe(false)
+    expect(themeColor()).toBeNull()
 
     renderAt('/login')
     await loaded()
+
     expect(html.classList.contains('dark')).toBe(true)
+    /*
+     * **`theme-color`까지 본다.** 클래스만 확인하면, 훅을 쓰지 않고 `classList`를 직접
+     * 토글하는 코드도 통과한다 — 그러면 iOS 주소창 색이 빠진다. jsdom은 색을 계산하지
+     * 않아 `body` 배경이 빈 문자열이므로, 값이 아니라 **태그가 생겼는지**를 본다.
+     */
+    expect(themeColor()).not.toBeNull()
 
     /*
      * **되돌리는 것까지 본다.** 로그인 이후 화면은 라이트라, 나가면서 벗기지 않으면
@@ -838,5 +872,25 @@ describe('다크 크롬', () => {
      */
     cleanup()
     expect(html.classList.contains('dark')).toBe(false)
+    expect(themeColor()).toBeNull()
+  })
+
+  /*
+   * 이미 `theme-color`가 있으면 **지우는 것이 아니라 원래 값으로 되돌린다.** 지워 버리면
+   * 다크 화면을 한 번 다녀온 것만으로 사이트 전체의 주소창 색이 사라진다. 훅이 `existing`
+   * 분기로 나뉘는 자리라, 값이 있는 경우를 따로 태우지 않으면 그 절반이 안 돌아간다.
+   */
+  it('원래 있던 theme-color는 값을 되돌린다', async () => {
+    const meta = document.createElement('meta')
+    meta.name = 'theme-color'
+    meta.content = '#ffffff'
+    document.head.appendChild(meta)
+
+    renderAt('/login')
+    await loaded()
+    expect(themeColor()).not.toBe('#ffffff')
+
+    cleanup()
+    expect(themeColor()).toBe('#ffffff')
   })
 })
