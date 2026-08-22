@@ -260,6 +260,14 @@ export function NoticeListPage() {
                   to={`/notices/${notice.id}`}
                   className={cn(
                     'flex min-w-0 flex-1 items-center gap-4 py-3 pr-2 pl-3 transition-colors hover:bg-accent',
+                    /*
+                     * **포커스 표시를 안쪽에 그린다.** 카드가 `overflow-hidden`이라 밖으로
+                     * 나가는 브라우저 기본 `outline`이 경계에서 잘려, 키보드로 훑을 때 지금
+                     * 어느 행에 있는지 보이지 않는다.
+                     *
+                     * 다른 컨트롤과 같은 링을 쓰되 `ring-inset`으로 안쪽에 둔다.
+                     */
+                    'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset',
                     // 무채색 팔레트라 색으로 구분할 수 없다. 고정 공지는 좌측 세로 바와
                     // 핀 아이콘, 순검정 제목으로 가른다.
                     notice.isPinned
