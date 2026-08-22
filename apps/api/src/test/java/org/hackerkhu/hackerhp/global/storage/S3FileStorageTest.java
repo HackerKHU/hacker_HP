@@ -171,6 +171,43 @@ class S3FileStorageTest {
     assertThat(disposition).contains("%20").doesNotContain("+");
   }
 
+  /**
+   * <b>{@code *}도 인코딩한다</b> (#208 리뷰).
+   *
+   * <p>{@code URLEncoder}는 {@code *}를 그대로 두는데, RFC 5987의 {@code attr-char}에는 없는 글자다. 엄격한 클라이언트는
+   * <b>파라미터를 통째로 무시</b>하고, 그러면 사용자는 uuid 이름으로 받는다. Linux·macOS에서는 이런 이름의 파일을 만들 수 있다.
+   */
+  @Test
+  void asterisksAreEncodedToo() {
+    when(presigner.presignGetObject(any(GetObjectPresignRequest.class))).thenAnswer(presignedGet());
+
+    storage.presignGet("notes/uuid.pdf", "중간고사*정리.pdf");
+
+    ArgumentCaptor<GetObjectPresignRequest> captured =
+        ArgumentCaptor.forClass(GetObjectPresignRequest.class);
+    verify(presigner).presignGetObject(captured.capture());
+    String disposition = captured.getValue().getObjectRequest().responseContentDisposition();
+
+    // 앞머리의 filename* 은 파라미터 이름이라 그대로다. 값 안에 별표가 남으면 안 된다.
+    assertThat(disposition.substring(disposition.indexOf("UTF-8''"))).doesNotContain("*");
+    assertThat(disposition).contains("%2A");
+  }
+
+  /** 남겨 두어야 하는 글자까지 건드리지 않는다 — {@code . - _}는 {@code attr-char}에 있다. */
+  @Test
+  void charactersAllowedByRfc5987AreLeftAlone() {
+    when(presigner.presignGetObject(any(GetObjectPresignRequest.class))).thenAnswer(presignedGet());
+
+    storage.presignGet("notes/uuid.pdf", "os-final_2025.pdf");
+
+    ArgumentCaptor<GetObjectPresignRequest> captured =
+        ArgumentCaptor.forClass(GetObjectPresignRequest.class);
+    verify(presigner).presignGetObject(captured.capture());
+
+    assertThat(captured.getValue().getObjectRequest().responseContentDisposition())
+        .endsWith("os-final_2025.pdf");
+  }
+
   /** 내려받기는 업로드보다 짧은 수명을 쓴다 (#55 D3). */
   @Test
   void theDownloadUrlUsesTheShorterTtl() {

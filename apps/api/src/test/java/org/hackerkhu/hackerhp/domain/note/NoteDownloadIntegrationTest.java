@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Duration;
+import java.time.Instant;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
@@ -40,6 +42,9 @@ import org.springframework.test.web.servlet.MockMvc;
 class NoteDownloadIntegrationTest extends AbstractIntegrationTest {
 
   private static final String NOTES = "/api/v1/notes";
+
+  /** {@code application.yml}의 {@code app.storage.download-presign-ttl}과 같은 값이다. */
+  private static final Duration TTL = Duration.ofMinutes(1);
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository userRepository;
@@ -165,6 +170,32 @@ class NoteDownloadIntegrationTest extends AbstractIntegrationTest {
     assertThat(body.has("storedPath")).isFalse();
     // url 안에는 키가 들어갈 수밖에 없다 — 그것이 받는 주소이기 때문이다. 본문의 다른 필드가 문제다.
     assertThat(body.path("originalName").asText()).doesNotContain("notes/");
+  }
+
+  /**
+   * T-306 — <b>알려 준 만료가 실제 만료보다 늦으면 안 된다</b> (#208 리뷰).
+   *
+   * <p>S3의 만료는 <b>서명이 만들어진 순간</b>부터 센다. 기준 시각을 서명 뒤에 잡으면 우리가 알려 준 {@code expiresAt}이 실제보다 늦어지고, 그
+   * 차이만큼 <b>"아직 유효하다고 적혀 있는데 S3는 거절하는"</b> 구간이 생긴다 — 서명이 오래 걸리거나 GC가 끼면 더 벌어진다.
+   *
+   * <p>반대로 틀리는 것은 안전하다. 이르게 만료된다고 알리면 다시 발급받으면 그만이다.
+   */
+  @Test
+  void theReportedExpiryIsNeverLaterThanTheRealOne() throws Exception {
+    storage.delayPresign(Duration.ofMillis(200));
+
+    String json =
+        mockMvc
+            .perform(sessions.as(me, get(downloadPath(noteId, fileId))))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    Instant reported = Instant.parse(objectMapper.readTree(json).path("expiresAt").asText());
+    Instant real = storage.presignedAt().plus(TTL);
+
+    assertThat(reported).isBeforeOrEqualTo(real);
   }
 
   /* ---------------------------------------------------------------- 막힌다 */

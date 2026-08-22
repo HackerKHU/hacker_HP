@@ -72,12 +72,25 @@ public class S3FileStorage implements FileStorage {
     return URI.create(presigner.presignGetObject(request).url().toString());
   }
 
-  /** {@code attachment; filename*=UTF-8''%EC%A0%95%EB%A6%AC%EB%B3%B8.pdf} 꼴로 만든다. */
+  /**
+   * {@code attachment; filename*=UTF-8''%EC%A0%95%EB%A6%AC%EB%B3%B8.pdf} 꼴로 만든다.
+   *
+   * <p><b>{@code URLEncoder}를 그대로 쓸 수 없다.</b> 그것은 폼 인코딩이고 RFC 5987이 요구하는 것과 두 군데가 어긋난다.
+   *
+   * <table>
+   *   <caption>손봐야 하는 두 글자</caption>
+   *   <tr><th>글자<th>{@code URLEncoder}<th>왜 안 되나
+   *   <tr><td>공백<td>{@code +}<td>RFC 5987은 {@code +}를 <b>더하기 기호 그대로</b> 읽는다 — 이름에 {@code +}가 박힌 채 저장된다
+   *   <tr><td>{@code *}<td>그대로 둠<td>{@code attr-char}에 없다 — <b>엄격한 클라이언트는 이 파라미터를 통째로 무시</b>하고, 사용자는 uuid 이름으로 받는다
+   * </table>
+   *
+   * <p>나머지 예약 문자({@code . - _})는 {@code attr-char}에 있어 그대로 두어도 된다.
+   */
   private static String contentDisposition(String originalName) {
     String encoded =
         URLEncoder.encode(originalName, StandardCharsets.UTF_8)
-            // URLEncoder는 폼 인코딩이라 공백을 +로 바꾼다. RFC 5987은 %20이다.
-            .replace("+", "%20");
+            .replace("+", "%20")
+            .replace("*", "%2A");
     return "attachment; filename*=UTF-8''" + encoded;
   }
 

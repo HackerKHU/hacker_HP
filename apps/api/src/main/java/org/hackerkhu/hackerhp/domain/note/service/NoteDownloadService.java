@@ -63,9 +63,20 @@ public class NoteDownloadService {
      */
     log.info("자료 내려받기 URL 발급: viewerId={} noteId={} fileId={}", viewerId, noteId, fileId);
 
+    /*
+     * 기준 시각을 서명 "전에" 잡는다 (#208 리뷰).
+     *
+     * S3의 만료는 서명이 만들어진 순간부터 센다. 서명 뒤에 시각을 잡으면 우리가 알려 준
+     * expiresAt이 실제 만료보다 늦어지고, 그 차이만큼 "아직 유효하다고 적혀 있는데 S3는
+     * 거절하는" 구간이 생긴다 — 서명이 오래 걸리거나 GC가 끼면 더 벌어진다.
+     *
+     * 먼저 잡으면 반대 방향으로 틀린다. 실제보다 이르게 만료된다고 알리는 것은 다시
+     * 발급받으면 그만이라 안전하다.
+     */
+    Instant expiresAt = Instant.now().plus(properties.downloadPresignTtl());
     return new DownloadUrlResponse(
         storage.presignGet(file.getStoredPath(), file.getOriginalName()),
         file.getOriginalName(),
-        Instant.now().plus(properties.downloadPresignTtl()));
+        expiresAt);
   }
 }
