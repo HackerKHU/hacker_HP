@@ -175,6 +175,14 @@ public class NoteController {
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
               schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "415",
+      description =
+          "`UNSUPPORTED_FILE_TYPE` — **등록 요청의 `originalName`이 허용되지 않는 확장자다.** 발급 때 통과한 이름과 다른 이름을 붙이는 길을 막는다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
   @PostMapping
   @ResponseStatus(HttpStatus.CREATED)
   @PreAuthorize("isAuthenticated()")
