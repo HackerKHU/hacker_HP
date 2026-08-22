@@ -12,6 +12,7 @@ import { GOOGLE_LOGIN_PATH } from '@/api/auth'
 import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { CLUB } from '@/features/landing/content'
 
 /**
  * 로그인 화면 (#37).
@@ -217,6 +218,38 @@ describe('정지된 세션', () => {
 
     expect(await screen.findByRole('heading', { level: 1 })).toBeInTheDocument()
     expect(pathname()).toBe('/')
+  })
+})
+
+describe('로고', () => {
+  /*
+   * 자리표시자를 걷고 확정 로고를 넣었다. **배경에 맞는 잉크를 골라야 한다** — 왼쪽
+   * 패널은 `.dark`라 흰색, 좁은 화면 자리는 라이트라 검정이다. 바뀌면 마크가 배경에
+   * 묻혀 안 보이는데, 화면을 안 열어보면 모른다.
+   *
+   * 파일 존재는 `meta.test.ts`가 `og:image`에 대해 하는 것과 같은 종류의 검사다 —
+   * 태그만 있고 그림이 없으면 화면에 깨진 아이콘이 뜬다.
+   */
+  it('배경에 맞는 잉크의 마크를 쓴다', async () => {
+    renderAt('/login')
+
+    const dark = await screen.findByAltText('해커')
+    expect(dark).toHaveAttribute('src', '/brand/mark-white-512.png')
+
+    const light = screen.getByAltText(CLUB.fullName)
+    expect(light).toHaveAttribute('src', '/brand/mark-black-256.png')
+  })
+
+  /*
+   * 로고는 장식이 아니라 이 화면이 어디인지 말하는 요소다. `alt`가 비면 스크린리더
+   * 사용자에게는 그 정보가 통째로 사라진다.
+   */
+  it('마크에 대체 텍스트가 있다', async () => {
+    renderAt('/login')
+
+    for (const img of await screen.findAllByRole('img')) {
+      expect(img).toHaveAccessibleName()
+    }
   })
 })
 
