@@ -47,6 +47,13 @@ const COPYRIGHT_YEAR = 2026
  * 2026 로고 공모전 1등 작품이 확정되어 자리표시자를 걷었다. 자산은 `brand/`에서 파생한
  * 것을 쓴다 (`brand/README.md`) — **원본만이 정본이고 파생본을 직접 손보지 않는다.**
  *
+ * **랜딩과 같은 검정이다.** 로그인은 랜딩에서 넘어오는 화면이라 배경이 이어져야 하고,
+ * 흰 패널로 두면 그 연결이 끊긴다. 승인 이후 화면(라이트)과의 경계는 로그인을 지나면서
+ * 생긴다.
+ *
+ * 테두리와 `shadow-sm`은 옆 카드와 맞춘 것이다 — 배경색은 달라도 **같은 평면에 놓인
+ * 두 장**으로 보여야 한다. 그림자가 한쪽에만 있으면 높이가 어긋나 보인다.
+ *
  * 이 패널은 배경이 검정(`.dark`)이라 **잉크가 흰색이고 배경이 투명한** 파일을 쓴다.
  * `-on-white`/`-on-black`은 배경이 채워진 버전이라 여기서는 네모가 비쳐 보인다.
  *
@@ -56,7 +63,7 @@ const COPYRIGHT_YEAR = 2026
  */
 function LogoPanel() {
   return (
-    <div className="dark hidden w-[22rem] shrink-0 items-center justify-center rounded-xl bg-background p-10 text-foreground lg:flex">
+    <div className="dark hidden w-[22rem] shrink-0 items-center justify-center rounded-xl border border-border bg-background p-10 text-foreground shadow-sm lg:flex">
       {/*
         장식이 아니라 이 화면이 어디인지 말하는 요소라 `alt`를 비우지 않는다. 다만 옆
         카드에 "로그인" 제목이 이미 있으므로 동아리 이름까지만 읽히면 충분하다.
@@ -136,7 +143,17 @@ export function LoginPage() {
      * `lg:hidden` 마크가 그 자리다. 같은 심볼을 폭에 맞는 크기로 보이는 것이지 정보가
      * 없어지는 것이 아니다.
      */
-    <div className="flex min-h-screen justify-center bg-muted p-6">
+    /*
+     * **화면 배경은 랜딩과 같은 검정이다.** 로그인은 랜딩에서 넘어오는 화면이라 배경이
+     * 이어져야 한다 — 회색 바탕이면 그 사이에 한 겹이 끼어 보인다. 라이트로 갈리는 지점은
+     * 로그인을 지난 뒤(승인 이후 화면)다.
+     *
+     * **`.dark`를 여기 씌우지 않는다.** 씌우면 안쪽 카드까지 토큰이 뒤집혀 제목과 구글
+     * 버튼 글자가 배경에 묻힌다 — 실제로 그렇게 만들어 보고 되돌렸다. 배경만 검정이면
+     * 되므로 그 용도의 토큰(`--color-canvas-dark`, `index.css`)을 쓴다 — 색을 화면에
+     * 직접 박지 않는다.
+     */
+    <div className="flex min-h-screen justify-center bg-canvas-dark p-6">
       {/*
        * 세로 가운데는 **`items-center`가 아니라 자식의 `my-auto`로 맞춘다.**
        *

@@ -32,7 +32,10 @@
 | `apps/web/public/favicon.ico` | `icon/favicon.ico` |
 | `apps/web/public/apple-touch-icon-180.png` | `icon/apple-touch-icon-180.png` |
 | `apps/web/public/brand/og-image.png` | `social/og-light-1200x630.png` |
-| `apps/web/public/brand/mark-white-512.png` | `mark/mark-white-512.png` (로그인 다크 패널) |
+| `apps/web/public/brand/lockup-vertical-white-1024.png` | `vertical/…-white-1024.png` (로그인 좌측 패널) |
+| `apps/web/public/brand/lockup-horizontal-white-512.png` | `horizontal/…-white-512.png` (랜딩 헤더, 다크) |
+| `apps/web/public/brand/lockup-horizontal-black-512.png` | `horizontal/…-black-512.png` (내부 헤더, 라이트) |
+| `apps/web/public/brand/mark-white-512.png` | `mark/mark-white-512.png` |
 | `apps/web/public/brand/mark-black-256.png` | `mark/mark-black-256.png` (좁은 화면 로그인) |
 | `apps/web/public/brand/icon-192.png` 외 | `icon/icon-192.png` 외 (PWA 매니페스트용, 아직 미사용) |
 
