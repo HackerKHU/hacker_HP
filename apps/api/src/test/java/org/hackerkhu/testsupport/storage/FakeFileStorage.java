@@ -3,26 +3,42 @@ package org.hackerkhu.testsupport.storage;
 import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.OptionalLong;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import org.hackerkhu.hackerhp.global.storage.FileStorage;
 
 /**
  * 자격증명 없이 도는 {@link FileStorage} (#53 D6).
  *
  * <p><b>presigned 서명을 흉내내지 않는다.</b> 서명은 SDK가 하는 일이고, 우리가 지켜야 할 것은 <b>발급 조건·크기 검증·정리 순서</b>다. 그래서
- * 여기서 재현하는 것은 "무엇이 올라와 있고 크기가 얼마인가"뿐이다.
+ * 여기서 재현하는 것은 "무엇이 올라와 있고, 크기가 얼마이고, 그 사이에 바뀌었는가"뿐이다.
+ *
+ * <p><b>{@code etag}는 올릴 때마다 새로 준다.</b> 같은 키에 다시 올리면 값이 달라지므로, "잰 뒤에 갈아치웠다"가 그대로 드러난다 (#207 리뷰).
  *
  * <p>실제 S3 연동은 배포 리허설(#48)의 수동 점검이 맡는다.
  */
 public class FakeFileStorage implements FileStorage {
 
-  /** 키 → 크기. 순서를 유지해 "무엇이 어떤 차례로 남았나"를 그대로 볼 수 있게 한다. */
-  private final Map<String, Long> objects = new LinkedHashMap<>();
+  /** 키 → 올라온 것. 순서를 유지해 "무엇이 어떤 차례로 남았나"를 그대로 볼 수 있게 한다. */
+  private final Map<String, StoredObject> objects = new LinkedHashMap<>();
 
-  /** 브라우저가 S3에 올린 셈 친다. */
+  private final AtomicLong etags = new AtomicLong();
+
+  /** 삭제가 터지는 상황을 만든다. 정리 실패를 삼키는지 보려면 필요하다. */
+  private boolean deleteFails;
+
+  /**
+   * <b>재고 나서 옮기는 사이</b>에 내용이 갈리는 상황 (#207 리뷰).
+   *
+   * <p>발급한 presigned URL은 만료까지 살아 있어 그 틈에 다시 올릴 수 있다. 미리 갈아 두면 등록이 갈린 뒤의 값을 재게 되어 <b>이 사례가 재현되지
+   * 않는다</b> — 갈리는 시점이 {@code describe} 다음이어야 한다.
+   */
+  private final Map<String, Long> swapAfterDescribe = new LinkedHashMap<>();
+
+  /** 브라우저가 S3에 올린 셈 친다. 같은 키에 다시 올리면 {@code etag}가 달라진다. */
   public void put(String key, long sizeBytes) {
-    objects.put(key, sizeBytes);
+    objects.put(key, new StoredObject(sizeBytes, "etag-" + etags.incrementAndGet()));
   }
 
   public Set<String> keys() {
@@ -33,8 +49,23 @@ public class FakeFileStorage implements FileStorage {
     return objects.containsKey(key);
   }
 
+  public long sizeOf(String key) {
+    return objects.get(key).sizeBytes();
+  }
+
+  public void failDeletes(boolean fails) {
+    this.deleteFails = fails;
+  }
+
+  /** 다음 {@code describe} 직후에 그 키의 내용을 갈아치운다. */
+  public void swapAfterDescribe(String key, long newSizeBytes) {
+    swapAfterDescribe.put(key, newSizeBytes);
+  }
+
   public void clear() {
     objects.clear();
+    swapAfterDescribe.clear();
+    deleteFails = false;
   }
 
   @Override
@@ -43,22 +74,30 @@ public class FakeFileStorage implements FileStorage {
   }
 
   @Override
-  public OptionalLong sizeOf(String key) {
-    Long size = objects.get(key);
-    return size == null ? OptionalLong.empty() : OptionalLong.of(size);
+  public Optional<StoredObject> describe(String key) {
+    Optional<StoredObject> found = Optional.ofNullable(objects.get(key));
+    Long swapped = swapAfterDescribe.remove(key);
+    if (swapped != null) {
+      put(key, swapped);
+    }
+    return found;
   }
 
   @Override
-  public void copy(String fromKey, String toKey) {
-    Long size = objects.get(fromKey);
-    if (size == null) {
-      throw new IllegalStateException("없는 키를 복사하려 했다: " + fromKey);
+  public boolean copyIfUnchanged(String fromKey, String toKey, String expectedEtag) {
+    StoredObject source = objects.get(fromKey);
+    if (source == null || !source.etag().equals(expectedEtag)) {
+      return false;
     }
-    objects.put(toKey, size);
+    objects.put(toKey, source);
+    return true;
   }
 
   @Override
   public void delete(String key) {
+    if (deleteFails) {
+      throw new IllegalStateException("삭제 실패를 흉내낸다: " + key);
+    }
     objects.remove(key);
   }
 }

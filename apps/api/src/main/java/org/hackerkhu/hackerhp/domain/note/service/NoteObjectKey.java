@@ -37,12 +37,17 @@ public final class NoteObjectKey {
   }
 
   /**
-   * 임시 자리의 키를 <b>같은 이름 그대로</b> 최종 자리로 옮긴다.
+   * 최종 자리의 키. <b>등록할 때마다 새로 뽑는다</b> (#207 리뷰).
    *
-   * <p>이름을 새로 뽑지 않는 이유는 <b>임시와 최종을 눈으로 이어 볼 수 있어야</b> 장애 때 추적이 되기 때문이다.
+   * <p>임시 키에서 이름을 물려받으면 <b>같은 임시 키가 두 번 등록될 때 최종 키가 겹친다.</b> 첫 등록이 임시본을 지워도 발급한 presigned URL은 만료까지
+   * 살아 있어, 같은 자리에 다른 파일을 올리고 다시 등록할 수 있다 — 그러면 두 번째 복사가 <b>첫 자료의 파일을 덮어쓰고</b>, 첫 자료는 DB에 적힌 이름·크기와
+   * 실제 내용이 어긋난 채 남는다.
+   *
+   * <p>이름을 물려받으면 임시와 최종을 눈으로 이어 볼 수 있어 장애 추적이 편하지만, <b>그 편의가 자료를 조용히 바꿔치기당하는 값을 하지는 않는다.</b> 추적은
+   * 로그가 맡는다.
    */
-  public static String stored(String stagingKey) {
-    return STORED_ROOT + stagingKey.substring(stagingKey.lastIndexOf('/') + 1);
+  public static String stored(String extension) {
+    return STORED_ROOT + UUID.randomUUID() + "." + extension;
   }
 
   /**

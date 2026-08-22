@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.OptionalLong;
+import java.util.Optional;
 import java.util.Set;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteCreateRequest;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteDetailResponse;
@@ -13,10 +13,13 @@ import org.hackerkhu.hackerhp.domain.note.entity.Category;
 import org.hackerkhu.hackerhp.domain.note.entity.Note;
 import org.hackerkhu.hackerhp.domain.note.entity.NoteFile;
 import org.hackerkhu.hackerhp.domain.note.repository.NoteRepository;
+import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.domain.user.service.RequesterCheck;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
 import org.hackerkhu.hackerhp.global.storage.FileStorage;
+import org.hackerkhu.hackerhp.global.storage.FileStorage.StoredObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -33,12 +36,15 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <table>
  *   <caption>등록 순서와 이유</caption>
- *   <tr><th>①<td>키가 <b>내 것인지</b> 확인<td>키 문자열만 알면 남의 파일을 자기 자료로 등록할 수 있다
- *   <tr><th>②<td><b>전부</b> 크기 확인<td>하나라도 걸리면 아무것도 옮기지 않는다 — 되돌릴 것이 없다
- *   <tr><th>③<td>최종 자리로 복사<td>임시 자리는 하루 뒤 자동으로 걷힌다
- *   <tr><th>④<td>DB 저장<td>실패하면 방금 복사한 것을 도로 지운다
- *   <tr><th>⑤<td>임시본 삭제<td>실패해도 라이프사이클이 걷어간다. 등록을 되돌릴 일이 아니다
+ *   <tr><th>①<td>키가 <b>내 것인지</b>, 이름이 허용 확장자인지<td>키도 이름도 클라이언트가 보내는 값이다
+ *   <tr><th>②<td><b>전부</b> 재고 {@code etag}를 붙든다<td>하나라도 걸리면 아무것도 옮기지 않는다
+ *   <tr><th>③<td><b>잰 그 내용일 때만</b> 최종 자리로 복사<td>잰 뒤에 갈아치우면 제한이 무력해진다
+ *   <tr><th>④<td>업로더를 잠그고 {@code ACTIVE} 재확인 → 저장<td>인가를 지난 뒤 정지될 수 있다
+ *   <tr><th>⑤<td>임시본 삭제<td>실패해도 라이프사이클이 걷어간다
  * </table>
+ *
+ * <p><b>커밋 전에 실패한 경우에만 최종본을 지운다</b> (#207 리뷰). 커밋 뒤에 무엇이 잘못돼도 파일은 그대로 둔다 — 이미 저장된 자료가 파일 없는 껍데기가 되면
+ * 되돌릴 방법이 없다.
  */
 @Service
 public class NoteCreateService {
@@ -68,42 +74,85 @@ public class NoteCreateService {
     requireCategoryMatchesExamType(request);
     List<NoteCreateRequest.UploadedFile> files = distinctFiles(request.files());
 
-    // ① 내가 발급받은 키인가 (#53 D3).
-    files.forEach(file -> requireStagedByMe(file.key(), uploaderId));
+    // ① 키도 이름도 클라이언트가 보내는 값이다. 둘 다 본다 (#53 D3, #207 리뷰).
+    files.forEach(
+        file -> {
+          requireStagedByMe(file.key(), uploaderId);
+          requireAllowedName(file.originalName());
+        });
 
-    // ② 실제 크기를 전부 확인한 뒤에야 다음으로 간다.
-    List<Stored> measured = files.stream().map(this::measure).toList();
+    // ② 전부 재고 etag를 붙든 뒤에야 다음으로 간다.
+    List<Measured> measured = files.stream().map(this::measure).toList();
 
-    // ③ 최종 자리로 옮긴다.
-    List<String> copied = new ArrayList<>();
+    Note saved = copyAndPersist(uploaderId, request, measured);
+
+    /*
+     * ⑤ 여기부터는 커밋된 뒤다. 무엇이 실패해도 파일을 지우지 않는다.
+     *
+     * 임시본 정리는 실패해도 라이프사이클이 하루 뒤에 걷어가므로, 등록을 무를 일이 아니다.
+     */
+    measured.forEach(m -> deleteQuietly(m.stagingKey()));
+    return detailOf(saved, uploaderId);
+  }
+
+  /**
+   * ③·④를 한 묶음으로 본다. <b>여기서 실패하면 옮겨 둔 것을 도로 지운다.</b>
+   *
+   * <p>파일은 저장하기 <b>전에</b> 최종 자리로 옮겨진다 — 그 뒤 저장이 실패하면 그 파일은 <b>아무도 지울 수 없는 것</b>이 된다. 최종 자리에는 만료 규칙이
+   * 없고(자료는 오래 남아야 한다), DB에 행이 없어 찾을 실마리도 없다.
+   *
+   * <p><b>정리 범위가 여기서 끝나는 것이 중요하다.</b> 커밋 뒤의 실패까지 이 {@code catch}가 받으면, 이미 저장된 자료의 파일만 사라져 <b>고칠 수
+   * 없는 껍데기</b>가 남는다.
+   */
+  private Note copyAndPersist(Long uploaderId, NoteCreateRequest request, List<Measured> measured) {
+    List<Stored> copied = new ArrayList<>();
     try {
-      measured.forEach(
-          stored -> {
-            storage.copy(stored.stagingKey(), stored.storedKey());
-            copied.add(stored.storedKey());
-          });
-      // ④ 여기서 실패하면 아래 catch가 방금 복사한 것을 도로 지운다.
-      Note saved = transaction.execute(ignored -> persist(uploaderId, request, measured));
-      // ⑤ 임시본은 이제 필요 없다.
-      measured.forEach(stored -> storage.delete(stored.stagingKey()));
-      return detailOf(saved, uploaderId);
+      measured.forEach(m -> copied.add(copyToStored(m)));
+      return transaction.execute(ignored -> persist(uploaderId, request, copied));
     } catch (RuntimeException e) {
-      /*
-       * 등록이 무산됐는데 최종 자리에 파일만 남으면 아무도 그것을 지울 수 없다 — 그 자리에는
-       * 만료 규칙이 없고(자료는 오래 남아야 한다), DB에 행이 없으니 찾을 실마리도 없다.
-       */
-      copied.forEach(storage::delete);
+      cleanUp(copied, e);
       throw e;
     }
   }
 
-  /** 임시 키와 최종 키, 그리고 <b>실제로 올라온</b> 크기. */
-  private record Stored(String stagingKey, String storedKey, String originalName, long sizeBytes) {}
+  /**
+   * 옮겨 둔 최종본을 되돌린다.
+   *
+   * <p><b>정리 실패를 삼키지 않는다</b> (#207 리뷰). 최종 자리에는 만료 규칙이 없어, 여기서 실패한 오브젝트는 <b>DB 행도 만료 규칙도 없이 영원히
+   * 남는다.</b> 그렇다고 원래 실패를 이 실패로 덮으면 무엇이 잘못됐는지 알 수 없으므로, <b>키를 찍어 남기고</b> 원래 예외에 매달아 보낸다 — 사람이 그 키로
+   * 찾아 지울 수 있어야 한다.
+   */
+  private void cleanUp(List<Stored> copied, RuntimeException cause) {
+    copied.forEach(
+        stored -> {
+          try {
+            storage.delete(stored.storedKey());
+          } catch (RuntimeException e) {
+            log.error("등록 실패 후 정리도 실패했다 — 손으로 지워야 한다: key={}", stored.storedKey(), e);
+            cause.addSuppressed(e);
+          }
+        });
+  }
+
+  /** 임시본 정리. <b>여기는 삼켜도 된다</b> — 하루 뒤 라이프사이클이 걷어간다. */
+  private void deleteQuietly(String key) {
+    try {
+      storage.delete(key);
+    } catch (RuntimeException e) {
+      log.warn("임시본 정리에 실패했다. 라이프사이클이 걷어간다: key={}", key, e);
+    }
+  }
+
+  /** 잰 결과 — 임시 키와 <b>그 순간의 내용</b>. */
+  private record Measured(String stagingKey, String originalName, StoredObject object) {}
+
+  /** 옮긴 결과 — 최종 키와 DB에 적을 값. */
+  private record Stored(String storedKey, String originalName, long sizeBytes) {}
 
   /**
    * <b>같은 키를 두 번 담아도 한 번만 등록한다.</b>
    *
-   * <p>두 번 담기면 ⑤에서 첫 번째가 임시본을 지운 뒤 두 번째가 같은 것을 복사하려다 터진다. 재시도·중복 클릭으로 흔히 생기는 모양이라 조용히 접는다.
+   * <p>두 번 담기면 같은 임시본을 두 번 옮기게 되는데, 그러면 한 자료에 같은 내용의 파일이 둘로 들어간다. 재시도·중복 클릭으로 흔히 생기는 모양이라 조용히 접는다.
    */
   private List<NoteCreateRequest.UploadedFile> distinctFiles(
       List<NoteCreateRequest.UploadedFile> files) {
@@ -140,30 +189,70 @@ public class NoteCreateService {
   }
 
   /**
+   * <b>등록 요청의 파일명도 확장자 검사를 받는다</b> (#207 리뷰).
+   *
+   * <p>발급 때 {@code safe.pdf}로 통과한 뒤 등록에서 같은 키에 {@code malware.exe}를 붙이면, <b>화면에 실행 파일 이름이 그대로
+   * 뜬다.</b> 이 이름은 {@code note_files.original_name}에 저장되고 내려받을 때 사용자가 보는 이름이 된다 — 발급 API의 {@code
+   * 415}를 우회하는 길이다.
+   */
+  private void requireAllowedName(String originalName) {
+    if (!policy.allows(NoteObjectKey.extensionOf(originalName))) {
+      throw new BusinessException(
+          ErrorCode.UNSUPPORTED_FILE_TYPE,
+          "허용되지 않는 형식입니다. " + String.join(", ", policy.allowedExtensions()) + "만 올릴 수 있습니다.");
+    }
+  }
+
+  /**
    * <b>올라오지 않은 키는 {@code 400}이다.</b>
    *
-   * <p>흔한 클라이언트 실수(업로드가 끝나기 전에 등록을 부름)이지 서버 장애가 아니다. 발급만 받고 올리지 않은 키도 같은 자리에 온다.
+   * <p>흔한 클라이언트 실수(업로드가 끝나기 전에 등록을 부름)이지 서버 장애가 아니다. 발급만 받고 올리지 않은 키, 하루가 지나 걷힌 키도 같은 자리에 온다.
    */
-  private Stored measure(NoteCreateRequest.UploadedFile file) {
-    OptionalLong size = storage.sizeOf(file.key());
-    if (size.isEmpty()) {
+  private Measured measure(NoteCreateRequest.UploadedFile file) {
+    Optional<StoredObject> found = storage.describe(file.key());
+    if (found.isEmpty()) {
       throw new BusinessException(ErrorCode.VALIDATION_ERROR, "업로드가 끝나지 않은 파일이 있습니다.");
     }
-    if (policy.tooLarge(size.getAsLong())) {
+    StoredObject object = found.get();
+    if (policy.tooLarge(object.sizeBytes())) {
       /*
        * 넘긴 파일을 그 자리에 두지 않는다 (2-1 §2-1-2 MUST). 임시 자리라 하루 뒤에는 어차피
        * 사라지지만, 20MB 넘는 것을 하루씩 쌓아 둘 이유가 없다.
        */
-      storage.delete(file.key());
+      deleteQuietly(file.key());
       throw new BusinessException(
           ErrorCode.FILE_TOO_LARGE,
           "파일 하나는 " + policy.maxFileSize().toMegabytes() + "MB까지 올릴 수 있습니다.");
     }
-    return new Stored(
-        file.key(), NoteObjectKey.stored(file.key()), file.originalName(), size.getAsLong());
+    return new Measured(file.key(), file.originalName(), object);
   }
 
+  /**
+   * <b>잰 그 내용일 때만 옮긴다</b> (#207 리뷰).
+   *
+   * <p>발급한 presigned URL은 만료(5분)까지 살아 있다 — 작은 파일을 재게 하고 곧바로 큰 파일로 갈아치우면, 옮겨지는 것은 큰 파일인데 DB에는 <b>작은
+   * 크기가 적혀 용량 제한이 통째로 무력해진다.</b>
+   *
+   * <p>최종 키는 <b>등록할 때마다 새로 뽑는다.</b> 임시 키에서 물려받으면 같은 임시 키의 두 번째 등록이 첫 자료의 파일을 덮어쓴다.
+   */
+  private Stored copyToStored(Measured measured) {
+    String storedKey = NoteObjectKey.stored(NoteObjectKey.extensionOf(measured.stagingKey()));
+    if (!storage.copyIfUnchanged(measured.stagingKey(), storedKey, measured.object().etag())) {
+      throw new BusinessException(ErrorCode.VALIDATION_ERROR, "업로드가 도중에 바뀌었습니다. 다시 올려 주세요.");
+    }
+    return new Stored(storedKey, measured.originalName(), measured.object().sizeBytes());
+  }
+
+  /**
+   * <b>업로더를 잠그고 다시 확인한다</b> (3-1 §3-1-4 MUST, #207 리뷰).
+   *
+   * <p>인가는 세션 값으로 이루어지고 필터는 매 요청 {@code users}를 읽지 않는다. 그래서 관리자가 방금 정지시킨 사람의 <b>대기 중이던 등록이 그대로
+   * 커밋될</b> 수 있다 — 정지 반영이 끝나기 전에 시작된 요청이면 더 그렇다. 잠근 채 확인하면 정지 트랜잭션과 자연히 줄이 선다.
+   */
   private Note persist(Long uploaderId, NoteCreateRequest request, List<Stored> files) {
+    User uploader = userRepository.findByIdForUpdate(uploaderId).orElse(null);
+    RequesterCheck.requireActive(uploader, uploaderId);
+
     Instant now = Instant.now();
     Note note =
         Note.upload(
@@ -191,7 +280,7 @@ public class NoteCreateService {
 
   /** 방금 등록한 사람이 곧 업로더다. 즐겨찾기는 아직 없다. */
   private NoteDetailResponse detailOf(Note note, Long uploaderId) {
-    String name = userRepository.findById(uploaderId).map(user -> user.getName()).orElse(null);
+    String name = userRepository.findById(uploaderId).map(User::getName).orElse(null);
     return NoteDetailResponse.of(note, Uploader.of(uploaderId, name), false);
   }
 }

@@ -9,10 +9,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.IntStream;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.domain.user.service.AdminUserStatusService;
 import org.hackerkhu.testsupport.storage.FakeFileStorage;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
@@ -64,6 +66,7 @@ class NoteUploadIntegrationTest extends AbstractIntegrationTest {
   @Autowired private JdbcTemplate jdbcTemplate;
   @Autowired private FakeFileStorage storage;
   @Autowired private ObjectMapper objectMapper;
+  @Autowired private AdminUserStatusService statusService;
 
   private User me;
   private User other;
@@ -498,5 +501,114 @@ class NoteUploadIntegrationTest extends AbstractIntegrationTest {
     assertThat(uploads.get(0).path("key").asText()).endsWith(".pdf");
     assertThat(uploads.get(1).path("key").asText()).endsWith(".png");
     assertThat(uploads.get(0).path("url").asText()).isNotBlank();
+  }
+
+  /* ------------------------------------------------- 잰 것과 옮기는 것 (#207) */
+
+  /**
+   * T-291 — <b>잰 뒤에 갈아치우면 옮기지 않는다.</b>
+   *
+   * <p>발급한 presigned URL은 만료(5분)까지 살아 있다. 작은 파일을 재게 하고 큰 파일로 덮어쓰면, 옮겨지는 것은 큰 파일인데 DB에는 <b>작은 크기가 적혀
+   * 용량 제한이 통째로 무력해진다.</b>
+   */
+  @Test
+  void anObjectSwappedAfterMeasuringIsNotMoved() throws Exception {
+    String key = uploaded(me, "정리본.pdf", 1024);
+    // 잰 직후에 다른 내용이 올라온다 — etag가 달라진다. 미리 갈면 갈린 값을 재게 되어 재현되지 않는다.
+    storage.swapAfterDescribe(key, 2048);
+
+    mockMvc
+        .perform(jsonPost(me, NOTES, createBody(key, "정리본.pdf")))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+    assertThat(storage.keys()).containsExactly(key);
+  }
+
+  /**
+   * T-292 — <b>같은 임시 키를 두 번 등록해도 최종 키가 겹치지 않는다.</b>
+   *
+   * <p>첫 등록이 임시본을 지워도 presigned URL은 살아 있어 같은 자리에 다시 올릴 수 있다. 최종 키를 임시 키에서 물려받으면 <b>두 번째 등록이 첫 자료의
+   * 파일을 덮어써</b>, 첫 자료는 DB에 적힌 크기와 실제 내용이 어긋난 채 남는다.
+   */
+  @Test
+  void registeringTheSameStagingKeyTwiceDoesNotOverwriteTheFirstNote() throws Exception {
+    String key = uploaded(me, "정리본.pdf", 1024);
+    mockMvc
+        .perform(jsonPost(me, NOTES, createBody(key, "정리본.pdf")))
+        .andExpect(status().isCreated());
+    Set<String> afterFirst = storage.keys();
+
+    // 같은 자리에 다시 올리고 또 등록한다.
+    storage.put(key, 4096);
+    mockMvc
+        .perform(jsonPost(me, NOTES, createBody(key, "정리본.pdf")))
+        .andExpect(status().isCreated());
+
+    String firstStored = afterFirst.iterator().next();
+    assertThat(storage.sizeOf(firstStored)).as("첫 자료의 파일이 바뀌면 안 된다").isEqualTo(1024);
+    assertThat(storage.keys()).hasSize(2);
+  }
+
+  /**
+   * T-293 — <b>등록 요청의 파일명도 확장자 검사를 받는다.</b>
+   *
+   * <p>발급 때 {@code safe.pdf}로 통과한 뒤 등록에 {@code malware.exe}를 붙이면 그 이름이 그대로 저장되고, 내려받을 때 사용자가 보는 이름이
+   * 된다 — 발급 API의 {@code 415}를 우회하는 길이다.
+   */
+  @Test
+  void theNameSentAtRegistrationIsCheckedToo() throws Exception {
+    String key = uploaded(me, "안전한파일.pdf", 1024);
+
+    mockMvc
+        .perform(jsonPost(me, NOTES, createBody(key, "악성코드.exe")))
+        .andExpect(status().isUnsupportedMediaType())
+        .andExpect(jsonPath("$.code").value("UNSUPPORTED_FILE_TYPE"));
+  }
+
+  /**
+   * T-294 — <b>정지된 뒤 도착한 등록은 커밋되지 않는다</b> (3-1 §3-1-4 MUST).
+   *
+   * <p>인가는 세션 값으로 이루어지고 필터는 매 요청 {@code users}를 읽지 않는다. 세션 반영이 끝나기 전에 시작된 요청은 <b>옛 {@code ACTIVE}
+   * 값으로 필터를 통과한 채</b> 저장 직전까지 온다.
+   */
+  @Test
+  void aSuspendedUploaderCannotFinishAPendingRegistration() throws Exception {
+    String key = uploaded(me, "정리본.pdf", 1024);
+    User admin = userRepository.saveAndFlush(Accounts.admin("sub-ad", "ad@khu.ac.kr", "20200000"));
+
+    // 세션은 그대로 두고 DB만 바꾼다 — 필터를 지난 뒤 정지된 상태를 그대로 재현한다.
+    User target = userRepository.findById(me.getId()).orElseThrow();
+    target.suspend();
+    userRepository.saveAndFlush(target);
+    assertThat(admin.getId()).isNotNull();
+
+    mockMvc
+        .perform(jsonPost(me, NOTES, createBody(key, "정리본.pdf")))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("SUSPENDED"));
+
+    // 옮겨 둔 최종본은 도로 지운다. 임시본은 남는다.
+    assertThat(storage.keys()).containsExactly(key);
+  }
+
+  /** 등록이 무산되면 <b>옮겨 둔 최종본을 도로 지운다</b> — 그 자리에는 만료 규칙이 없다. */
+  @Test
+  void aFailedRegistrationLeavesNothingInTheStoredArea() throws Exception {
+    String good = uploaded(me, "좋은파일.pdf", 1024);
+    String swapped = uploaded(me, "바뀐파일.pdf", 1024);
+    storage.swapAfterDescribe(swapped, 2048); // 둘째가 잰 직후에 바뀐다
+
+    String body =
+        """
+        {"category":"SUBJECT","title":"제목","subjectName":"과목","year":2025,"semester":"SPRING",
+         "files":[{"key":"%s","originalName":"좋은파일.pdf"},
+                  {"key":"%s","originalName":"바뀐파일.pdf"}]}
+        """
+            .formatted(good, swapped);
+
+    mockMvc.perform(jsonPost(me, NOTES, body)).andExpect(status().isBadRequest());
+
+    assertThat(storage.keys()).containsExactlyInAnyOrder(good, swapped);
   }
 }
