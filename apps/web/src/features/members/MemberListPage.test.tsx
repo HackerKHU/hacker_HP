@@ -513,12 +513,12 @@ describe('승인 대상', () => {
 
     expect(await hasRowMenuItem('정지회원', '관리자 지정')).toBe(true)
 
+    /*
+     * **메뉴를 열어서 확인한다.** 행 안의 버튼만 찾으면 항목이 잘못 노출돼도 닫힌 메뉴
+     * 안에 있어 잡히지 않는다 — 부재 검사가 아무것도 지키지 못하게 된다.
+     */
     for (const name of ['신청한하나', '미신청']) {
-      expect(
-        within(row(name)).queryByRole('button', {
-          name: /관리자 지정|권한 회수/,
-        }),
-      ).toBeNull()
+      expect(await hasRowMenuItem(name, /관리자 지정|권한 회수/)).toBe(false)
     }
   })
 

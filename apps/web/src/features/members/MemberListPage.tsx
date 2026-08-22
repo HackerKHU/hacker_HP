@@ -300,6 +300,31 @@ export function MemberListPage() {
     pendingRef.current = next
     setPending(next)
   }
+
+  /**
+   * 확인 창을 닫은 뒤 돌아갈 자리 (#99 검수).
+   *
+   * 행 메뉴에서 열면 **메뉴가 먼저 닫히고 그 항목이 사라진다.** 확인 창에는
+   * `AlertDialogTrigger`도 없어서 Radix가 돌려보낼 곳을 못 찾고 포커스가 `<body>`로
+   * 떨어진다 — 실제 브라우저에서 확인했다. 키보드로 쓰는 사람은 25행짜리 표에서 자기
+   * 위치를 잃는다.
+   *
+   * 그래서 **트리거(`⋯`)를 직접 들고 있다가** 되돌린다. 활성 요소를 읽는 방식은 안 된다 —
+   * 그 시점의 활성 요소는 곧 사라질 메뉴 항목이다.
+   */
+  const openerRef = useRef<string | null>(null)
+
+  /**
+   * 행 메뉴에서 확인 창을 연다. 돌아갈 자리를 **이름으로** 기억한다.
+   *
+   * 요소를 들고 있지 않는 이유는, 확인이 끝나면 목록을 다시 불러와 그 버튼이 새로
+   * 그려지기 때문이다 — 옛 요소는 이미 문서에서 빠져 있다. 이름으로 찾으면 재조회 뒤에도
+   * 같은 행을 가리킨다.
+   */
+  function confirmFromMenu(user: User, next: PendingAction) {
+    openerRef.current = user.name
+    setConfirm(next)
+  }
   const [working, setWorking] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -966,7 +991,7 @@ export function MemberListPage() {
                               <DropdownMenuContent align="end">
                                 <DropdownMenuItem
                                   onSelect={() =>
-                                    setConfirm({
+                                    confirmFromMenu(user, {
                                       kind: 'status',
                                       user,
                                       next:
@@ -982,7 +1007,7 @@ export function MemberListPage() {
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onSelect={() =>
-                                    setConfirm({
+                                    confirmFromMenu(user, {
                                       kind: 'role',
                                       user,
                                       next:
@@ -1004,7 +1029,10 @@ export function MemberListPage() {
                               */}
                                 <DropdownMenuItem
                                   variant="destructive"
-                                  onSelect={() => openRemove(user)}
+                                  onSelect={() => {
+                                    openerRef.current = user.name
+                                    openRemove(user)
+                                  }}
                                 >
                                   제거
                                 </DropdownMenuItem>
@@ -1065,7 +1093,23 @@ export function MemberListPage() {
           if (!open) setConfirm(null)
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            const name = openerRef.current
+            openerRef.current = null
+            if (!name) return
+            /*
+             * 그 행이 아직 있으면 트리거로 돌아간다. 제거·거부처럼 행이 사라졌으면
+             * 아무것도 하지 않는다 — Radix 기본 동작에 맡긴다.
+             */
+            const trigger = document.querySelector<HTMLElement>(
+              `[aria-label="${CSS.escape(name)} 관리 메뉴"]`,
+            )
+            if (!trigger) return
+            event.preventDefault()
+            trigger.focus()
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>
               {pending ? describe(pending).title : ''}
