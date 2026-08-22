@@ -1,6 +1,8 @@
 package org.hackerkhu.testsupport.storage;
 
 import java.net.URI;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -24,6 +26,12 @@ public class FakeFileStorage implements FileStorage {
   private final Map<String, StoredObject> objects = new LinkedHashMap<>();
 
   private final AtomicLong etags = new AtomicLong();
+
+  /** 키 → 마지막 내려받기 발급이 담은 {@code Content-Disposition}. */
+  private final Map<String, String> dispositions = new LinkedHashMap<>();
+
+  private Duration presignDelay = Duration.ZERO;
+  private Instant presignedAt;
 
   /** 삭제가 터지는 상황을 만든다. 정리 실패를 삼키는지 보려면 필요하다. */
   private boolean deleteFails;
@@ -64,6 +72,9 @@ public class FakeFileStorage implements FileStorage {
 
   public void clear() {
     objects.clear();
+    dispositions.clear();
+    presignDelay = Duration.ZERO;
+    presignedAt = null;
     swapAfterDescribe.clear();
     deleteFails = false;
   }
@@ -71,6 +82,51 @@ public class FakeFileStorage implements FileStorage {
   @Override
   public URI presignPut(String key) {
     return URI.create("https://fake-bucket.s3.test/" + key + "?signed=1");
+  }
+
+  /**
+   * 발급된 내려받기 URL.
+   *
+   * <p>서명을 흉내내지 않는 대신 <b>무엇을 담으라고 했는지 따로 적어 둔다</b> ({@link #dispositionOf}). 확인해야 할 것은 서명 자체가 아니라
+   * 담긴 값이고, 그것을 URL 문자열에서 다시 파내면 인코딩 규칙에 얽매인 검사가 된다 — 실제 형식은 {@code S3FileStorageTest}가 본다.
+   */
+  @Override
+  public URI presignGet(String key, String originalName) {
+    // 서명 시각을 먼저 잡고 나서 시간을 태운다 — S3의 만료도 서명이 시작된 시점부터 센다.
+    presignedAt = Instant.now();
+    sleepQuietly(presignDelay);
+    dispositions.put(key, "attachment; filename*=UTF-8''" + originalName);
+    return URI.create("https://fake-bucket.s3.test/" + key + "?signed=1&download=1");
+  }
+
+  /**
+   * <b>서명이 오래 걸리는 상황</b>을 만든다 (#208 리뷰).
+   *
+   * <p>만료 기준 시각을 서명 앞에 잡았는지 뒤에 잡았는지는 <b>둘 사이에 시간이 흘러야</b> 갈린다. 실제로는 GC 정지나 네트워크 지연이 그 자리에 온다.
+   */
+  public void delayPresign(Duration delay) {
+    this.presignDelay = delay;
+  }
+
+  /** 마지막 서명이 만들어진 순간. S3의 만료는 이 시점부터 센다. */
+  public Instant presignedAt() {
+    return presignedAt;
+  }
+
+  private static void sleepQuietly(Duration delay) {
+    if (delay.isZero()) {
+      return;
+    }
+    try {
+      Thread.sleep(delay.toMillis());
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  /** 그 키의 마지막 발급이 무엇을 담으라고 했는가. */
+  public String dispositionOf(String key) {
+    return dispositions.get(key);
   }
 
   @Override

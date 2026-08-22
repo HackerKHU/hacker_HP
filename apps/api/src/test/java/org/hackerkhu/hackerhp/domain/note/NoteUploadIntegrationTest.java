@@ -16,6 +16,7 @@ import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserStatusService;
 import org.hackerkhu.testsupport.storage.FakeFileStorage;
+import org.hackerkhu.testsupport.storage.FakeStorageConfig;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
@@ -24,9 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
@@ -42,24 +41,10 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@Import(FakeStorageConfig.class)
 class NoteUploadIntegrationTest extends AbstractIntegrationTest {
 
   private static final String NOTES = "/api/v1/notes";
-
-  /**
-   * 진짜 S3 대신 가짜를 쓴다.
-   *
-   * <p>{@code @MockitoBean}이 아니라 {@code @Primary} 빈인 이유는, 이 테스트가 확인하려는 것이 <b>호출 여부가 아니라 저장소에 무엇이
-   * 남았는가</b>이기 때문이다.
-   */
-  @TestConfiguration
-  static class FakeStorageConfig {
-    @Bean
-    @Primary
-    FakeFileStorage fakeFileStorage() {
-      return new FakeFileStorage();
-    }
-  }
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository userRepository;
