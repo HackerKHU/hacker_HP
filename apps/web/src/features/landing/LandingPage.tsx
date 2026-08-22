@@ -357,6 +357,19 @@ function Footer() {
 }
 
 /**
+ * `rgb(r, g, b)` → `#rrggbb`. Safari가 `theme-color`에서 함수 표기를 무시하는 경우가 있어
+ * 16진수로 바꿔 넣는다. 파싱에 실패하면 원본을 그대로 돌려준다 — 색을 지어내지 않는다.
+ */
+function toHex(color: string): string {
+  const parts = color.match(/\d+/g)
+  if (!parts || parts.length < 3) return color
+  return `#${parts
+    .slice(0, 3)
+    .map((part) => Number(part).toString(16).padStart(2, '0'))
+    .join('')}`
+}
+
+/**
  * 공개 랜딩. **가드를 붙이지 않는다** — 비로그인·PENDING·ACTIVE·SUSPENDED 어느
  * 상태에서도 그대로 열려야 한다 (spec 5-TESTING T-57~T-61).
  *
@@ -368,50 +381,49 @@ function Footer() {
  * 로그인 이후 화면은 라이트 그대로다.
  */
 export function LandingPage() {
-  const root = useRef<HTMLDivElement>(null)
-
   /*
    * 다크를 브라우저 크롬까지 확장한다 (#192).
    *
-   * `.dark`는 이 div 안에서만 유효하고 `html`은 `:root`(라이트, 흰색)다. iOS Safari는
-   * 상태바 뒤와 오버스크롤(바운스) 영역에 **html 배경**을 그리므로, 검은 랜딩의 위아래에
-   * 흰 띠가 뜬다. `theme-color`가 없으면 주소창 주변도 따라오지 않는다.
+   * **`.dark`를 `html`에 건다.** 처음에는 `html`의 배경만 인라인으로 칠했는데 흰 띠가
+   * 그대로였다 — `body`가 `@apply bg-background`로 `:root`(라이트)를 읽어 **흰색으로
+   * 덮고 있었기 때문**이다. iOS Safari가 상태바·툴바 영역에 쓰는 색이 그 body 배경이다.
+   * `html`에 클래스를 걸면 토큰이 뒤집혀 body까지 검게 따라오므로, 색을 손으로 칠하는
+   * 대신 이미 있는 팔레트가 그대로 적용된다.
    *
-   * 전역 CSS로 못 박지 않는 이유 — 내부 화면은 라이트라서, 이 화면에 있는 동안만 바꾸고
-   * 떠날 때 되돌려야 한다. 값은 렌더된 화면에서 읽는다. 여기 하드코딩하면 `.dark` 토큰을
-   * 고칠 때 이 줄만 낡는다.
+   * 안쪽 div의 `.dark`는 남겨 둔다. 이 effect는 첫 페인트 뒤에 도는데, 그때까지 본문이
+   * 라이트로 한 프레임 번쩍이면 안 된다.
+   *
+   * 전역 CSS로 못 박지 않는 이유 — 로그인 이후 화면은 라이트라서, 이 화면에 있는 동안만
+   * 유효해야 한다.
    */
   useEffect(() => {
-    const surface = root.current
-      ? getComputedStyle(root.current).backgroundColor
-      : ''
-    if (!surface) return // jsdom은 CSS를 계산하지 않는다 — 테스트에서는 할 일이 없다
-
     const html = document.documentElement
-    const previousBackground = html.style.backgroundColor
-    html.style.backgroundColor = surface
+    const hadDark = html.classList.contains('dark')
+    html.classList.add('dark')
 
-    let meta = document.querySelector<HTMLMetaElement>(
+    /*
+     * `theme-color`도 함께 준다. 색은 뒤집힌 팔레트에서 읽되 **16진수로 바꿔 넣는다** —
+     * Safari가 `rgb()` 표기를 그대로 받아주지 않는 경우가 있다.
+     */
+    const meta = document.createElement('meta')
+    meta.name = 'theme-color'
+    meta.content = toHex(getComputedStyle(document.body).backgroundColor)
+    const existing = document.querySelector<HTMLMetaElement>(
       'meta[name="theme-color"]',
     )
-    const created = meta === null
-    if (!meta) {
-      meta = document.createElement('meta')
-      meta.name = 'theme-color'
-      document.head.appendChild(meta)
-    }
-    const previousContent = meta.content
-    meta.content = surface
+    const previous = existing?.content
+    if (existing) existing.content = meta.content
+    else document.head.appendChild(meta)
 
     return () => {
-      html.style.backgroundColor = previousBackground
-      if (created) meta.remove()
-      else meta.content = previousContent
+      if (!hadDark) html.classList.remove('dark')
+      if (existing && previous !== undefined) existing.content = previous
+      else meta.remove()
     }
   }, [])
 
   return (
-    <div ref={root} className="dark min-h-screen bg-background text-foreground">
+    <div className="dark min-h-screen bg-background text-foreground">
       <PublicHeader />
       <main>
         <Hero />

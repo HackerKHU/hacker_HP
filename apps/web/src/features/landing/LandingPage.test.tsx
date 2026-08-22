@@ -254,10 +254,14 @@ describe('랜딩 헤더 상태별 진입점', () => {
    * 않아 실제 색은 못 읽으므로 getComputedStyle을 대역으로 세워 마운트/언마운트 대칭만
    * 본다 — 되돌리지 않으면 라이트인 내부 화면까지 검은 크롬을 물려받는다.
    */
-  it('랜딩을 떠나면 html 배경과 theme-color를 되돌린다', () => {
-    const spy = vi.spyOn(window, 'getComputedStyle').mockReturnValue({
-      backgroundColor: 'rgb(0, 0, 0)',
-    } as CSSStyleDeclaration)
+  /*
+   * #192 — 랜딩에 있는 동안만 `html`이 다크다. 처음 고칠 때 `html` 배경만 인라인으로
+   * 칠했더니 흰 띠가 그대로였다 — `body`가 `:root`(라이트) 토큰을 읽어 덮었기 때문이다.
+   * 그래서 클래스를 걸어 토큰째 뒤집는다. 되돌리지 않으면 라이트인 내부 화면까지
+   * 검은 크롬을 물려받는다.
+   */
+  it('랜딩을 떠나면 html의 다크와 theme-color를 되돌린다', () => {
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
 
     const { unmount } = render(
       <MemoryRouter initialEntries={['/']}>
@@ -266,18 +270,12 @@ describe('랜딩 헤더 상태별 진입점', () => {
         </SessionProvider>
       </MemoryRouter>,
     )
-    expect(document.documentElement.style.backgroundColor).toBe('rgb(0, 0, 0)')
-    expect(
-      document
-        .querySelector('meta[name="theme-color"]')
-        ?.getAttribute('content'),
-    ).toBe('rgb(0, 0, 0)')
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+    expect(document.querySelector('meta[name="theme-color"]')).not.toBeNull()
 
     unmount()
-    expect(document.documentElement.style.backgroundColor).toBe('')
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
     expect(document.querySelector('meta[name="theme-color"]')).toBeNull()
-
-    spy.mockRestore()
   })
 
   it('햄버거가 섹션 메뉴를 열고 항목을 누르면 닫는다', async () => {
