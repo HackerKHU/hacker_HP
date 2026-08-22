@@ -4,6 +4,7 @@ import { useSession } from '@/auth/session'
 import { Button } from '@/components/ui/button'
 import { CLUB } from '@/features/landing/content'
 import { lookup } from '@/lib/lookup'
+import { useDarkChrome } from '@/lib/use-dark-chrome'
 import { GoogleLogo } from './GoogleLogo'
 
 /**
@@ -47,15 +48,14 @@ const COPYRIGHT_YEAR = 2026
  * 2026 로고 공모전 1등 작품이 확정되어 자리표시자를 걷었다. 자산은 `brand/`에서 파생한
  * 것을 쓴다 (`brand/README.md`) — **원본만이 정본이고 파생본을 직접 손보지 않는다.**
  *
- * **랜딩과 같은 검정이다.** 로그인은 랜딩에서 넘어오는 화면이라 배경이 이어져야 하고,
- * 흰 패널로 두면 그 연결이 끊긴다. 승인 이후 화면(라이트)과의 경계는 로그인을 지나면서
- * 생긴다.
+ * **검정 배경 위에 놓인 흰 카드다.** 화면 배경만 랜딩과 이어 검정으로 두고, 카드 두 장은
+ * 흰색으로 맞춘다 — 오른쪽 로그인 카드와 같은 평면에 놓여야 하기 때문이다. 패널까지
+ * 검게 하면 두 장의 무게가 갈려 로고 쪽이 배경에 붙어 보인다.
  *
- * 테두리와 `shadow-sm`은 옆 카드와 맞춘 것이다 — 배경색은 달라도 **같은 평면에 놓인
- * 두 장**으로 보여야 한다. 그림자가 한쪽에만 있으면 높이가 어긋나 보인다.
+ * 테두리와 `shadow-sm`도 옆 카드와 같은 값이다. 한쪽만 다르면 높이가 어긋나 보인다.
  *
- * 이 패널은 배경이 검정(`.dark`)이라 **잉크가 흰색이고 배경이 투명한** 파일을 쓴다.
- * `-on-white`/`-on-black`은 배경이 채워진 버전이라 여기서는 네모가 비쳐 보인다.
+ * 카드가 흰색이므로 **잉크는 검정**이다. 배경이 채워진 `-on-white`가 아니라 투명 배경을
+ * 써야 카드 안에서 네모가 비치지 않는다.
  *
  * **심볼만이 아니라 세로 락업(심볼 + `HACKER` + 태그라인)을 쓴다.** 이 패널이 이 화면의
  * 정체를 말하는 자리라 이름까지 읽혀야 한다 — 심볼만 두면 처음 온 사람은 그것이 무엇의
@@ -63,7 +63,7 @@ const COPYRIGHT_YEAR = 2026
  */
 function LogoPanel() {
   return (
-    <div className="dark hidden w-[22rem] shrink-0 items-center justify-center rounded-xl border border-border bg-background p-10 text-foreground shadow-sm lg:flex">
+    <div className="hidden w-[22rem] shrink-0 items-center justify-center rounded-xl border border-border bg-card p-10 text-foreground shadow-sm lg:flex">
       {/*
         장식이 아니라 이 화면이 어디인지 말하는 요소라 `alt`를 비우지 않는다. 다만 옆
         카드에 "로그인" 제목이 이미 있으므로 동아리 이름까지만 읽히면 충분하다.
@@ -110,6 +110,12 @@ export function LoginPage() {
   const { state } = useSession()
 
   /*
+   * 이 화면도 랜딩과 같은 검정이라 브라우저 크롬까지 함께 뒤집는다 (#192). 안 하면 iOS에서
+   * 상태바·툴바가 흰 띠로 남는다 — 아래 `.dark`는 첫 페인트용이라 body까지 미치지 않는다.
+   */
+  useDarkChrome()
+
+  /*
    * 정지 안내에 도달하는 길이 둘이다 (spec §3-1-5).
    *
    * ① 로그인 시도가 막혀 서버가 `?error=suspended`로 되돌린 경우
@@ -143,17 +149,7 @@ export function LoginPage() {
      * `lg:hidden` 마크가 그 자리다. 같은 심볼을 폭에 맞는 크기로 보이는 것이지 정보가
      * 없어지는 것이 아니다.
      */
-    /*
-     * **화면 배경은 랜딩과 같은 검정이다.** 로그인은 랜딩에서 넘어오는 화면이라 배경이
-     * 이어져야 한다 — 회색 바탕이면 그 사이에 한 겹이 끼어 보인다. 라이트로 갈리는 지점은
-     * 로그인을 지난 뒤(승인 이후 화면)다.
-     *
-     * **`.dark`를 여기 씌우지 않는다.** 씌우면 안쪽 카드까지 토큰이 뒤집혀 제목과 구글
-     * 버튼 글자가 배경에 묻힌다 — 실제로 그렇게 만들어 보고 되돌렸다. 배경만 검정이면
-     * 되므로 그 용도의 토큰(`--color-canvas-dark`, `index.css`)을 쓴다 — 색을 화면에
-     * 직접 박지 않는다.
-     */
-    <div className="flex min-h-screen justify-center bg-canvas-dark p-6">
+    <div className="dark flex min-h-screen justify-center bg-background p-6">
       {/*
        * 세로 가운데는 **`items-center`가 아니라 자식의 `my-auto`로 맞춘다.**
        *
@@ -167,7 +163,7 @@ export function LoginPage() {
       <div className="my-auto flex w-full max-w-4xl gap-6">
         <LogoPanel />
 
-        <section className="flex-1 rounded-xl border border-border bg-background p-8 shadow-sm sm:p-10">
+        <section className="flex-1 rounded-xl border border-border bg-card p-8 text-foreground shadow-sm sm:p-10">
           {/*
            * **넓은 화면에서는 제목부터 시작한다.** 왼쪽 패널이 이 화면의 정체를
            * 말하므로 서비스명을 여기 또 적으면 한 화면에서 같은 말을 두 번 한다.
@@ -180,10 +176,10 @@ export function LoginPage() {
            * 파일을 쓴다 — 왼쪽 패널(다크)과 파일이 다른 이유다.
            */}
           <img
-            src="/brand/mark-black-256.png"
+            src="/brand/mark-white-512.png"
             alt={CLUB.fullName}
-            width={256}
-            height={256}
+            width={512}
+            height={512}
             className="size-10 object-contain lg:hidden"
           />
 
@@ -272,7 +268,24 @@ export function LoginPage() {
           <Button
             type="button"
             variant="outline"
-            className="mt-6 h-[2.8571em] w-full gap-[1em] border-[#747775] px-[0.8571em] text-base leading-[1.4286] text-[#1f1f1f] has-[>svg]:px-[0.8571em]"
+            /*
+             * **구글이 정한 다크 테마 값이다** (Sign in with Google 브랜딩 가이드라인).
+             * 카드가 검정이라 Light 규격(`#ffffff`/`#747775`/`#1f1f1f`)을 그대로 두면
+             * 글자가 배경에 묻힌다 — 임의로 흰색을 칠하는 대신 구글이 준 다크 값을 쓴다.
+             *
+             *   Light  배경 #FFFFFF  테두리 #747775  글자 #1F1F1F
+             *   Dark   배경 #131314  테두리 #8E918F  글자 #E3E3E3
+             *
+             * **배경도 명시한다.** 전에는 `variant="outline"`의 테마 토큰에 맡겼는데,
+             * 그러면 카드 테마가 바뀔 때 규격 밖 색이 들어온다. G 로고는 두 테마가 같다 —
+             * 크기·색을 바꾸지 않는다(가이드라인 MUST).
+             *
+             * **`dark:` 변이를 덮어써야 한다.** shadcn `Button`의 `outline`이
+             * `dark:border-input`·`dark:bg-input/30`을 들고 있어, 카드에 `.dark`가 걸리면
+             * 그쪽이 이겨 테두리가 `#2e2e2e`로 나왔다 — 규격값이 아니다. 같은 변이로
+             * 맞받아야 우리 값이 남는다.
+             */
+            className="mt-6 h-[2.8571em] w-full gap-[1em] border-[#8E918F] bg-[#131314] px-[0.8571em] text-base leading-[1.4286] text-[#E3E3E3] hover:bg-[#131314] hover:text-[#E3E3E3] has-[>svg]:px-[0.8571em] dark:border-[#8E918F] dark:bg-[#131314] dark:hover:bg-[#131314]"
             onClick={() => {
               window.location.assign(GOOGLE_LOGIN_PATH)
             }}

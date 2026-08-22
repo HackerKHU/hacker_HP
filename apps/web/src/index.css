@@ -58,13 +58,6 @@
 }
 
 @theme inline {
-  /*
-   * 랜딩·로그인이 함께 쓰는 검정 바탕. `.dark`의 `--background`와 같은 값이지만, 그 토큰은
-   * `.dark` 안에서만 유효해서 **라이트 문맥에서 배경만 검게 하려는 자리**에서는 못 쓴다.
-   * 색을 화면에 직접 박지 않으려고 이름을 준다.
-   */
-  --color-canvas-dark: #000000;
-
   --font-sans:
     Pretendard, "Pretendard Variable", system-ui, -apple-system,
     BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR",

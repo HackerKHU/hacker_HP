@@ -237,11 +237,19 @@ describe('로고', () => {
      * 좌측 패널은 **세로 락업**이다 — 심볼만 두면 처음 온 사람이 무엇의 마크인지
      * 알 수 없어, 이름까지 든 조합을 쓴다.
      */
-    const dark = await screen.findByAltText('해커')
-    expect(dark).toHaveAttribute('src', '/brand/lockup-vertical-white-1024.png')
+    /*
+     * 화면 전체가 다크다 — 배경도 카드 두 장도 검정이라 **잉크는 둘 다 흰색**이다.
+     * 검정 잉크로 바뀌면 카드 안에서 통째로 사라지는데, 화면을 안 열어보면 모른다.
+     */
+    const panel = await screen.findByAltText('해커')
+    expect(panel).toHaveAttribute(
+      'src',
+      '/brand/lockup-vertical-white-1024.png',
+    )
 
-    const light = screen.getByAltText(CLUB.fullName)
-    expect(light).toHaveAttribute('src', '/brand/mark-black-256.png')
+    /* 좁은 화면 폴백 마크도 같은 다크 카드 위에 놓인다. */
+    const narrow = screen.getByAltText(CLUB.fullName)
+    expect(narrow).toHaveAttribute('src', '/brand/mark-white-512.png')
   })
 
   /*
@@ -477,7 +485,7 @@ describe('구글 버튼', () => {
 
     /*
      * 버튼은 레이아웃·규격 클래스를 여럿 갖는다. 허용 목록을 만들 자리가 아니라,
-     * **그림을 바꾸는 것만** 막는다. 색(`border-[#747775]`·`text-[#1f1f1f]`)은 가이드라인이
+     * **그림을 바꾸는 것만** 막는다. 색(`border-[#8E918F]`·`text-[#E3E3E3]`)은 가이드라인이
      * 정한 값이라 금지 대상이 아니다.
      *
      * **비활성 상태만 뺀다** (아래 `startsWith` 참조). shadcn `Button`이 모든 버튼에 그
@@ -515,12 +523,30 @@ describe('구글 버튼', () => {
     ).toBeInTheDocument()
   })
 
-  // 테두리·문구 없이 로고만 두지 않는다 (가이드라인 금지 사항).
-  it('버튼에 테두리와 문구가 함께 있다', async () => {
+  /*
+   * 테두리·문구 없이 로고만 두지 않는다 (가이드라인 금지 사항).
+   *
+   * **세 색을 함께 못 박는다.** 카드가 검정이라 [Dark 규격]을 쓰는데, 세 값은 한 벌로만
+   * 유효하다 — 하나만 Light 쪽 값으로 바뀌면 규격이 아니라 그냥 틀린 색이 된다.
+   * 그리고 shadcn `outline` 변형이 `.dark` 안에서 `dark:border-input`·`dark:bg-input/30`을
+   * 얹으므로 **같은 값의 `dark:` 짝이 없으면 우리 색이 진다** — 실제로 테두리가 `#2e2e2e`로
+   * 그려진 적이 있다. 그래서 짝까지 확인한다.
+   *
+   * [Dark 규격]: https://developers.google.com/identity/branding-guidelines
+   */
+  it('버튼에 Dark 규격 색과 테두리·문구가 함께 있다', async () => {
     renderAt('/login')
     const button = await loaded()
 
-    expect(button.className).toContain('border-[#747775]')
+    for (const token of [
+      'border-[#8E918F]',
+      'bg-[#131314]',
+      'text-[#E3E3E3]',
+      'dark:border-[#8E918F]',
+      'dark:bg-[#131314]',
+    ]) {
+      expect(button.className).toContain(token)
+    }
     expect(button).toHaveTextContent('Google로 계속하기')
   })
 
