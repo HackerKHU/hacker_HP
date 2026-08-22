@@ -35,7 +35,7 @@ public record NoteCreateRequest(
         @NotEmpty(message = "파일을 하나 이상 올려 주세요.")
         @Size(max = 100, message = "파일이 너무 많습니다.")
         @Valid
-        List<UploadedFile> files) {
+        List<@NotNull(message = "파일 정보가 비었습니다.") UploadedFile> files) {
 
   /**
    * @param key {@code POST /notes/upload-url}이 준 값 그대로

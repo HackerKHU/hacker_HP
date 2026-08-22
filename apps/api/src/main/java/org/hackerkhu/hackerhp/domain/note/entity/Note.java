@@ -74,7 +74,15 @@ public class Note {
    * <p><b>{@code LAZY}다.</b> 목록은 파일 <b>개수</b>만 쓰고 내용은 상세에서만 쓴다 — {@code EAGER}로 두면 20건을 그릴 때마다 파일
    * 질의가 20번 따라온다.
    */
-  @OneToMany(mappedBy = "note", fetch = FetchType.LAZY, cascade = CascadeType.PERSIST)
+  /**
+   * {@code orphanRemoval}이 필요한 이유는 <b>수정이 첨부를 뺄 수 있기 때문이다</b> (#54). 목록에서 빼는 것만으로 행이 사라져야, "무엇이
+   * 남는가"를 한 곳에서 결정할 수 있다.
+   */
+  @OneToMany(
+      mappedBy = "note",
+      fetch = FetchType.LAZY,
+      cascade = CascadeType.PERSIST,
+      orphanRemoval = true)
   private List<NoteFile> files = new ArrayList<>();
 
   protected Note() {}
@@ -113,6 +121,42 @@ public class Note {
   /** 딸린 파일을 붙인다. 자료를 저장할 때 함께 저장된다 ({@code cascade = PERSIST}). */
   public void attach(NoteFile file) {
     files.add(file);
+  }
+
+  /**
+   * 메타데이터를 고친다 (#54).
+   *
+   * <p><b>업로더는 바뀌지 않는다</b> (MUST, 2-1 §2-1-3). 관리자가 남의 자료를 고쳐도 그렇다 — 업로더는 "누가 이 자료를 제공했나"이지 "누가
+   * 마지막에 만졌나"가 아니다. 오타 하나 고친 것으로 <b>원래 올린 사람의 기여가 사라지면 안 된다.</b>
+   */
+  public void edit(
+      Category category,
+      String title,
+      String subjectName,
+      String professor,
+      int year,
+      Semester semester,
+      ExamType examType,
+      Instant now) {
+    this.category = category;
+    this.title = title;
+    this.subjectName = subjectName;
+    this.professor = professor;
+    this.year = year;
+    this.semester = semester;
+    this.examType = examType;
+    this.updatedAt = now;
+  }
+
+  /**
+   * 첨부를 <b>주어진 것만 남긴다.</b>
+   *
+   * <p>{@code orphanRemoval} 덕에 목록에서 빠진 파일은 행까지 사라진다. <b>제자리에서 비우고 채우는 이유</b>는, 컬렉션 참조를 통째로 갈아끼우면
+   * Hibernate가 고아 판정을 하지 못하고 터지기 때문이다.
+   */
+  public void keepOnly(List<NoteFile> remaining) {
+    files.clear();
+    files.addAll(remaining);
   }
 
   public Long getId() {
