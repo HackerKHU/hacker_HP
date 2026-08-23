@@ -50,6 +50,23 @@ class GoogleAccountServiceIntegrationTest extends AbstractIntegrationTest {
     assertThat(userRepository.count()).isEqualTo(1);
   }
 
+  /**
+   * 학교 Google Workspace 이름은 {@code 손수민[학생](소프트웨어융합대학 컴퓨터공학부)}처럼 실명 뒤에 학적 정보가 붙는다. 첫 대괄호 앞까지만 남긴다 —
+   * 이름 글자 수(외자·4자 이상)는 결과에 영향을 주지 않아야 한다.
+   */
+  @Test
+  void schoolWorkspaceSuffixIsStrippedRegardlessOfNameLength() {
+    User oneCharName = googleAccountService.login("sub-1", "one@khu.ac.kr", "김[학생](컴퓨터공학부)");
+    User fourCharName =
+        googleAccountService.login("sub-2", "four@khu.ac.kr", "남궁민수[학생](소프트웨어융합대학 컴퓨터공학부)");
+    User plainName = googleAccountService.login("sub-3", "plain@khu.ac.kr", "홍길동");
+
+    assertThat(oneCharName.getName()).isEqualTo("김");
+    assertThat(fourCharName.getName()).isEqualTo("남궁민수");
+    // 접미사가 없는 이름은 그대로 유지된다.
+    assertThat(plainName.getName()).isEqualTo("홍길동");
+  }
+
   /* T-06 — 같은 구글 계정으로 다시 로그인하면 새 계정을 만들지 않는다. */
   @Test
   void secondLoginReusesAccountFoundByGoogleSub() {

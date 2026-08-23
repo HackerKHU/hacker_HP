@@ -1,5 +1,6 @@
 package org.hackerkhu.hackerhp.domain.user.service;
 
+import java.util.regex.Pattern;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
@@ -26,6 +27,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class GoogleAccountService {
 
   private static final Logger log = LoggerFactory.getLogger(GoogleAccountService.class);
+
+  /**
+   * 학교 Google Workspace 계정의 표시 이름은 {@code 손수민[학생](소프트웨어융합대학 컴퓨터공학부)}처럼 실명 뒤에 학적 정보가 붙는다. 첫 {@code
+   * [} 또는 {@code (} 앞까지만 남긴다 — <b>이름 글자 수는 보지 않는다.</b> 이름을 2~4자로 가정한 패턴을 쓰면 외자(1자)나 4자를 넘는 이름(예:
+   * 복성)에서 실명까지 잘려 나간다. 접미사의 모양은 고정적이지만 이름의 길이는 아니므로, 접미사를 여는 문자를 기준으로 자르는 쪽이 안전하다.
+   */
+  private static final Pattern SCHOOL_SUFFIX = Pattern.compile("\\s*[\\[(].*$");
 
   private final UserRepository userRepository;
 
@@ -88,12 +96,23 @@ public class GoogleAccountService {
     }
 
     try {
-      return userRepository.saveAndFlush(User.createFromGoogle(googleSub, email, name.trim()));
+      return userRepository.saveAndFlush(
+          User.createFromGoogle(googleSub, email, sanitizeName(name)));
     } catch (DataAccessException e) {
       // 같은 계정으로 동시에 첫 로그인했거나, 그 이메일을 다른 계정이 막 가져갔다.
       log.warn("계정 생성이 실패했다. sub={}", googleSub, e);
       throw reject(LoginErrorCode.FAILED);
     }
+  }
+
+  /**
+   * {@link #SCHOOL_SUFFIX} 접미사를 잘라낸다. 잘라낸 결과가 비면(예: 이름 전체가 대괄호로 시작하는 극단적인 경우) 원본을 그대로 쓴다 — 빈 이름으로
+   * 계정을 만드는 것보다는 접미사가 섞인 이름이 낫다.
+   */
+  private static String sanitizeName(String name) {
+    String trimmed = name.trim();
+    String sanitized = SCHOOL_SUFFIX.matcher(trimmed).replaceFirst("").trim();
+    return sanitized.isEmpty() ? trimmed : sanitized;
   }
 
   /**
