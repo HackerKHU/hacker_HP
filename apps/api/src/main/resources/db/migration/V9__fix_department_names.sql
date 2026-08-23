@@ -13,7 +13,7 @@
 UPDATE users SET department = '한약과' WHERE department = '한약학과';
 UPDATE users SET department = '회계·세무학과' WHERE department = '회계학과';
 UPDATE users SET department = '영미어문전공' WHERE department = '영어어문전공';
-UPDATE users SET department = '기계공학부' WHERE department IN ('기계공학전공', '지능로봇공학전공', '항공우주모빌리티전공');
+UPDATE users SET department = '기계공학부' WHERE department = '기계공학전공' OR department = '지능로봇공학전공' OR department = '항공우주모빌리티전공';
 UPDATE users SET department = 'Hospitality 경영학과' WHERE department = 'Hospitality경영학과';
 
 ALTER TABLE users DROP CONSTRAINT users_department_check;
