@@ -53,6 +53,7 @@
 | 로그아웃 | - | O | O | O |
 | CSRF 토큰 발급 | O | O | O | O |
 | 세션 확인 (`GET /auth/me`) | O | O | O | O |
+| 학과 목록 조회 (`GET /departments`) | O | O | O | O |
 | 신청서 제출·수정 | X | O | X | X |
 | 신청·대기 화면 | - | O | - | - |
 | 자료 목록·검색·다운로드 | X | X | O | O |
