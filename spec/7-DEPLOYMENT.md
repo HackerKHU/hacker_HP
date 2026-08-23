@@ -19,13 +19,21 @@
 ## 7-1 구성 요약
 
 ```text
-브라우저 ──HTTPS──> Vercel (React) ──HTTP──> ALB ──> ECS Fargate Spot (Spring Boot)
+브라우저 ──HTTPS──> Vercel (React) ──HTTPS──> ALB ──> ECS Fargate Spot (Spring Boot)
                                                          │
                                               RDS PostgreSQL (프라이빗 서브넷)
                                               S3 (presigned URL로 직결)
 ```
 
-프론트엔드는 Vercel, API는 AWS다. `/api/*`는 Vercel rewrites가 ALB로 프록시한다 ([3-3 결정 5](3-3-DESIGN-DECISIONS.md)). 파일은 브라우저와 S3가 presigned URL로 직접 주고받으므로 이 경로를 타지 않는다.
+프론트엔드는 Vercel(`www.khuhacker.com`), API는 AWS(`api.khuhacker.com`)다. `/api/*`는 Vercel rewrites가 ALB로 프록시한다 ([3-3 결정 5](3-3-DESIGN-DECISIONS.md)). 파일은 브라우저와 S3가 presigned URL로 직접 주고받으므로 이 경로를 타지 않는다 ([2-1 §2-1-2·§2-1-4](2-1-USER-STORIES.md)).
+
+**프록시를 거치는 이유는 mixed content와 쿠키 둘 다다.** Vercel Edge는 HTTPS이므로 브라우저가 API를 평문으로 직접 부르면(mixed content) 차단되거나 경고가 뜬다. 프록시를 거치면 브라우저는 Vercel하고만 통신해 이 문제가 사라지고, 덤으로 **same-origin이 되어 쿠키 문제도 없어진다** — `SameSite=None; Secure`가 필요 없고 `SameSite=Lax`로 충분하다. `api.khuhacker.com`을 프론트 코드가 직접 부르면 CORS와 크로스 사이트 쿠키 설정이 따라붙으므로 절대 URL은 쓰지 않는다(`fetch('/api/v1/...')`만 쓴다).
+
+**rewrites 규칙 순서가 중요하다.** Vercel은 위에서부터 첫 번째로 맞는 규칙을 적용하므로 `/api/*` 규칙이 SPA fallback(`/(.*) → /index.html`) **위에** 있어야 한다. 아래에 두면 fallback이 API 요청까지 삼켜 로그인이 되지 않는다. 프록시 `source`도 `/api/v1/:path*`가 아니라 `/api/:path*`로 둔다 — 나중에 `/api/v2`가 생겨도 rewrites 설정을 건드리지 않기 위해서다.
+
+**파일 업로드·다운로드는 이 프록시를 거치지 않는다.** Vercel의 서버리스/Edge 함수는 요청 본문이 4.5MB로 제한되는데, 자료 파일 최대 용량은 20MB([3-3 §3-3-7](3-3-DESIGN-DECISIONS.md))라 애초에 프록시를 통과할 수 없다. 그래서 파일은 presigned URL로 브라우저→S3 직접 업로드/다운로드하고, `/api/*` 프록시는 메타데이터를 주고받는 JSON 요청에만 쓴다.
+
+**구간별 암호화**: ALB는 ACM 인증서로 443을 받고 80은 443으로 리다이렉트한다(`infra/terraform/alb.tf`). 브라우저↔Vercel, Vercel↔ALB 모두 HTTPS라 공개 인터넷을 지나는 평문 구간이 없다. ALB↔ECS 구간만 HTTP인데, VPC 내부이고 ECS 보안그룹이 ALB 보안그룹에서 오는 트래픽만 받는다. 인증 쿠키(JWT·세션)를 가로채면 그 계정으로 로그인한 것과 같으므로([결정 13](3-3-DESIGN-DECISIONS.md)) 이 조건이 깨지면 부원 공개를 멈춰야 한다 ([결정 5](3-3-DESIGN-DECISIONS.md)).
 
 ## 7-2 배포 원칙
 
@@ -43,16 +51,16 @@
 
 ## 7-3 공개 전 필수 조건
 
-**아래를 마치기 전에는 실제 부원 계정·시험 자료를 올리지 않는다** (MUST).
+**아래를 마치기 전에는 실제 부원 계정·시험 자료를 올리지 않는다** (MUST). 전부 충족되어 v0.1.8부터 공개 운영 중이다 (#48, 2026-08-23).
 
-- [ ] 도메인 구매 → ACM 인증서 발급 → ALB에 443 리스너 추가, 80은 443으로 리다이렉트
-- [ ] `vercel.json`의 프록시를 제거하거나 destination을 HTTPS로 변경
-- [ ] ALB 보안그룹에서 평문 80 인바운드 정리
-- [ ] RDS `deletion_protection = true`, `skip_final_snapshot = false`
-- [ ] [1-BACKGROUND §1-5](1-BACKGROUND.md)의 미결정 항목이 모두 비었는지 확인
-- [ ] [5-TESTING §5-2](5-TESTING.md) 중 이번 출시 범위에 해당하는 MUST 테스트가 모두 통과하는지 확인
+- [x] 도메인 구매 → ACM 인증서 발급 → ALB에 443 리스너 추가, 80은 443으로 리다이렉트 (#156)
+- [x] `vercel.json`의 프록시를 제거하거나 destination을 HTTPS로 변경 (#156)
+- [x] ALB 보안그룹에서 평문 80 인바운드 정리 — 80은 443 리다이렉트 전용으로만 열려 있고 앱 트래픽은 타지 않는다
+- [x] RDS `deletion_protection = true`, `skip_final_snapshot = false`
+- [x] [1-BACKGROUND §1-5](1-BACKGROUND.md)의 미결정 항목이 모두 비었는지 확인
+- [x] [5-TESTING §5-2](5-TESTING.md) 중 이번 출시 범위에 해당하는 MUST 테스트가 모두 통과하는지 확인 — CI가 매 PR마다 전체 스위트를 돌린다
 
-현재 Vercel↔ALB 구간이 평문이고 ALB 자체도 인터넷에 열려 있어, **인증 쿠키(JWT·세션)가 그대로 네트워크를 지난다.** 가로채면 그 계정으로 로그인한 것과 같다. 자체 비밀번호는 없지만([3-3 결정 13](3-3-DESIGN-DECISIONS.md#3-3-14-결정-13--가입로그인을-구글-oauth로-한다)) 세션을 훔치는 데는 비밀번호가 필요 없다. 학과 시험 정보와 정리본은 유출되면 곤란한 자료다.
+위 조건이 깨지면(예: 인증서 만료, ALB가 평문 80으로 앱 트래픽을 받기 시작) **인증 쿠키(JWT·세션)가 그대로 네트워크를 지난다.** 가로채면 그 계정으로 로그인한 것과 같다. 자체 비밀번호는 없지만([3-3 결정 13](3-3-DESIGN-DECISIONS.md#3-3-14-결정-13--가입로그인을-구글-oauth로-한다)) 세션을 훔치는 데는 비밀번호가 필요 없다. 학과 시험 정보와 정리본은 유출되면 곤란한 자료라, 이 조건이 깨지면 부원 공개를 멈춘다.
 
 ---
 [← 이전: 테스트](5-TESTING.md) · [스펙 인덱스로](README.md)
