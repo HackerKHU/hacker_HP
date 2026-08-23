@@ -20,10 +20,23 @@ export const EXAM_TYPE_LABEL: Record<ExamType, string> = {
   FINAL: '기말',
 }
 
-/** 카테고리별 목록 경로. 라우트와 메뉴가 같은 값을 쓰게 한다. */
-export const CATEGORY_PATH: Record<Category, string> = {
-  EXAM: '/notes/exam',
-  SUBJECT: '/notes/subject',
+/** 자료게시판 경로. 헤더 메뉴·돌아가기 링크가 같은 값을 쓰게 한다. */
+export const NOTES_PATH = '/notes'
+
+/**
+ * 갈래 탭의 주소. **갈래를 URL에 둔다** — 새로고침·뒤로가기·링크 공유에 살아남아야
+ * 한다(`apps/web/AGENTS.md`). 파라미터 이름은 서버의 `category` 그대로다.
+ *
+ * 빠져 있으면 시험 정리본으로 본다 (`categoryFromParam`). 그래도 탭 링크는 값을 늘
+ * 적는다 — 주소만 보고 어느 탭인지 알 수 있어야 공유가 뜻을 갖는다.
+ */
+export function categoryPath(category: Category): string {
+  return `${NOTES_PATH}?category=${category}`
+}
+
+/** 주소의 `category`를 계약의 enum으로 되돌린다. 모르는 값이면 기본값(시험)이다. */
+export function categoryFromParam(raw: string | null): Category {
+  return raw === 'SUBJECT' ? 'SUBJECT' : 'EXAM'
 }
 
 /** 서버는 UTC로 내려준다. 목록·상세 모두 날짜까지만 쓴다. */

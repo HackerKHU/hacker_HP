@@ -57,18 +57,13 @@ function App() {
             (spec §3-1-3 매트릭스), "본인 것만"은 서버가 가른다. 관리자 전용 화면이
             아니므로 부원 라우트에 둔다.
 
+            **갈래는 경로가 아니라 쿼리(`?category=`)에 둔다.** 경로 조각으로 두면
+            (`/notes/:category`) 그 패턴이 `/notes/123`(상세)까지 삼킨다.
+
             **정적 경로가 `:id`보다 먼저 잡힌다.** react-router는 동적 조각보다 정적
             조각에 높은 점수를 주므로 `/notes/new`가 `/notes/:id`로 새지 않는다.
-            자료 id는 숫자라 `exam`·`subject`·`new`와 겹칠 일도 없다.
           */}
-          <Route
-            path="/notes/exam"
-            element={<NoteListPage category="EXAM" />}
-          />
-          <Route
-            path="/notes/subject"
-            element={<NoteListPage category="SUBJECT" />}
-          />
+          <Route path="/notes" element={<NoteListPage />} />
           <Route path="/notes/new" element={<NoteFormPage />} />
           <Route path="/notes/:id/edit" element={<NoteFormPage />} />
           <Route path="/notes/:id" element={<NoteDetailPage />} />

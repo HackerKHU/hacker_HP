@@ -211,8 +211,7 @@ describe('헤더 메뉴 노출', () => {
      */
     expect(menuLabels()).toEqual([
       '공지사항',
-      '시험 정리본',
-      '과목 정리본',
+      '자료게시판',
       '즐겨찾기',
       '회원 관리',
     ])
@@ -250,12 +249,8 @@ describe('헤더 메뉴 노출', () => {
     await screen.findByRole('heading', { name: '공지사항' })
 
     // 자료·즐겨찾기는 `ACTIVE`면 누구나 쓴다 (spec §3-1-3). 관리자 전용이 아니다.
-    expect(menuLabels()).toEqual([
-      '공지사항',
-      '시험 정리본',
-      '과목 정리본',
-      '즐겨찾기',
-    ])
+    // 자료는 메뉴 하나다. 갈래(시험·과목)는 그 화면 안의 탭이다.
+    expect(menuLabels()).toEqual(['공지사항', '자료게시판', '즐겨찾기'])
     expect(menuLabels()).not.toContain('회원 관리')
   })
 

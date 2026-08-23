@@ -88,7 +88,7 @@ function renderDetail() {
       <SessionProvider>
         <Routes>
           <Route path="/notes/:id" element={<NoteDetailPage />} />
-          <Route path="/notes/exam" element={<h1>시험 정리본</h1>} />
+          <Route path="/notes" element={<h1>자료게시판</h1>} />
         </Routes>
       </SessionProvider>
     </MemoryRouter>,

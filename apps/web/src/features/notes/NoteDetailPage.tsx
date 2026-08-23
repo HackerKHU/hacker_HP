@@ -26,11 +26,12 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   CATEGORY_LABEL,
-  CATEGORY_PATH,
   canEdit,
+  categoryPath,
   EXAM_TYPE_LABEL,
   formatDate,
   formatSize,
+  NOTES_PATH,
   SEMESTER_LABEL,
 } from './labels'
 
@@ -132,7 +133,7 @@ export function NoteDetailPage() {
     try {
       await remove(note.id)
       // 지운 자료의 상세에 남아 있으면 다음 조회가 404다. 목록으로 보내고 기록도 대체한다.
-      navigate(CATEGORY_PATH[note.category], { replace: true })
+      navigate(categoryPath(note.category), { replace: true })
     } catch (caught: unknown) {
       reportApiError(caught)
       setError(
@@ -145,7 +146,8 @@ export function NoteDetailPage() {
     }
   }
 
-  const backTo = note ? CATEGORY_PATH[note.category] : '/notes/exam'
+  // 자료를 아직 못 읽었으면 갈래를 모른다. 기본 탭으로 보낸다.
+  const backTo = note ? categoryPath(note.category) : NOTES_PATH
   const mine =
     note !== null && state.kind === 'active' && canEdit(note, state.user)
 
@@ -156,7 +158,7 @@ export function NoteDetailPage() {
         to={backTo}
         className="text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
-        ← {note ? CATEGORY_LABEL[note.category] : '자료 목록'}
+        ← {note ? CATEGORY_LABEL[note.category] : '자료게시판'}
       </Link>
 
       {status === 'loading' && (

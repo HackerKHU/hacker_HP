@@ -87,15 +87,13 @@ function Address() {
   return <div data-testid="query">{params.toString()}</div>
 }
 
-function renderList(
-  category: 'EXAM' | 'SUBJECT' = 'EXAM',
-  path = '/notes/exam',
-) {
+/** 갈래는 주소가 정한다 — 빠져 있으면 시험 정리본이다. */
+function renderList(path = '/notes') {
   render(
     <MemoryRouter initialEntries={[path]}>
       <SessionProvider>
         <Address />
-        <NoteListPage category={category} />
+        <NoteListPage />
       </SessionProvider>
     </MemoryRouter>,
   )
@@ -113,11 +111,66 @@ beforeEach(() => {
 })
 
 describe('자료 목록', () => {
-  it('갈래를 조회 조건에 싣는다', async () => {
-    renderList('SUBJECT', '/notes/subject')
+  /* 제목은 갈래와 무관하게 하나다 — 갈래는 그 안의 탭이다. */
+  it('제목이 자료게시판이고 갈래 탭이 둘 있다', async () => {
+    renderList()
+
+    expect(
+      await screen.findByRole('heading', { name: '자료게시판' }),
+    ).toBeVisible()
+    const tabs = screen.getByRole('navigation', { name: '자료 갈래' })
+    expect(
+      within(tabs)
+        .getAllByRole('link')
+        .map((tab) => tab.textContent),
+    ).toEqual(['시험 정리본', '과목 정리본'])
+  })
+
+  /*
+   * **갈래가 URL에 남는다.** 탭을 경로가 아니라 쿼리에 두는 이유는 `/notes/:category`가
+   * `/notes/123`(상세)까지 삼키기 때문이고, URL에 두는 이유는 새로고침·링크 공유에
+   * 살아남아야 하기 때문이다 (`apps/web/AGENTS.md`).
+   */
+  it('주소의 갈래를 읽어 조회 조건에 싣는다', async () => {
+    renderList('/notes?category=SUBJECT')
 
     expect(await screen.findByText('운영체제 중간고사 정리본')).toBeVisible()
     expect(lastQuery().category).toBe('SUBJECT')
+  })
+
+  it('갈래가 빠져 있으면 시험 정리본으로 본다', async () => {
+    renderList()
+
+    expect(await screen.findByText('운영체제 중간고사 정리본')).toBeVisible()
+    expect(lastQuery().category).toBe('EXAM')
+  })
+
+  /* 지금 탭이 어디인지 스크린리더도 알아야 한다. */
+  it('현재 갈래 탭에 aria-current가 붙는다', async () => {
+    renderList('/notes?category=SUBJECT')
+    await screen.findByText('운영체제 중간고사 정리본')
+
+    expect(screen.getByRole('link', { name: '과목 정리본' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    expect(
+      screen.getByRole('link', { name: '시험 정리본' }),
+    ).not.toHaveAttribute('aria-current')
+  })
+
+  /*
+   * **탭을 바꾸면 검색·필터가 딸려가지 않는다.** 갈래마다 고를 수 있는 값이 다르고,
+   * 특히 시험 구분은 `SUBJECT`에 걸면 결과가 늘 0건이다.
+   */
+  it('갈래 탭 링크에는 검색·필터가 붙지 않는다', async () => {
+    renderList('/notes?category=EXAM&q=중간&examType=MIDTERM')
+    await screen.findByText('운영체제 중간고사 정리본')
+
+    expect(screen.getByRole('link', { name: '과목 정리본' })).toHaveAttribute(
+      'href',
+      '/notes?category=SUBJECT',
+    )
   })
 
   /*
@@ -161,7 +214,7 @@ describe('자료 목록', () => {
 
   /* 조건을 바꾸면 페이지를 되돌린다 — 3페이지에서 필터를 바꾸면 빈 화면이 뜬다. */
   it('필터를 바꾸면 page 파라미터가 빠진다', async () => {
-    renderList('EXAM', '/notes/exam?page=2')
+    renderList('/notes?page=2')
     await screen.findByText('운영체제 중간고사 정리본')
 
     fireEvent.change(screen.getByLabelText('학기'), {
@@ -180,7 +233,7 @@ describe('자료 목록', () => {
    * 그래서 화면 쪽에서 잡아야 한다.
    */
   it('시험 구분 필터는 시험 정리본에만 나온다', async () => {
-    renderList('SUBJECT', '/notes/subject')
+    renderList('/notes?category=SUBJECT')
     await screen.findByText('운영체제 중간고사 정리본')
 
     expect(screen.queryByLabelText('시험 구분')).toBeNull()
@@ -194,7 +247,7 @@ describe('자료 목록', () => {
 
   /* 과목 정리본은 `examType`을 아예 보내지 않는다 — 보내면 결과가 늘 0건이다. */
   it('과목 정리본 조회에는 examType이 실리지 않는다', async () => {
-    renderList('SUBJECT', '/notes/subject?examType=MIDTERM')
+    renderList('/notes?category=SUBJECT&examType=MIDTERM')
 
     await screen.findByText('운영체제 중간고사 정리본')
     expect(lastQuery().examType).toBeUndefined()

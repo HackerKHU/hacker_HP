@@ -17,7 +17,14 @@ import { Pager, parsePage } from '@/components/Pager'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { CATEGORY_LABEL, EXAM_TYPE_LABEL, SEMESTER_LABEL } from './labels'
+import { cn } from '@/lib/utils'
+import {
+  CATEGORY_LABEL,
+  categoryFromParam,
+  categoryPath,
+  EXAM_TYPE_LABEL,
+  SEMESTER_LABEL,
+} from './labels'
 import { NoteTable } from './NoteTable'
 
 const PAGE_SIZE = 20
@@ -29,20 +36,25 @@ const SORTS = [
 ] as const
 
 /**
- * 자료 목록 화면. **시험 정리본과 과목 정리본이 한 컴포넌트다.**
+ * 자료게시판. **시험 정리본과 과목 정리본이 한 화면이고 갈래는 탭으로 가른다.**
  *
- * 두 화면은 `category` 하나만 다르고 검색·필터·정렬·페이지네이션 규칙이 전부 같다
- * (spec §2-1-1). 갈라두면 필터 조합 규칙이 두 벌이 되고 한쪽만 고치는 날이 온다.
- * **시험 구분 필터만 `EXAM`에 노출된다** — 그 갈래에만 있는 값이다.
+ * 처음에는 라우트를 둘로 나눴다(`/notes/exam`·`/notes/subject`). 두 화면은 `category`
+ * 하나만 다르고 검색·필터·정렬·페이지네이션 규칙이 전부 같은데(spec §2-1-1), **화면을
+ * 나누면 헤더 메뉴도 둘이 되어 "자료를 보러 간다"는 한 가지 일이 두 갈래로 갈린다.**
+ * 갈래는 그 안에서 고르는 조건이지 다른 목적지가 아니다.
  *
- * **갈래는 라우트가 prop으로 준다.** 주소에서 읽으면(`/notes/:category`) 그 패턴이
- * `/notes/123`(상세)까지 삼켜, 자료 id가 갈래 이름으로 해석된다.
+ * **갈래는 URL 쿼리에 둔다** (`?category=`) — 새로고침·뒤로가기·링크 공유에 살아남아야
+ * 하고(`apps/web/AGENTS.md`), 이름도 서버 파라미터 그대로다. 경로 조각(`/notes/:category`)
+ * 으로 두지 않는 이유는 그 패턴이 `/notes/123`(상세)까지 삼키기 때문이다.
+ *
+ * **시험 구분 필터만 `EXAM` 탭에 나온다** — 그 갈래에만 있는 값이다.
  */
-export function NoteListPage({ category }: { category: Category }) {
+export function NoteListPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { pathname } = useLocation()
   const { state, reportApiError } = useSession()
 
+  const category = categoryFromParam(searchParams.get('category'))
   const page = parsePage(searchParams.get('page'))
   const q = searchParams.get('q') ?? ''
   const subject = searchParams.get('subject') ?? ''
@@ -215,9 +227,7 @@ export function NoteListPage({ category }: { category: Category }) {
   return (
     <section>
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {CATEGORY_LABEL[category]}
-        </h1>
+        <h1 className="text-2xl font-semibold tracking-tight">자료게시판</h1>
         {/*
          * 등록은 `ACTIVE`면 누구나 할 수 있다 (spec §3-1-3 매트릭스 — 자료 업로드는
          * USER·ADMIN 모두 `O`). 관리자 전용이 아니므로 `/admin` 아래에 두지 않는다.
@@ -228,12 +238,47 @@ export function NoteListPage({ category }: { category: Category }) {
       </div>
 
       {/*
+       * 갈래 탭.
+       *
+       * **버튼이 아니라 링크다.** 주소가 바뀌는 이동이므로 새 탭으로 열거나 주소를 복사하는
+       * 것이 성립해야 한다 — `<button>`으로 만들면 그 셋이 전부 사라진다.
+       *
+       * **ARIA `tablist`를 쓰지 않는다.** 그 역할은 "같은 화면 안에서 패널을 바꾼다"는
+       * 뜻인데 여기는 실제로 페이지를 이동한다. 스크린리더에게 거짓말이 되므로 평범한
+       * 내비게이션으로 두고 현재 위치만 `aria-current`로 알린다.
+       *
+       * **탭을 바꾸면 검색·필터가 딸려가지 않는다.** 시험 자료를 "중간"으로 걸러 보다가
+       * 과목 탭으로 넘어가면 그 조건은 뜻을 잃는다 — 갈래마다 고를 수 있는 값이 다르고,
+       * 특히 시험 구분은 `SUBJECT`에 걸면 결과가 늘 0건이다.
+       */}
+      <nav
+        aria-label="자료 갈래"
+        className="mt-6 flex gap-1 border-b border-border"
+      >
+        {(Object.keys(CATEGORY_LABEL) as Category[]).map((value) => (
+          <Link
+            key={value}
+            to={categoryPath(value)}
+            aria-current={value === category ? 'page' : undefined}
+            className={cn(
+              '-mb-px border-b-2 px-4 py-2 text-sm transition-colors',
+              value === category
+                ? 'border-foreground font-medium text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {CATEGORY_LABEL[value]}
+          </Link>
+        ))}
+      </nav>
+
+      {/*
        * **검색어와 필터는 AND로 함께 걸린다** (spec §2-1-1 MUST). 하나의 폼 안에 두어
        * 서로 배타적인 것이 아님을 화면으로 보여준다.
        */}
       <form
         onSubmit={submitSearch}
-        className="mt-6 flex flex-wrap items-end gap-3"
+        className="mt-4 flex flex-wrap items-end gap-3"
       >
         <div className="grow space-y-2 sm:grow-0">
           <Label htmlFor="note-search">검색</Label>

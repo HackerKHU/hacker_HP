@@ -4,6 +4,7 @@ import { bookmarks, type NoteSummary, setBookmark } from '@/api/notes'
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
 import { Pager, parsePage } from '@/components/Pager'
+import { NOTES_PATH } from './labels'
 import { NoteTable } from './NoteTable'
 
 const PAGE_SIZE = 20
@@ -116,10 +117,10 @@ export function BookmarkListPage() {
         <p className="mt-8 text-sm text-muted-foreground">
           담아둔 자료가 없습니다.{' '}
           <Link
-            to="/notes/exam"
+            to={NOTES_PATH}
             className="underline underline-offset-4 transition-colors hover:text-foreground"
           >
-            자료 목록
+            자료게시판
           </Link>
           에서 별표를 눌러 담아보세요.
         </p>

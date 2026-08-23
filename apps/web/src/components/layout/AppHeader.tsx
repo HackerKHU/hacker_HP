@@ -17,12 +17,11 @@ import { cn } from '@/lib/utils'
 const MEMBER_MENUS = [
   { to: '/notices', label: '공지사항' },
   /*
-   * 자료는 갈래별로 화면이 둘이다 (spec §2-1-8) — 시험 정리본과 과목 정리본. 한 메뉴로
-   * 합치고 화면 안에서 탭으로 가르지 않는다: 주소가 갈라져 있어야 링크를 공유할 수 있고,
-   * 필터 조건도 각 목록의 URL에 남는다.
+   * 자료는 **메뉴 하나**다. 갈래(시험·과목)는 그 화면 안의 탭으로 가른다 — 자료를 보러
+   * 가는 것은 한 가지 일이고, 갈래는 거기서 고르는 조건이지 다른 목적지가 아니다.
+   * 탭은 URL에 남으므로(`/notes?category=`) 링크 공유도 그대로 된다.
    */
-  { to: '/notes/exam', label: '시험 정리본' },
-  { to: '/notes/subject', label: '과목 정리본' },
+  { to: '/notes', label: '자료게시판' },
   { to: '/bookmarks', label: '즐겨찾기' },
 ]
 

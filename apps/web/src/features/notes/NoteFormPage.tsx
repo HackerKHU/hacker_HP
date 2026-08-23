@@ -20,8 +20,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   CATEGORY_LABEL,
-  CATEGORY_PATH,
   canEdit,
+  categoryPath,
   EXAM_TYPE_LABEL,
   formatSize,
   SEMESTER_LABEL,
@@ -264,7 +264,7 @@ export function NoteFormPage() {
     }
   }
 
-  const backTo = editing ? `/notes/${id}` : CATEGORY_PATH[category]
+  const backTo = editing ? `/notes/${id}` : categoryPath(category)
 
   return (
     <section>
@@ -272,7 +272,7 @@ export function NoteFormPage() {
         to={backTo}
         className="text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
-        ← {editing ? '자료로' : CATEGORY_LABEL[category]}
+        ← {editing ? '자료로' : '자료게시판'}
       </Link>
 
       <h1 className="mt-6 text-2xl font-semibold tracking-tight">

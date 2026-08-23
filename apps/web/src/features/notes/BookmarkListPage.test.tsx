@@ -139,7 +139,7 @@ describe('즐겨찾기 목록', () => {
     renderBookmarks()
 
     expect(
-      await screen.findByRole('link', { name: '자료 목록' }),
-    ).toHaveAttribute('href', '/notes/exam')
+      await screen.findByRole('link', { name: '자료게시판' }),
+    ).toHaveAttribute('href', '/notes')
   })
 })
