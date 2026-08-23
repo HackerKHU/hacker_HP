@@ -61,7 +61,7 @@ describe('개인정보처리방침', () => {
 
     // ① 콘텐츠는 남는다
     expect(section).toHaveTextContent(
-      '자료와 첨부 파일, 공지, 활동사진은 남습니다',
+      '자료와 첨부 파일, 공지, 활동사진, 게시글은 남습니다',
     )
     // ② 남되 올린 사람 표시만 바뀐다
     expect(section).toHaveTextContent('탈퇴한 회원')

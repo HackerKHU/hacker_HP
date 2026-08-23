@@ -13,7 +13,7 @@
 §3-2-2   테이블 정의       컬럼과 제약
 §3-2-3   API — 인증
 §3-2-4   API — 자료·즐겨찾기
-§3-2-5   API — 공지·사진
+§3-2-5   API — 공지·사진·게시판
 §3-2-6   API — 회원 관리
 §3-2-7   공통 에러 코드
 §3-2-8   공통 페이지 응답
@@ -215,6 +215,26 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 버전을 붙이지 않는 경로가 두 개 있다. `/actuator/health`는 ALB 헬스체크가 쓰는 운영 경로이고, `/v3/api-docs`와 Swagger UI는 springdoc이 제공하는 경로다. 둘 다 클라이언트 계약이 아니므로 `/api/v1` 아래에 두지 않는다.
 
 권한 컬럼은 [3-1 §3-1-3](3-1-DESIGN-ARCHITECTURE.md) 매트릭스와 반드시 일치해야 한다 (MUST).
+
+
+### posts
+
+**자유 게시판** (2026-08-23 확정, #235). 부원끼리 글을 올리고 읽는다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | bigint | PK | |
+| `title` | varchar(200) | NOT NULL | `notices.title`과 같은 상한이다 |
+| `content` | text | NOT NULL, **CHECK(길이 ≤ 10000)** | 평문만 담는다 |
+| `author_id` | bigint | NULL, FK → users.id, **ON DELETE SET NULL** | `NULL`이면 탈퇴한 회원 |
+| `created_at` | timestamp | NOT NULL | |
+| `updated_at` | timestamp | NOT NULL | 수정 기능은 없지만 열은 둔다 — 다른 테이블과 모양을 맞춘다 |
+
+인덱스: `(created_at DESC, id DESC)` — 목록의 고정 정렬과 같다.
+
+**`author_id`의 `ON DELETE SET NULL`은 MUST다.** 빠뜨리면 **글을 한 번이라도 쓴 회원은 삭제 자체가 FK 위반으로 실패한다** — `notices.author_id`가 `ON DELETE` 절 없이 만들어져 #58에서 뒤늦게 마이그레이션으로 고쳤다. 같은 실수를 두 번 하지 않는다.
+
+**본문 길이를 DB에서도 막는다** (MUST). `text`는 무제한이라 요청 검증만 두면 다른 경로로 들어온 값이 그대로 저장되고, **글 하나로 목록 응답이 망가진다.** 반대로 DB에만 두면 위반이 사용자 오류가 아니라 `500`으로 나간다 — 양쪽에 건다.
 
 ## 3-2-3 API — 인증
 
@@ -507,7 +527,7 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 
 **검색·필터는 받지 않는다.** 이미 본인이 추린 목록이다.
 
-## 3-2-5 API — 공지·사진
+## 3-2-5 API — 공지·사진·게시판
 
 | Method | Path | 권한 | 설명 |
 |---|---|---|---|
@@ -521,6 +541,9 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | POST | `/photos/upload-url` | ADMIN | 원본 파일별 presigned PUT URL 발급 (다중) |
 | POST | `/photos` | ADMIN | 메타데이터 등록 (JSON) — body에 업로드 완료된 원본 파일 키 목록. 서버가 그 키들을 S3에서 읽어 리사이즈한 뒤 최종 위치에 저장하고 사진마다 행을 만든다 |
 | DELETE | `/photos/{id}` | ADMIN | 삭제 |
+| GET | `/posts` | ACTIVE | 자유 게시판 목록 (최신순 고정) |
+| GET | `/posts/{id}` | ACTIVE | 게시글 상세 |
+| POST | `/posts` | ACTIVE | 게시글 등록 |
 
 ### `POST /photos` — 업로드 경로 (확정, [1-BACKGROUND §1-5](1-BACKGROUND.md) #5)
 
@@ -569,6 +592,49 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 `POST /notices`, `PATCH /notices/{id}`, `PATCH /notices/{id}/pin`은 저장된 공지를 본문으로 돌려준다 (확정, 2026-08-13, #33·#34) — `POST`는 `201`, 두 `PATCH`는 `200`이다. 화면은 등록·수정 응답 본문의 `id`로 상세 화면으로 이동한다. `DELETE /notices/{id}`는 본문 없이 `204`다.
 
 공지 응답은 **`authorId`(`null` 가능)와 `authorName`(`null` 아님)을 함께 담는다** (MUST, #58) — 규칙은 [§3-2-2 "작성자를 내려주는 규칙"](#작성자를-내려주는-규칙)과 같다. 작성자가 제거되어 `author_id`가 `NULL`이면 서버가 `authorName`에 `"탈퇴한 회원"`을 넣는다.
+
+### 자유 게시판 (2026-08-23 확정, #235)
+
+| Method | Path | 권한 | 설명 |
+|---|---|---|---|
+| GET | `/posts` | ACTIVE | 목록 (최신순 고정) |
+| GET | `/posts/{id}` | ACTIVE | 상세 |
+| POST | `/posts` | ACTIVE | 등록 |
+
+**수정·삭제는 없다.** 관리자 삭제는 후속이다 ([#238](https://github.com/HackerKHU/hacker_HP/issues/238)).
+
+**정렬 파라미터를 받지 않는다** (MUST). `created_at DESC, id DESC` 고정이다 — 이유는 [2-1 §2-1-8](2-1-USER-STORIES.md#2-1-8-자유-게시판)에 있다. 페이지 파라미터는 [§3-2-8](#3-2-8-공통-페이지-응답)의 공통 규약을 따른다.
+
+**`GET /posts` 응답** — 한 행은 `id`·`title`·`author`·`createdAt`이다.
+
+**본문을 담지 않는다** (MUST). 상세에서만 준다 — 자료 목록이 파일을 개수만 담는 것과 같은 판단이다. 본문 상한이 10,000자라 20건이면 그것만으로 응답이 200KB가 된다.
+
+**`GET /posts/{id}` 응답** — 위에 `content`와 `updatedAt`이 더해진다.
+
+**`POST /posts` 요청·응답**
+
+```json
+// 요청
+{ "title": "이번 학기 스터디 모집합니다", "content": "매주 수요일 저녁에…" }
+
+// 응답 201
+{ "id": 12, "title": "…", "content": "…",
+  "author": { "id": 7, "name": "김부원" },
+  "createdAt": "2026-08-23T09:00:00Z", "updatedAt": "2026-08-23T09:00:00Z" }
+```
+
+**작성자를 요청으로 받지 않는다** (MUST). 인증 주체의 id로만 정한다 — 받으면 **다른 사람 이름으로 글을 올릴 수 있다.** 공지 등록·자료 등록과 같은 규칙이다.
+
+**`author`는 [§3-2-2 "작성자를 내려주는 규칙"](#작성자를-내려주는-규칙)을 따른다** — `id`는 `null`이 될 수 있고 `name`은 절대 `null`이 아니다. 작성자가 나갔으면 서버가 `"탈퇴한 회원"`을 채운다.
+
+**본문은 평문이다** (MUST). 서버는 받은 문자열을 그대로 저장하고 그대로 내보낸다 — 마크다운으로 해석하지도, HTML을 정화하지도 않는다. 화면이 텍스트 노드로 그리는 것까지가 이 계약의 일부다 ([2-1 §2-1-8](2-1-USER-STORIES.md#2-1-8-자유-게시판)).
+
+| 오류 | 언제 |
+|---|---|
+| `400 VALIDATION_ERROR` | 제목·본문이 비었거나 상한(200자 / 10,000자)을 넘었다 |
+| `401 UNAUTHENTICATED` | 쿠키 두 개가 함께 있어야 한다 |
+| `403` | `PENDING_APPROVAL` · `SUSPENDED` · CSRF 토큰 없음 |
+| `404 NOT_FOUND` | 없는 게시글 |
 
 ## 3-2-6 API — 회원 관리
 
