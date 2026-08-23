@@ -21,6 +21,7 @@ import { Label } from '@/components/ui/label'
 import {
   CATEGORY_LABEL,
   canEdit,
+  categoryFromParam,
   categoryPath,
   EXAM_TYPE_LABEL,
   formatSize,
@@ -83,10 +84,13 @@ export function NoteFormPage() {
 
   /*
    * 어느 목록에서 왔는지 `?category=`로 받아 첫 값으로 쓴다. 시험 정리본 목록에서 눌렀는데
-   * 폼이 과목 정리본으로 열리면 매번 고쳐야 한다. 모르는 값이면 시험 정리본이다.
+   * 폼이 과목 정리본으로 열리면 매번 고쳐야 한다.
+   *
+   * **목록 화면과 같은 함수로 읽는다.** 규칙을 여기 따로 적으면 두 화면이 같은 주소를
+   * 다르게 해석하는 날이 온다 — 모르는 값을 어느 갈래로 볼지는 한 곳에서만 정한다.
    */
   const [category, setCategory] = useState<Category>(
-    searchParams.get('category') === 'SUBJECT' ? 'SUBJECT' : 'EXAM',
+    categoryFromParam(searchParams.get('category')),
   )
   const [title, setTitle] = useState('')
   const [subjectName, setSubjectName] = useState('')

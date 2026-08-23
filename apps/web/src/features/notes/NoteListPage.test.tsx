@@ -145,6 +145,29 @@ describe('자료 목록', () => {
     expect(lastQuery().category).toBe('EXAM')
   })
 
+  /*
+   * **주소는 신뢰 경계다.** 갈래를 URL에 두면 사람이 손으로 고칠 수 있고, 옛 링크나
+   * 오타(`?category=exam` 소문자, `?category=INVALID`)가 들어온다.
+   *
+   * 그 값을 그대로 서버에 넘기면 계약에 없는 `category`가 나가고, 화면 안에서 쓰면
+   * `CATEGORY_LABEL[category]`가 `undefined`가 되어 **탭 이름이 빈 채로 그려진다.**
+   * 모르는 값은 기본 갈래로 떨어뜨린다 — 오류 화면을 띄울 일이 아니다.
+   */
+  it.each(['INVALID', 'exam', 'subject', ''])(
+    '갈래가 `%s`처럼 계약에 없는 값이면 시험 정리본으로 떨어진다',
+    async (raw) => {
+      renderList(`/notes?category=${raw}`)
+
+      expect(await screen.findByText('운영체제 중간고사 정리본')).toBeVisible()
+      expect(lastQuery().category).toBe('EXAM')
+      // 탭 이름이 비지 않는다 — 기본 갈래가 실제로 선택된 상태여야 한다.
+      expect(screen.getByRole('link', { name: '시험 정리본' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      )
+    },
+  )
+
   /* 지금 탭이 어디인지 스크린리더도 알아야 한다. */
   it('현재 갈래 탭에 aria-current가 붙는다', async () => {
     renderList('/notes?category=SUBJECT')

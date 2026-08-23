@@ -207,6 +207,33 @@ describe('자료 등록', () => {
     expect(api.created[0].examType).toBeNull()
   })
 
+  /*
+   * **주소는 신뢰 경계다.** 목록에서 넘어올 때 붙는 `?category=`는 사람이 손으로 고칠 수
+   * 있고 옛 링크·오타도 들어온다. 계약에 없는 값이 그대로 `<select>`에 들어가면 **어느
+   * 옵션과도 맞지 않아 갈래 칸이 빈 채로 열리고**, 그 상태로 저장하면 서버가 `400`이다.
+   *
+   * 목록 화면과 **같은 함수로 읽는다** — 규칙이 두 벌이면 같은 주소를 두 화면이 다르게
+   * 해석한다.
+   */
+  it.each(['INVALID', 'subject', ''])(
+    '갈래가 `%s`처럼 계약에 없는 값이면 시험 정리본으로 떨어진다',
+    async (raw) => {
+      renderForm(`/notes/new?category=${raw}`)
+
+      expect(await screen.findByLabelText('갈래')).toHaveValue('EXAM')
+      // `EXAM`이 실제로 골라졌으므로 그 갈래에만 있는 칸도 함께 나온다.
+      expect(screen.getByLabelText('시험 구분')).toBeVisible()
+    },
+  )
+
+  /* 제대로 된 값은 그대로 쓴다 — 위 fallback이 모든 값을 삼키면 안 된다. */
+  it('갈래가 SUBJECT면 그대로 과목 정리본으로 연다', async () => {
+    renderForm('/notes/new?category=SUBJECT')
+
+    expect(await screen.findByLabelText('갈래')).toHaveValue('SUBJECT')
+    expect(screen.queryByLabelText('시험 구분')).toBeNull()
+  })
+
   /* 교수명은 선택이다. 빈 문자열을 보내면 서버가 그것을 값으로 저장한다. */
   it('교수명을 비우면 null을 보낸다', async () => {
     renderForm('/notes/new')
