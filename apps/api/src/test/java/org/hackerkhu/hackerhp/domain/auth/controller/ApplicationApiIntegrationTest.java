@@ -24,7 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
- * {@code POST /auth/application} (spec 3-1 §3-1-4 ②, T-50·T-51·T-52·T-56).
+ * {@code POST /auth/application} (spec 3-1 §3-1-4 ②, T-50·T-51·T-52·T-56·T-320).
  *
  * <p>세션을 직접 붙이려고 Spring Session 자동 설정을 뺀다 — 이유는 {@code AuthControllerIntegrationTest}에 적어 두었다. 실제
  * 세션 저장소를 태우는 확인은 {@code AuthenticationBindingIntegrationTest}가 한다.
@@ -45,7 +45,8 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   void signIn() {
     userRepository.deleteAll();
     applicant =
-        userRepository.saveAndFlush(User.createFromGoogle("sub-ap", "apply@khu.ac.kr", "구글이름"));
+        userRepository.saveAndFlush(
+            User.createFromGoogle("sub-ap", "apply@khu.ac.kr", GOOGLE_NAME));
   }
 
   @AfterEach
@@ -64,13 +65,15 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   /** 학과를 특정하지 않는 테스트가 쓰는 기본값. {@code Department.ALL}에 있는 값이면 무엇이든 된다. */
   private static final String DEFAULT_DEPARTMENT = "컴퓨터공학과";
 
-  private static String body(String studentNo, String name) {
-    return body(studentNo, name, DEFAULT_DEPARTMENT);
+  /** 계정을 만들 때 구글이 준 이름. <b>신청서는 이것을 바꾸지 못한다</b> (#224). */
+  private static final String GOOGLE_NAME = "구글이름";
+
+  private static String body(String studentNo) {
+    return body(studentNo, DEFAULT_DEPARTMENT);
   }
 
-  private static String body(String studentNo, String name, String department) {
-    return "{\"studentNo\":\"%s\",\"name\":\"%s\",\"department\":\"%s\"}"
-        .formatted(studentNo, name, department);
+  private static String body(String studentNo, String department) {
+    return "{\"studentNo\":\"%s\",\"department\":\"%s\"}".formatted(studentNo, department);
   }
 
   private User reload() {
@@ -79,26 +82,48 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
 
   @Test
   void pendingCanSubmitApplication() throws Exception {
-    mockMvc.perform(submit(applicant, body("20240001", "본명"))).andExpect(status().isNoContent());
+    mockMvc.perform(submit(applicant, body("20240001"))).andExpect(status().isNoContent());
 
     User saved = reload();
     assertThat(saved.getStudentNo()).isEqualTo("20240001");
-    assertThat(saved.getName()).isEqualTo("본명");
     assertThat(saved.getDepartment()).isEqualTo(DEFAULT_DEPARTMENT);
+    // 이름은 신청서가 받는 값이 아니다. 계정의 구글 이름이 그대로 남는다 (#224).
+    assertThat(saved.getName()).isEqualTo(GOOGLE_NAME);
     // applied_at이 있는 것이 곧 "신청했다"는 뜻이다 — 승인 대상이 되는 기준이다 (§3-2-2).
+    assertThat(saved.getAppliedAt()).isNotNull();
+  }
+
+  /*
+   * T-320 — 화면을 잠그는 것만으로는 부족하다 (#224). 폼이 이름을 읽기 전용으로 보여줘도 API를 직접 부르면
+   * 그만이므로, 서버가 본문의 name을 아예 받지 않아야 한다. 계약에 그 필드가 없으니 담아 보내도
+   * 역직렬화 단계에서 버려진다 — 저장된 이름은 구글 값 그대로다.
+   */
+  @Test
+  void nameSmuggledInTheBodyIsIgnored() throws Exception {
+    mockMvc
+        .perform(
+            submit(
+                applicant,
+                "{\"studentNo\":\"20240001\",\"name\":\"위조한이름\",\"department\":\"컴퓨터공학과\"}"))
+        .andExpect(status().isNoContent());
+
+    User saved = reload();
+    assertThat(saved.getName()).isEqualTo(GOOGLE_NAME);
+    // 나머지는 정상 처리된다 — name이 섞였다고 요청 전체가 거부되지는 않는다.
+    assertThat(saved.getStudentNo()).isEqualTo("20240001");
     assertThat(saved.getAppliedAt()).isNotNull();
   }
 
   /* T-51 — 승인 대기 중에는 다시 내 고칠 수 있다. */
   @Test
   void pendingCanResubmitToCorrectTheApplication() throws Exception {
-    mockMvc.perform(submit(applicant, body("20240001", "처음"))).andExpect(status().isNoContent());
+    mockMvc.perform(submit(applicant, body("20240001"))).andExpect(status().isNoContent());
 
-    mockMvc.perform(submit(reload(), body("20240099", "고친이름"))).andExpect(status().isNoContent());
+    mockMvc.perform(submit(reload(), body("20240099", "인공지능학과"))).andExpect(status().isNoContent());
 
     User saved = reload();
     assertThat(saved.getStudentNo()).isEqualTo("20240099");
-    assertThat(saved.getName()).isEqualTo("고친이름");
+    assertThat(saved.getDepartment()).isEqualTo("인공지능학과");
   }
 
   /*
@@ -110,7 +135,7 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
     approve();
 
     mockMvc
-        .perform(submit(reload(), body("20240099", "다른이름")))
+        .perform(submit(reload(), body("20240099")))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
@@ -134,11 +159,11 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
         .perform(
             Csrf.with(fromBeforeApproval.on(post(PATH)))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(body("20249999", "덮어쓰기")))
+                .content(body("20249999")))
         .andExpect(status().isForbidden());
 
     assertThat(reload().getStudentNo()).isEqualTo("20240001");
-    assertThat(reload().getName()).isEqualTo("본명");
+    assertThat(reload().getDepartment()).isEqualTo(DEFAULT_DEPARTMENT);
   }
 
   /*
@@ -148,9 +173,8 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   @ParameterizedTest(name = "[{index}] {0}")
   @ValueSource(
       strings = {
-        "{\"studentNo\":\"  \",\"name\":\"본명\",\"department\":\"컴퓨터공학과\"}",
-        "{\"studentNo\":\"20240001\",\"name\":\"   \",\"department\":\"컴퓨터공학과\"}",
-        "{\"studentNo\":\"20240001\",\"name\":\"본명\",\"department\":\"   \"}"
+        "{\"studentNo\":\"  \",\"department\":\"컴퓨터공학과\"}",
+        "{\"studentNo\":\"20240001\",\"department\":\"   \"}"
       })
   void blankValuesAreRejectedWithoutRecordingApplication(String blankBody) throws Exception {
     mockMvc
@@ -169,7 +193,7 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   @Test
   void departmentNotInTheFixedListIsRejected() throws Exception {
     mockMvc
-        .perform(submit(applicant, body("20240001", "본명", "존재하지않는학과")))
+        .perform(submit(applicant, body("20240001", "존재하지않는학과")))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
@@ -182,10 +206,10 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   void studentNoAlreadyUsedByAnotherAccountIsRejected() throws Exception {
     User other =
         userRepository.saveAndFlush(User.createFromGoogle("sub-other", "other@khu.ac.kr", "다른사람"));
-    mockMvc.perform(submit(other, body("20240001", "다른사람"))).andExpect(status().isNoContent());
+    mockMvc.perform(submit(other, body("20240001"))).andExpect(status().isNoContent());
 
     mockMvc
-        .perform(submit(applicant, body("20240001", "본명")))
+        .perform(submit(applicant, body("20240001")))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.code").value("DUPLICATE_STUDENT_NO"));
 
@@ -195,11 +219,11 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   /* 같은 학번을 그대로 다시 내는 것은 중복이 아니다 — 자기 자신은 세지 않는다. */
   @Test
   void resubmittingTheSameStudentNoIsNotADuplicate() throws Exception {
-    mockMvc.perform(submit(applicant, body("20240001", "처음"))).andExpect(status().isNoContent());
+    mockMvc.perform(submit(applicant, body("20240001"))).andExpect(status().isNoContent());
 
-    mockMvc.perform(submit(reload(), body("20240001", "고친이름"))).andExpect(status().isNoContent());
+    mockMvc.perform(submit(reload(), body("20240001", "인공지능학과"))).andExpect(status().isNoContent());
 
-    assertThat(reload().getName()).isEqualTo("고친이름");
+    assertThat(reload().getDepartment()).isEqualTo("인공지능학과");
   }
 
   /*
@@ -214,26 +238,21 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
     User active = reload();
 
     mockMvc
-        .perform(submit(active, "{\"studentNo\":\"\",\"name\":\"\"}"))
+        .perform(submit(active, "{\"studentNo\":\"\",\"department\":\"\"}"))
         .andExpect(status().isForbidden());
     mockMvc.perform(submit(active, "{\"studentNo\":")).andExpect(status().isForbidden());
   }
 
-  /* 길이는 컬럼과 맞춘다 — student_no varchar(20), name varchar(50), department varchar(50) (§3-2-2). */
+  /* 길이는 컬럼과 맞춘다 — student_no varchar(20), department varchar(50) (§3-2-2). */
   @Test
   void valuesLongerThanTheColumnAreRejected() throws Exception {
     mockMvc
-        .perform(submit(applicant, body("1".repeat(21), "본명")))
+        .perform(submit(applicant, body("1".repeat(21))))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
     mockMvc
         .perform(submit(applicant, body("20240001", "가".repeat(51))))
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
-
-    mockMvc
-        .perform(submit(applicant, body("20240001", "본명", "가".repeat(51))))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
@@ -249,7 +268,7 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   @Test
   void invisibleWhitespaceOnlyIsRejected() throws Exception {
     mockMvc
-        .perform(submit(applicant, body(" ​", "본명")))
+        .perform(submit(applicant, body(" ​")))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
@@ -267,36 +286,38 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
   void invisibleWhitespaceCannotSmuggleADuplicateStudentNo() throws Exception {
     User other =
         userRepository.saveAndFlush(User.createFromGoogle("sub-other", "other@khu.ac.kr", "다른사람"));
-    mockMvc.perform(submit(other, body("20240001", "다른사람"))).andExpect(status().isNoContent());
+    mockMvc.perform(submit(other, body("20240001"))).andExpect(status().isNoContent());
 
     mockMvc
-        .perform(submit(applicant, body("2024 0001", "본명")))
+        .perform(submit(applicant, body("2024 0001")))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.code").value("DUPLICATE_STUDENT_NO"));
   }
 
-  /* 이름 안쪽의 공백은 정당하다. 앞뒤만 털고 보이지 않는 문자를 보통 공백으로 바꾼다. */
+  /*
+   * 학과명 안쪽의 공백은 정당하다("환경학 및 환경공학과"). 앞뒤만 털고 보이지 않는 문자를 보통 공백으로
+   * 바꾼다 — 목록의 문자열과 정확히 일치해야 통과한다.
+   */
   @Test
-  void nameKeepsItsInnerSpacing() throws Exception {
+  void departmentKeepsItsInnerSpacing() throws Exception {
     mockMvc
-        .perform(submit(applicant, body("20240001", "  홍 길동  ")))
+        .perform(submit(applicant, body("20240001", "  환경학 및 환경공학과  ")))
         .andExpect(status().isNoContent());
 
-    assertThat(reload().getName()).isEqualTo("홍 길동");
+    assertThat(reload().getDepartment()).isEqualTo("환경학 및 환경공학과");
   }
 
   @Test
   void anonymousCannotSubmitApplication() throws Exception {
     mockMvc
-        .perform(
-            Csrf.with(post(PATH)).contentType(MediaType.APPLICATION_JSON).content(body("2", "n")))
+        .perform(Csrf.with(post(PATH)).contentType(MediaType.APPLICATION_JSON).content(body("2")))
         .andExpect(status().isUnauthorized())
         .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
   }
 
   private void approve() {
     User user = reload();
-    user.submitApplication("20240001", "본명", DEFAULT_DEPARTMENT);
+    user.submitApplication("20240001", DEFAULT_DEPARTMENT);
     user.approve();
     userRepository.saveAndFlush(user);
   }

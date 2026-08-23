@@ -6,11 +6,15 @@ import jakarta.validation.constraints.Size;
 /**
  * {@code POST /auth/application} 요청 (spec 3-2 §3-2-3).
  *
- * <p><b>셋 다 공백이 아니어야 한다</b> (MUST). PostgreSQL의 {@code NOT NULL}·{@code UNIQUE}는 빈 문자열을 거부하지 않으므로
+ * <p><b>둘 다 공백이 아니어야 한다</b> (MUST). PostgreSQL의 {@code NOT NULL}·{@code UNIQUE}는 빈 문자열을 거부하지 않으므로
  * 서버가 막아야 한다. 통과시키면 식별 정보가 없는 계정이 {@code applied_at}을 얻어 승인 대상이 되고, 관리자 부트스트랩까지 지나간다 (T-52).
  *
- * <p>길이는 컬럼과 맞춘다 — {@code student_no varchar(20)}, {@code name varchar(50)}, {@code department
- * varchar(50)} (3-2 §3-2-2). 여기서 막지 않으면 저장할 때 터지고, 그 예외가 무엇이었는지에 따라 엉뚱한 코드로 응답하게 된다.
+ * <p><b>{@code name}이 없다</b> (#224). 이름은 신청서 입력이 아니라 구글 계정에 저장된 값이다 — 화면이 읽기 전용으로 보여줄 뿐이고, 서버는
+ * {@code users.name}을 그대로 쓴다. 필드를 남겨 두고 무시하면 <b>보낸 값이 반영된 줄 아는 호출자가 생긴다.</b> 여기 없으면 본문에 담아 보내도 역직렬화
+ * 단계에서 버려진다.
+ *
+ * <p>길이는 컬럼과 맞춘다 — {@code student_no varchar(20)}, {@code department varchar(50)} (3-2 §3-2-2). 여기서
+ * 막지 않으면 저장할 때 터지고, 그 예외가 무엇이었는지에 따라 엉뚱한 코드로 응답하게 된다.
  *
  * <p>{@code department}는 정해진 목록에서만 고른다 (MUST) — 목록에 있는지는 이 레코드가 아니라 {@code User.submitApplication}이
  * {@link org.hackerkhu.hackerhp.domain.user.entity.Department#isValid}로 확인한다. 여기서는 길이·공백만 본다.
@@ -19,7 +23,6 @@ import jakarta.validation.constraints.Size;
  */
 public record ApplicationRequest(
     @NotBlank(message = "학번을 입력해 주세요.") @Size(max = 20, message = "학번이 너무 깁니다.") String studentNo,
-    @NotBlank(message = "이름을 입력해 주세요.") @Size(max = 50, message = "이름이 너무 깁니다.") String name,
     @NotBlank(message = "학과를 선택해 주세요.") @Size(max = 50, message = "학과가 너무 깁니다.")
         String department) {
 
@@ -37,9 +40,8 @@ public record ApplicationRequest(
   public ApplicationRequest {
     // 학번에는 공백이 들어갈 자리가 없다. 안쪽까지 전부 없애야 "2024 0001"로 유일성을 피해 갈 수 없다.
     studentNo = removeAllSpacing(studentNo);
-    // 이름에는 안쪽 공백이 정당하다("홍 길동"). 보이지 않는 문자만 보통 공백으로 바꾸고 앞뒤를 턴다.
-    name = collapseSpacing(name);
-    // 학과명도 정확히 목록의 문자열과 일치해야 한다("환경학 및 환경공학과"처럼 안쪽 공백이 있는 항목도 있다) — 이름과 같은 방식으로 정규화한다.
+    // 학과명은 정확히 목록의 문자열과 일치해야 한다("환경학 및 환경공학과"처럼 안쪽 공백이 있는 항목도 있다).
+    // 보이지 않는 문자만 보통 공백으로 바꾸고 앞뒤를 턴다.
     department = collapseSpacing(department);
   }
 

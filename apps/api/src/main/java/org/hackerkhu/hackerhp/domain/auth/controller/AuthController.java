@@ -144,7 +144,10 @@ public class AuthController {
       summary = "신청서 제출·수정",
       description =
           """
-          승인 심사에 필요한 학번·이름·학과를 받는다. 구글이 학번을 주지 않아 따로 받는 단계다.
+          승인 심사에 필요한 학번·학과를 받는다. 구글이 학번을 주지 않아 따로 받는 단계다.
+
+          **이름은 받지 않는다.** 구글 계정에 저장된 이름을 그대로 쓴다 — 본문에 `name`을 담아도
+          무시된다. 화면은 그 값을 읽기 전용으로 보여준다.
 
           **`PENDING` 전용이다.** 승인 후에는 이 경로로 학번을 바꿀 수 없다. 승인 전까지는
           다시 제출해 고칠 수 있다.
@@ -175,8 +178,7 @@ public class AuthController {
   @PreAuthorize("hasAuthority('STATUS_PENDING')")
   public ResponseEntity<Void> submitApplication(
       @AuthenticationPrincipal Long userId, @Valid @RequestBody ApplicationRequest request) {
-    userApplicationService.submit(
-        userId, request.studentNo(), request.name(), request.department());
+    userApplicationService.submit(userId, request.studentNo(), request.department());
     return ResponseEntity.noContent().build();
   }
 

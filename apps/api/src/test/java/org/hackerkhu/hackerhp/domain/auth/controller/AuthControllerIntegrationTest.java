@@ -81,14 +81,15 @@ class AuthControllerIntegrationTest extends AbstractIntegrationTest {
   /* T-47·T-182 — 신청서를 낸 뒤. appliedAt에 값이 있는 것이 곧 "신청했다"는 뜻이다. */
   @Test
   void meAfterApplicationShowsStudentNoAndAppliedAt() throws Exception {
-    member.submitApplication("20240001", "본명", "컴퓨터공학과");
+    member.submitApplication("20240001", "컴퓨터공학과");
     userRepository.saveAndFlush(member);
 
     mockMvc
         .perform(asMember(get("/api/v1/auth/me")))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.studentNo").value("20240001"))
-        .andExpect(jsonPath("$.name").value("본명"))
+        // 신청서가 이름을 받지 않으므로 계정을 만들 때의 구글 이름이 그대로 남는다 (#224).
+        .andExpect(jsonPath("$.name").value("구글이름"))
         .andExpect(jsonPath("$.department").value("컴퓨터공학과"))
         .andExpect(jsonPath("$.appliedAt").isNotEmpty());
   }

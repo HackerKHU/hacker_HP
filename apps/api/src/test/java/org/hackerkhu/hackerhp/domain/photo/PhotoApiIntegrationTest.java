@@ -101,7 +101,13 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
   void createAccounts() {
     photoRepository.deleteAll();
     userRepository.deleteAll();
-    admin = userRepository.saveAndFlush(Accounts.admin("sub-admin", "admin@khu.ac.kr", "20240001"));
+    /*
+     * 이름을 명시한다. 아래에서 응답의 `uploaderName`을 단언하므로 헬퍼의 기본 이름에
+     * 기대면 그 기본값이 바뀔 때 이 테스트가 딸려 깨진다 — 실제로 그랬다 (#224).
+     */
+    admin =
+        userRepository.saveAndFlush(
+            Accounts.admin("sub-admin", "admin@khu.ac.kr", "20240001", "본명"));
     member =
         userRepository.saveAndFlush(
             Accounts.approved("sub-member", "member@khu.ac.kr", "20240002"));

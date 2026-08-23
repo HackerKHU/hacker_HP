@@ -139,8 +139,9 @@ class GoogleAccountServiceIntegrationTest extends AbstractIntegrationTest {
   /*
    * 구글 프로필 이름이 바뀌어도 users.name은 그대로다.
    *
-   * 신청서에서 본명을 다시 받으므로(§3-1-4 ②), 매 로그인마다 덮으면 관리자가 심사한 이름이 사라진다.
-   * 구글 이름은 별명일 수 있다.
+   * 신청서가 이름을 받지 않으므로(#224) 이 값이 관리자가 심사한 이름이자 회원 목록에 뜨는 이름이다.
+   * 매 로그인마다 덮으면 그 이름이 본인도 관리자도 모르게 바뀐다 — 구글 표시 이름은 별명으로
+   * 바꿀 수 있는 값이다.
    */
   @Test
   void googleProfileNameDoesNotOverwriteStoredName() {
@@ -167,7 +168,7 @@ class GoogleAccountServiceIntegrationTest extends AbstractIntegrationTest {
   /** 관리자가 정지시킨 상태를 만든다. 신청 → 승인 → 정지가 실제 경로다 (§3-1-4). */
   private void suspend(Long id) {
     User user = userRepository.findById(id).orElseThrow();
-    user.submitApplication("20240001", "본명", "컴퓨터공학과");
+    user.submitApplication("20240001", "컴퓨터공학과");
     user.approve();
     user.suspend();
     userRepository.saveAndFlush(user);

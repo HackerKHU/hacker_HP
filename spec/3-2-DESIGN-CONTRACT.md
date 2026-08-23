@@ -59,7 +59,7 @@ erDiagram
 | `google_sub` | varchar(255) | UNIQUE, NOT NULL | 구글 계정 식별자 (ID 토큰의 `sub`) |
 | `email` | varchar(255) | UNIQUE, NOT NULL | 학교 이메일 (`khu.ac.kr`) |
 | `student_no` | varchar(20) | UNIQUE, NULL | 학번 (신원 확인용). 신청서 제출 시 채운다 |
-| `name` | varchar(50) | NOT NULL | 최초에는 구글 프로필, 신청 시 본인이 정정 |
+| `name` | varchar(50) | NOT NULL | 구글 프로필에서 받는다. **신청서로 바꿀 수 없다** — 아래 참고 |
 | `department` | varchar(50) | NULL | 학과. 정해진 목록에서 선택 (자유 입력 아님). 신청서 제출 시 채운다 |
 | `role` | enum | NOT NULL, default `USER` | `USER`, `ADMIN` |
 | `status` | enum | NOT NULL, default `PENDING` | `PENDING`, `ACTIVE`, `SUSPENDED` |
@@ -223,7 +223,7 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 | GET | `/auth/csrf` | 비로그인 | CSRF 토큰 발급 |
 | GET | `/oauth2/authorization/google` | 비로그인 | 구글 로그인 시작 (가입 겸용) |
 | GET | `/login/oauth2/code/google` | 비로그인 | 구글 콜백. 성공 시 계정 생성 또는 조회 후 세션 발급 |
-| POST | `/auth/application` | PENDING | 신청서 제출·수정. body: `{ "studentNo": "...", "name": "...", "department": "..." }` |
+| POST | `/auth/application` | PENDING | 신청서 제출·수정. body: `{ "studentNo": "...", "department": "..." }` |
 | POST | `/auth/logout` | 로그인 | 로그아웃 |
 | GET | `/auth/me` | **비로그인 포함 전체** | 로그인이면 내 정보, 아니면 `204` |
 | POST | `/auth/bootstrap-admin` | 로그인 + **신청서 제출 완료** | 최초 관리자 승격/마지막 관리자 복구. body: `{ "token": "..." }` — [3-3 결정 11](3-3-DESIGN-DECISIONS.md) |
@@ -232,7 +232,13 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 
 ### `POST /auth/application` — 신청서
 
-**`studentNo`·`name`·`department`는 공백이 아니어야 한다** (MUST). 셋 중 하나라도 비었거나 공백뿐이면 `400 VALIDATION_ERROR`를 반환하고 **`applied_at`을 기록하지 않는다** (MUST).
+**`name`을 받지 않는다** (MUST, 2026-08-23 #224). 이름은 구글 프로필에서 받아 `users.name`에 저장된 값을 그대로 쓰며, 신청서는 그것을 바꾸지 못한다. 본문에 `name`을 담아 보내도 무시한다.
+
+한때는 신청서에서 본명을 다시 받았다. 학교 Google Workspace가 표시 이름에 학적 정보를 붙여 내려주기 때문이었다 — `강경현[학생](소프트웨어융합대학 컴퓨터공학부)`. #215가 계정 생성 시점에 그 접미사를 걷어내면서 저장된 값이 곧 실명이 됐고, 본인이 다시 칠 이유가 사라졌다.
+
+**화면을 잠그는 것으로는 부족하다** (MUST). 신청 폼이 이름을 읽기 전용으로 보여줘도 API를 직접 부르면 그만이다. 서버가 그 필드를 아예 받지 않아야 우회 경로가 남지 않는다.
+
+**`studentNo`·`department`는 공백이 아니어야 한다** (MUST). 둘 중 하나라도 비었거나 공백뿐이면 `400 VALIDATION_ERROR`를 반환하고 **`applied_at`을 기록하지 않는다** (MUST).
 
 PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. 검증이 없으면 `""`를 제출한 계정이 `applied_at`을 얻어 승인 대상이 되고, 식별 정보가 없는 채로 관리자 부트스트랩까지 통과한다.
 

@@ -35,13 +35,16 @@ public class UserApplicationService {
    * 신청서를 저장한다. 승인 전까지 다시 내 고칠 수 있다 (T-51).
    *
    * <p><b>행을 잠근 채 상태를 확인한다</b> (§3-1-4 MUST). 잠그지 않으면 제출과 승인이 각자 읽어둔 {@code status}를 보고 모두 통과해, 승인된
-   * 계정의 학번·이름이 승인 뒤에 바뀐다 — 관리자가 심사한 내용과 저장된 내용이 달라진다 (T-56).
+   * 계정의 학번·학과가 승인 뒤에 바뀐다 — 관리자가 심사한 내용과 저장된 내용이 달라진다 (T-56).
+   *
+   * <p><b>이름은 인자에 없다</b> (#224). 신청서가 받는 값이 아니라 구글 계정에 저장된 값이다 ({@link
+   * org.hackerkhu.hackerhp.domain.user.entity.User#submitApplication}).
    *
    * <p>권한(=이 계정이 {@code PENDING}인가)은 {@code @PreAuthorize}가 이미 걸렀다. 여기서 다시 보는 것은 그 판단이 <b>세션의
    * 값</b>이기 때문이다 — 판단과 저장 사이에 관리자가 승인했을 수 있다.
    */
   @Transactional
-  public void submit(Long userId, String studentNo, String name, String department) {
+  public void submit(Long userId, String studentNo, String department) {
     User user =
         userRepository
             .findByIdForUpdate(userId)
@@ -60,7 +63,7 @@ public class UserApplicationService {
       throw new BusinessException(ErrorCode.VALIDATION_ERROR, "존재하지 않는 학과입니다.");
     }
 
-    user.submitApplication(studentNo, name, department);
+    user.submitApplication(studentNo, department);
     try {
       userRepository.flush();
     } catch (DataIntegrityViolationException e) {
