@@ -205,7 +205,17 @@ describe('헤더 메뉴 노출', () => {
     renderAt('/admin/members')
     await screen.findByRole('heading', { name: '회원 관리' })
 
-    expect(menuLabels()).toEqual(['공지사항', '회원 관리'])
+    /*
+     * 자료 메뉴는 부원 것과 같고 **회원 관리만 더 붙는다** (spec §3-1-3 매트릭스 —
+     * 자료·즐겨찾기는 USER·ADMIN 모두 `O`). 관리자에게만 보이는 것은 회원 관리뿐이다.
+     */
+    expect(menuLabels()).toEqual([
+      '공지사항',
+      '시험 정리본',
+      '과목 정리본',
+      '즐겨찾기',
+      '회원 관리',
+    ])
     /*
      * 목록형 "공지 관리" 화면은 없다 (spec §2-1-8). 라우트도 메뉴도 두지 않는다 —
      * 작성·수정은 /admin/notices/new·/edit이 맡고 고정 토글은 공지 목록에 있다.
@@ -233,13 +243,19 @@ describe('헤더 메뉴 노출', () => {
     expect(menuLabels()).toEqual([])
   })
 
-  it('ACTIVE USER에게는 공지만 보이고 관리 메뉴는 없다', async () => {
+  it('ACTIVE USER에게는 부원 메뉴만 보이고 관리 메뉴는 없다', async () => {
     auth.me = () => Promise.resolve(BASE)
 
     renderAt('/notices')
     await screen.findByRole('heading', { name: '공지사항' })
 
-    expect(menuLabels()).toEqual(['공지사항'])
+    // 자료·즐겨찾기는 `ACTIVE`면 누구나 쓴다 (spec §3-1-3). 관리자 전용이 아니다.
+    expect(menuLabels()).toEqual([
+      '공지사항',
+      '시험 정리본',
+      '과목 정리본',
+      '즐겨찾기',
+    ])
     expect(menuLabels()).not.toContain('회원 관리')
   })
 
