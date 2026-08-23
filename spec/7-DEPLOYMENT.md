@@ -27,7 +27,9 @@
 
 프론트엔드는 Vercel(`www.khuhacker.com`), API는 AWS(`api.khuhacker.com`)다. `/api/*`는 Vercel rewrites가 ALB로 프록시한다 ([3-3 결정 5](3-3-DESIGN-DECISIONS.md)). 파일은 브라우저와 S3가 presigned URL로 직접 주고받으므로 이 경로를 타지 않는다 ([2-1 §2-1-2·§2-1-4](2-1-USER-STORIES.md)).
 
-**프록시를 거치는 이유는 mixed content와 쿠키 둘 다다.** Vercel Edge는 HTTPS이므로 브라우저가 API를 평문으로 직접 부르면(mixed content) 차단되거나 경고가 뜬다. 프록시를 거치면 브라우저는 Vercel하고만 통신해 이 문제가 사라지고, 덤으로 **same-origin이 되어 쿠키 문제도 없어진다** — `SameSite=None; Secure`가 필요 없고 `SameSite=Lax`로 충분하다. `api.khuhacker.com`을 프론트 코드가 직접 부르면 CORS와 크로스 사이트 쿠키 설정이 따라붙으므로 절대 URL은 쓰지 않는다(`fetch('/api/v1/...')`만 쓴다).
+**프록시를 거치는 이유는 이제 same-origin 하나다** ([결정 15](3-3-DESIGN-DECISIONS.md#3-3-16-결정-15--api에-커스텀-도메인과-acm-인증서를-붙인다)). 브라우저가 웹 도메인 하나와만 통신하므로 **쿠키가 `SameSite=Lax`로 충분하고** `SameSite=None; Secure`가 필요 없다.
+
+> 원래는 mixed content도 이유였다 — ALB가 HTTP만 제공하던 시절 브라우저가 평문 API 호출을 차단했다. `api.khuhacker.com`에 인증서가 붙으면서 그 조건은 사라졌고, 남은 이유는 쿠키뿐이다. `api.khuhacker.com`을 프론트 코드가 직접 부르면 CORS와 크로스 사이트 쿠키 설정이 따라붙으므로 절대 URL은 쓰지 않는다(`fetch('/api/v1/...')`만 쓴다).
 
 **rewrites 규칙 순서가 중요하다.** Vercel은 위에서부터 첫 번째로 맞는 규칙을 적용하므로 `/api/*` 규칙이 SPA fallback(`/(.*) → /index.html`) **위에** 있어야 한다. 아래에 두면 fallback이 API 요청까지 삼켜 로그인이 되지 않는다. 프록시 `source`도 `/api/v1/:path*`가 아니라 `/api/:path*`로 둔다 — 나중에 `/api/v2`가 생겨도 rewrites 설정을 건드리지 않기 위해서다.
 

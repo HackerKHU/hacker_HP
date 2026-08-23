@@ -80,4 +80,4 @@ NAT Gateway는 사용하지 않는다. ECS 태스크는 퍼블릭 서브넷에 �
 | 인프라·배포·장애 대응 | [docs/README.md](docs/README.md) |
 | 이슈·브랜치·커밋·PR | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
-현재 `apps/api`에는 health check가 가능한 서버 기반, `apps/web`에는 최소 시작 화면과 검증 도구가 구성되어 있다. 기능 구현 전에 [미결정 사항](spec/1-BACKGROUND.md#1-5-미결정-사항) 중 해당 기능의 선행 결정을 닫고, 변경된 권한·스키마·API는 코드와 같은 PR에서 문서화한다.
+**MVP는 배포되어 운영 중이고**, `Post Launch`의 자료·활동사진·회원 제거·권한 변경도 들어가 있다. 새 기능에 착수하기 전에 [미결정 사항](spec/1-BACKGROUND.md#1-5-미결정-사항) 중 그 기능의 선행 결정을 닫고, 변경된 권한·스키마·API는 코드와 같은 PR에서 문서화한다.

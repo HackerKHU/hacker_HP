@@ -16,7 +16,8 @@ variable "google_client_secret" {
 variable "oauth_redirect_uri" {
   description = "구글에 등록한 승인 redirect URI. 프론트엔드 오리진 기준이다"
   type        = string
-  # 예: https://hacker-hp.vercel.app/api/v1/login/oauth2/code/google
+  # 웹의 실제 오리진과 같아야 한다 (apps/web/src/site.config.ts).
+  # 예: https://www.khuhacker.com/api/v1/login/oauth2/code/google
 }
 
 variable "allowed_email_domain" {
@@ -28,7 +29,8 @@ variable "allowed_email_domain" {
 variable "vercel_origin" {
   description = "S3 CORS허용 오리진(Vercel 배포 도메인). presigned 업로드가 이 값을 쓴다"
   type        = string
-  # 예: https://hacker-hp.vercel.app
+  # 웹의 실제 오리진과 같아야 한다. www를 빼면 브라우저가 presigned 업로드를 막는다.
+  # 예: https://www.khuhacker.com
 }
 
 variable "admin_bootstrap_email" {

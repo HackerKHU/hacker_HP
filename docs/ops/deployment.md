@@ -9,7 +9,7 @@
 
 ## API 프록시
 
-프론트는 `www.khuhacker.com`(Vercel), API는 `api.khuhacker.com`(ALB)입니다. 브라우저가 API를 직접 부르지 않고 `apps/web/vercel.json`의 rewrites로 프록시합니다. 프록시가 필요한 이유(mixed content, same-origin 쿠키), rewrites 순서가 중요한 이유, 파일 업로드가 이 경로를 안 타는 이유는 [spec/7-DEPLOYMENT §7-1](../../spec/7-DEPLOYMENT.md#7-1-구성-요약)에 있습니다.
+프론트는 `www.khuhacker.com`(Vercel), API는 `api.khuhacker.com`(ALB)입니다. 브라우저가 API를 직접 부르지 않고 `apps/web/vercel.json`의 rewrites로 프록시합니다. 프록시가 필요한 이유(same-origin 쿠키 — mixed content는 [결정 15](../../spec/3-3-DESIGN-DECISIONS.md#3-3-16-결정-15--api에-커스텀-도메인과-acm-인증서를-붙인다) 이후 해당 없음), rewrites 순서가 중요한 이유, 파일 업로드가 이 경로를 안 타는 이유는 [spec/7-DEPLOYMENT §7-1](../../spec/7-DEPLOYMENT.md#7-1-구성-요약)에 있습니다.
 
 ```
 브라우저 ──HTTPS──> Vercel Edge ──HTTPS──> ALB ──> ECS

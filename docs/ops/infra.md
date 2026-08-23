@@ -7,7 +7,7 @@
 
 > **구성**: ECS Fargate(Spot) + ALB + RDS PostgreSQL + S3, NAT Gateway 없음
 > **예산**: 월 약 3.5만원 (RDS 프리티어 적용 시)
-> **도메인**: `khuhacker.com`(웹, Vercel) · `api.khuhacker.com`(API, ALB + ACM) — **운영 중이다.** 배포 절차는 [deployment.md](deployment.md) 참고
+> **도메인**: `www.khuhacker.com`(웹, Vercel) · `api.khuhacker.com`(API, ALB + ACM) — **운영 중이다.** 배포 절차는 [deployment.md](deployment.md) 참고
 
 ## 설계 결정 요약
 
@@ -78,7 +78,14 @@ DynamoDB 락 테이블은 불필요합니다. Terraform 1.10+ 의 S3 네이티�
 
 ### `terraform.tfvars` 채우기
 
-Terraform이 만들어낼 수 없는 값들입니다 — [`infra/terraform/terraform.tfvars.example`](../../infra/terraform/terraform.tfvars.example)을 복사해 채웁니다. 구글 클라이언트 자격은 Google Cloud Console에서 발급받고(#82), redirect URI·CORS 오리진은 `khuhacker.com` 기준입니다.
+Terraform이 만들어낼 수 없는 값들입니다 — [`infra/terraform/terraform.tfvars.example`](../../infra/terraform/terraform.tfvars.example)을 복사해 채웁니다. 구글 클라이언트 자격은 Google Cloud Console에서 발급받습니다(#82).
+
+**`oauth_redirect_uri`와 `vercel_origin`은 웹의 실제 오리진과 글자 하나까지 같아야 합니다** — 지금은 `https://www.khuhacker.com`입니다(`apps/web/src/site.config.ts`가 원본). `www`를 빼면 두 가지가 조용히 깨집니다.
+
+| 값 | 틀리면 |
+|---|---|
+| `vercel_origin` | S3 CORS 허용 오리진으로 그대로 들어가(`storage.tf`) **presigned 업로드가 브라우저에서 차단됩니다** |
+| `oauth_redirect_uri` | 구글에 등록한 URI와 달라 **로그인이 `redirect_uri_mismatch`로 실패합니다** |
 
 **운영 값은 이미 채워져 있습니다.** 이 문단은 환경을 새로 세울 때 봅니다 — 파일은 커밋되지 않으므로 인프라 담당에게 받습니다.
 

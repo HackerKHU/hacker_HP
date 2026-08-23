@@ -3,6 +3,8 @@
 
 google_client_id     = "xxxxxxxx.apps.googleusercontent.com"
 google_client_secret = "GOCSPX-xxxxxxxx"
-oauth_redirect_uri    = "https://hacker-hp.vercel.app/api/v1/login/oauth2/code/google"
-vercel_origin         = "https://hacker-hp.vercel.app"
+# 웹의 실제 오리진과 글자 하나까지 같아야 한다 — 원본은 apps/web/src/site.config.ts다.
+# www를 빼면 S3 CORS가 presigned 업로드를 막고, 구글이 redirect_uri_mismatch로 거절한다.
+oauth_redirect_uri    = "https://www.khuhacker.com/api/v1/login/oauth2/code/google"
+vercel_origin         = "https://www.khuhacker.com"
 admin_bootstrap_email = "admin@khu.ac.kr"
