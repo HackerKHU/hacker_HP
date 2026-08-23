@@ -392,8 +392,8 @@ describe('제출 실패', () => {
     ],
     [
       'VALIDATION_ERROR',
-      new ApiError('VALIDATION_ERROR', 400, '학번과 이름을 입력해주세요.'),
-      /학번과 이름/,
+      new ApiError('VALIDATION_ERROR', 400, '학번을 입력해 주세요.'),
+      /학번을 입력/,
     ],
   ])('%s를 화면에 띄우고 입력을 남긴다', async (_label, error, expected) => {
     api.submitError = error
