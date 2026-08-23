@@ -5,6 +5,10 @@ import { PendingPage } from './features/auth/PendingPage'
 import { LandingPage } from './features/landing/LandingPage'
 import { PrivacyPage } from './features/legal/PrivacyPage'
 import { MemberListPage } from './features/members/MemberListPage'
+import { BookmarkListPage } from './features/notes/BookmarkListPage'
+import { NoteDetailPage } from './features/notes/NoteDetailPage'
+import { NoteFormPage } from './features/notes/NoteFormPage'
+import { NoteListPage } from './features/notes/NoteListPage'
 import { NoticeDetailPage } from './features/notices/NoticeDetailPage'
 import { NoticeFormPage } from './features/notices/NoticeFormPage'
 import { NoticeListPage } from './features/notices/NoticeListPage'
@@ -47,6 +51,23 @@ function App() {
         <Route element={<AppLayout />}>
           <Route path="/notices" element={<NoticeListPage />} />
           <Route path="/notices/:id" element={<NoticeDetailPage />} />
+
+          {/*
+            자료. **`/admin` 아래가 아니다** — 등록·수정·삭제 모두 `ACTIVE`면 할 수 있고
+            (spec §3-1-3 매트릭스), "본인 것만"은 서버가 가른다. 관리자 전용 화면이
+            아니므로 부원 라우트에 둔다.
+
+            **갈래는 경로가 아니라 쿼리(`?category=`)에 둔다.** 경로 조각으로 두면
+            (`/notes/:category`) 그 패턴이 `/notes/123`(상세)까지 삼킨다.
+
+            **정적 경로가 `:id`보다 먼저 잡힌다.** react-router는 동적 조각보다 정적
+            조각에 높은 점수를 주므로 `/notes/new`가 `/notes/:id`로 새지 않는다.
+          */}
+          <Route path="/notes" element={<NoteListPage />} />
+          <Route path="/notes/new" element={<NoteFormPage />} />
+          <Route path="/notes/:id/edit" element={<NoteFormPage />} />
+          <Route path="/notes/:id" element={<NoteDetailPage />} />
+          <Route path="/bookmarks" element={<BookmarkListPage />} />
         </Route>
       </Route>
 
