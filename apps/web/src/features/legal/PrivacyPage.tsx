@@ -5,7 +5,7 @@ import { PRIVACY_SECTIONS, PRIVACY_UPDATED } from './privacyContent'
 /**
  * 개인정보처리방침. **가드를 붙이지 않는다** — 랜딩과 같은 공개 페이지다.
  *
- * 랜딩은 한 페이지 규칙(spec §2-1-8)이 있지만 이건 랜딩 섹션이 아니라 **별도 법적 문서**라
+ * 랜딩은 한 페이지 규칙(spec §2-1-9)이 있지만 이건 랜딩 섹션이 아니라 **별도 법적 문서**라
  * 자기 라우트를 가진다. 앵커로 넣지 않는다.
  */
 export function PrivacyPage() {
