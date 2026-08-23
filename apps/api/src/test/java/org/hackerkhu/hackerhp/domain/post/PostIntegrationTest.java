@@ -424,4 +424,53 @@ class PostIntegrationTest extends AbstractIntegrationTest {
         .perform(sessions.as(admin, get(POSTS)))
         .andExpect(jsonPath("$.content[0].author.name").value("탈퇴한 회원"));
   }
+
+  /**
+   * <b>본문을 잘라내지 않는다</b> (MUST, §3-2-5, #257 리뷰).
+   *
+   * <p>"받은 문자열을 그대로 저장하고 그대로 내보낸다"고 해 놓고 {@code trim}하면 그 계약이 첫 줄부터 깨진다 — <b>들여쓴 코드나 마지막 개행이 저장 시점에
+   * 이미 사라진다.</b> 공백뿐인 입력은 {@code @NotBlank}가 이미 막으므로 잘라낼 이유도 없다.
+   */
+  @Test
+  void theBodyKeepsItsLeadingAndTrailingWhitespace() throws Exception {
+    String payload = "\n  들여쓴 코드\n    더 들여쓴 줄\n\n";
+    String json =
+        mockMvc
+            .perform(
+                Csrf.with(sessions.as(member, post(POSTS)))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        objectMapper.writeValueAsString(
+                            java.util.Map.of("title", "제목", "content", payload))))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    long id = objectMapper.readTree(json).path("id").asLong();
+    assertThat(posts.findById(id).orElseThrow().getContent()).isEqualTo(payload);
+    mockMvc
+        .perform(sessions.as(member, get(POSTS + "/" + id)))
+        .andExpect(jsonPath("$.content").value(payload));
+  }
+
+  /**
+   * <b>필터를 지난 뒤 정지된 사람은 글을 남기지 못한다</b> (3-1 §3-1-4 MUST, #257 리뷰).
+   *
+   * <p>인가는 세션 값으로 이루어지고 필터는 매 요청 {@code users}를 읽지 않는다(결정 12). 세션을 그대로 둔 채 DB만 바꾸면 <b>필터를 지난 뒤 정지된
+   * 상태</b>가 그대로 재현된다 — 저장 직전에 잠그고 다시 보지 않으면 그 글이 커밋된다.
+   */
+  @Test
+  void anAuthorSuspendedAfterAuthorizationCannotFinishWriting() throws Exception {
+    User target = userRepository.findById(member.getId()).orElseThrow();
+    target.suspend();
+    userRepository.saveAndFlush(target);
+
+    mockMvc
+        .perform(writeRequest(member, "정지 뒤에 도착한 글", "본문"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("SUSPENDED"));
+
+    assertThat(posts.count()).isZero();
+  }
 }

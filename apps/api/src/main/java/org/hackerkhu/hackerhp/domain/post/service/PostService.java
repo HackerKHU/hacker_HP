@@ -14,6 +14,7 @@ import org.hackerkhu.hackerhp.domain.post.entity.Post;
 import org.hackerkhu.hackerhp.domain.post.repository.PostRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.domain.user.service.RequesterCheck;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
 import org.slf4j.Logger;
@@ -85,9 +86,30 @@ public class PostService {
    */
   @Transactional
   public PostDetailResponse write(Long authorId, PostCreateRequest request) {
+    /*
+     * 저장 직전에 작성자를 잠그고 다시 본다 (3-1 §3-1-4 MUST, #257 리뷰).
+     *
+     * 인가는 세션 값으로 이루어지고 필터는 매 요청 users를 읽지 않는다(결정 12). 그래서
+     * 요청이 필터를 지난 뒤 관리자가 이 사람을 정지시켜도, 세션의 id만 믿으면 그 글이
+     * 그대로 커밋된다 — "정지는 즉시 차단"(§2-2-3 MUST)이 조용히 깨진다.
+     *
+     * 잠근 채 보므로 정지 트랜잭션과 자연히 줄이 선다.
+     */
+    User author = users.findByIdForUpdate(authorId).orElse(null);
+    RequesterCheck.requireActive(author, authorId);
+
     Instant now = Instant.now();
-    Post saved =
-        posts.save(Post.write(request.title().trim(), request.content().trim(), authorId, now));
+    /*
+     * 본문은 trim하지 않는다 (§3-2-5 MUST, #257 리뷰).
+     *
+     * "받은 문자열을 그대로 저장하고 그대로 내보낸다"고 해 놓고 앞뒤를 잘라내면 그 계약이
+     * 첫 줄부터 깨진다 — 들여쓴 코드나 마지막 개행이 저장 시점에 이미 사라진다. 공백뿐인
+     * 입력은 @NotBlank가 이미 막는다.
+     *
+     * 제목은 자른다. 계약의 "그대로"는 본문에 대한 것이고, 제목 앞뒤 공백은 목록에서 줄이
+     * 어긋나 보이게 할 뿐 담긴 뜻이 없다.
+     */
+    Post saved = posts.save(Post.write(request.title().trim(), request.content(), authorId, now));
 
     /*
      * 본문을 남기지 않는다. 개인정보가 섞여 들어올 수 있고, 이 로그는 "누가 언제 썼나"를

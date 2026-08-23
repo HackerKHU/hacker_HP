@@ -73,6 +73,7 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
     jdbcTemplate.update("DELETE FROM note_files");
     jdbcTemplate.update("DELETE FROM notes");
     jdbcTemplate.update("DELETE FROM notices");
+    jdbcTemplate.update("DELETE FROM posts");
     jdbcTemplate.update("DELETE FROM photos");
     actions.deleteAll();
     userRepository.deleteAll();
@@ -450,19 +451,23 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
 
   /** <b>세 값을 항상 담는다</b> — {@code 0}을 빼면 화면이 "없음"과 "모름"을 가르지 못한다. */
   @Test
-  void contentSummaryAlwaysCarriesAllThreeCounts() throws Exception {
+  void contentSummaryAlwaysCarriesEveryCount() throws Exception {
     User member =
         userRepository.saveAndFlush(Accounts.approved("sub-m", "m@khu.ac.kr", "20250002"));
     insertNote(member.getId());
     insertNote(member.getId());
     insertNotice(member.getId());
+    insertPost(member.getId());
 
     mockMvc
         .perform(sessions.as(admin, get(BASE + "/" + member.getId() + "/content-summary")))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.notes").value(2))
         .andExpect(jsonPath("$.notices").value(1))
-        .andExpect(jsonPath("$.photos").value(0));
+        .andExpect(jsonPath("$.photos").value(0))
+        // 콘텐츠 종류가 늘면 이 응답도 늘어야 한다 (#236) — 빠지면 관리자가 게시글이
+        // 남는다는 사실을 보지 못한 채 되돌릴 수 없는 제거를 한다.
+        .andExpect(jsonPath("$.posts").value(1));
   }
 
   @Test
@@ -503,6 +508,13 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
         """,
         Long.class,
         uploaderId);
+  }
+
+  private void insertPost(Long authorId) {
+    jdbcTemplate.update(
+        "INSERT INTO posts (title, content, author_id, created_at, updated_at)"
+            + " VALUES ('제목', '본문', ?, NOW(), NOW())",
+        authorId);
   }
 
   private Long insertNotice(Long authorId) {
