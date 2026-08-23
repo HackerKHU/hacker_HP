@@ -80,7 +80,7 @@ DynamoDB 락 테이블은 불필요합니다. Terraform 1.10+ 의 S3 네이티�
 
 Terraform이 만들어낼 수 없는 값들입니다 — [`infra/terraform/terraform.tfvars.example`](../../infra/terraform/terraform.tfvars.example)을 복사해 채웁니다. 구글 클라이언트 자격은 Google Cloud Console에서 발급받습니다(#82).
 
-**`oauth_redirect_uri`와 `vercel_origin`은 웹의 실제 오리진과 글자 하나까지 같아야 합니다** — 지금은 `https://www.khuhacker.com`입니다(`apps/web/src/site.config.ts`가 원본). `www`를 빼면 두 가지가 조용히 깨집니다.
+**`oauth_redirect_uri`와 `vercel_origin`은 웹의 실제 오리진과 글자 하나까지 같아야 합니다** — 지금은 `https://www.khuhacker.com`입니다(`apps/web/site.config.ts`가 원본). `www`를 빼면 두 가지가 조용히 깨집니다.
 
 | 값 | 틀리면 |
 |---|---|

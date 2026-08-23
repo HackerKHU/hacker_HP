@@ -16,7 +16,7 @@ variable "google_client_secret" {
 variable "oauth_redirect_uri" {
   description = "구글에 등록한 승인 redirect URI. 프론트엔드 오리진 기준이다"
   type        = string
-  # 웹의 실제 오리진과 같아야 한다 (apps/web/src/site.config.ts).
+  # 웹의 실제 오리진과 같아야 한다 (apps/web/site.config.ts).
   # 예: https://www.khuhacker.com/api/v1/login/oauth2/code/google
 }
 
