@@ -151,10 +151,16 @@ export function PhotoUploadPage() {
     setSaving(true)
     setError(null)
     setFailedNotice(null)
+    /*
+     * **지금 목록을 붙잡아 둔다.** 아래는 `await`가 둘 있는 긴 구간이고, 그 사이 화면 상태가
+     * 바뀌면 나중에 인덱스로 대조할 때 어긋난다. 입력은 `saving` 동안 잠그지만(아래 폼 참고)
+     * 그것만 믿지 않는다 — 잠금이 한 군데라도 빠지면 조용히 엉뚱한 사진이 지워진다.
+     */
+    const submitted = picked
     try {
       // ①② 발급 → S3 직접 업로드. **여기서만 원본 바이트가 움직이고, 목적지는 S3다.**
       const keys = await uploadAll(
-        picked.map((item) => item.file),
+        submitted.map((item) => item.file),
         (done, total) => setProgress(`사진 올리는 중 (${done}/${total})`),
       )
 
@@ -167,7 +173,7 @@ export function PhotoUploadPage() {
         keys.map((key, index) => ({
           key,
           // 빈 문자열이 아니라 `null`을 보낸다 — 빈 문자열은 서버가 값으로 저장한다.
-          caption: picked[index].caption.trim() || null,
+          caption: submitted[index].caption.trim() || null,
         })),
       )
 
@@ -183,10 +189,27 @@ export function PhotoUploadPage() {
         setFailedNotice(
           `${result.registered.length}장을 올렸고 ${result.failed.length}장이 실패했습니다 (${detail}). 실패한 사진은 아래에 남아 있습니다 — 다시 시도해 주세요.`,
         )
-        // 성공한 만큼만 앞에서 덜어낸다. 등록 순서가 요청 순서와 같다 (§3-2-5).
+
+        /*
+         * **인덱스가 아니라 항목 자체로 가른다.**
+         *
+         * 실패한 키를 인덱스로 되짚어 그 자리를 남기는 방식은, 그 사이 목록이 한 칸이라도
+         * 밀리면 **엉뚱한 사진을 남기고 실패한 사진을 지운다.** 붙잡아 둔 목록에서 미리
+         * "남길 것"을 정해 두고, 그것을 안정된 식별자(`previewUrl` — `createObjectURL`이
+         * 장마다 다른 값을 준다)로 현재 목록과 맞춘다.
+         *
+         * 그래서 **업로드 중 새로 고른 사진이 있어도 지워지지 않는다** — 남길 목록에 없을
+         * 뿐 아니라, 아래에서 성공분만 골라 덜어내므로 그대로 남는다.
+         */
         const failedKeys = new Set(result.failed.map((failure) => failure.key))
+        const succeeded = submitted.filter(
+          (_, index) => !failedKeys.has(keys[index]),
+        )
+        const doneUrls = new Set(succeeded.map((item) => item.previewUrl))
+        // 올라간 사진의 미리보기 주소는 여기서 푼다 — 목록에서 빠지면 되돌릴 곳이 없다.
+        for (const item of succeeded) URL.revokeObjectURL(item.previewUrl)
         setPicked((current) =>
-          current.filter((_, index) => failedKeys.has(keys[index])),
+          current.filter((item) => !doneUrls.has(item.previewUrl)),
         )
         return
       }
@@ -236,6 +259,12 @@ export function PhotoUploadPage() {
             type="file"
             multiple
             accept={ACCEPT}
+            /*
+             * **올리는 중에는 잠근다.** 제출 시점의 목록으로 발급·업로드·등록이 진행되므로,
+             * 그 사이 목록이 바뀌면 화면과 처리 중인 것이 어긋난다 — 새로 고른 사진은
+             * 올라가지도 않으면서 "올린 것"처럼 보이게 된다.
+             */
+            disabled={saving}
             onChange={(event) => addFiles(event.target.files)}
             className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:border-input file:bg-transparent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground hover:file:bg-accent"
           />
@@ -269,6 +298,8 @@ export function PhotoUploadPage() {
                     variant="ghost"
                     size="icon"
                     className="absolute top-1 right-1 size-7 bg-background/80"
+                    // 올리는 중에는 뺄 수 없다 — 이미 올라가고 있는 것을 목록에서만 지우게 된다.
+                    disabled={saving}
                     aria-label={`${item.file.name} 빼기`}
                     onClick={() => removeAt(index)}
                   >
@@ -295,6 +326,11 @@ export function PhotoUploadPage() {
                     id={`photo-caption-${index}`}
                     value={item.caption}
                     maxLength={CAPTION_MAX}
+                    /*
+                     * 설명도 제출 시점 값으로 등록된다. 올리는 중에 고칠 수 있게 두면
+                     * **화면에는 고친 글이 보이는데 저장된 것은 옛 글이다.**
+                     */
+                    disabled={saving}
                     onChange={(event) => setCaption(index, event.target.value)}
                     placeholder="비워둘 수 있습니다"
                   />

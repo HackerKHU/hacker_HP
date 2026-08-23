@@ -172,10 +172,22 @@ export async function uploadAll(
     )
   }
 
+  /*
+   * **픽스처 모드에서는 S3로 나가지 않는다.** 발급된 주소가 `blob:`이라 실제로 `PUT`하면
+   * 실패하고, 그 실패가 업로드 오류로 보여 **업로드 화면을 끝까지 볼 수 없다** — 백엔드
+   * 없이 화면을 확인하라는 픽스처의 목적과 어긋난다 (`apps/web/README.md`).
+   *
+   * **프로덕션 경로는 그대로다.** 플래그가 꺼진 빌드에서는 이 분기가 늘 거짓이라
+   * `putToStorage`가 예전과 똑같이 불린다.
+   */
+  const skipStorage = import.meta.env.VITE_USE_FIXTURES === 'true'
+
   const keys: string[] = []
   for (const [index, file] of files.entries()) {
     const slot = issued[index]
-    await putToStorage(slot.uploadUrl, file, contentTypeOf(extensions[index]))
+    if (!skipStorage) {
+      await putToStorage(slot.uploadUrl, file, contentTypeOf(extensions[index]))
+    }
     keys.push(slot.key)
     onProgress?.(index + 1, files.length)
   }

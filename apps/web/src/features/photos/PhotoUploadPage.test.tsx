@@ -20,6 +20,11 @@ const api = vi.hoisted(() => ({
   uploaded: [] as string[],
   registered: [] as PhotoRegisterItem[],
   result: null as PhotoRegisterResult | null,
+  /**
+   * 등록을 붙잡아 두는 손잡이. 값이 있으면 `register`가 그 약속이 풀릴 때까지 기다린다 —
+   * **업로드가 진행 중인 순간**의 화면을 검사할 수 있다.
+   */
+  hold: null as { promise: Promise<void>; release: () => void } | null,
 }))
 
 vi.mock('@/api/photos', async (importOriginal) => {
@@ -33,11 +38,10 @@ vi.mock('@/api/photos', async (importOriginal) => {
         files.map((_, index) => `photos/uploads/fixture-${index}.jpg`),
       )
     },
-    register: (photos: PhotoRegisterItem[]) => {
+    register: async (photos: PhotoRegisterItem[]) => {
       api.registered.push(...photos)
-      return Promise.resolve(
-        api.result ?? { registered: photos.map(() => PHOTO), failed: [] },
-      )
+      if (api.hold) await api.hold.promise
+      return api.result ?? { registered: photos.map(() => PHOTO), failed: [] }
     },
   }
 })
@@ -92,10 +96,21 @@ function pick(...names: string[]) {
   fireEvent.change(input, { target: { files } })
 }
 
+/** 등록을 멈춰 세운다. 돌려받은 함수를 부르면 그때 진행된다. */
+function holdRegister(): () => void {
+  let release = () => {}
+  const promise = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  api.hold = { promise, release }
+  return release
+}
+
 beforeEach(() => {
   api.uploaded = []
   api.registered = []
   api.result = null
+  api.hold = null
   // jsdom에는 없다. 미리보기 주소를 만드는 데 쓴다.
   vi.stubGlobal('URL', {
     ...URL,
@@ -225,6 +240,113 @@ describe('활동사진 업로드', () => {
       '사진을 한 장 이상 골라주세요',
     )
     expect(api.uploaded).toEqual([])
+  })
+
+  /*
+   * **올리는 중에는 목록을 건드릴 수 없다.**
+   *
+   * 제출 시점의 목록으로 발급·업로드·등록이 진행되므로 그 사이 파일을 더 고르거나 빼면
+   * **화면과 처리 중인 것이 어긋난다** — 새로 고른 사진은 올라가지도 않으면서 "올린 것"처럼
+   * 보이고, 뺀 사진은 이미 올라가고 있는데 목록에서만 사라진다.
+   */
+  it('올리는 중에는 파일 입력·빼기·설명이 잠긴다', async () => {
+    const release = holdRegister()
+
+    renderUpload()
+    pick('mt.jpg')
+    fireEvent.click(await screen.findByRole('button', { name: '올리기' }))
+
+    // 등록이 붙잡혀 있어 아직 진행 중이다.
+    await waitFor(() => {
+      expect(api.registered).toHaveLength(1)
+    })
+    expect(screen.getByLabelText('사진')).toBeDisabled()
+    expect(screen.getByLabelText('설명 (선택)')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'mt.jpg 빼기' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '올리는 중' })).toBeDisabled()
+
+    release()
+    expect(
+      await screen.findByRole('heading', { name: '활동사진' }),
+    ).toBeVisible()
+  })
+
+  /*
+   * **잠금이 뚫려도 엉뚱한 사진을 지우지 않는다.**
+   *
+   * 부분 실패 대조를 인덱스로 하면, 그 사이 목록이 한 칸이라도 밀렸을 때 **실패한 사진이
+   * 사라지고 성공한 사진이 남는다** — 정확히 반대다. 붙잡아 둔 목록에서 남길 것을 먼저
+   * 정하고 안정된 식별자로 맞추므로 그 어긋남이 생기지 않는다.
+   *
+   * 여기서는 잠금을 우회해 상태를 직접 흔든다(`addFiles`가 부르는 `change`를 강제로
+   * 일으킨다) — 잠금과 대조 로직 **둘 다** 지키는지 보려면 하나를 빼고 확인해야 한다.
+   */
+  it('올리는 중 목록이 바뀌어도 실패한 사진이 남고 새로 고른 사진이 유실되지 않는다', async () => {
+    api.result = {
+      registered: [PHOTO],
+      failed: [
+        {
+          key: 'photos/uploads/fixture-1.jpg',
+          reason: 'UNSUPPORTED_FILE_TYPE',
+        },
+      ],
+    }
+    const release = holdRegister()
+
+    renderUpload()
+    pick('good.jpg', 'broken.jpg')
+
+    const captions = await screen.findAllByLabelText('설명 (선택)')
+    fireEvent.change(captions[0], { target: { value: '성공할 사진' } })
+    fireEvent.change(captions[1], { target: { value: '실패할 사진' } })
+    fireEvent.click(screen.getByRole('button', { name: '올리기' }))
+
+    await waitFor(() => {
+      expect(api.registered).toHaveLength(2)
+    })
+
+    /*
+     * 잠금을 우회해 목록 맨 앞에 한 장을 끼워 넣는다. 인덱스로 대조했다면 이 한 칸 밀림에
+     * `good`이 남고 `broken`이 지워진다.
+     */
+    const input = screen.getByLabelText('사진') as HTMLInputElement
+    input.disabled = false
+    fireEvent.change(input, {
+      target: { files: [new File(['x'], 'late.jpg', { type: 'image/jpeg' })] },
+    })
+
+    release()
+
+    await screen.findByRole('alert')
+    const left = await screen.findAllByLabelText('설명 (선택)')
+    const values = left.map((field) => (field as HTMLInputElement).value)
+    // 실패한 사진이 남았고, 성공한 사진만 빠졌다. 늦게 고른 사진도 그대로다.
+    expect(values).toContain('실패할 사진')
+    expect(values).not.toContain('성공할 사진')
+    expect(screen.getByText('late.jpg')).toBeVisible()
+  })
+
+  /*
+   * 등록 본문의 설명은 **제출 시점 값**이다. 올리는 중에 고쳐도 이미 보낸 것은 바뀌지
+   * 않으므로, 화면이 그 사이 입력을 받으면 **보이는 글과 저장된 글이 갈린다.**
+   */
+  it('등록 본문의 설명은 제출 시점 값이다', async () => {
+    const release = holdRegister()
+
+    renderUpload()
+    pick('mt.jpg')
+    fireEvent.change(await screen.findByLabelText('설명 (선택)'), {
+      target: { value: '처음 설명' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '올리기' }))
+
+    await waitFor(() => {
+      expect(api.registered).toHaveLength(1)
+    })
+    expect(api.registered[0].caption).toBe('처음 설명')
+
+    release()
+    await screen.findByRole('heading', { name: '활동사진' })
   })
 
   /* 중간의 한 장을 빼도 나머지 설명이 자리를 유지해야 한다 (key가 인덱스가 아닌 이유). */

@@ -173,6 +173,32 @@ describe('S3 직접 업로드', () => {
     )
   })
 
+  /*
+   * **픽스처 모드에서는 S3로 나가지 않는다.** 발급 주소가 `blob:`이라 실제 `PUT`은
+   * 실패하고, 그 실패가 업로드 오류로 보여 **업로드 화면을 끝까지 볼 수 없다** —
+   * 백엔드 없이 화면을 확인하라는 픽스처의 목적과 어긋난다.
+   */
+  it('픽스처 모드에서는 PUT을 보내지 않고 키를 돌려준다', async () => {
+    vi.stubEnv('VITE_USE_FIXTURES', 'true')
+    // 업로드는 ADMIN 전용이라 픽스처가 다른 시나리오를 `403`으로 막는다 (계약 §3-2-5).
+    vi.stubEnv('VITE_FIXTURE_SCENARIO', 'admin')
+    /*
+     * 플래그와 시나리오는 **모듈이 처음 불릴 때** 읽힌다. 위에서 정적으로 가져온 것은
+     * 이미 꺼진 상태로 굳어 있으므로 새로 불러온다.
+     */
+    vi.resetModules()
+    const photos = await import('./photos')
+
+    const keys = await photos.uploadAll([
+      new File(['a'], 'a.jpg'),
+      new File(['b'], 'b.png'),
+    ])
+
+    // 발급도 픽스처가 받으므로 네트워크 요청이 하나도 나가지 않는다.
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(keys).toHaveLength(2)
+  })
+
   it('올린 장수를 진행 콜백으로 알린다', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(issued(2)))
