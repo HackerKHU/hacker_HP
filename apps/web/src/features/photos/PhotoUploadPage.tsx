@@ -238,7 +238,7 @@ export function PhotoUploadPage() {
         to="/photos"
         className="text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
-        ← 활동사진
+        ← 갤러리
       </Link>
 
       <h1 className="mt-6 text-2xl font-semibold tracking-tight">

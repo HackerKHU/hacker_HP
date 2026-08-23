@@ -94,6 +94,17 @@ beforeEach(() => {
 })
 
 describe('활동사진 갤러리', () => {
+  /*
+   * 화면 이름은 **갤러리**다 (2026-08-23). 담고 있는 것은 여전히 활동사진이고(spec §2-1-7)
+   * 라우트도 `/photos`지만, 사용자에게 보이는 이름은 헤더 메뉴·제목·돌아가기 링크에서
+   * 이 하나로 통일한다 — 화면마다 다른 이름으로 부르면 같은 곳인지 알 수 없다.
+   */
+  it('제목이 갤러리다', async () => {
+    renderGallery()
+
+    expect(await screen.findByRole('heading', { name: '갤러리' })).toBeVisible()
+  })
+
   it('사진을 그리드로 보여준다', async () => {
     renderGallery()
 

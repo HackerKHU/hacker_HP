@@ -80,7 +80,7 @@ function renderUpload() {
       <SessionProvider>
         <Routes>
           <Route path="/admin/photos/new" element={<PhotoUploadPage />} />
-          <Route path="/photos" element={<h1>활동사진</h1>} />
+          <Route path="/photos" element={<h1>갤러리</h1>} />
         </Routes>
       </SessionProvider>
     </MemoryRouter>,
@@ -198,7 +198,7 @@ describe('활동사진 업로드', () => {
     // 사유를 문구로 옮겨 무엇을 고쳐야 하는지 알린다.
     expect(screen.getByRole('alert')).toHaveTextContent('20MB를 넘습니다')
     // 갤러리로 가지 않았다.
-    expect(screen.queryByRole('heading', { name: '활동사진' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: '갤러리' })).toBeNull()
     // 실패한 사진만 남는다.
     expect(await screen.findAllByLabelText('설명 (선택)')).toHaveLength(1)
   })
@@ -210,9 +210,7 @@ describe('활동사진 업로드', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '올리기' }))
 
-    expect(
-      await screen.findByRole('heading', { name: '활동사진' }),
-    ).toBeVisible()
+    expect(await screen.findByRole('heading', { name: '갤러리' })).toBeVisible()
   })
 
   /*
@@ -266,9 +264,7 @@ describe('활동사진 업로드', () => {
     expect(screen.getByRole('button', { name: '올리는 중' })).toBeDisabled()
 
     release()
-    expect(
-      await screen.findByRole('heading', { name: '활동사진' }),
-    ).toBeVisible()
+    expect(await screen.findByRole('heading', { name: '갤러리' })).toBeVisible()
   })
 
   /*
@@ -346,7 +342,7 @@ describe('활동사진 업로드', () => {
     expect(api.registered[0].caption).toBe('처음 설명')
 
     release()
-    await screen.findByRole('heading', { name: '활동사진' })
+    await screen.findByRole('heading', { name: '갤러리' })
   })
 
   /* 중간의 한 장을 빼도 나머지 설명이 자리를 유지해야 한다 (key가 인덱스가 아닌 이유). */
