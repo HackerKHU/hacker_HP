@@ -15,7 +15,7 @@ class UserTest {
 
   private static User applied() {
     User user = loggedInWithGoogle();
-    user.submitApplication("20240003", "본명", "컴퓨터공학과");
+    user.submitApplication("20240003", "컴퓨터공학과");
     return user;
   }
 
@@ -35,23 +35,36 @@ class UserTest {
   void submitApplicationFillsStudentNoAndAppliedAt() {
     User user = loggedInWithGoogle();
 
-    user.submitApplication("20240003", "본명", "컴퓨터공학과");
+    user.submitApplication("20240003", "컴퓨터공학과");
 
     assertThat(user.getStudentNo()).isEqualTo("20240003");
-    assertThat(user.getName()).isEqualTo("본명");
     assertThat(user.getDepartment()).isEqualTo("컴퓨터공학과");
     assertThat(user.getAppliedAt()).isNotNull();
+  }
+
+  /*
+   * 신청서는 이름을 건드리지 않는다 (#224). 이름은 구글 계정에서 온 값이고, 신청서로 바꿀 수 있게
+   * 두면 화면을 잠가도 API로 우회된다 — 인자가 없는 것이 곧 그 통제다.
+   */
+  @Test
+  void submitApplicationDoesNotTouchTheGoogleName() {
+    User user = loggedInWithGoogle();
+
+    user.submitApplication("20240003", "컴퓨터공학과");
+
+    assertThat(user.getName()).isEqualTo("구글이름");
   }
 
   @Test
   void submitApplicationAgainBeforeApprovalUpdatesContent() {
     User user = applied();
 
-    user.submitApplication("20240099", "정정한이름", "인공지능학과");
+    user.submitApplication("20240099", "인공지능학과");
 
     assertThat(user.getStudentNo()).isEqualTo("20240099");
-    assertThat(user.getName()).isEqualTo("정정한이름");
     assertThat(user.getDepartment()).isEqualTo("인공지능학과");
+    // 다시 내도 이름은 그대로다.
+    assertThat(user.getName()).isEqualTo("구글이름");
   }
 
   /*
@@ -62,7 +75,7 @@ class UserTest {
   void submitApplicationRejectsDepartmentNotInTheFixedList() {
     User user = loggedInWithGoogle();
 
-    assertThatThrownBy(() -> user.submitApplication("20240003", "본명", "존재하지않는학과"))
+    assertThatThrownBy(() -> user.submitApplication("20240003", "존재하지않는학과"))
         .isInstanceOf(IllegalArgumentException.class);
 
     assertThat(user.getAppliedAt()).isNull();
@@ -78,7 +91,7 @@ class UserTest {
     User user = applied();
     user.approve();
 
-    assertThatThrownBy(() -> user.submitApplication("20240099", "다른이름", "컴퓨터공학과"))
+    assertThatThrownBy(() -> user.submitApplication("20240099", "컴퓨터공학과"))
         .isInstanceOf(IllegalStateException.class);
   }
 
@@ -99,24 +112,21 @@ class UserTest {
    * DB의 NOT NULL·UNIQUE는 빈 문자열을 거르지 않는다. 여기서 통과시키면 식별 정보가 없는
    * 계정이 applied_at을 얻어 approve()의 검사까지 통과한다.
    */
-  @ParameterizedTest(name = "학번={0} 이름={1} 학과={2}")
+  @ParameterizedTest(name = "학번={0} 학과={1}")
   @CsvSource(
       value = {
-        "'', 김신입, 컴퓨터공학과",
-        "'   ', 김신입, 컴퓨터공학과",
-        "20240003, '', 컴퓨터공학과",
-        "20240003, '   ', 컴퓨터공학과",
-        "null, 김신입, 컴퓨터공학과",
-        "20240003, null, 컴퓨터공학과",
-        "20240003, 김신입, ''",
-        "20240003, 김신입, '   '",
-        "20240003, 김신입, null"
+        "'', 컴퓨터공학과",
+        "'   ', 컴퓨터공학과",
+        "null, 컴퓨터공학과",
+        "20240003, ''",
+        "20240003, '   '",
+        "20240003, null"
       },
       nullValues = "null")
-  void submitApplicationRejectsBlankValues(String studentNo, String name, String department) {
+  void submitApplicationRejectsBlankValues(String studentNo, String department) {
     User user = loggedInWithGoogle();
 
-    assertThatThrownBy(() -> user.submitApplication(studentNo, name, department))
+    assertThatThrownBy(() -> user.submitApplication(studentNo, department))
         .isInstanceOf(IllegalArgumentException.class);
 
     // 거부됐으면 신청 상태가 남아서는 안 된다 — 남으면 승인 대상이 된다.
@@ -129,10 +139,10 @@ class UserTest {
   void submitApplicationTrimsSurroundingWhitespace() {
     User user = loggedInWithGoogle();
 
-    user.submitApplication("  20240003  ", "  본명  ", "컴퓨터공학과");
+    user.submitApplication("  20240003  ", "  컴퓨터공학과  ");
 
     assertThat(user.getStudentNo()).isEqualTo("20240003");
-    assertThat(user.getName()).isEqualTo("본명");
+    assertThat(user.getDepartment()).isEqualTo("컴퓨터공학과");
   }
 
   @Test

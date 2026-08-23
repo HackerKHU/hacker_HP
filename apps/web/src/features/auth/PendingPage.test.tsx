@@ -30,7 +30,7 @@ const api = vi.hoisted(() => ({
   meError: null as ApiError | null,
   /** `getMe` 호출 횟수. "다시 확인"이 실제로 서버에 물었는지 본다. */
   meCalls: 0,
-  submitted: [] as { studentNo: string; name: string; department: string }[],
+  submitted: [] as { studentNo: string; department: string }[],
   submitError: null as ApiError | null,
 }))
 
@@ -47,11 +47,11 @@ const BASE: User = {
   approvedAt: null,
 }
 
-/** 신청서를 낸 상태. */
+/** 신청서를 낸 상태. **이름은 그대로다** — 신청서가 받는 값이 아니다 (#224). */
 const APPLIED: User = {
   ...BASE,
   studentNo: '2021123456',
-  name: '홍길동',
+  department: '인공지능학과',
   appliedAt: '2026-03-02T10:00:00Z',
 }
 
@@ -74,7 +74,6 @@ vi.mock('@/api/auth', async (importOriginal) => {
     logout: () => Promise.resolve(),
     submitApplication: async (body: {
       studentNo: string
-      name: string
       department: string
     }) => {
       await later(null)
@@ -120,19 +119,15 @@ function pathname(): string {
 /**
  * 신청 폼을 채운다.
  *
- * **이름도 학과도 채워야 한다.** 최초 신청에서는 이름 칸이 비어 있고(#132) 학과는 아무것도
- * 고르지 않은 상태다(#165). 하나라도 빠뜨리면 화면이 클라이언트에서 막아, 서버 응답을
- * 보려는 케이스가 요청도 못 보내고 통과해 버린다.
+ * **학과도 채워야 한다.** 최초 신청에서는 아무것도 고르지 않은 상태다(#165). 빠뜨리면
+ * 화면이 클라이언트에서 막아, 서버 응답을 보려는 케이스가 요청도 못 보내고 통과해 버린다.
+ *
+ * 이름·이메일은 채우지 않는다 — 읽기 전용이라 사용자가 넣을 수 있는 값이 아니다 (#224).
  */
-async function fillApplication(
-  studentNo: string,
-  name = '홍길동',
-  department = '컴퓨터공학과',
-) {
+async function fillApplication(studentNo: string, department = '컴퓨터공학과') {
   fireEvent.change(await screen.findByLabelText('학번'), {
     target: { value: studentNo },
   })
-  fireEvent.change(screen.getByLabelText('이름'), { target: { value: name } })
   fireEvent.change(screen.getByLabelText('학과'), {
     target: { value: department },
   })
@@ -159,20 +154,38 @@ describe('한 화면 두 모습', () => {
   })
 
   /*
-   * **결정 3을 뒤집는다** (#132). 원래 근거는 "구글 프로필에서 받아둔 값이 있으니 빈 칸으로
-   * 두면 다시 쓰게 한다"였다. 그 전제가 이 학교에서는 틀렸다 — 경희대 Workspace는 표시
-   * 이름에 소속을 넣는다.
+   * **#132를 다시 뒤집는다** (#224). #132가 이름 칸을 비운 근거는 경희대 Workspace가 표시
+   * 이름에 소속을 넣는다는 것이었다.
    *
    *     강경현[학생](소프트웨어융합대학 컴퓨터공학부)
    *
-   * 그럴듯한 값이 채워져 있으면 그대로 제출되고, 계약이 말한 "신청 시 본인이 정정"
-   * (§3-2-2)이 일어나지 않는다. 아끼는 것은 세 글자 입력이고, 치르는 것은 회원 목록에
-   * 남는 이 문자열이다.
+   * #215가 그 접미사를 계정 생성 시점에 걷어내면서 전제가 사라졌다. 저장된 값이 곧 실명이니
+   * 본인이 다시 칠 이유가 없고, 칠 수 있게 두면 관리자가 심사하는 이름이 구글 계정과 다른
+   * 값이 될 수 있다.
+   *
+   * **`disabled`가 아니라 `readOnly`다.** `disabled`는 값을 흐리게 만들고 포커스도 못 받아
+   * 빈 칸처럼 읽힌다 — 여기 담긴 것은 "이 값으로 신청된다"는 사실이라 또렷해야 한다.
    */
-  it('최초 신청에는 이름을 채우지 않는다', async () => {
+  it('이름은 구글 계정의 값으로 채워지고 고칠 수 없다', async () => {
     renderAt()
 
-    expect(await screen.findByLabelText('이름')).toHaveValue('')
+    const name = await screen.findByLabelText('이름')
+    expect(name).toHaveValue('구글이름')
+    expect(name).toHaveAttribute('readOnly')
+    expect(name).not.toBeDisabled()
+  })
+
+  /*
+   * 이메일은 원래 신청 항목이 아니었다. **표시만** 더한다 (#224) — 구글 계정이 여럿인 사람이
+   * 어느 계정으로 신청하는지 폼 안에서 확인할 수 있어야 한다. 제출 본문에는 담기지 않는다.
+   */
+  it('이메일도 계정 값으로 채워지고 고칠 수 없다', async () => {
+    renderAt()
+
+    const email = await screen.findByLabelText('이메일')
+    expect(email).toHaveValue('applicant@khu.ac.kr')
+    expect(email).toHaveAttribute('readOnly')
+    expect(email).not.toBeDisabled()
   })
 
   // T-105
@@ -185,7 +198,7 @@ describe('한 화면 두 모습', () => {
       await screen.findByRole('heading', { name: '승인 대기 중' }),
     ).toBeInTheDocument()
     expect(screen.getByText('2021123456')).toBeInTheDocument()
-    expect(screen.getByText('홍길동')).toBeInTheDocument()
+    expect(screen.getByText('구글이름')).toBeInTheDocument()
     expect(screen.queryByLabelText('학번')).toBeNull()
   })
 
@@ -239,15 +252,7 @@ describe('신청서 제출', () => {
   it('제출하면 서버에서 다시 읽어 대기 안내로 바뀐다', async () => {
     renderAt()
 
-    fireEvent.change(await screen.findByLabelText('학번'), {
-      target: { value: '2021123456' },
-    })
-    fireEvent.change(screen.getByLabelText('이름'), {
-      target: { value: '홍길동' },
-    })
-    fireEvent.change(screen.getByLabelText('학과'), {
-      target: { value: '인공지능학과' },
-    })
+    await fillApplication('2021123456', '인공지능학과')
     // 제출 성공 뒤 화면은 서버가 준 값으로 그려진다.
     api.me = APPLIED
     fireEvent.click(screen.getByRole('button', { name: '제출' }))
@@ -256,12 +261,15 @@ describe('신청서 제출', () => {
       await screen.findByRole('heading', { name: '승인 대기 중' }),
     ).toBeInTheDocument()
     /*
-     * **세 필드를 다 담아야 한다** (spec §3-2-3 MUST). `department`가 빠진 채로 나가면
+     * **두 필드를 다 담아야 한다** (spec §3-2-3 MUST). `department`가 빠진 채로 나가면
      * 서버가 `400 VALIDATION_ERROR`로 막는데, 화면에 고를 자리가 없으면 사용자가 그
      * 오류를 풀 방법이 없다 — 실제로 그 상태로 배포됐다 (#165).
+     *
+     * **`name`이 없는 것도 계약이다** (#224). 담아 보내면 서버가 무시하지만, 화면이 보내는
+     * 순간 "이름을 바꿀 수 있다"는 잘못된 전제가 코드에 남는다.
      */
     expect(api.submitted).toEqual([
-      { studentNo: '2021123456', name: '홍길동', department: '인공지능학과' },
+      { studentNo: '2021123456', department: '인공지능학과' },
     ])
   })
 
@@ -294,9 +302,6 @@ describe('신청서 제출', () => {
     fireEvent.change(await screen.findByLabelText('학번'), {
       target: { value: '2021123456' },
     })
-    fireEvent.change(screen.getByLabelText('이름'), {
-      target: { value: '홍길동' },
-    })
     fireEvent.click(screen.getByRole('button', { name: '제출' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -323,23 +328,22 @@ describe('신청서 제출', () => {
   it('공백만 넣으면 요청이 나가지 않는다', async () => {
     renderAt()
 
-    // 이름은 채운다 — 둘 다 비면 무엇 때문에 막혔는지 이 케이스가 가리지 못한다.
+    // 학과는 고른다 — 둘 다 비면 무엇 때문에 막혔는지 이 케이스가 가리지 못한다.
     await fillApplication('   ')
     fireEvent.click(screen.getByRole('button', { name: '제출' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      '학번과 이름을 입력해주세요.',
+      '학번을 입력해주세요.',
     )
     expect(api.submitted).toEqual([])
   })
 
   // 결정 4 — 계약에 없는 형식 규칙을 만들지 않는다. 상한만 스키마에서 온다.
-  it('학번·이름 상한은 스키마 값이고 그 밖의 형식은 막지 않는다', async () => {
+  it('학번 상한은 스키마 값이고 그 밖의 형식은 막지 않는다', async () => {
     renderAt()
 
     const studentNo = await screen.findByLabelText('학번')
     expect(studentNo).toHaveAttribute('maxLength', '20')
-    expect(screen.getByLabelText('이름')).toHaveAttribute('maxLength', '50')
 
     // 숫자가 아닌 학번도 그대로 받는다 — 편입·교환학생 학번이 그렇다.
     await fillApplication('EX-2021-7')
@@ -347,11 +351,7 @@ describe('신청서 제출', () => {
 
     await waitFor(() => {
       expect(api.submitted).toEqual([
-        {
-          studentNo: 'EX-2021-7',
-          name: '홍길동',
-          department: '컴퓨터공학과',
-        },
+        { studentNo: 'EX-2021-7', department: '컴퓨터공학과' },
       ])
     })
   })
@@ -376,11 +376,6 @@ describe('신청서 제출', () => {
     )
     expect(studentNo).not.toHaveAttribute('pattern')
     expect(studentNo).not.toHaveAttribute('inputMode')
-
-    expect(screen.getByLabelText('이름')).toHaveAttribute(
-      'placeholder',
-      '홍길동',
-    )
   })
 })
 
@@ -597,7 +592,9 @@ describe('신청 내용 수정', () => {
     fireEvent.click(screen.getByRole('button', { name: '신청 내용 수정' }))
 
     expect(screen.getByLabelText('학번')).toHaveValue('2021123456')
-    expect(screen.getByLabelText('이름')).toHaveValue('홍길동')
+    expect(screen.getByLabelText('학과')).toHaveValue('인공지능학과')
+    // 이름은 수정 화면에서도 고칠 수 없다 (#224).
+    expect(screen.getByLabelText('이름')).toHaveAttribute('readOnly')
   })
 
   it('취소하면 대기 안내로 돌아간다', async () => {

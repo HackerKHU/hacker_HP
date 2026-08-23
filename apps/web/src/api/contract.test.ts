@@ -292,7 +292,6 @@ describe('오류 본문 형태', () => {
       (f) =>
         f.fixtureApplication({
           studentNo: '2021123456',
-          name: '홍길동',
           department: '컴퓨터공학과',
         }),
     ],
@@ -302,7 +301,6 @@ describe('오류 본문 형태', () => {
       (f) =>
         f.fixtureApplication({
           studentNo: ' ',
-          name: ' ',
           department: '컴퓨터공학과',
         }),
     ],

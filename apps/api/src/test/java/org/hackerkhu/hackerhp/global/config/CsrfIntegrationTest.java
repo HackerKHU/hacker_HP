@@ -44,7 +44,7 @@ class CsrfIntegrationTest extends AbstractIntegrationTest {
 
   private static final String APPLICATION_PATH = "/api/v1/auth/application";
   private static final String APPLICATION_BODY =
-      "{\"studentNo\":\"20240001\",\"name\":\"본명\",\"department\":\"컴퓨터공학과\"}";
+      "{\"studentNo\":\"20240001\",\"department\":\"컴퓨터공학과\"}";
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository userRepository;
