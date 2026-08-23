@@ -23,6 +23,11 @@ const MEMBER_MENUS = [
    */
   { to: '/notes', label: '자료게시판' },
   { to: '/bookmarks', label: '즐겨찾기' },
+  /*
+   * 갤러리는 `ACTIVE`면 누구나 본다 — 업로드만 ADMIN이라 그 진입점은 갤러리 안에 둔다
+   * (spec §3-1-3 매트릭스). 메뉴를 관리자에게만 보이면 부원이 사진을 볼 길이 없다.
+   */
+  { to: '/photos', label: '갤러리' },
 ]
 
 const MENUS = {
