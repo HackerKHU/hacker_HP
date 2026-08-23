@@ -14,12 +14,20 @@ import { cn } from '@/lib/utils'
  * **메뉴 노출은 권한 통제가 아니다** (spec §3-1-7). 감춘 메뉴를 주소창으로 직접 열어도
  * #36의 라우트 가드가 막고, 서버가 다시 검증한다. 여기가 담당하는 것은 노출뿐이다.
  */
+const MEMBER_MENUS = [
+  { to: '/notices', label: '공지사항' },
+  /*
+   * 자료는 **메뉴 하나**다. 갈래(시험·과목)는 그 화면 안의 탭으로 가른다 — 자료를 보러
+   * 가는 것은 한 가지 일이고, 갈래는 거기서 고르는 조건이지 다른 목적지가 아니다.
+   * 탭은 URL에 남으므로(`/notes?category=`) 링크 공유도 그대로 된다.
+   */
+  { to: '/notes', label: '자료게시판' },
+  { to: '/bookmarks', label: '즐겨찾기' },
+]
+
 const MENUS = {
-  USER: [{ to: '/notices', label: '공지사항' }],
-  ADMIN: [
-    { to: '/notices', label: '공지사항' },
-    { to: '/admin/members', label: '회원 관리' },
-  ],
+  USER: MEMBER_MENUS,
+  ADMIN: [...MEMBER_MENUS, { to: '/admin/members', label: '회원 관리' }],
 } satisfies Record<Role, { to: string; label: string }[]>
 
 /*

@@ -647,3 +647,212 @@ describe('회원 관리 픽스처', () => {
     expect((error as InstanceType<typeof ApiError>).code).toBe('SUSPENDED')
   })
 })
+
+/**
+ * 자료 픽스처가 서버 계약을 그대로 지키는지.
+ *
+ * 화면 테스트는 `@/api/notes`를 통째로 mock하므로 **이 계층은 그 뒤에 가려져 있다.**
+ * 픽스처가 계약보다 무르면 오류 UI 없이도 화면이 멀쩡해 보이고, 그 회귀는 서버가 붙는
+ * 날까지 드러나지 않는다.
+ */
+describe('자료 픽스처', () => {
+  /* 검색어와 필터는 AND로 함께 걸린다 (spec §2-1-1 MUST). */
+  it('검색어와 필터를 함께 적용한다', async () => {
+    const { fixtureNotes } = await loadFixtures('user')
+
+    const all = await fixtureNotes({ subject: '운영체제' })
+    const narrowed = await fixtureNotes({ subject: '운영체제', q: '없는낱말' })
+
+    expect(all.page.totalElements).toBeGreaterThan(0)
+    expect(narrowed.page.totalElements).toBe(0)
+  })
+
+  /*
+   * **있을 수 없는 조합은 오류가 아니라 0건이다** (계약 §3-2-4). 조회에 검증을 넣으면
+   * 화면이 필터를 조합하는 순간마다 `400`을 받는다.
+   */
+  it('SUBJECT + examType 조합은 오류가 아니라 0건이다', async () => {
+    const { fixtureNotes } = await loadFixtures('user')
+
+    const page = await fixtureNotes({
+      category: 'SUBJECT',
+      examType: 'MIDTERM',
+    })
+
+    expect(page.page.totalElements).toBe(0)
+  })
+
+  /* 필터 옵션은 **실제 등록된 값에서** 만든다 (계약 §3-2-4 MUST). */
+  it('필터 옵션이 등록된 자료에서 나온다', async () => {
+    const { fixtureNotes, fixtureNoteFilters } = await loadFixtures('user')
+
+    const options = await fixtureNoteFilters()
+    const page = await fixtureNotes({ size: 100 })
+    const subjects = new Set(page.content.map((note) => note.subjectName))
+
+    expect(options.subjects.length).toBeGreaterThan(0)
+    for (const subject of options.subjects) {
+      expect(subjects.has(subject)).toBe(true)
+    }
+    // 교수명이 없는 자료는 옵션을 만들지 않는다 — 화면이 빈 항목을 그린다.
+    expect(options.professors).not.toContain('')
+  })
+
+  /*
+   * **담기·빼기는 멱등이다** (계약 §3-2-4 MUST). 같은 요청을 두 번 보내도 상태가 뒤집히지
+   * 않는다 — 토글이면 재시도가 방금 담은 것을 조용히 뺀다.
+   */
+  it('같은 담기를 두 번 보내도 상태가 뒤집히지 않는다', async () => {
+    const { fixtureNotes, fixtureSetBookmark, fixtureNote } =
+      await loadFixtures('user')
+    const page = await fixtureNotes({ size: 100 })
+    const target = page.content.find((note) => !note.bookmarked)
+    if (!target) throw new Error('담기지 않은 자료가 없다')
+
+    await fixtureSetBookmark(target.id, true)
+    await fixtureSetBookmark(target.id, true)
+
+    expect((await fixtureNote(target.id)).bookmarked).toBe(true)
+  })
+
+  /* 없는 자료에 빼기는 성공이다 — 자료가 지워지면 즐겨찾기도 함께 사라진다. */
+  it('없는 자료에 빼기는 성공, 담기는 404다', async () => {
+    const { fixtureSetBookmark, ApiError } = await loadFixtures('user')
+
+    await expect(fixtureSetBookmark(-1, false)).resolves.toBeUndefined()
+
+    const error = await fixtureSetBookmark(-1, true).catch(
+      (caught: unknown) => caught,
+    )
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe('NOT_FOUND')
+  })
+
+  /* **`GET /bookmarks`의 `bookmarked`는 언제나 참이다** (계약 §3-2-4 MUST). */
+  it('즐겨찾기 목록은 전부 담긴 상태다', async () => {
+    const { fixtureBookmarks } = await loadFixtures('user')
+
+    const page = await fixtureBookmarks()
+
+    expect(page.content.length).toBeGreaterThan(0)
+    for (const note of page.content) {
+      expect(note.bookmarked).toBe(true)
+    }
+  })
+
+  /*
+   * 확장자·용량을 픽스처도 거부한다 (계약 §3-2-4). **확장자를 크기보다 먼저 본다** —
+   * "이 종류는 아예 안 받는다"가 "조금 줄여서 다시"보다 먼저 알아야 할 사실이다.
+   */
+  it('허용되지 않는 확장자는 415, 큰 파일은 413이다', async () => {
+    const { fixtureUploadUrls, ApiError } = await loadFixtures('user')
+
+    const bad = await fixtureUploadUrls([
+      { originalName: 'malware.exe', sizeBytes: 10 },
+    ]).catch((caught: unknown) => caught)
+    expect((bad as InstanceType<typeof ApiError>).code).toBe(
+      'UNSUPPORTED_FILE_TYPE',
+    )
+
+    const big = await fixtureUploadUrls([
+      { originalName: 'huge.pdf', sizeBytes: 21 * 1024 * 1024 },
+    ]).catch((caught: unknown) => caught)
+    expect((big as InstanceType<typeof ApiError>).code).toBe('FILE_TOO_LARGE')
+  })
+
+  /* 발급은 **한 번에** 받는다 — 요청한 개수만큼 자리가 나오고 이름이 그대로 돌아온다. */
+  it('발급 응답이 요청과 같은 개수·순서다', async () => {
+    const { fixtureUploadUrls } = await loadFixtures('user')
+
+    const uploads = await fixtureUploadUrls([
+      { originalName: 'a.pdf', sizeBytes: 10 },
+      { originalName: 'b.png', sizeBytes: 10 },
+    ])
+
+    expect(uploads.map((upload) => upload.originalName)).toEqual([
+      'a.pdf',
+      'b.png',
+    ])
+  })
+
+  /*
+   * **업로더는 인증 주체로만 정한다** (계약 §3-2-4 MUST). 본문으로 받으면 다른 사람 이름으로
+   * 올릴 수 있다.
+   */
+  it('등록한 자료의 업로더가 나다', async () => {
+    const { fixtureCreateNote } = await loadFixtures('user')
+
+    const created = await fixtureCreateNote({
+      category: 'SUBJECT',
+      title: '새 자료',
+      subjectName: '운영체제',
+      professor: null,
+      year: 2026,
+      semester: 'SPRING',
+      examType: null,
+      files: [{ key: 'notes/uploads/1/a.pdf', originalName: 'a.pdf' }],
+    })
+
+    expect(created.uploader.id).toBe(1)
+    expect(created.files).toHaveLength(1)
+  })
+
+  /*
+   * **본인 것만, `ADMIN`은 전체다** (계약 §3-2-4). 픽스처가 통과시키면 화면이 버튼을
+   * 잘못 보여줘도 드러나지 않는다.
+   */
+  it('남의 자료는 USER가 수정·삭제할 수 없다', async () => {
+    const { fixtureNotes, fixtureRemoveNote, ApiError } =
+      await loadFixtures('user')
+    const page = await fixtureNotes({ size: 100 })
+    const others = page.content.find((note) => note.uploader.id !== 1)
+    if (!others) throw new Error('남의 자료가 없다')
+
+    const error = await fixtureRemoveNote(others.id).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+  })
+
+  /* **`EXAM`이면 시험 구분이 필수다** (계약 §3-2-2 CHECK 제약). */
+  it('EXAM인데 시험 구분이 없으면 거부한다', async () => {
+    const { fixtureCreateNote, ApiError } = await loadFixtures('user')
+
+    const error = await fixtureCreateNote({
+      category: 'EXAM',
+      title: '제목',
+      subjectName: '과목',
+      professor: null,
+      year: 2026,
+      semester: 'SPRING',
+      examType: null,
+      files: [{ key: 'notes/uploads/1/a.pdf', originalName: 'a.pdf' }],
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe(
+      'VALIDATION_ERROR',
+    )
+  })
+
+  /*
+   * **`fileId`는 그 자료의 것이어야 한다** (계약 §3-2-4 MUST). 아니면 `404`다 — 경로가
+   * 거짓말하게 두면 소유자를 따지는 수정·삭제와 기준이 갈린다.
+   */
+  it('다른 자료의 fileId로 내려받기를 요청하면 404다', async () => {
+    const { fixtureNotes, fixtureNote, fixtureDownloadUrl, ApiError } =
+      await loadFixtures('user')
+    const page = await fixtureNotes({ size: 100 })
+    const first = await fixtureNote(page.content[0].id)
+    const second = await fixtureNote(page.content[1].id)
+
+    const error = await fixtureDownloadUrl(first.id, second.files[0].id).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe('NOT_FOUND')
+  })
+})
