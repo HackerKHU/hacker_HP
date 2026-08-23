@@ -71,13 +71,13 @@ describe('AppHeader', () => {
   })
 
   /*
-   * **부원이 로고를 눌렀는데 소개 페이지가 나오면 어색하다.** 랜딩은 푸터 링크로 간다 —
-   * 로그인한 사람에게 이 헤더의 홈은 공지사항이다.
+   * **헤더 로고는 사이트의 홈으로 간다.** `/notices`를 가리키던 때는 바로 옆 주요 메뉴의
+   * `공지사항`과 목적지가 겹쳤고, 로그인한 부원에게는 랜딩으로 돌아갈 헤더 경로가 없었다.
    */
-  it('로고를 누르면 공지사항으로 간다', async () => {
+  it('로고를 누르면 랜딩으로 간다', async () => {
     renderHeader()
 
     const link = (await screen.findByAltText(CLUB.name)).closest('a')
-    expect(link).toHaveAttribute('href', '/notices')
+    expect(link).toHaveAttribute('href', '/')
   })
 })

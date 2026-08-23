@@ -40,23 +40,25 @@ export function AppHeader() {
 
   return (
     <header className="border-b border-border bg-background">
-      <div className="mx-auto flex h-14 w-full max-w-[1152px] items-center gap-8 px-6">
+      <div className="mx-auto flex h-20 w-full max-w-[1152px] items-center gap-8 px-6">
         {/*
-         * 부원이 로고를 눌렀는데 소개 페이지가 나오면 어색하다. 랜딩은 푸터 링크로 간다.
+         * **로고는 랜딩으로 간다.** 헤더 로고는 사이트의 홈으로 가는 자리다 — `/notices`를
+         * 가리키던 때는 바로 옆 주요 메뉴의 `공지사항`과 목적지가 겹쳤고, 로그인한 부원이
+         * 랜딩으로 돌아갈 헤더 경로가 아예 없었다.
          *
          * 랜딩 헤더와 **같은 가로 락업이되 잉크만 반대**다 — 여기는 라이트 배경이라
          * 검정을 쓴다. 배경이 채워진 `-on-white`가 아니라 투명 배경이어야 한다.
          *
-         * 높이는 랜딩보다 작다. 이 헤더가 `h-14`(56px)로 랜딩(`h-20`, 80px)보다 낮아,
-         * 같은 32px를 쓰면 로고가 헤더를 꽉 채워 답답해진다. 비율을 맞춰 24px로 둔다.
+         * 높이·로고 크기 모두 랜딩(`h-20` + 32px 로고)과 같다. 한때 이 헤더만 `h-14`로
+         * 낮췄지만, 랜딩에서 넘어올 때마다 상단이 24px 주저앉아 같은 사이트로 읽히지 않았다.
          */}
-        <Link to="/notices" className="shrink-0">
+        <Link to="/" className="shrink-0">
           <img
             src="/brand/lockup-horizontal-black-512.png"
             alt={CLUB.name}
             width={512}
             height={104}
-            className="h-6 w-auto"
+            className="h-8 w-auto"
           />
         </Link>
 
