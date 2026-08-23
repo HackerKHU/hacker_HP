@@ -12,6 +12,22 @@ const NAV_ITEM =
   'rounded-md px-3 py-2 text-base text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground'
 
 /**
+ * 부원 화면으로 가는 링크.
+ *
+ * **데스크톱 묶음과 모바일 메뉴가 이 목록 하나를 같이 쓴다.** 두 곳에 따로 적으면 화면이
+ * 늘 때마다 한쪽만 고치게 되고, 그 어긋남은 좁은 화면에서만 드러나 오래 남는다 —
+ * 자료게시판·갤러리가 생기고도(#59·#60) 랜딩에는 공지사항만 있던 것이 그 예다.
+ *
+ * `AppHeader`와 같은 경로를 쓰되 목록을 공유하지는 않는다. 그쪽은 `role`에 따라 회원
+ * 관리가 붙고 여기는 `isActive` 하나로 갈리므로, 합치면 두 조건이 한 배열에 뒤엉킨다.
+ */
+const MEMBER_LINKS = [
+  { to: '/notices', label: '공지사항' },
+  { to: '/notes', label: '자료게시판' },
+  { to: '/photos', label: '갤러리' },
+]
+
+/**
  * 랜딩 전용 헤더. `AppHeader`와 별개 컴포넌트다 — 배경이 검정이고 메뉴가 라우트가 아니라
  * **섹션 앵커**라서 성격이 다르다. 하나로 합치면 두 성격이 조건문으로 뒤엉킨다.
  */
@@ -65,15 +81,18 @@ export function PublicHeader() {
         </a>
 
         {/*
-         * 섹션 앵커와 공지사항을 **한 덩어리로 묶되 구분선으로 가른다.**
+         * 섹션 앵커와 부원 화면 링크를 **한 덩어리로 묶되 구분선으로 가른다** (#155).
          *
-         * 둘은 하는 일이 다르다 — 앞쪽은 이 페이지 안에서 움직이고(`#about`), 공지사항은
-         * 다른 화면으로 전환한다(`/notices`). 그대로 붙이면 눌렀을 때 페이지가 바뀌는지
-         * 아닌지 예측할 수 없고, 멀리 떼어 놓으면 목적지 메뉴가 계정 조작(로그아웃) 옆에
-         * 끼어 보인다. 묶어서 보여주고 성격은 선으로 가른다.
+         * 둘은 하는 일이 다르다 — 앞쪽은 이 페이지 안에서 움직이고(`#about`), 뒤쪽은
+         * 다른 화면으로 전환한다(`/notices`·`/notes`·`/photos`). 그대로 붙이면 눌렀을 때
+         * 페이지가 바뀌는지 아닌지 예측할 수 없고, 멀리 떼어 놓으면 목적지 메뉴가 계정
+         * 조작(로그아웃) 옆에 끼어 보인다. 묶어서 보여주고 성격은 선으로 가른다.
          *
          * `nav[aria-label="섹션 이동"]` 안에 넣지 않는 이유도 같다. 라우트 링크가 그
          * 이름 아래 들어가면 스크린리더에게 거짓말이 된다.
+         *
+         * **`md` 미만에서는 통째로 접힌다.** 늘어난 링크가 좁은 화면의 한 줄을 더 밀지
+         * 않는다 — 320px 압박(#249)과 무관하게 두려는 것이다.
          */}
         <div className="hidden items-center gap-1 md:flex">
           <nav className="flex items-center gap-1" aria-label="섹션 이동">
@@ -85,15 +104,22 @@ export function PublicHeader() {
           </nav>
 
           {/*
-           * 부원에게만 보인다. `isActive`는 세션 확인이 끝나야 참이 되므로, 아래 오른쪽
-           * 묶음처럼 `loading`을 따로 거를 필요가 없다 — 확인 전에는 그려지지 않는다.
+           * **부원에게만 보인다.** 셋 다 `ACTIVE` 전용 화면이라(spec §3-1-3) 비로그인이
+           * 누르면 가드가 로그인으로 보내는데, **누르기 전에는 그렇게 될 줄 모른다.**
+           * 랜딩을 처음 보는 사람의 다음 행동은 오른쪽 묶음의 지원하기·로그인이고,
+           * 튕겨 나갈 링크를 그 옆에 늘어놓으면 무엇을 눌러야 하는지 흐려진다.
+           *
+           * `isActive`는 세션 확인이 끝나야 참이 되므로, 오른쪽 묶음처럼 `loading`을
+           * 따로 거를 필요가 없다 — 확인 전에는 그려지지 않는다.
            */}
           {isActive && (
             <>
               <span aria-hidden="true" className="mx-2 h-4 w-px bg-border" />
-              <Link to={homePath(session)} className={NAV_ITEM}>
-                공지사항
-              </Link>
+              {MEMBER_LINKS.map((link) => (
+                <Link key={link.to} to={link.to} className={NAV_ITEM}>
+                  {link.label}
+                </Link>
+              ))}
             </>
           )}
         </div>
@@ -200,8 +226,11 @@ export function PublicHeader() {
       </div>
 
       {/*
-       * 데스크톱과 같은 구분 원칙이다 — 섹션 앵커는 nav 안, 공지사항(라우트)은 밖.
+       * 데스크톱과 같은 구분 원칙이다 — 섹션 앵커는 nav 안, 부원 화면(라우트)은 밖.
        * 헤더 안에 두어 sticky를 같이 탄다.
+       *
+       * **세로로 쌓이므로 항목이 늘어도 가로 폭을 먹지 않는다.** 좁은 화면에서 헤더 한 줄이
+       * 받는 압박(#249)은 로고·액션·햄버거가 정하고, 이 목록은 거기 들어가지 않는다.
        */}
       {menuOpen && (
         <div
@@ -223,13 +252,16 @@ export function PublicHeader() {
           {isActive && (
             <>
               <div aria-hidden="true" className="my-2 h-px bg-border" />
-              <Link
-                to={homePath(session)}
-                className={cn(NAV_ITEM, 'block')}
-                onClick={() => setMenuOpen(false)}
-              >
-                공지사항
-              </Link>
+              {MEMBER_LINKS.map((link) => (
+                <Link
+                  key={link.to}
+                  to={link.to}
+                  className={cn(NAV_ITEM, 'block')}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  {link.label}
+                </Link>
+              ))}
             </>
           )}
         </div>
