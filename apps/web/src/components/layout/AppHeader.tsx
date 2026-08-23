@@ -48,7 +48,14 @@ export function AppHeader() {
 
   return (
     <header className="border-b border-border bg-background">
-      <div className="mx-auto flex h-20 w-full max-w-[1152px] items-center gap-8 px-6">
+      {/*
+       * **`PublicHeader`와 같은 컨테이너다** (#247). 높이·폭·패딩·간격이 전부 같아야
+       * 랜딩과 앱을 오갈 때 로고가 제자리에 있다.
+       *
+       * 모바일에서 간격을 줄이는 것도 같이 따른다 — 메뉴가 셋으로 늘어(#59) 좁은 화면에서
+       * 랜딩 헤더와 같은 압박을 받는다.
+       */}
+      <div className="mx-auto flex h-20 w-full max-w-[1152px] items-center gap-4 px-6 md:gap-8">
         {/*
          * **로고는 랜딩으로 간다.** 헤더 로고는 사이트의 홈으로 가는 자리다 — `/notices`를
          * 가리키던 때는 바로 옆 주요 메뉴의 `공지사항`과 목적지가 겹쳤고, 로그인한 부원이

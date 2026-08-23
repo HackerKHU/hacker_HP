@@ -34,8 +34,16 @@ export function PublicHeader() {
 
   return (
     <header className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur">
-      {/* 모바일은 간격을 줄인다 — 320px에서 "승인 대기 중"+로그아웃+햄버거가 gap-8을 못 버틴다. */}
-      <div className="mx-auto flex h-20 w-full max-w-[1152px] items-center gap-4 px-4 md:gap-8 md:px-6">
+      {/*
+       * **`AppHeader`와 같은 컨테이너다** (#247). 높이·폭·패딩·간격이 전부 같아야 랜딩에서
+       * 로그인해 넘어올 때 로고가 움직이지 않는다.
+       *
+       * 모바일은 **간격만** 줄인다 — 320px에서 "승인 대기 중"+로그아웃+햄버거가 `gap-8`을
+       * 못 버틴다. **가로 패딩은 줄이지 않는다**: 한때 `px-4`였는데 그것은 위 근거가 아니라
+       * 간격과 함께 딸려온 값이었고, 랜딩 본문(`CONTAINER`)과 푸터가 `px-6`이라 **좁은
+       * 화면에서 헤더 로고만 본문보다 8px 왼쪽에 섰다.**
+       */}
+      <div className="mx-auto flex h-20 w-full max-w-[1152px] items-center gap-4 px-6 md:gap-8">
         {/*
          * 가로 락업(심볼 + `HACKER`). 헤더는 가로로 긴 자리라 세로 락업을 넣으면 높이가
          * 눌려 글자가 안 읽힌다 (`brand/README.md` — 가로 락업은 그래서 워드마크를
@@ -44,7 +52,7 @@ export function PublicHeader() {
          * 랜딩은 `.dark`라 **흰 잉크**를 쓴다. 배경이 채워진 `-on-black`이 아니라
          * 투명 배경이어야 헤더의 반투명 배경 위에서 네모가 안 비친다.
          *
-         * 높이를 고정하고 폭을 `auto`로 둔다 — 3.26:1 비율이 지켜진다.
+         * 높이를 고정하고 폭을 `auto`로 둔다 — 원본 512×104의 비율이 그대로 지켜진다.
          */}
         <a href="#top" className="shrink-0">
           <img
