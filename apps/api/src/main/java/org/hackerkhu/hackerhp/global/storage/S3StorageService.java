@@ -20,8 +20,8 @@ import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignReques
  * <p>키 네이밍(어디에 무엇을 두는지)은 이 클래스의 책임이 아니다 — 그건 호출하는 도메인(예: {@code PhotoService})이 정한다. 여기는 순수하게 "그 키로
  * 무엇을 할 수 있는가"만 안다.
  *
- * <p>{@code @Qualifier}로 받는 이유는 {@link PhotoStorageConfig#QUALIFIER}를 참고 — 자료(#207)가 만드는
- * {@code S3Client}·{@code S3Presigner}와 빈 타입이 같아서 그냥 두면 어느 것을 주입할지 알 수 없다.
+ * <p>{@code @Qualifier}로 받는 이유는 {@link PhotoStorageConfig#QUALIFIER}를 참고 — 자료(#207)가 만드는 {@code
+ * S3Client}·{@code S3Presigner}와 빈 타입이 같아서 그냥 두면 어느 것을 주입할지 알 수 없다.
  */
 @Service
 public class S3StorageService {
