@@ -36,8 +36,24 @@ export function PublicHeader() {
     <header className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur">
       {/* 모바일은 간격을 줄인다 — 320px에서 "승인 대기 중"+로그아웃+햄버거가 gap-8을 못 버틴다. */}
       <div className="mx-auto flex h-20 w-full max-w-[1152px] items-center gap-4 px-4 md:gap-8 md:px-6">
-        <a href="#top" className="text-xl font-semibold tracking-tight">
-          {CLUB.name}
+        {/*
+         * 가로 락업(심볼 + `HACKER`). 헤더는 가로로 긴 자리라 세로 락업을 넣으면 높이가
+         * 눌려 글자가 안 읽힌다 (`brand/README.md` — 가로 락업은 그래서 워드마크를
+         * 원작 비율의 2.4배로 키운 조합이다).
+         *
+         * 랜딩은 `.dark`라 **흰 잉크**를 쓴다. 배경이 채워진 `-on-black`이 아니라
+         * 투명 배경이어야 헤더의 반투명 배경 위에서 네모가 안 비친다.
+         *
+         * 높이를 고정하고 폭을 `auto`로 둔다 — 3.26:1 비율이 지켜진다.
+         */}
+        <a href="#top" className="shrink-0">
+          <img
+            src="/brand/lockup-horizontal-white-512.png"
+            alt={CLUB.name}
+            width={512}
+            height={104}
+            className="h-8 w-auto"
+          />
         </a>
 
         {/*

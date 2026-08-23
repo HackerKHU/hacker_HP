@@ -17,10 +17,9 @@
 
 **아직 없는 것** — 신입생 멘토멘티 하나뿐이다. 화면에는 "사진 준비 중" 자리표시자가 그려진다.
 
-**`og-image.png`(1200×630)가 아직 없다.** 없으면 카카오톡·인스타그램 링크 미리보기에
-이미지가 비어 나온다. `index.html`의 `og:image`는 이미 이 파일을 절대 URL로 가리키고
-있으므로, 파일만 넣으면 된다 — 도메인은 `site.config.ts`의 `SITE_ORIGIN` 한 곳에서
-주입한다(아직 `example.com`이다).
+**OG 이미지는 이 폴더가 아니라 `public/brand/og-image.png`에 있다.** 로고 자산에서
+파생한 것이라 출처가 `brand/`이기 때문이다 ([brand/README.md](../../../../brand/README.md)).
+도메인은 `site.config.ts`의 `SITE_ORIGIN` 한 곳에서 주입한다.
 
 ## 규격
 

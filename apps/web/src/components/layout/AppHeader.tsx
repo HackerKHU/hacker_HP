@@ -3,6 +3,7 @@ import type { Role } from '@/api/types'
 import { useSession } from '@/auth/session'
 import { useLogout } from '@/auth/useLogout'
 import { Button } from '@/components/ui/button'
+import { CLUB } from '@/features/landing/content'
 import { lookup } from '@/lib/lookup'
 import { cn } from '@/lib/utils'
 
@@ -40,9 +41,23 @@ export function AppHeader() {
   return (
     <header className="border-b border-border bg-background">
       <div className="mx-auto flex h-14 w-full max-w-[1152px] items-center gap-8 px-6">
-        {/* 부원이 로고를 눌렀는데 소개 페이지가 나오면 어색하다. 랜딩은 푸터 링크로 간다. */}
-        <Link to="/notices" className="font-semibold tracking-tight">
-          HACKER
+        {/*
+         * 부원이 로고를 눌렀는데 소개 페이지가 나오면 어색하다. 랜딩은 푸터 링크로 간다.
+         *
+         * 랜딩 헤더와 **같은 가로 락업이되 잉크만 반대**다 — 여기는 라이트 배경이라
+         * 검정을 쓴다. 배경이 채워진 `-on-white`가 아니라 투명 배경이어야 한다.
+         *
+         * 높이는 랜딩보다 작다. 이 헤더가 `h-14`(56px)로 랜딩(`h-20`, 80px)보다 낮아,
+         * 같은 32px를 쓰면 로고가 헤더를 꽉 채워 답답해진다. 비율을 맞춰 24px로 둔다.
+         */}
+        <Link to="/notices" className="shrink-0">
+          <img
+            src="/brand/lockup-horizontal-black-512.png"
+            alt={CLUB.name}
+            width={512}
+            height={104}
+            className="h-6 w-auto"
+          />
         </Link>
 
         <nav className="flex items-center gap-1" aria-label="주요 메뉴">

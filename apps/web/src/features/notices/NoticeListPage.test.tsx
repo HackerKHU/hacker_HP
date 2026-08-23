@@ -188,7 +188,15 @@ describe('공지 목록', () => {
     const recent = await screen.findByRole('link', { name: /최근 공지/ })
     const old = screen.getByRole('link', { name: /일반 공지/ })
 
-    expect(within(recent).getByText('NEW')).toBeInTheDocument()
+    /*
+     * **약한 표시여야 한다.** 고정(핀 + 좌측 세로 바 + 순검정 제목)이 강한 표시라, NEW가
+     * 채워진 배지가 되면 위계가 뒤집혀 아무것도 안 튄다. 존재만 보면 `variant`가 빠져
+     * 기본(진한 채움)으로 돌아가도 통과한다.
+     */
+    const badge = within(recent).getByText('NEW')
+    expect(badge).toBeInTheDocument()
+    expect(badge).toHaveAttribute('data-variant', 'outline')
+
     expect(within(old).queryByText('NEW')).toBeNull()
   })
 

@@ -6,12 +6,13 @@ import {
   waitFor,
 } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { GOOGLE_LOGIN_PATH } from '@/api/auth'
 import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { CLUB } from '@/features/landing/content'
 
 /**
  * 로그인 화면 (#37).
@@ -63,7 +64,7 @@ function Address() {
 }
 
 function renderAt(path: string) {
-  render(
+  return render(
     <MemoryRouter initialEntries={[path]}>
       <SessionProvider>
         <Address />
@@ -97,6 +98,14 @@ function loaded() {
 }
 
 const GUEST = new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.')
+
+/*
+ * `public/`에 실제로 있는 파일 목록. `import.meta.glob`은 빌드 시점에 펼쳐지므로
+ * `node:fs`가 필요 없다 — `meta.test.ts`가 `og:image`에 쓰는 것과 같은 방식이다.
+ */
+const PUBLIC_FILES = Object.keys(
+  import.meta.glob('../../../public/**/*', { eager: false }),
+).map((key) => key.replace('../../../public', ''))
 
 beforeEach(() => {
   auth.me = () => Promise.reject(GUEST)
@@ -217,6 +226,89 @@ describe('정지된 세션', () => {
 
     expect(await screen.findByRole('heading', { level: 1 })).toBeInTheDocument()
     expect(pathname()).toBe('/')
+  })
+})
+
+describe('로고', () => {
+  /*
+   * 자리표시자를 걷고 확정 로고를 넣었다. **화면 전체가 다크라 잉크는 둘 다 흰색**이다.
+   * 검정으로 바뀌면 마크가 카드 안에서 통째로 사라지는데, 화면을 안 열어보면 모른다.
+   *
+   * 세 가지를 한 번에 못박는다 — 어느 하나만으로는 안 걸리는 것이 있다.
+   *
+   * ① **파일 이름**. 이것만 보면 잉크가 바뀐 것은 잡지만 나머지 둘은 못 잡는다.
+   * ② **다크 문맥**. 잉크가 흰색인 근거는 카드가 검정이라는 것이다. 카드만 라이트로
+   *    되돌리면 파일 이름 검사는 그대로 통과하는데 화면에서는 마크가 사라진다.
+   * ③ **파일 존재**. `mark-white-256.png`처럼 없는 이름을 가리켜도 ①②는 통과한다 —
+   *    실제로 그렇게 404가 난 적이 있고, `lg` 미만에서만 나오는 자리라 넓은 화면
+   *    확인으로는 드러나지 않았다. `meta.test.ts`가 `og:image`에 하는 검사와 같다.
+   */
+  it('다크 카드 위에 실재하는 흰 잉크 마크를 쓴다', async () => {
+    const { container } = renderAt('/login')
+
+    /*
+     * 좌측 패널은 **세로 락업**이다 — 심볼만 두면 처음 온 사람이 무엇의 마크인지
+     * 알 수 없어, 이름까지 든 조합을 쓴다.
+     */
+    const panel = await screen.findByAltText('해커')
+    expect(panel).toHaveAttribute(
+      'src',
+      '/brand/lockup-vertical-white-1024.png',
+    )
+
+    /* 좁은 화면에서 좌측 패널이 사라지는 자리를 메우는 폴백. 같은 검정 카드 위다. */
+    const narrow = screen.getByAltText(CLUB.fullName)
+    expect(narrow).toHaveAttribute('src', '/brand/mark-white-512.png')
+
+    for (const mark of [panel, narrow]) {
+      /*
+       * **다크를 세우는 것이 화면 최상위여야 한다.**
+       *
+       * `closest('.dark')`가 있는 것만으로는 부족하다. 두 가지가 통과해 버린다 —
+       * `useDarkChrome`이 `html`에도 클래스를 걸어서 거기까지 타고 올라가는 경우, 그리고
+       * `.dark`가 안쪽 래퍼로 내려간 경우다. 둘 다 **바깥 배경이 첫 프레임에 라이트로
+       * 칠해진다** — 훅은 effect라 페인트 뒤에 돈다. 그래서 화면을 덮는 그 요소
+       * (`min-h-screen`)를 직접 지목한다.
+       */
+      const context = mark.closest('.dark')
+      expect(context).not.toBe(document.documentElement)
+      expect(context).toHaveClass('min-h-screen', 'bg-background')
+
+      /*
+       * **위에 우리 것이 아무것도 없어야 한다.** 클래스만 보면, 바깥에 `p-6` 껍데기를
+       * 하나 두고 안쪽 래퍼에 `dark min-h-screen bg-background`를 통째로 옮겨도 통과한다
+       * — 그 껍데기는 라이트로 남는다.
+       *
+       * 그래서 **렌더 컨테이너 그 자체와 견준다.** "클래스가 비었는지"로 대신하면 클래스
+       * 없는 래퍼가 하나 끼는 순간 다시 열린다 — 지금 라우트에 그런 것이 없을 뿐 경로는
+       * 열려 있다. 동일성은 그 여지를 남기지 않는다.
+       */
+      expect(context?.parentElement).toBe(container)
+
+      /*
+       * **카드 배경은 토큰에서 온다.** `bg-white` 같은 값을 직접 박으면 다크 문맥
+       * 안에서도 흰 카드가 되어 흰 잉크가 통째로 사라지는데, 위 단언은 전부 통과한다.
+       */
+      const card = mark.closest<HTMLElement>('.rounded-xl')
+      expect(card).toHaveClass('bg-card')
+      /* 클래스를 남긴 채 인라인으로 덮어써도 실제 카드는 흰색이 된다. */
+      expect(card?.style.backgroundColor).toBe('')
+
+      const src = mark.getAttribute('src') ?? ''
+      expect(PUBLIC_FILES, `${src}가 public/에 없다`).toContain(src)
+    }
+  })
+
+  /*
+   * 로고는 장식이 아니라 이 화면이 어디인지 말하는 요소다. `alt`가 비면 스크린리더
+   * 사용자에게는 그 정보가 통째로 사라진다.
+   */
+  it('마크에 대체 텍스트가 있다', async () => {
+    renderAt('/login')
+
+    for (const img of await screen.findAllByRole('img')) {
+      expect(img).toHaveAccessibleName()
+    }
   })
 })
 
@@ -440,7 +532,7 @@ describe('구글 버튼', () => {
 
     /*
      * 버튼은 레이아웃·규격 클래스를 여럿 갖는다. 허용 목록을 만들 자리가 아니라,
-     * **그림을 바꾸는 것만** 막는다. 색(`border-[#747775]`·`text-[#1f1f1f]`)은 가이드라인이
+     * **그림을 바꾸는 것만** 막는다. 색(`border-[#8E918F]`·`text-[#E3E3E3]`)은 가이드라인이
      * 정한 값이라 금지 대상이 아니다.
      *
      * **비활성 상태만 뺀다** (아래 `startsWith` 참조). shadcn `Button`이 모든 버튼에 그
@@ -478,12 +570,36 @@ describe('구글 버튼', () => {
     ).toBeInTheDocument()
   })
 
-  // 테두리·문구 없이 로고만 두지 않는다 (가이드라인 금지 사항).
-  it('버튼에 테두리와 문구가 함께 있다', async () => {
+  /*
+   * 테두리·문구 없이 로고만 두지 않는다 (가이드라인 금지 사항).
+   *
+   * **세 색을 함께 못 박는다.** 카드가 검정이라 [Dark 규격]을 쓰는데, 세 값은 한 벌로만
+   * 유효하다 — 하나만 Light 쪽 값으로 바뀌면 규격이 아니라 그냥 틀린 색이 된다.
+   * 그리고 shadcn `outline` 변형이 `.dark` 안에서 `dark:border-input`·`dark:bg-input/30`을
+   * 얹으므로 **같은 값의 `dark:` 짝이 없으면 우리 색이 진다** — 실제로 테두리가 `#2e2e2e`로
+   * 그려진 적이 있다. 그래서 짝까지 확인한다.
+   *
+   * [Dark 규격]: https://developers.google.com/identity/branding-guidelines
+   */
+  it('버튼에 Dark 규격 색과 테두리·문구가 함께 있다', async () => {
     renderAt('/login')
     const button = await loaded()
 
-    expect(button.className).toContain('border-[#747775]')
+    /*
+     * **부분 문자열이 아니라 토큰으로 본다.** `className.toContain('bg-[#131314]')`은
+     * `dark:bg-[#131314]`에도 걸려서, 짝만 남고 본체가 사라져도 통과한다 — 잠금이
+     * 되지 않는다.
+     */
+    const classes = button.className.split(/\s+/)
+    for (const token of [
+      'border-[#8E918F]',
+      'bg-[#131314]',
+      'text-[#E3E3E3]',
+      'dark:border-[#8E918F]',
+      'dark:bg-[#131314]',
+    ]) {
+      expect(classes, `${token} 없음`).toContain(token)
+    }
     expect(button).toHaveTextContent('Google로 계속하기')
   })
 
@@ -721,3 +837,84 @@ function canonical(markup: string): LogoNode[] {
 function isNode(node: LogoNode | null): node is LogoNode {
   return node !== null
 }
+
+describe('다크 크롬', () => {
+  /*
+   * 이 화면은 전면 검정이다. **최상위 div의 `.dark`만으로는 `body`까지 미치지 않는다** —
+   * `body`가 `@apply bg-background`로 `:root`(라이트)를 읽어 흰색으로 덮고, iOS Safari가
+   * 상태바·툴바에 그 색을 쓴다. 그래서 위아래에 흰 띠가 남는다 (#192).
+   *
+   * 랜딩에서 같은 증상을 고친 처리를 `useDarkChrome`으로 모아 이 화면도 쓴다. 훅 호출이
+   * 빠지면 화면 안쪽은 그대로 검게 보여서 **브라우저에서도 데스크톱에서는 티가 안 난다.**
+   */
+  /*
+   * **훅이 손대는 것은 전역이다.** 정상 경로라면 공통 `afterEach(cleanup)`이 언마운트하며
+   * 훅의 정리를 태우므로 알아서 복원된다. 이 안전망은 **그 정리가 깨졌을 때**를 위한
+   * 것이다 — 그러면 `html`의 클래스와 `meta`가 남아 같은 파일의 뒤 테스트를 오염시키고,
+   * 진짜 원인인 이 테스트 대신 엉뚱한 테스트가 실패한다.
+   */
+  afterEach(() => {
+    document.documentElement.classList.remove('dark')
+    document.querySelector('meta[name="theme-color"]')?.remove()
+    document.body.style.removeProperty('background-color')
+  })
+
+  function themeColor(): string | null {
+    return (
+      document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+        ?.content ?? null
+    )
+  }
+
+  it('html에 다크를 걸고 theme-color를 주며 나갈 때 되돌린다', async () => {
+    const html = document.documentElement
+    expect(html.classList.contains('dark')).toBe(false)
+    expect(themeColor()).toBeNull()
+
+    /*
+     * **`body` 색을 직접 정해 둔다.** 훅은 뒤집힌 팔레트에서 색을 읽는데, jsdom은 우리
+     * CSS를 적용하지 않아 기본값이 `rgba(0, 0, 0, 0)`(투명)이다. 그대로 두면 `toHex`가
+     * 우연히 `#000000`을 내놓아 **변환이 맞는지 틀린지 구별되지 않는다.** 값을 정해 두면
+     * `rgb()` → 16진수 변환까지 함께 검증된다 — Safari가 함수 표기를 무시하는 경우가
+     * 있어 그 변환이 이 훅의 몫이다.
+     */
+    document.body.style.backgroundColor = 'rgb(18, 18, 18)'
+
+    renderAt('/login')
+    await loaded()
+
+    expect(html.classList.contains('dark')).toBe(true)
+    /*
+     * **`theme-color`까지 본다.** 클래스만 확인하면, 훅을 쓰지 않고 `classList`를 직접
+     * 토글하는 코드도 통과한다 — 그러면 iOS 주소창 색이 빠진다.
+     */
+    expect(themeColor()).toBe('#121212')
+
+    /*
+     * **되돌리는 것까지 본다.** 로그인 이후 화면은 라이트라, 나가면서 벗기지 않으면
+     * 공지사항이 검정으로 남는다.
+     */
+    cleanup()
+    expect(html.classList.contains('dark')).toBe(false)
+    expect(themeColor()).toBeNull()
+  })
+
+  /*
+   * 이미 `theme-color`가 있으면 **지우는 것이 아니라 원래 값으로 되돌린다.** 지워 버리면
+   * 다크 화면을 한 번 다녀온 것만으로 사이트 전체의 주소창 색이 사라진다. 훅이 `existing`
+   * 분기로 나뉘는 자리라, 값이 있는 경우를 따로 태우지 않으면 그 절반이 안 돌아간다.
+   */
+  it('원래 있던 theme-color는 값을 되돌린다', async () => {
+    const meta = document.createElement('meta')
+    meta.name = 'theme-color'
+    meta.content = '#ffffff'
+    document.head.appendChild(meta)
+
+    renderAt('/login')
+    await loaded()
+    expect(themeColor()).not.toBe('#ffffff')
+
+    cleanup()
+    expect(themeColor()).toBe('#ffffff')
+  })
+})

@@ -133,7 +133,13 @@ describe('관리자 진입점 노출', () => {
       'href',
       '/admin/notices/1/edit',
     )
-    expect(screen.getByRole('button', { name: '삭제' })).toBeInTheDocument()
+    /*
+     * **삭제는 수정과 무게가 달라야 한다** (#99). 되돌릴 수 없는 조작이 같은 `outline`이면
+     * 손이 미끄러진 곳이 어디였는지 알 수 없다. 존재만 보면 그 위계가 사라져도 통과한다.
+     */
+    const remove = screen.getByRole('button', { name: '삭제' })
+    expect(remove).toBeInTheDocument()
+    expect(remove).toHaveAttribute('data-variant', 'destructive')
   })
 
   /*

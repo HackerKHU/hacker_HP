@@ -309,6 +309,20 @@ describe('랜딩 헤더 상태별 진입점', () => {
     expect(document.querySelector('meta[name="theme-color"]')).toBeNull()
   })
 
+  /*
+   * 헤더는 가로로 긴 자리라 **가로 락업**이다. 세로 락업을 넣으면 높이가 눌려 글자가
+   * 안 읽힌다. 랜딩은 `.dark`라 잉크는 흰색이어야 하고, 바뀌면 배경에 묻힌다.
+   */
+  it('헤더에 가로 락업을 쓴다', async () => {
+    renderLanding()
+
+    const logo = await screen.findByAltText(CLUB.name)
+    expect(logo).toHaveAttribute(
+      'src',
+      '/brand/lockup-horizontal-white-512.png',
+    )
+  })
+
   it('햄버거가 섹션 메뉴를 열고 항목을 누르면 닫는다', async () => {
     renderLanding()
 
