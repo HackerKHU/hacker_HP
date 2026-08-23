@@ -256,6 +256,37 @@ class PostIntegrationTest extends AbstractIntegrationTest {
   }
 
   /**
+   * T-332 — <b>이모지는 한 글자다.</b>
+   *
+   * <p>{@code @Size}는 UTF-16 길이를 세므로 이모지를 두 글자로 잡는다. 그대로 두면 사용자 기준 200자·10,000자인 글을 API가 먼저 {@code
+   * 400}으로 거절하는데, <b>PostgreSQL의 {@code LENGTH()}는 코드포인트를 세므로 DB는 받아 줄 값이다.</b> 두 단위가 어긋나 있다는 뜻이라,
+   * 상한 <i>그 자체</i>를 이모지로 채워 본다.
+   */
+  @Test
+  void aSupplementaryCharacterCountsAsOneLetter() throws Exception {
+    // 코드포인트로는 200자·10,000자지만 UTF-16 길이로는 그 두 배다.
+    mockMvc
+        .perform(writeRequest(member, "🙂".repeat(200), "🚀".repeat(10_000)))
+        .andExpect(status().isCreated());
+
+    assertThat(posts.count()).isEqualTo(1);
+  }
+
+  /** T-333 — 이모지도 한 글자를 넘기면 막힌다. 위 사례만 두면 상한을 아예 없애도 통과한다. */
+  @Test
+  void aSupplementaryCharacterOverTheLimitIsStillRejected() throws Exception {
+    mockMvc
+        .perform(writeRequest(member, "🙂".repeat(201), "본문"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    mockMvc
+        .perform(writeRequest(member, "제목", "🚀".repeat(10_001)))
+        .andExpect(status().isBadRequest());
+
+    assertThat(posts.count()).isZero();
+  }
+
+  /**
    * T-331 — <b>DB도 상한을 막는다</b> (MUST, §3-2-2).
    *
    * <p>요청 검증만 두면 다른 경로로 들어온 값이 그대로 저장된다. API로는 재현할 수 없으므로 직접 넣어 본다 — <b>이 사례가 없으면 마이그레이션에서 {@code

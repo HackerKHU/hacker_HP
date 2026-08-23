@@ -131,7 +131,8 @@ vi.mock('@/api/adminUsers', () => ({
   contentSummary: async (id: number) => {
     api.summaryCalls.push(id)
     if (api.summaryError) throw api.summaryError
-    return { notes: 3, notices: 1, photos: 5 }
+    // 네 값을 서로 다르게 준다 — 같으면 매핑이 어긋나도 문구가 그대로라 통과한다.
+    return { notes: 3, notices: 1, photos: 5, posts: 7 }
   },
   remove: (id: number): Promise<void> => {
     api.removed.push(id)
@@ -430,6 +431,7 @@ describe('승인 대상', () => {
       expect(dialog).toHaveTextContent('자료 3건')
       expect(dialog).toHaveTextContent('공지 1건')
       expect(dialog).toHaveTextContent('활동사진 5건')
+      expect(dialog).toHaveTextContent('게시글 7건')
     })
     // 아직 요청은 안 나갔다 — 확인을 눌러야 한다.
     expect(api.removed).toEqual([])
