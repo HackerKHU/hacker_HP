@@ -68,7 +68,7 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
     suspended = userRepository.saveAndFlush(toSuspend);
 
     User pending = User.createFromGoogle("sub-pd", "pending@khu.ac.kr", "신청자");
-    pending.submitApplication("20240103", "신청자", "컴퓨터공학과");
+    pending.submitApplication("20240103", "컴퓨터공학과");
     applicant = userRepository.saveAndFlush(pending);
   }
 

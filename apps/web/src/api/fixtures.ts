@@ -125,7 +125,6 @@ const USERS: Record<
  */
 let application: {
   studentNo: string
-  name: string
   department: string
 } | null = null
 
@@ -143,8 +142,8 @@ export function fixtureMe(): Promise<User | null> {
     return Promise.resolve({
       ...USERS[SCENARIO],
       studentNo: application.studentNo,
-      name: application.name,
       department: application.department,
+      // 이름은 덮지 않는다 — 신청서가 받는 값이 아니라 구글 계정의 값이다 (#224).
       appliedAt: '2026-03-02T10:00:00Z',
     })
   }
@@ -171,7 +170,6 @@ export function fixtureMe(): Promise<User | null> {
  */
 export function fixtureApplication(body: {
   studentNo: string
-  name: string
   department: string
 }): Promise<void> {
   if (SCENARIO === 'guest') {
@@ -189,10 +187,9 @@ export function fixtureApplication(body: {
   // 공백 검증은 서버 계약이다 (§3-2-3, T-52). 픽스처가 통과시키면 오류 UI 없이도
   // 폼이 정상처럼 보이고, 빈 신청서가 승인 대상이 되는 경로를 화면에서 못 잡는다.
   const studentNo = body.studentNo.trim()
-  const name = body.name.trim()
-  if (studentNo === '' || name === '') {
+  if (studentNo === '') {
     return Promise.reject(
-      new ApiError('VALIDATION_ERROR', 400, '학번과 이름을 입력해주세요.'),
+      new ApiError('VALIDATION_ERROR', 400, '학번을 입력해주세요.'),
     )
   }
   /*
@@ -219,7 +216,7 @@ export function fixtureApplication(body: {
     )
   }
 
-  application = { studentNo, name, department: body.department }
+  application = { studentNo, department: body.department }
   return Promise.resolve()
 }
 

@@ -46,7 +46,7 @@ class AdminBootstrapDisabledIntegrationTest extends AbstractIntegrationTest {
     attempts.deleteAll();
     userRepository.deleteAll();
     User user = User.createFromGoogle("sub-founder", "founder@khu.ac.kr", "구글이름");
-    user.submitApplication("20200001", "본명", "컴퓨터공학과");
+    user.submitApplication("20200001", "컴퓨터공학과");
     founder = userRepository.saveAndFlush(user);
   }
 

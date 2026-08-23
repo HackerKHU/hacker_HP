@@ -51,8 +51,7 @@ describe('신청 픽스처', () => {
 
     await fixtureApplication({
       studentNo: '2024001122',
-      name: '김신입',
-      department: '컴퓨터공학과',
+      department: '인공지능학과',
     })
     const me = await signedIn(fixtureMe)
 
@@ -61,7 +60,7 @@ describe('신청 픽스처', () => {
     expect(me.status).toBe('PENDING')
     // 하드코딩된 값을 돌려주면 재제출 화면에서 무엇을 고쳤는지 확인할 수 없다.
     expect(me.studentNo).toBe('2024001122')
-    expect(me.name).toBe('김신입')
+    expect(me.department).toBe('인공지능학과')
   })
 
   it('다시 제출하면 내용이 갱신된다', async () => {
@@ -69,18 +68,16 @@ describe('신청 픽스처', () => {
 
     await fixtureApplication({
       studentNo: '2024001122',
-      name: '김신입',
       department: '컴퓨터공학과',
     })
     await fixtureApplication({
       studentNo: '2024003344',
-      name: '김정정',
-      department: '컴퓨터공학과',
+      department: '인공지능학과',
     })
     const me = await signedIn(fixtureMe)
 
     expect(me.studentNo).toBe('2024003344')
-    expect(me.name).toBe('김정정')
+    expect(me.department).toBe('인공지능학과')
   })
 
   it('pending 시나리오의 재제출도 반영된다', async () => {
@@ -88,28 +85,42 @@ describe('신청 픽스처', () => {
 
     await fixtureApplication({
       studentNo: '2024005566',
-      name: '박수정',
-      department: '컴퓨터공학과',
+      department: '인공지능학과',
     })
     const me = await signedIn(fixtureMe)
 
     expect(me.studentNo).toBe('2024005566')
-    expect(me.name).toBe('박수정')
+    expect(me.department).toBe('인공지능학과')
+  })
+
+  /*
+   * 이름은 신청서가 바꾸지 못한다 (#224). 픽스처가 본문의 이름을 반영하면 화면 개발 중에는
+   * 폼이 이름을 고칠 수 있는 것처럼 보이고, 서버가 붙는 날 그 화면이 거짓이었음이 드러난다.
+   */
+  it('신청서를 내도 이름은 구글 계정의 값 그대로다', async () => {
+    const { fixtureApplication, fixtureMe } = await loadFixtures('applying')
+
+    const before = await signedIn(fixtureMe)
+    await fixtureApplication({
+      studentNo: '2024001122',
+      department: '컴퓨터공학과',
+    })
+    const after = await signedIn(fixtureMe)
+
+    expect(after.name).toBe(before.name)
   })
 
   it.each([
-    ['빈 문자열', '', '김신입'],
-    ['공백만', '   ', '김신입'],
-    ['이름이 공백만', '2024001122', '  '],
+    ['빈 문자열', ''],
+    ['공백만', '   '],
   ])(
-    '%s 신청서는 거부하고 상태를 바꾸지 않는다',
-    async (_, studentNo, name) => {
+    '학번이 %s인 신청서는 거부하고 상태를 바꾸지 않는다',
+    async (_, studentNo) => {
       const { fixtureApplication, fixtureMe, ApiError } =
         await loadFixtures('applying')
 
       const error = await fixtureApplication({
         studentNo,
-        name,
         department: '컴퓨터공학과',
       }).catch((caught: unknown) => caught)
 
@@ -130,7 +141,6 @@ describe('신청 픽스처', () => {
 
       const error = await fixtureApplication({
         studentNo: '2024001122',
-        name: '김신입',
         department: '컴퓨터공학과',
       }).catch((caught: unknown) => caught)
 
@@ -183,7 +193,6 @@ describe('신청 픽스처', () => {
     const { fixtureApplication, ApiError } = await loadFixtures('applying')
     const error = await fixtureApplication({
       studentNo: taken.studentNo,
-      name: '김신입',
       department: '컴퓨터공학과',
     }).catch((caught: unknown) => caught)
 
@@ -198,7 +207,6 @@ describe('신청 픽스처', () => {
 
     await fixtureApplication({
       studentNo: '9999999999',
-      name: '김신입',
       department: '컴퓨터공학과',
     })
 
@@ -209,22 +217,24 @@ describe('신청 픽스처', () => {
 
   // 공백 검증 (§3-2-3 MUST, T-52) — 빈 신청서가 승인 대상이 되면 안 된다.
   it.each([
-    ['학번이 공백', ' ', '김신입'],
-    ['이름이 공백', '9999999999', '  '],
-  ])('%s이면 VALIDATION_ERROR로 거부한다', async (_label, studentNo, name) => {
-    const { fixtureApplication, ApiError } = await loadFixtures('applying')
+    ['학번이 공백', ' ', '컴퓨터공학과'],
+    ['학과가 목록 밖', '9999999999', '존재하지않는학과'],
+  ])(
+    '%s이면 VALIDATION_ERROR로 거부한다',
+    async (_label, studentNo, department) => {
+      const { fixtureApplication, ApiError } = await loadFixtures('applying')
 
-    const error = await fixtureApplication({
-      studentNo,
-      name,
-      department: '컴퓨터공학과',
-    }).catch((caught: unknown) => caught)
+      const error = await fixtureApplication({
+        studentNo,
+        department,
+      }).catch((caught: unknown) => caught)
 
-    expect(error).toBeInstanceOf(ApiError)
-    expect((error as InstanceType<typeof ApiError>).code).toBe(
-      'VALIDATION_ERROR',
-    )
-  })
+      expect(error).toBeInstanceOf(ApiError)
+      expect((error as InstanceType<typeof ApiError>).code).toBe(
+        'VALIDATION_ERROR',
+      )
+    },
+  )
 
   // 신청 API는 PENDING 전용이다 (§3-1-6 MUST, T-50).
   it.each(['user', 'admin'])(
@@ -234,7 +244,6 @@ describe('신청 픽스처', () => {
 
       const error = await fixtureApplication({
         studentNo: '9999999999',
-        name: '김신입',
         department: '컴퓨터공학과',
       }).catch((caught: unknown) => caught)
 

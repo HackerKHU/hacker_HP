@@ -59,7 +59,7 @@ erDiagram
 | `google_sub` | varchar(255) | UNIQUE, NOT NULL | 구글 계정 식별자 (ID 토큰의 `sub`) |
 | `email` | varchar(255) | UNIQUE, NOT NULL | 학교 이메일 (`khu.ac.kr`) |
 | `student_no` | varchar(20) | UNIQUE, NULL | 학번 (신원 확인용). 신청서 제출 시 채운다 |
-| `name` | varchar(50) | NOT NULL | 최초에는 구글 프로필, 신청 시 본인이 정정 |
+| `name` | varchar(50) | NOT NULL | 구글 프로필에서 받는다. **신청서로 바꿀 수 없다** — 아래 참고 |
 | `department` | varchar(50) | NULL | 학과. 정해진 목록에서 선택 (자유 입력 아님). 신청서 제출 시 채운다 |
 | `role` | enum | NOT NULL, default `USER` | `USER`, `ADMIN` |
 | `status` | enum | NOT NULL, default `PENDING` | `PENDING`, `ACTIVE`, `SUSPENDED` |
@@ -223,7 +223,7 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 | GET | `/auth/csrf` | 비로그인 | CSRF 토큰 발급 |
 | GET | `/oauth2/authorization/google` | 비로그인 | 구글 로그인 시작 (가입 겸용) |
 | GET | `/login/oauth2/code/google` | 비로그인 | 구글 콜백. 성공 시 계정 생성 또는 조회 후 세션 발급 |
-| POST | `/auth/application` | PENDING | 신청서 제출·수정. body: `{ "studentNo": "...", "name": "...", "department": "..." }` |
+| POST | `/auth/application` | PENDING | 신청서 제출·수정. body: `{ "studentNo": "...", "department": "..." }` |
 | POST | `/auth/logout` | 로그인 | 로그아웃 |
 | GET | `/auth/me` | **비로그인 포함 전체** | 로그인이면 내 정보, 아니면 `204` |
 | POST | `/auth/bootstrap-admin` | 로그인 + **신청서 제출 완료** | 최초 관리자 승격/마지막 관리자 복구. body: `{ "token": "..." }` — [3-3 결정 11](3-3-DESIGN-DECISIONS.md) |
@@ -232,7 +232,13 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 
 ### `POST /auth/application` — 신청서
 
-**`studentNo`·`name`·`department`는 공백이 아니어야 한다** (MUST). 셋 중 하나라도 비었거나 공백뿐이면 `400 VALIDATION_ERROR`를 반환하고 **`applied_at`을 기록하지 않는다** (MUST).
+**`name`을 받지 않는다** (MUST, 2026-08-23 #224). 이름은 구글 프로필에서 받아 `users.name`에 저장된 값을 그대로 쓰며, 신청서는 그것을 바꾸지 못한다. 본문에 `name`을 담아 보내도 무시한다.
+
+한때는 신청서에서 본명을 다시 받았다. 학교 Google Workspace가 표시 이름에 학적 정보를 붙여 내려주기 때문이었다 — `강경현[학생](소프트웨어융합대학 컴퓨터공학부)`. #215가 계정 생성 시점에 그 접미사를 걷어내면서 저장된 값이 곧 실명이 됐고, 본인이 다시 칠 이유가 사라졌다.
+
+**화면을 잠그는 것으로는 부족하다** (MUST). 신청 폼이 이름을 읽기 전용으로 보여줘도 API를 직접 부르면 그만이다. 서버가 그 필드를 아예 받지 않아야 우회 경로가 남지 않는다.
+
+**`studentNo`·`department`는 공백이 아니어야 한다** (MUST). 둘 중 하나라도 비었거나 공백뿐이면 `400 VALIDATION_ERROR`를 반환하고 **`applied_at`을 기록하지 않는다** (MUST).
 
 PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. 검증이 없으면 `""`를 제출한 계정이 `applied_at`을 얻어 승인 대상이 되고, 식별 정보가 없는 채로 관리자 부트스트랩까지 통과한다.
 
@@ -529,6 +535,34 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 5. 리사이즈가 끝나면 임시 원본(`photos/uploads/...`)을 지운다 — 남겨 둘 이유가 없고, 쌓이면 스토리지 비용만 는다.
 
 **대안이었던 "Lambda 등으로 비동기 리사이즈"는 채택하지 않는다.** 지금 규모(부원 수, 업로드 빈도)에서 얻는 이득보다 새 인프라(이벤트 트리거, 별도 실행 환경)와 "업로드 직후엔 리사이즈본이 아직 없는" 처리 지연을 다루는 비용이 크다. 업로드량이 실제로 늘면 그때 다시 검토한다.
+
+### `POST /photos` 응답
+
+`POST /photos`는 §3-2-6 일괄 승인과 같은 원칙이다 — 원본 하나의 실패(원본 없음, 손상된 이미지, 상한 초과)가 이미 등록된 나머지를 되돌리지 않는다. 실패를 예외로 던지면 한 건 때문에 스무 장을 한 번에 올린 요청이 통째로 실패한다.
+
+```json
+{
+  "registered": [{ "id": 12, "caption": null, "url": "...", "thumbnailUrl": "...", "uploaderId": 3, "uploaderName": "홍길동", "createdAt": "..." }],
+  "failed": [{ "key": "photos/uploads/abc.png", "reason": "NOT_FOUND" }]
+}
+```
+
+| 항목 | 이유 |
+|---|---|
+| 건수 필드를 두지 않는다 | 배열 길이가 곧 건수다 |
+| 실패에 원본 `key`를 담는다 | 어느 원본이 실패했는지 알아야 화면이 그 항목만 다시 시도하도록 안내할 수 있다 |
+| 일부 실패도 `200` | 요청 자체의 실패가 아니다 |
+
+`reason`은 넷이다.
+
+| `reason` | 상황 |
+|---|---|
+| `NOT_FOUND` | 그 키의 임시 원본이 없다 — 아직 안 올라왔거나, 이미 등록·삭제됐거나, 너무 커서 서버가 지웠다 |
+| `FILE_TOO_LARGE` | 원본이 상한(20MB)을 넘는다 |
+| `UNSUPPORTED_FILE_TYPE` | 디코딩할 수 없는 바이트다 |
+| `VALIDATION_ERROR` | 이 API가 발급한 임시 키 형식이 아니다 |
+
+**요청자의 권한을 잠근 뒤 다시 확인한다** (MUST, §3-2-6과 같은 이유). 이건 항목별 실패가 아니라 요청 전체가 §3-2-7의 오류 규약을 그대로 따른다 — 요청자 권한이 이미 사라졌다면 남은 항목을 계속 처리할 이유가 없다.
 
 ### 성공 응답 본문
 

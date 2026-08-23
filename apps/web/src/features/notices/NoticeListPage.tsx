@@ -249,7 +249,7 @@ export function NoticeListPage() {
       )}
 
       {data !== null && data.content.length > 0 && (
-        <Card className="mt-6 overflow-hidden py-0">
+        <Card className="mt-6 overflow-hidden rounded-none py-0">
           <ul>
             {data.content.map((notice) => (
               <li

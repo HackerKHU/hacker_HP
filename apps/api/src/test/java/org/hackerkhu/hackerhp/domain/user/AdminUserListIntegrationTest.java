@@ -72,8 +72,9 @@ class AdminUserListIntegrationTest extends AbstractIntegrationTest {
 
     alice = save(Accounts.approved("sub-alice", "alice@khu.ac.kr", "20240101", "김가나"), 3);
 
-    User bob = User.createFromGoogle("sub-bob", "BOB@khu.ac.kr", "구글이름");
-    bob.submitApplication("20240102", "박다라", "컴퓨터공학과");
+    // 이메일 대소문자가 검색에 걸리는지 보려고 여기만 손으로 만든다 (아래 검색 사례).
+    User bob = User.createFromGoogle("sub-bob", "BOB@khu.ac.kr", "박다라");
+    bob.submitApplication("20240102", "컴퓨터공학과");
     save(bob, 1);
 
     // 구글 로그인만 해보고 신청서를 내지 않았다. 학번이 없다.

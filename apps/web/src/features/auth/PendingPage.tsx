@@ -8,15 +8,13 @@ import { Label } from '@/components/ui/label'
 import { DEPARTMENTS } from './departments'
 
 /**
- * 입력 상한. **스키마에서 온 값이다** — `student_no varchar(20)`, `name varchar(50)`
- * (spec §3-2-2).
+ * 입력 상한. **스키마에서 온 값이다** — `student_no varchar(20)` (spec §3-2-2).
  *
  * **그 밖의 형식 규칙은 만들지 않는다.** 계약이 요구하는 것은 "공백이 아닐 것"뿐이다
  * (§3-2-3 MUST). 자릿수나 숫자만 같은 규칙을 지어내면 계약에 없는 이유로 유효한 학번을
  * 막는다 — 편입·교환학생·대학원처럼 형태가 다른 학번이 실제로 있다.
  */
 const STUDENT_NO_MAX = 20
-const NAME_MAX = 50
 
 /**
  * 입력 예시. **규칙이 아니라 예시다.**
@@ -41,8 +39,18 @@ const NAME_MAX = 50
  */
 const STUDENT_NO_PLACEHOLDER = `${new Date().getFullYear()}000000`
 
-/** 구글 프로필에서 미리 채워져 보일 일이 드물다. 비어 있을 때만 나온다. */
-const NAME_PLACEHOLDER = '홍길동'
+/**
+ * 고칠 수 없는 칸의 모양. **`disabled`가 아니라 `readOnly`다** (#224).
+ *
+ * `disabled`는 값을 흐리게 만들고 포커스도 못 받아 **빈 칸처럼 읽힌다** — 여기 담긴 것은
+ * "정보가 없다"가 아니라 "이 값으로 신청된다"는 사실이라, 또렷하게 보여야 한다. 복사도
+ * 되어야 하고(학번 문의 때 이메일을 긁는다) 스크린리더도 값을 읽어야 한다.
+ *
+ * 대신 **고칠 수 있는 칸처럼 보이지도 않아야 한다.** 배경을 옅게 깔고 글자를 죽여 옆의
+ * 학번·학과와 성격이 다르다는 것을 형태로 말한다. 커서도 텍스트 캐럿이 아닌 기본 화살표다.
+ */
+const READONLY_CLASS =
+  'cursor-default bg-muted text-muted-foreground focus-visible:border-input focus-visible:ring-0'
 
 /**
  * 학과는 **자유 입력이 아니라 목록에서 고른다** (spec §3-2-2 MUST). `<input>`이 아니라
@@ -115,7 +123,8 @@ export function PendingPage() {
   const [editing, setEditing] = useState(false)
   /**
    * 사용자가 고친 값. **아직 손대지 않았으면 `null`이고, 그때는 계정에 있는 값을 그대로
-   * 보여준다** (§3-1-4 — 이름은 최초에 구글 프로필에서 받아둔다).
+   * 보여준다.** 고칠 수 있는 것은 학번·학과뿐이다 — 이름·이메일은 구글 계정의 값이라
+   * 여기 담기지 않는다 (#224).
    *
    * 계정 값을 상태로 복사해 두지 않는다. 복사하려면 effect가 필요하고, 그러면 폼이 먼저
    * 빈 칸으로 그려진 뒤 한 박자 늦게 채워진다 — 그 사이를 보는 경합이 생긴다. 파생값으로
@@ -123,7 +132,6 @@ export function PendingPage() {
    */
   const [draft, setDraft] = useState<{
     studentNo: string
-    name: string
     department: string
   } | null>(null)
   const values = draft ?? {
@@ -134,18 +142,6 @@ export function PendingPage() {
      * 보여서 아무도 못 잡는다. 안 고르면 제출이 막히는 편이 낫다.
      */
     department: user?.department ?? '',
-    /*
-     * **최초 신청에는 이름을 채우지 않는다.**
-     *
-     * 신청 전 `user.name`은 구글이 준 표시 이름이고(§3-2-2 — "최초에는 구글 프로필, 신청 시
-     * 본인이 정정"), 학교 Workspace가 거기에 소속을 넣는다:
-     * `강경현[학생](소프트웨어융합대학 컴퓨터공학부)`. 채워 두면 그럴듯해 보여서 그대로
-     * 제출되고, 계약이 말한 정정이 일어나지 않는다.
-     *
-     * **수정할 때는 채운다.** 그때의 값은 본인이 낸 이름이다. 여기서도 비우면 학번 오타
-     * 하나를 고치려고 이름을 다시 쳐야 한다.
-     */
-    name: applied ? (user?.name ?? '') : '',
   }
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -182,12 +178,12 @@ export function PendingPage() {
 
     // 계약이 요구하는 것은 공백이 아닐 것뿐이다 (§3-2-3 MUST). 서버가 거부할 요청을
     // 굳이 보내지 않는다 — 같은 규칙을 앞당겨 적용하는 것이지 서버 검증을 대신하지 않는다.
-    if (values.studentNo.trim() === '' || values.name.trim() === '') {
-      setError('학번과 이름을 입력해주세요.')
+    if (values.studentNo.trim() === '') {
+      setError('학번을 입력해주세요.')
       return
     }
     /*
-     * 학과는 따로 본다. 위 문구에 묶으면 학번·이름을 채운 사람이 무엇이 빠졌는지 모른다 —
+     * 학과는 따로 본다. 위 문구에 묶으면 학번을 채운 사람이 무엇이 빠졌는지 모른다 —
      * `<select>`는 비어 있어도 칸이 채워진 것처럼 보여서 더 그렇다.
      */
     if (values.department === '') {
@@ -200,7 +196,6 @@ export function PendingPage() {
     try {
       await submitApplication({
         studentNo: values.studentNo.trim(),
-        name: values.name.trim(),
         // 목록에서 고른 값이라 다듬을 것이 없다.
         department: values.department,
       })
@@ -318,16 +313,35 @@ export function PendingPage() {
               />
             </div>
 
+            {/*
+             * **이름·이메일은 구글 계정의 값이고 고칠 수 없다** (#224).
+             *
+             * 이름은 한때 신청서에서 직접 받았다. 학교 Workspace가 표시 이름에
+             * `[학생](소프트웨어융합대학 컴퓨터공학부)`를 붙여 내려주기 때문이었는데,
+             * #215가 그 접미사를 계정 생성 시점에 걷어내면서 저장된 값이 곧 실명이 됐다.
+             *
+             * **서버도 `name`을 받지 않는다.** 화면만 잠그면 API를 직접 부르는 쪽이 남는다.
+             *
+             * 이메일은 원래 신청 항목이 아니었다. 여기 **표시만** 더한다 — 구글 계정이 여럿인
+             * 사람이 어느 계정으로 신청하는지 폼 안에서 확인할 수 있어야 한다.
+             */}
             <div className="space-y-2">
               <Label htmlFor="application-name">이름</Label>
               <Input
                 id="application-name"
-                value={values.name}
-                placeholder={NAME_PLACEHOLDER}
-                maxLength={NAME_MAX}
-                onChange={(event) =>
-                  setDraft({ ...values, name: event.target.value })
-                }
+                value={user?.name ?? ''}
+                readOnly
+                className={READONLY_CLASS}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="application-email">이메일</Label>
+              <Input
+                id="application-email"
+                value={user?.email ?? ''}
+                readOnly
+                className={READONLY_CLASS}
               />
             </div>
 

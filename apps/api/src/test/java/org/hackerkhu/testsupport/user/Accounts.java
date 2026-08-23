@@ -12,7 +12,12 @@ import org.hackerkhu.hackerhp.domain.user.entity.User;
  */
 public final class Accounts {
 
-  /** 구글이 주는 표시 이름. 신청서의 본명과 다를 수 있다는 것이 이 값의 요점이다. */
+  /**
+   * 구글이 주는 표시 이름. 이름을 신경 쓰지 않는 테스트가 쓰는 값이다.
+   *
+   * <p><b>계정의 이름은 여기서 정해지고 이후 바뀌지 않는다</b> (#224). 신청서는 이름을 받지 않으므로, 특정 이름이 필요한 테스트는 {@link
+   * #signedInAs}로 계정을 만들 때 넘긴다.
+   */
   private static final String GOOGLE_NAME = "구글이름";
 
   /** 학과를 특정하지 않는 테스트가 쓰는 기본값. Department.ALL에 있는 값이면 무엇이든 된다. */
@@ -26,28 +31,36 @@ public final class Accounts {
    * <p>승인 대상이 아니고({@code applied_at IS NULL}) 관리자 부트스트랩도 통과하지 못한다 (T-20·T-48).
    */
   public static User signedIn(String googleSub, String email) {
-    return User.createFromGoogle(googleSub, email, GOOGLE_NAME);
+    return signedInAs(googleSub, email, GOOGLE_NAME);
+  }
+
+  /** ① 이름까지 정해서 만든다. 회원 목록의 정렬·검색처럼 <b>이름이 결과를 가르는</b> 테스트가 쓴다. */
+  public static User signedInAs(String googleSub, String email, String name) {
+    return User.createFromGoogle(googleSub, email, name);
   }
 
   /** ② 신청서까지 낸 계정 — {@code PENDING}, 승인 대상이다. */
   public static User applied(String googleSub, String email, String studentNo) {
-    return applied(googleSub, email, studentNo, "본명");
+    return applied(googleSub, email, studentNo, GOOGLE_NAME);
   }
 
   public static User applied(String googleSub, String email, String studentNo, String name) {
     return applied(googleSub, email, studentNo, name, DEFAULT_DEPARTMENT);
   }
 
+  /**
+   * {@code name}은 <b>구글 계정에 저장되는 이름</b>이다 (#224). 신청서가 받는 값이 아니라 계정을 만들 때 정해지고, 신청서 제출로 바뀌지 않는다.
+   */
   public static User applied(
       String googleSub, String email, String studentNo, String name, String department) {
-    User user = signedIn(googleSub, email);
-    user.submitApplication(studentNo, name, department);
+    User user = signedInAs(googleSub, email, name);
+    user.submitApplication(studentNo, department);
     return user;
   }
 
   /** ③ 승인된 회원 — {@code ACTIVE}. */
   public static User approved(String googleSub, String email, String studentNo) {
-    return approved(googleSub, email, studentNo, "본명");
+    return approved(googleSub, email, studentNo, GOOGLE_NAME);
   }
 
   public static User approved(String googleSub, String email, String studentNo, String name) {
@@ -58,7 +71,7 @@ public final class Accounts {
 
   /** 승인된 회원 중 관리자 — {@code ACTIVE} + {@code ADMIN}. */
   public static User admin(String googleSub, String email, String studentNo) {
-    return admin(googleSub, email, studentNo, "본명");
+    return admin(googleSub, email, studentNo, GOOGLE_NAME);
   }
 
   public static User admin(String googleSub, String email, String studentNo, String name) {

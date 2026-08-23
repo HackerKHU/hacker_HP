@@ -23,13 +23,20 @@ export const GOOGLE_LOGIN_PATH = apiPath('/oauth2/authorization/google')
 
 export interface ApplicationRequest {
   studentNo: string
-  name: string
   /**
    * 정해진 목록에서 고른 값 (spec §3-2-3 MUST). 서버가 목록에 없는 값을
    * `400 VALIDATION_ERROR`로 거부한다 — 목록은 `features/auth/departments.ts`에 있다.
    */
   department: string
 }
+
+/*
+ * **`name`이 없다** (spec §3-2-3, #224). 이름은 신청서가 받는 값이 아니라 구글 계정에
+ * 저장된 값이고, 화면은 읽기 전용으로 보여주기만 한다. 서버도 이 필드를 받지 않으므로
+ * 여기에 두면 **보낸 값이 반영되는 줄 아는 호출부가 생긴다.**
+ *
+ * 이메일도 마찬가지다 — 폼에 표시만 하고 제출하지 않는다.
+ */
 
 /**
  * 승인 심사에 필요한 정보를 낸다. `PENDING` 전용이며 승인 전까지 다시 내 고칠 수 있다
