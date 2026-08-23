@@ -7,14 +7,14 @@
 
 > **구성**: ECS Fargate(Spot) + ALB + RDS PostgreSQL + S3, NAT Gateway 없음
 > **예산**: 월 약 3.5만원 (RDS 프리티어 적용 시)
-> **도메인**: 지금은 없이 시작. Vercel 프록시로 우회 — 자세한 내용과 배포 전 필수 조건은 [deployment.md](deployment.md) 참고
+> **도메인**: `khuhacker.com`(웹, Vercel) · `api.khuhacker.com`(API, ALB + ACM) — **운영 중이다.** 배포 절차는 [deployment.md](deployment.md) 참고
 
 ## 설계 결정 요약
 
 | 항목 | 선택 | 이유 |
 |---|---|---|
 | 컨테이너 | **ECS Fargate (Spot)** | 서버 관리 불필요. Spot이면 온디맨드 대비 약 1/3 |
-| 로드밸런서 | **ALB** | 무중단 배포, 헬스체크, 나중에 ACM 붙이기 쉬움 |
+| 로드밸런서 | **ALB** | 무중단 배포, 헬스체크, ACM 인증서 (#156에서 `api.khuhacker.com` 붙임) |
 | NAT Gateway | **안 씀** | 월 5~6만원. 예산 전체를 잡아먹음 ([결정 2](../../spec/3-3-DESIGN-DECISIONS.md)) |
 | 태스크 위치 | **퍼블릭 서브넷** + `assign_public_ip` | NAT 대신. SG 인바운드를 ALB로만 제한 |
 | RDS | **프라이빗 서브넷** | 아웃바운드가 필요 없어 NAT 없이 완전 격리 가능 |
@@ -27,12 +27,13 @@
                        [ Vercel ] React
                             │
                             │  /api/*  → rewrites 프록시 (deployment.md)
+                            │           → https://api.khuhacker.com
                             ↓
  ┌──────────────────── VPC 10.0.0.0/16 ──────────────────────────┐
  │                                                                │
  │  public-a 10.0.1.0/24          public-c 10.0.2.0/24           │
  │    ├─ ALB ────────────────────────── ALB                       │
- │    │    SG: 0.0.0.0/0 :80                                      │
+ │    │    SG: 0.0.0.0/0 :80(→443 리다이렉트), :443              │
  │    │                                                           │
  │    └─ ECS Task (Fargate Spot)                                  │
  │         assign_public_ip = true  ← NAT 대신 ECR pull 경로       │
@@ -77,7 +78,9 @@ DynamoDB 락 테이블은 불필요합니다. Terraform 1.10+ 의 S3 네이티�
 
 ### `terraform.tfvars` 채우기
 
-Terraform이 만들어낼 수 없는 값들입니다 — [`infra/terraform/terraform.tfvars.example`](../../infra/terraform/terraform.tfvars.example)을 복사해 채웁니다. 구글 클라이언트 자격은 Google Cloud Console에서 발급받고(#82), redirect URI·CORS 오리진은 Vercel 도메인이 정해져야 알 수 있습니다.
+Terraform이 만들어낼 수 없는 값들입니다 — [`infra/terraform/terraform.tfvars.example`](../../infra/terraform/terraform.tfvars.example)을 복사해 채웁니다. 구글 클라이언트 자격은 Google Cloud Console에서 발급받고(#82), redirect URI·CORS 오리진은 `khuhacker.com` 기준입니다.
+
+**운영 값은 이미 채워져 있습니다.** 이 문단은 환경을 새로 세울 때 봅니다 — 파일은 커밋되지 않으므로 인프라 담당에게 받습니다.
 
 `terraform.tfvars`는 `.gitignore` 대상입니다. **절대 커밋하지 않습니다** — `sensitive = true`를 붙여도 `terraform plan` 출력에만 안 찍힐 뿐, `tfstate`에는 평문으로 들어갑니다.
 
@@ -213,10 +216,13 @@ ALB가 고정비 중 제일 크지만, 빼면 무중단 배포와 나중의 HTTP
 - [x] Budgets 알림 (월 $38 ≈ 5만원) — #43
 - [x] tfstate S3 버킷 (`hacker-tfstate-415368001031`, 버저닝) — #43
 - [x] `terraform.tfvars`·`*.tfstate`가 `.gitignore`에 있다
-- [ ] `terraform.tfvars` 채우기 (`#82` 완료 후 구글 클라이언트 자격 필요)
-- [ ] `terraform validate` 통과
-- [ ] `terraform apply` 단계별 완료 ([runbook.md](runbook.md) 최초 적용 순서)
-- [ ] `curl http://<ALB_DNS>/actuator/health` → 200
+- [x] `terraform.tfvars` 채우기 — #82
+- [x] `terraform validate` 통과
+- [x] `terraform apply` 단계별 완료 ([runbook.md](runbook.md) 최초 적용 순서) — #48
+- [x] `curl https://api.khuhacker.com/actuator/health` → 200
+- [x] ACM 인증서 발급과 443 리스너 — #156
+
+**이 체크리스트는 최초 구축용이다.** 전부 끝났으므로 새로 세울 때 말고는 볼 일이 없다. `terraform.tfvars`는 **커밋하지 않으므로**(tfstate에 DB 비밀번호가 평문으로 들어간다) 새로 세팅하는 사람은 인프라 담당에게 받는다.
 
 ---
 [다음: 배포 (Docker / GitHub Actions / Vercel) →](deployment.md)
