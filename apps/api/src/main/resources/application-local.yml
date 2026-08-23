@@ -28,6 +28,13 @@ server:
         secure: false
 
 app:
+  photo-storage:
+    # docker-compose.yml의 MinIO. 기본 자격 증명(minioadmin)은 로컬 전용이라 비밀로 치지 않는다.
+    bucket: hacker-uploads-local
+    region: ap-northeast-2
+    endpoint: http://localhost:9000
+    access-key: minioadmin
+    secret-key: minioadmin
   auth:
     allowed-email-domain: khu.ac.kr
     jwt:

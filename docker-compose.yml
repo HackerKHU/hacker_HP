@@ -11,5 +11,34 @@ services:
       test: ["CMD-SHELL", "pg_isready -U hacker"]
       interval: 5s
 
+  # 활동사진 업로드(#57)의 로컬 S3 대역. 운영은 실제 S3를 쓴다 — 여기는 presigned URL 흐름을
+  # 로컬에서 그대로 재현하기 위한 것뿐이다 (application-local.yml의 app.storage.endpoint).
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "127.0.0.1:9000:9000" # S3 API
+      - "127.0.0.1:9001:9001" # 웹 콘솔 — 로컬에서 오브젝트를 눈으로 확인할 때만 쓴다
+    volumes: [miniodata:/data]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+
+  # MinIO는 버킷을 미리 만들어주지 않는다. 기동할 때 한 번 만들고 끝나는 1회성 컨테이너다.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/hacker-uploads-local
+      "
+
 volumes:
   pgdata:
+  miniodata:

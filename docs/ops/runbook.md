@@ -38,14 +38,34 @@ terraform plan -out=tfplan
 terraform apply tfplan
 ```
 
+**6) ACM 인증서 DNS 검증 (#156).** `aws_acm_certificate.api`는 신청만 하고 끝나지 않는다 —
+`aws_acm_certificate_validation` 리소스가 없어서 `terraform apply`는 검증을 기다리지 않고 끝나며,
+인증서는 `PENDING_VALIDATION`으로 남는다. 이 상태로는 443 리스너가 TLS 핸드셰이크를 못 마친다.
+
+```bash
+terraform output -json acm_validation_record
+```
+
+나온 `name`/`type`/`value`를 **`khuhacker.com`을 관리하는 DNS(이 AWS 계정의 Route53이 아니다 —
+도메인을 산 등록기관 쪽)에 CNAME으로 등록한다.** 전파에 몇 분에서 몇십 분 걸린다. 아래로 상태를
+확인한다.
+
+```bash
+aws acm list-certificates --region ap-northeast-2 \
+  --query "CertificateSummaryList[?DomainName=='api.khuhacker.com'].Status" --output text
+# ISSUED가 나오면 완료
+```
+
 **검증:**
 
 ```bash
-curl http://$(terraform output -raw alb_dns_name)/actuator/health
-# {"status":"UP"} 나오면 최초 배포 확인 완료
+curl https://api.khuhacker.com/actuator/health
+# {"status":"UP", ...} 나오면 최초 배포 확인 완료
 ```
 
-이 URL을 `vercel.json`의 `destination`에 넣습니다 ([deployment.md](deployment.md)).
+`vercel.json`의 `destination`은 고정값 `https://api.khuhacker.com/api/:path*`이라 배포마다 따로
+채울 게 없다 ([deployment.md](deployment.md)) — ALB의 원본 DNS 이름을 여기 넣지 않는다. 그렇게 하면
+평문 ALB로 직접 프록시하게 되어 #156 이전으로 되돌아간다.
 
 ## 증상별 원인 / 해결
 

@@ -36,11 +36,19 @@ dependencies {
     implementation("org.flywaydb:flyway-core")
     runtimeOnly("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")
+    // 활동사진 업로드(#57) — presigned URL 발급·원본 다운로드용 S3 클라이언트.
+    implementation(platform("software.amazon.awssdk:bom:2.46.18"))
+    implementation("software.amazon.awssdk:s3")
+    // 리사이즈(가로 최대 1920px, JPEG 품질 85) — spec 2-1 §2-1-7.
+    implementation("net.coobird:thumbnailator:0.4.21")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.testcontainers:junit-jupiter")
     testImplementation("org.testcontainers:postgresql")
+    // S3 흐름(업로드→리사이즈→정리)을 진짜 오브젝트 스토어로 검증한다 — Postgres를
+    // Testcontainers로 검증하는 것과 같은 이유다.
+    testImplementation("org.testcontainers:minio")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
