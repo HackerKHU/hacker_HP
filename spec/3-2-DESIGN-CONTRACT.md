@@ -31,6 +31,7 @@ erDiagram
   NOTES ||--o{ NOTE_FILES : has
   USERS |o--o{ NOTICES : writes
   USERS |o--o{ PHOTOS : uploads
+  USERS |o--o{ POSTS : writes
 ```
 
 `admin_actions`는 ERD에 넣지 않는다. `users`를 가리키지만 **FK가 없어 관계가 아니고**, 그렇게 둔 이유가 바로 "이력은 현재 상태에 종속되지 않는다"이기 때문이다 — 선으로 이으면 정반대로 읽힌다.
@@ -223,7 +224,7 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
-| `id` | bigint | PK | |
+| `id` | bigint | PK, auto | |
 | `title` | varchar(200) | NOT NULL | `notices.title`과 같은 상한이다 |
 | `content` | text | NOT NULL, **CHECK(길이 ≤ 10000)** | 평문만 담는다 |
 | `author_id` | bigint | NULL, FK → users.id, **ON DELETE SET NULL** | `NULL`이면 탈퇴한 회원 |
@@ -645,7 +646,7 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | POST | `/admin/users/reject` | ADMIN | 일괄 거부 — body: `{ "userIds": [1,2,3] }` |
 | PATCH | `/admin/users/{id}/status` | ADMIN | `ACTIVE` ↔ `SUSPENDED` (본인을 `SUSPENDED`로: 마지막 활성 관리자면 차단) |
 | PATCH | `/admin/users/{id}/role` | ADMIN | 권한 부여/회수 (본인 대상: 마지막 활성 관리자면 차단) |
-| GET | `/admin/users/{id}/content-summary` | ADMIN | 제거 확인 창이 쓰는 건수 — 그 회원이 남길 자료·공지·사진 |
+| GET | `/admin/users/{id}/content-summary` | ADMIN | 제거 확인 창이 쓰는 건수 — 그 회원이 남길 자료·공지·사진·게시글 |
 | DELETE | `/admin/users/{id}` | ADMIN | 회원 제거 (본인 대상: 마지막 활성 관리자면 차단) |
 
 ### 목록 파라미터
@@ -770,10 +771,12 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 `GET /admin/users/{id}/content-summary` — 제거 확인 창이 **"무엇이 남는지"** 를 보여주려면 필요하다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거) MUST).
 
 ```json
-응답  200 { "notes": 12, "notices": 3, "photos": 0 }
+응답  200 { "notes": 12, "notices": 3, "photos": 0, "posts": 5 }
 ```
 
-**세 값 모두 항상 담는다** (MUST). `0`을 빼면 화면이 "없음"과 "모름"을 가르지 못한다.
+**네 값 모두 항상 담는다** (MUST). `0`을 빼면 화면이 "없음"과 "모름"을 가르지 못한다.
+
+**`posts`는 게시판과 함께 들어온다** (2026-08-23, #235). 빠뜨리면 관리자가 **게시글이 남는다는 사실을 보지 못한 채** 되돌릴 수 없는 제거를 하게 되고, `author_id`가 `NULL`이 된 뒤에는 그 회원의 글을 다시 찾을 수도 없다 — 이 조회가 존재하는 이유 그대로다.
 
 없는 `id`는 `404 NOT_FOUND`다. 이 값은 **확인 창을 여는 시점의 참고치**이지 제거의 조건이 아니다 — 그 사이 건수가 바뀌어도 제거는 그대로 진행한다. 건수를 맞추려고 제거까지 막으면 확인 창을 다시 열어도 같은 자리를 맴돌 수 있다.
 
