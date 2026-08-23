@@ -856,3 +856,124 @@ describe('자료 픽스처', () => {
     expect((error as InstanceType<typeof ApiError>).code).toBe('NOT_FOUND')
   })
 })
+
+/**
+ * 활동사진 픽스처가 서버 계약을 그대로 지키는지.
+ *
+ * 화면 테스트는 `@/api/photos`를 통째로 mock하므로 **이 계층은 그 뒤에 가려져 있다.**
+ * 픽스처가 계약보다 무르면 오류 UI 없이도 화면이 멀쩡해 보이고, 그 회귀는 서버가 붙는
+ * 날까지 드러나지 않는다.
+ */
+describe('활동사진 픽스처', () => {
+  /* **최신순 고정이다** (spec §2-1-7) — 화면이 정렬을 고르지 않는다. */
+  it('목록이 최신순이다', async () => {
+    const { fixturePhotos } = await loadFixtures('user')
+
+    const page = await fixturePhotos({ size: 100 })
+
+    const dates = page.content.map((photo) => photo.createdAt)
+    expect([...dates].sort((a, b) => b.localeCompare(a))).toEqual(dates)
+  })
+
+  /* 한 페이지를 넘겨야 페이지네이션을 화면에서 확인할 수 있다 (#60 완료 조건). */
+  it('한 페이지를 넘는 장수가 있다', async () => {
+    const { fixturePhotos } = await loadFixtures('user')
+
+    const page = await fixturePhotos()
+
+    expect(page.page.totalPages).toBeGreaterThan(1)
+  })
+
+  /*
+   * **업로드·삭제는 `ADMIN` 전용이다** (계약 §3-2-5). 픽스처가 통과시키면 그 가드가
+   * 화면에서 확인되지 않는다.
+   */
+  it.each(['user', 'pending'])(
+    '%s 시나리오는 업로드·삭제가 FORBIDDEN이다',
+    async (scenario) => {
+      const { fixtureIssuePhotoUploadUrls, fixtureRemovePhoto, ApiError } =
+        await loadFixtures(scenario)
+
+      const issued = await fixtureIssuePhotoUploadUrls(['jpg']).catch(
+        (caught: unknown) => caught,
+      )
+      expect(issued).toBeInstanceOf(ApiError)
+      expect((issued as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+
+      const removed = await fixtureRemovePhoto(501).catch(
+        (caught: unknown) => caught,
+      )
+      expect((removed as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+    },
+  )
+
+  /*
+   * 서버가 받는 것은 `jpg`·`jpeg`·`png`뿐이다 (계약 §3-2-5) — 디코딩해 리사이즈해야
+   * 하므로 이미지만 받는다. 통과시키면 `415` 화면을 만들 수 없다.
+   */
+  it('이미지가 아닌 확장자는 415다', async () => {
+    const { fixtureIssuePhotoUploadUrls, ApiError } =
+      await loadFixtures('admin')
+
+    const error = await fixtureIssuePhotoUploadUrls(['pdf']).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe(
+      'UNSUPPORTED_FILE_TYPE',
+    )
+  })
+
+  /* 발급은 요청한 개수만큼, 순서대로 나온다 — 짝짓기 수단이 순서뿐이다 (§3-2-5). */
+  it('발급이 요청 개수·순서와 같다', async () => {
+    const { fixtureIssuePhotoUploadUrls } = await loadFixtures('admin')
+
+    const uploads = await fixtureIssuePhotoUploadUrls(['jpg', 'png'])
+
+    expect(uploads).toHaveLength(2)
+    expect(uploads[0].key.endsWith('.jpg')).toBe(true)
+    expect(uploads[1].key.endsWith('.png')).toBe(true)
+  })
+
+  /*
+   * **일부가 실패해도 성공 응답이다** (계약 §3-2-5). 픽스처가 전부 성공시키면 화면이
+   * `failed`를 읽는지 확인할 수 없다 — 그래서 2장 이상이면 마지막 한 장을 실패시킨다.
+   */
+  it('두 장 이상 등록하면 일부 실패가 함께 온다', async () => {
+    const { fixtureRegisterPhotos } = await loadFixtures('admin')
+
+    const result = await fixtureRegisterPhotos([
+      { key: 'photos/uploads/a.jpg', caption: '가' },
+      { key: 'photos/uploads/b.jpg', caption: null },
+    ])
+
+    expect(result.registered).toHaveLength(1)
+    expect(result.failed).toHaveLength(1)
+    expect(result.failed[0].key).toBe('photos/uploads/b.jpg')
+  })
+
+  /* **업로더는 인증 주체로만 정한다** (계약 §3-2-5 MUST) — 본문으로 받지 않는다. */
+  it('등록한 사진의 업로더가 나다', async () => {
+    const { fixtureRegisterPhotos } = await loadFixtures('admin')
+
+    const result = await fixtureRegisterPhotos([
+      { key: 'photos/uploads/a.jpg', caption: null },
+    ])
+
+    expect(result.registered[0].uploaderName).toBe('김관리')
+  })
+
+  /* 등록한 사진이 목록에 남아야 업로드 → 갤러리 왕복을 확인할 수 있다. */
+  it('등록한 사진이 목록 맨 앞에 온다', async () => {
+    const { fixtureRegisterPhotos, fixturePhotos } = await loadFixtures('admin')
+
+    const result = await fixtureRegisterPhotos([
+      { key: 'photos/uploads/a.jpg', caption: '방금 올린 사진' },
+    ])
+    const page = await fixturePhotos()
+
+    expect(page.content[0].id).toBe(result.registered[0].id)
+    expect(page.content[0].caption).toBe('방금 올린 사진')
+  })
+})

@@ -49,6 +49,7 @@ import type {
   Uploader,
 } from './notes'
 import type { Notice } from './notices'
+import type { Photo, PhotoRegisterResult, PhotoUpload } from './photos'
 import type { Page, Role, User } from './types'
 
 /**
@@ -1375,4 +1376,190 @@ export function fixtureDownloadUrl(
     originalName: file.originalName,
     expiresAt: new Date(Date.now() + 60 * 1000).toISOString(),
   })
+}
+
+// ── 활동사진 ─────────────────────────────────────────────────────────────────
+
+/**
+ * 활동사진 픽스처.
+ *
+ * **랜딩이 쓰는 실제 이미지를 재사용한다** (`public/landing/`). 자리표시자 회색 사각형을
+ * 쓰면 그리드 간격·비율이 실제와 달라 화면을 확인하는 뜻이 없다. 출처는
+ * `public/landing/README.md`에 있다.
+ */
+const LANDING_PHOTOS = [
+  '/landing/mt.jpg',
+  '/landing/education.jpg',
+  '/landing/festival.jpg',
+  '/landing/club.jpg',
+  '/landing/opening.jpg',
+  '/landing/samak.jpg',
+]
+
+const PHOTO_CAPTIONS = [
+  '2026 신입생 환영회',
+  '정기 세미나 — 리버싱 기초',
+  null,
+  'CTF 대회 준비 모임',
+  '동아리방 정리하는 날',
+  null,
+]
+
+type FixturePhoto = Photo
+
+/**
+ * 25장. **한 페이지(20장)를 넘긴다** — 페이지네이션이 실제로 동작하는지 보려면 2페이지가
+ * 있어야 한다 (#60 완료 조건).
+ *
+ * **업로더를 섞는다** — 본인·남·탈퇴한 회원. 탈퇴한 회원의 사진도 깨지지 않아야 한다.
+ */
+const PHOTOS: FixturePhoto[] = Array.from({ length: 25 }, (_, index) => {
+  const image = LANDING_PHOTOS[index % LANDING_PHOTOS.length]
+  const owner = index % 3
+  return {
+    id: 501 + index,
+    caption: PHOTO_CAPTIONS[index % PHOTO_CAPTIONS.length],
+    url: image,
+    // 픽스처에는 리사이즈본이 없다. 같은 파일을 쓰되 화면은 썸네일 자리에 그린다.
+    thumbnailUrl: image,
+    uploaderId: owner === 0 ? USERS.admin.id : owner === 1 ? 99 : null,
+    uploaderName:
+      owner === 0 ? USERS.admin.name : owner === 1 ? '권승원' : '탈퇴한 회원',
+    createdAt: daysAgo(index),
+  }
+})
+
+/** 목록은 **최신순 고정**이다 (spec §2-1-7) — 화면이 정렬을 고르지 않는다. */
+export function fixturePhotos(
+  query: { page?: number; size?: number } = {},
+): Promise<Page<Photo>> {
+  const size = query.size ?? FIXTURE_PAGE_SIZE
+  const page = query.page ?? 0
+  const start = page * size
+  const sorted = [...PHOTOS].sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt),
+  )
+  return Promise.resolve({
+    content: sorted.slice(start, start + size),
+    page: {
+      size,
+      number: page,
+      totalElements: PHOTOS.length,
+      totalPages: Math.ceil(PHOTOS.length / size),
+    },
+  })
+}
+
+/** 업로드·삭제는 `ADMIN` 전용이다 (계약 §3-2-5). 픽스처가 통과시키면 그 가드를 확인할 수 없다. */
+function requirePhotoAdmin(): ApiError | null {
+  return SCENARIO === 'admin'
+    ? null
+    : new ApiError('FORBIDDEN', 403, '관리자만 할 수 있습니다.')
+}
+
+export function fixtureRemovePhoto(id: number): Promise<void> {
+  const denied = requirePhotoAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const at = PHOTOS.findIndex((photo) => photo.id === id)
+  if (at === -1) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '사진을 찾을 수 없습니다.'),
+    )
+  }
+  PHOTOS.splice(at, 1)
+  return Promise.resolve()
+}
+
+const PHOTO_EXTENSIONS_FIXTURE = ['jpg', 'jpeg', 'png']
+const PHOTO_MAX_COUNT_FIXTURE = 20
+
+/**
+ * 발급. **확장자만 받는다** (계약 §3-2-5) — 파일명도 크기도 오지 않는다.
+ *
+ * 서버가 `jpg`·`jpeg`·`png`가 아니면 `415`다. 픽스처가 통과시키면 그 오류 화면을 만들 수 없다.
+ */
+export function fixtureIssuePhotoUploadUrls(
+  extensions: string[],
+): Promise<PhotoUpload[]> {
+  const denied = requirePhotoAdmin()
+  if (denied) return Promise.reject(denied)
+
+  if (extensions.length === 0 || extensions.length > PHOTO_MAX_COUNT_FIXTURE) {
+    return Promise.reject(
+      new ApiError(
+        'VALIDATION_ERROR',
+        400,
+        `사진은 1장 이상 ${PHOTO_MAX_COUNT_FIXTURE}장 이하로 올려 주세요.`,
+      ),
+    )
+  }
+  for (const extension of extensions) {
+    if (!PHOTO_EXTENSIONS_FIXTURE.includes(extension.toLowerCase())) {
+      return Promise.reject(
+        new ApiError(
+          'UNSUPPORTED_FILE_TYPE',
+          415,
+          'jpg, jpeg, png만 올릴 수 있습니다.',
+        ),
+      )
+    }
+  }
+  return Promise.resolve(
+    extensions.map((extension, index) => ({
+      key: `photos/uploads/fixture-${Date.now()}-${index}.${extension.toLowerCase()}`,
+      /*
+       * **픽스처 URL은 `blob:`이다.** 실제 S3 주소를 흉내내면 브라우저가 그 호스트로 진짜
+       * 요청을 보내고, 그 실패가 업로드 오류로 보인다. `uploadAll`의 PUT은 픽스처 모드에서도
+       * 실제로 나가므로 **닿아도 안전한 주소**여야 한다.
+       */
+      uploadUrl: URL.createObjectURL(new Blob([])),
+    })),
+  )
+}
+
+let nextPhotoId = 601
+
+/**
+ * 등록.
+ *
+ * **일부가 실패해도 성공 응답이다** (계약 §3-2-5). 픽스처도 그래야 화면이 `registered`와
+ * `failed`를 함께 읽는지 확인할 수 있다 — **마지막 한 장을 일부러 실패시킨다**(2장 이상일 때).
+ * 전부 성공시키면 실패 안내를 화면에서 만들 수 없다.
+ */
+export function fixtureRegisterPhotos(
+  photos: { key: string; caption: string | null }[],
+): Promise<PhotoRegisterResult> {
+  const denied = requirePhotoAdmin()
+  if (denied) return Promise.reject(denied)
+
+  if (photos.length === 0 || photos.length > PHOTO_MAX_COUNT_FIXTURE) {
+    return Promise.reject(
+      new ApiError('VALIDATION_ERROR', 400, '등록할 사진이 없습니다.'),
+    )
+  }
+
+  const registered: Photo[] = []
+  const failed: PhotoRegisterResult['failed'] = []
+  photos.forEach((item, index) => {
+    // 2장 이상이면 마지막 한 장이 실패한다 — 부분 실패 화면을 볼 수 있어야 한다.
+    if (photos.length > 1 && index === photos.length - 1) {
+      failed.push({ key: item.key, reason: 'NOT_FOUND' })
+      return
+    }
+    const image = LANDING_PHOTOS[registered.length % LANDING_PHOTOS.length]
+    const created: Photo = {
+      id: nextPhotoId++,
+      caption: item.caption,
+      url: image,
+      thumbnailUrl: image,
+      // 업로더는 인증 주체로만 정한다 (계약 §3-2-5 MUST). 본문으로 받지 않는다.
+      uploaderId: USERS.admin.id,
+      uploaderName: USERS.admin.name,
+      createdAt: new Date().toISOString(),
+    }
+    PHOTOS.unshift(created)
+    registered.push(created)
+  })
+  return Promise.resolve({ registered, failed })
 }

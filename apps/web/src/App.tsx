@@ -12,6 +12,8 @@ import { NoteListPage } from './features/notes/NoteListPage'
 import { NoticeDetailPage } from './features/notices/NoticeDetailPage'
 import { NoticeFormPage } from './features/notices/NoticeFormPage'
 import { NoticeListPage } from './features/notices/NoticeListPage'
+import { PhotoGalleryPage } from './features/photos/PhotoGalleryPage'
+import { PhotoUploadPage } from './features/photos/PhotoUploadPage'
 import { GuestOnly, PendingOnly, RequireActive } from './routes/guards'
 
 function App() {
@@ -68,6 +70,12 @@ function App() {
           <Route path="/notes/:id/edit" element={<NoteFormPage />} />
           <Route path="/notes/:id" element={<NoteDetailPage />} />
           <Route path="/bookmarks" element={<BookmarkListPage />} />
+
+          {/*
+            활동사진 갤러리는 `ACTIVE`면 누구나 본다 (spec §3-1-3 매트릭스).
+            **업로드·삭제만 ADMIN**이라 그쪽은 아래 관리자 라우트에 둔다.
+          */}
+          <Route path="/photos" element={<PhotoGalleryPage />} />
         </Route>
       </Route>
 
@@ -81,6 +89,11 @@ function App() {
           <Route path="/admin/notices/new" element={<NoticeFormPage />} />
           <Route path="/admin/notices/:id/edit" element={<NoticeFormPage />} />
           <Route path="/admin/members" element={<MemberListPage />} />
+          {/*
+            사진 업로드는 ADMIN 전용이다 (spec §2-1-8 화면 목록). 삭제는 별도 화면 없이
+            갤러리 안에서 하되, 그 버튼도 ADMIN에게만 보인다.
+          */}
+          <Route path="/admin/photos/new" element={<PhotoUploadPage />} />
         </Route>
       </Route>
 
