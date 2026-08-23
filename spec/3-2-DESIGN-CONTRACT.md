@@ -235,7 +235,7 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 
 **`author_id`의 `ON DELETE SET NULL`은 MUST다.** 빠뜨리면 **글을 한 번이라도 쓴 회원은 삭제 자체가 FK 위반으로 실패한다** — `notices.author_id`가 `ON DELETE` 절 없이 만들어져 #58에서 뒤늦게 마이그레이션으로 고쳤다. 같은 실수를 두 번 하지 않는다.
 
-**본문 길이를 DB에서도 막는다** (MUST). `text`는 무제한이라 요청 검증만 두면 다른 경로로 들어온 값이 그대로 저장되고, **글 하나로 목록 응답이 망가진다.** 반대로 DB에만 두면 위반이 사용자 오류가 아니라 `500`으로 나간다 — 양쪽에 건다.
+**본문 길이를 DB에서도 막는다** (MUST). `text`는 무제한이라 요청 검증만 두면 다른 경로로 들어온 값이 그대로 저장되고, **글 하나로 목록 응답이 망가진다.** 반대로 DB에만 두면 위반이 사용자 오류가 아니라 `500`으로 나간다 — 양쪽에 건다. **양쪽을 각각 확인한다** ([5-TESTING](5-TESTING.md) T-325·T-331) — API만 재면 `CHECK`를 빠뜨려도 통과한다.
 
 ## 3-2-3 API — 인증
 
@@ -819,7 +819,7 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 
 ## 3-2-8 공통 페이지 응답
 
-목록 API는 모두 페이지 응답을 쓴다. MVP는 `GET /notices`, `GET /admin/users`, `Post Launch`는 `GET /notes`, `GET /bookmarks`, `GET /photos`가 대상이다.
+목록 API는 모두 페이지 응답을 쓴다. MVP는 `GET /notices`, `GET /admin/users`, `Post Launch`는 `GET /notes`, `GET /bookmarks`, `GET /photos`, `GET /posts`가 대상이다.
 
 공통 요청 파라미터는 `page`(0부터 시작), `size`(기본 20, **상한 100**)다. 상한을 두지 않으면 Spring 기본값인 2000까지 한 번에 요청할 수 있다.
 
