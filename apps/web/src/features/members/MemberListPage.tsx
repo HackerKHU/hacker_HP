@@ -882,7 +882,7 @@ export function MemberListPage() {
             )}
           </div>
 
-          <Card className="mt-4 overflow-hidden py-0">
+          <Card className="mt-4 overflow-hidden rounded-none py-0">
             <Table>
               <TableHeader>
                 <TableRow>
