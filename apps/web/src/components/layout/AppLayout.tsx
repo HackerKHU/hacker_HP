@@ -38,8 +38,9 @@ export function AppLayout() {
       </main>
 
       {/*
-        헤더 로고는 부원 홈(/notices)으로 간다. 공개 페이지로 나가는 길은 여기 남긴다 —
-        로고를 눌렀는데 소개 페이지가 나오면 부원 입장에서 어색하다.
+        헤더 로고가 랜딩으로 가므로 `동아리 소개`는 유일한 길이 아니라 **이름이 붙은 길**이다.
+        로고는 어디로 가는지 눌러 봐야 알지만 여기는 목적지가 글자로 적혀 있고,
+        개인정보처리방침이 어차피 이 줄에 있어야 해서 둘을 나란히 둔다.
       */}
       <footer className="border-t border-border">
         <div className="mx-auto flex w-full max-w-[1152px] gap-4 px-6 py-6 text-sm text-muted-foreground">
