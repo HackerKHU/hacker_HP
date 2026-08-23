@@ -12,7 +12,7 @@ import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
 import org.junit.jupiter.api.Test;
 
-/** spec 2-1 §2-1-7 MUST — 가로 최대 1920px, 비율 유지, JPEG 품질 85, 기준 미만은 원본 유지. */
+/** spec 2-1 §2-1-7 MUST — 가로 최대 1920px, 비율 유지, JPEG 품질 85, 기준 미만은 폭만 유지(업스케일하지 않는다). */
 class PhotoResizerTest {
 
   private static byte[] image(int width, int height, String format) {
@@ -30,43 +30,60 @@ class PhotoResizerTest {
     return ImageIO.read(new ByteArrayInputStream(bytes)).getWidth();
   }
 
+  private static String formatOf(byte[] bytes) throws IOException {
+    var readers =
+        ImageIO.getImageReaders(ImageIO.createImageInputStream(new ByteArrayInputStream(bytes)));
+    return readers.next().getFormatName();
+  }
+
   @Test
-  void imageNarrowerThanMaxWidthKeepsOriginalBytes() {
+  void imageNarrowerThanMaxWidthKeepsWidthButReencodesToJpeg() throws IOException {
     byte[] original = image(800, 600, "png");
 
-    PhotoResizer.Resized resized = PhotoResizer.resize(original, "png");
+    PhotoResizer.Resized resized = PhotoResizer.resize(original);
 
-    assertThat(resized.bytes()).isEqualTo(original);
-    assertThat(resized.extension()).isEqualTo("png");
-    assertThat(resized.contentType()).isEqualTo("image/png");
+    assertThat(widthOf(resized.bytes())).isEqualTo(800);
+    assertThat(formatOf(resized.bytes())).isEqualToIgnoringCase("jpeg");
   }
 
   @Test
   void imageWiderThanMaxWidthIsResizedToJpeg() throws IOException {
     byte[] original = image(3840, 2160, "png");
 
-    PhotoResizer.Resized resized = PhotoResizer.resize(original, "png");
+    PhotoResizer.Resized resized = PhotoResizer.resize(original);
 
     assertThat(widthOf(resized.bytes())).isEqualTo(1920);
-    assertThat(resized.extension()).isEqualTo("jpg");
-    assertThat(resized.contentType()).isEqualTo("image/jpeg");
+    assertThat(formatOf(resized.bytes())).isEqualToIgnoringCase("jpeg");
   }
 
   /* 정확히 경계값이면 리사이즈하지 않는다 — "가로 최대 1920px"는 1920을 포함한다. */
   @Test
-  void imageExactlyAtMaxWidthIsNotResized() {
+  void imageExactlyAtMaxWidthIsNotResized() throws IOException {
     byte[] original = image(1920, 1080, "jpg");
 
-    PhotoResizer.Resized resized = PhotoResizer.resize(original, "jpg");
+    PhotoResizer.Resized resized = PhotoResizer.resize(original);
 
-    assertThat(resized.bytes()).isEqualTo(original);
+    assertThat(widthOf(resized.bytes())).isEqualTo(1920);
+  }
+
+  /**
+   * 요청 키의 확장자(admin이 올릴 때 고른 값)는 여기 오지 않는다 — 실제 바이트만 보고 판단한다. JPEG 바이트를 {@code .png}로 이름만 바꿔
+   * 올려도(스푸핑) 항상 JPEG로 다시 인코딩되므로 저장된 포맷과 Content-Type이 실제 바이트와 어긋나지 않는다.
+   */
+  @Test
+  void outputIsAlwaysJpegRegardlessOfActualSourceFormat() throws IOException {
+    byte[] png = image(800, 600, "png");
+
+    PhotoResizer.Resized resized = PhotoResizer.resize(png);
+
+    assertThat(formatOf(resized.bytes())).isEqualToIgnoringCase("jpeg");
   }
 
   @Test
   void undecodableBytesAreRejectedAsUnsupportedFileType() {
     byte[] garbage = "이건 이미지가 아니다".getBytes();
 
-    assertThatThrownBy(() -> PhotoResizer.resize(garbage, "jpg"))
+    assertThatThrownBy(() -> PhotoResizer.resize(garbage))
         .isInstanceOf(BusinessException.class)
         .satisfies(
             e ->
@@ -100,9 +117,6 @@ class PhotoResizerTest {
 
     byte[] thumbnail = PhotoResizer.thumbnail(png);
 
-    var readers =
-        ImageIO.getImageReaders(
-            ImageIO.createImageInputStream(new ByteArrayInputStream(thumbnail)));
-    assertThat(readers.next().getFormatName()).isEqualToIgnoringCase("jpeg");
+    assertThat(formatOf(thumbnail)).isEqualToIgnoringCase("jpeg");
   }
 }

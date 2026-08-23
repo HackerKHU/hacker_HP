@@ -206,16 +206,17 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
     String createdBody =
         mockMvc
             .perform(write(admin, post("/api/v1/photos"), registerBody))
-            .andExpect(status().isCreated())
-            .andExpect(jsonPath("$[0].caption").value("엠티 사진"))
-            .andExpect(jsonPath("$[0].url").isNotEmpty())
-            .andExpect(jsonPath("$[0].thumbnailUrl").isNotEmpty())
-            .andExpect(jsonPath("$[0].uploaderId").value(admin.getId()))
-            .andExpect(jsonPath("$[0].uploaderName").value("본명"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.registered[0].caption").value("엠티 사진"))
+            .andExpect(jsonPath("$.registered[0].url").isNotEmpty())
+            .andExpect(jsonPath("$.registered[0].thumbnailUrl").isNotEmpty())
+            .andExpect(jsonPath("$.registered[0].uploaderId").value(admin.getId()))
+            .andExpect(jsonPath("$.registered[0].uploaderName").value("본명"))
+            .andExpect(jsonPath("$.failed.length()").value(0))
             .andReturn()
             .getResponse()
             .getContentAsString();
-    Long photoId = objectMapper.readTree(createdBody).get(0).get("id").asLong();
+    Long photoId = objectMapper.readTree(createdBody).get("registered").get(0).get("id").asLong();
 
     assertThat(photoRepository.existsById(photoId)).isTrue();
     Photo saved = photoRepository.findById(photoId).orElseThrow();
@@ -242,23 +243,34 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
     mockMvc
         .perform(
             write(admin, post("/api/v1/photos"), "{\"photos\":[{\"key\":\"%s\"}]}".formatted(key)))
-        .andExpect(status().isCreated());
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.registered.length()").value(1));
 
     Photo saved = photoRepository.findAll().get(0);
     // 리사이즈되면 JPEG로 바뀐다 — 원본 png 확장자가 아니라 jpg여야 한다.
     assertThat(saved.getStoredPath()).endsWith(".jpg");
   }
 
+  /*
+   * 원본 하나가 없어도(NOT_FOUND) 요청 전체가 실패하지 않는다 — 함께 보낸 다른 원본은 그대로
+   * 등록되고, 실패한 항목은 failed 배열에 사유와 함께 담긴다 (apps/api/AGENTS.md, #186 리뷰).
+   */
   @Test
-  void registerWithUnknownKeyReturns404() throws Exception {
+  void unknownKeyFailsOnlyThatItemNotTheWholeRequest() throws Exception {
+    String key = uploadOriginal(image(100, 100, "jpg"), "jpg");
+    String body =
+        """
+        {"photos":[{"key":"%s"},{"key":"photos/uploads/never-uploaded.jpg"}]}
+        """
+            .formatted(key);
+
     mockMvc
-        .perform(
-            write(
-                admin,
-                post("/api/v1/photos"),
-                "{\"photos\":[{\"key\":\"photos/uploads/never-uploaded.jpg\"}]}"))
-        .andExpect(status().isNotFound())
-        .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+        .perform(write(admin, post("/api/v1/photos"), body))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.registered.length()").value(1))
+        .andExpect(jsonPath("$.failed.length()").value(1))
+        .andExpect(jsonPath("$.failed[0].key").value("photos/uploads/never-uploaded.jpg"))
+        .andExpect(jsonPath("$.failed[0].reason").value("NOT_FOUND"));
   }
 
   @Test
@@ -274,7 +286,7 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    Long photoId = objectMapper.readTree(body).get(0).get("id").asLong();
+    Long photoId = objectMapper.readTree(body).get("registered").get(0).get("id").asLong();
 
     mockMvc
         .perform(Csrf.with(sessions.as(member, delete("/api/v1/photos/{id}", photoId))))

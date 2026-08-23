@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.hackerkhu.hackerhp.domain.photo.dto.PhotoRegisterRequest;
+import org.hackerkhu.hackerhp.domain.photo.dto.PhotoRegisterResponse;
 import org.hackerkhu.hackerhp.domain.photo.dto.PhotoResponse;
 import org.hackerkhu.hackerhp.domain.photo.dto.PhotoUploadUrlRequest;
 import org.hackerkhu.hackerhp.domain.photo.dto.PhotoUploadUrlResponse;
@@ -81,43 +82,26 @@ public class PhotoController {
       description =
           """
           `POST /photos/upload-url`로 올린 원본 키 목록을 등록한다. 서버가 각 원본을 읽어
-          가로 최대 1920px·JPEG 품질 85로 리사이즈하고(기준 미만 이미지는 원본 유지),
-          최종 위치에 저장한 뒤 사진마다 행을 만든다. 업로더는 요청 본문이 아니라 인증
-          주체로 정한다.
+          가로 최대 1920px·JPEG 품질 85로 리사이즈해(기준 미만 이미지는 폭만 유지) 최종
+          위치에 저장한 뒤 사진마다 행을 만든다. 업로더는 요청 본문이 아니라 인증 주체로
+          정한다.
+
+          원본 하나의 실패(원본 없음, 손상된 이미지, 상한 초과)가 나머지 등록을 막지 않는다
+          — 실패는 예외가 아니라 `failed` 배열의 사유로 돌아오고 전체 응답은 항상 `200`이다.
           """)
-  @ApiResponse(responseCode = "201", description = "등록됨. 본문은 저장된 사진 목록")
+  @ApiResponse(
+      responseCode = "200",
+      description = "처리됨. 일부가 실패해도 200이다 — `registered`와 `failed`를 함께 본다")
   @ApiResponse(
       responseCode = "400",
-      description = "`VALIDATION_ERROR` — key가 비었거나 올바르지 않다",
-      content =
-          @Content(
-              mediaType = MediaType.APPLICATION_JSON_VALUE,
-              schema = @Schema(implementation = ErrorResponse.class)))
-  @ApiResponse(
-      responseCode = "404",
-      description = "`NOT_FOUND` — 업로드된 원본을 찾을 수 없다 (아직 안 올라왔거나 이미 처리됨)",
-      content =
-          @Content(
-              mediaType = MediaType.APPLICATION_JSON_VALUE,
-              schema = @Schema(implementation = ErrorResponse.class)))
-  @ApiResponse(
-      responseCode = "413",
-      description = "`FILE_TOO_LARGE` — 원본이 너무 크다",
-      content =
-          @Content(
-              mediaType = MediaType.APPLICATION_JSON_VALUE,
-              schema = @Schema(implementation = ErrorResponse.class)))
-  @ApiResponse(
-      responseCode = "415",
-      description = "`UNSUPPORTED_FILE_TYPE` — 유효한 이미지가 아니다",
+      description = "`VALIDATION_ERROR` — 요청 자체가 비었거나 20장을 넘었다",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
               schema = @Schema(implementation = ErrorResponse.class)))
   @PostMapping
   @PreAuthorize("hasRole('ADMIN')")
-  @ResponseStatus(HttpStatus.CREATED)
-  public List<PhotoResponse> register(
+  public PhotoRegisterResponse register(
       @AuthenticationPrincipal Long userId, @Valid @RequestBody PhotoRegisterRequest request) {
     return photoService.register(userId, request);
   }

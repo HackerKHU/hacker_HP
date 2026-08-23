@@ -1,10 +1,14 @@
 package org.hackerkhu.hackerhp.domain.photo.service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import org.hackerkhu.hackerhp.domain.photo.dto.PhotoRegisterRequest;
+import org.hackerkhu.hackerhp.domain.photo.dto.PhotoRegisterResponse;
+import org.hackerkhu.hackerhp.domain.photo.dto.PhotoRegisterResponse.Failure;
+import org.hackerkhu.hackerhp.domain.photo.dto.PhotoRegisterResponse.Reason;
 import org.hackerkhu.hackerhp.domain.photo.dto.PhotoResponse;
 import org.hackerkhu.hackerhp.domain.photo.dto.PhotoUploadUrlResponse;
 import org.hackerkhu.hackerhp.domain.photo.entity.Photo;
@@ -13,7 +17,6 @@ import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
-import org.hackerkhu.hackerhp.domain.user.service.UserApplicationService;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
 import org.hackerkhu.hackerhp.global.storage.S3StorageService;
@@ -77,25 +80,46 @@ public class PhotoService {
   }
 
   /**
-   * 사진들을 등록한다. <b>항목마다 독립된 트랜잭션으로 처리한다</b> — 하나로 묶으면 뒤 항목의 실패(원본 없음, 손상된 이미지 등)로 예외가 나는 순간 <b>이미
-   * 커밋됐어야 할 앞 항목의 DB 행까지 롤백된다.</b> 그런데 앞 항목이 만든 최종 S3 오브젝트·지운 임시 원본은 DB 롤백으로 되돌아가지 않으므로, "성공한 줄 알았던
-   * 사진이 통째로 사라지고 고아 오브젝트만 남는" 상태가 된다.
+   * 사진들을 등록한다. <b>항목 하나의 실패가 나머지를 되돌리지 않는다</b> — 예외로 던지지 않고 사유와 함께 결과로 돌려주며 전체는 항상 {@code 200}이다
+   * (apps/api/AGENTS.md, spec 3-2 §3-2-6 일괄 승인과 같은 원칙). 항목마다 독립된 트랜잭션으로 처리하므로 뒤 항목의 실패가 이미 커밋된 앞
+   * 항목을 되돌리지도 않는다.
    *
-   * <p>한 항목이 실패하면 그 지점에서 요청 전체가 실패한다(부분 성공 응답을 만들지 않는다) — 이미 등록된 앞 항목들은 각자 트랜잭션이 끝나며 커밋됐으므로 안전하게
-   * 남는다.
+   * <p>요청자 권한이 통째로 사라진 경우({@link #requireActiveAdmin})는 예외다 — 그건 개별 항목의 문제가 아니라 요청 자체가 더 이상 유효하지
+   * 않다는 뜻이므로 {@link BusinessException}을 그대로 던져 나머지 항목의 처리를 멈춘다.
    */
-  public List<PhotoResponse> register(Long uploaderId, PhotoRegisterRequest request) {
-    return request.photos().stream().map(item -> registerOne(uploaderId, item)).toList();
+  public PhotoRegisterResponse register(Long uploaderId, PhotoRegisterRequest request) {
+    List<PhotoResponse> registered = new ArrayList<>();
+    List<Failure> failed = new ArrayList<>();
+
+    for (PhotoRegisterRequest.Item item : request.photos()) {
+      try {
+        registered.add(registerOne(uploaderId, item));
+      } catch (PhotoRegistrationException e) {
+        failed.add(new Failure(item.key(), e.reason()));
+      }
+    }
+    return new PhotoRegisterResponse(registered, failed);
   }
 
+  /**
+   * 사진 한 장을 등록한다. 되돌릴 수 없는 순서로 세 단계를 밟는다.
+   *
+   * <ol>
+   *   <li>요청자 권한을 잠근 채 다시 확인하고({@link #requireActiveAdmin}), 자리표시자 경로(임시 키)로 행을 만들어 커밋한다 — 최종
+   *       키({@code photos/{photoId}/{uuid}.jpg})에 이 행의 id가 들어가야 하는데, INSERT 전에는 id가 없다.
+   *   <li>그 id로 최종 키를 만들어 리사이즈본·썸네일을 올린다. <b>실패하면 방금 만든 행을 지운다</b> — 임시 원본은 아직 그대로라 같은 키로 다시 등록을
+   *       시도할 수 있다. 여기서 실패하는 것은 항목 하나의 문제가 아니라 S3 자체의 문제이므로 예외를 그대로 올려보낸다(테스트지 변환하지 않는다).
+   *   <li>행에 최종 키를 반영하는 트랜잭션이 <b>커밋된 뒤에만</b> 임시 원본을 지운다. 반대로 지운 뒤 이 커밋이 실패하면 원본도 행도 없는 상태가 되어 복구할 수
+   *       없다.
+   * </ol>
+   */
   private PhotoResponse registerOne(Long uploaderId, PhotoRegisterRequest.Item item) {
     String tempKey = item.key();
     // 이 서비스가 발급한 임시 키만 받는다. 그 밖의 키를 그대로 믿으면 다른 용도의 S3
     // 오브젝트를 읽고 지우게 될 수 있다 — ADMIN 전용 경로라도 실수 방지 차원에서 막는다.
     if (!tempKey.startsWith(TEMP_PREFIX)) {
-      throw new BusinessException(ErrorCode.VALIDATION_ERROR, "올바르지 않은 업로드 키입니다.");
+      throw new PhotoRegistrationException(Reason.VALIDATION_ERROR);
     }
-    String extension = extensionOf(tempKey);
 
     // 바이트를 전부 내려받기 전에 크기부터 본다 — presigned PUT은 용량을 강제하지 못하므로,
     // 확장자만 맞으면 수백 MB짜리도 올릴 수 있다. 그걸 그대로 메모리에 올리면 태스크가 OOM으로
@@ -105,35 +129,65 @@ public class PhotoService {
       size = storageService.size(tempKey);
     } catch (NoSuchKeyException e) {
       // 발급받은 URL로 실제 업로드가 안 됐거나, 이미 등록·삭제되어 없는 키다.
-      throw new BusinessException(ErrorCode.NOT_FOUND, "업로드된 원본을 찾을 수 없습니다.");
+      throw new PhotoRegistrationException(Reason.NOT_FOUND);
     }
     if (size > MAX_ORIGINAL_BYTES) {
       storageService.delete(tempKey);
-      throw new BusinessException(ErrorCode.FILE_TOO_LARGE);
+      throw new PhotoRegistrationException(Reason.FILE_TOO_LARGE);
     }
 
-    byte[] original = storageService.download(tempKey);
-    PhotoResizer.Resized resized = PhotoResizer.resize(original, extension);
-    // 썸네일은 본 이미지의 포맷과 무관하게 항상 JPEG다 — thumbnailKeyOf()가 확장자를
-    // .jpg로 고정하므로 여기서도 그 확장자로만 업로드해야 저장 키와 실제 바이트가 맞는다.
-    byte[] thumbnail = PhotoResizer.thumbnail(resized.bytes());
+    byte[] original;
+    try {
+      original = storageService.download(tempKey);
+    } catch (NoSuchKeyException e) {
+      // 크기 확인과 다운로드 사이에 같은 키를 겨냥한 다른 요청이 먼저 등록을 마쳐 지웠을 수 있다.
+      throw new PhotoRegistrationException(Reason.NOT_FOUND);
+    }
+
+    byte[] resized;
+    byte[] thumbnail;
+    try {
+      resized = PhotoResizer.resize(original).bytes();
+      // 본 이미지·썸네일 모두 항상 JPEG로 다시 인코딩한다 — 요청 키의 확장자(admin이 upload-url을
+      // 요청할 때 고른 값)를 그대로 믿지 않는다. 그 확장자와 실제 바이트의 형식이 다르면(예: JPEG를
+      // .png로 이름만 바꿔 올림) 디코딩은 성공하되 저장은 실제와 다른 포맷·Content-Type으로 남아
+      // 브라우저가 표시하지 못한다 — 디코더가 읽어낸 실제 픽셀로 항상 같은 포맷을 다시 써서 이 문제를
+      // 원천에서 없앤다. 저장 키를 항상 {@code .jpg}로 고정하는 계약(spec 3-2 §3-2-2)과도 맞는다.
+      thumbnail = PhotoResizer.thumbnail(resized);
+    } catch (BusinessException e) {
+      throw new PhotoRegistrationException(Reason.UNSUPPORTED_FILE_TYPE);
+    }
     String caption = normalizeCaption(item.caption());
 
-    return transactionTemplate.execute(
-        status -> {
-          User uploader = userRepository.getReferenceById(uploaderId);
-          Photo photo = Photo.upload(caption, tempKey, uploader);
-          photoRepository.saveAndFlush(photo);
+    Photo photo =
+        transactionTemplate.execute(
+            status -> {
+              requireActiveAdmin(uploaderId);
+              Photo created =
+                  Photo.upload(caption, tempKey, userRepository.getReferenceById(uploaderId));
+              photoRepository.saveAndFlush(created);
+              return created;
+            });
 
-          String uuid = UUID.randomUUID().toString();
-          String finalKey = "photos/%d/%s.%s".formatted(photo.getId(), uuid, resized.extension());
-          storageService.upload(finalKey, resized.bytes(), resized.contentType());
-          storageService.upload(thumbnailKeyOf(finalKey), thumbnail, "image/jpeg");
-          storageService.delete(tempKey);
-          photo.assignStoredPath(finalKey);
+    String finalKey = "photos/%d/%s.jpg".formatted(photo.getId(), UUID.randomUUID());
+    try {
+      storageService.upload(finalKey, resized, "image/jpeg");
+      storageService.upload(thumbnailKeyOf(finalKey), thumbnail, "image/jpeg");
+    } catch (RuntimeException e) {
+      transactionTemplate.executeWithoutResult(status -> photoRepository.deleteById(photo.getId()));
+      throw e;
+    }
 
-          return toResponse(photo);
-        });
+    Long photoId = photo.getId();
+    PhotoResponse response =
+        transactionTemplate.execute(
+            status -> {
+              Photo managed = photoRepository.getReferenceById(photoId);
+              managed.assignStoredPath(finalKey);
+              return toResponse(managed);
+            });
+    storageService.delete(tempKey);
+    return response;
   }
 
   /** 최신순 그리드 (spec 2-1 §2-1-7). */
@@ -149,10 +203,6 @@ public class PhotoService {
    * <b>DB 삭제를 먼저 커밋하고, S3 정리는 그 뒤에 한다.</b> 반대 순서로 두면 S3를 지운 다음 DB 삭제나 커밋이 실패했을 때 <b>이미 사라진 오브젝트를 계속
    * 가리키는 행</b>이 남는다 — 목록 조회마다 깨진 이미지 URL을 계속 내려주게 된다. 이 순서면 최악의 경우도 "이미 지워진 행이 가리키던 S3 오브젝트가 고아로
    * 남는" 정도라 사용자에게 보이는 문제가 없다.
-   *
-   * <p><b>요청자의 현재 권한을 행을 잠근 채 다시 확인한다.</b> {@code @PreAuthorize}는 <b>세션에 담긴</b> 값을 본다 — S3 왕복이 끝나기
-   * 전에 관리자가 그 계정을 강등·정지했다면, 세션은 여전히 ADMIN이라 판단하지만 실제 권한은 이미 사라진 뒤다 ({@link
-   * UserApplicationService#submit}과 같은 이유로 {@code findByIdForUpdate}를 쓴다).
    */
   public void delete(Long requesterId, Long id) {
     String storedPath = transactionTemplate.execute(status -> deleteRow(requesterId, id));
@@ -161,6 +211,20 @@ public class PhotoService {
   }
 
   private String deleteRow(Long requesterId, Long id) {
+    requireActiveAdmin(requesterId);
+    Photo photo =
+        photoRepository.findById(id).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+    String storedPath = photo.getStoredPath();
+    photoRepository.delete(photo);
+    return storedPath;
+  }
+
+  /**
+   * 요청자의 <b>현재</b> 권한을 행을 잠근 채 확인한다. {@code @PreAuthorize}는 <b>세션에 담긴</b> 값을 본다 — 등록·삭제가 S3와 왕복하는
+   * 동안 다른 관리자가 이 계정을 강등·정지했다면, 세션은 여전히 ADMIN이라 판단하지만 실제 권한은 이미 사라진 뒤다. 되돌릴 수 없는 S3 쓰기를 시작하기 전에 반드시
+   * 부른다 ({@link UserApplicationService#submit}과 같은 이유로 {@code findByIdForUpdate}를 쓴다).
+   */
+  private void requireActiveAdmin(Long requesterId) {
     User requester =
         userRepository
             .findByIdForUpdate(requesterId)
@@ -168,12 +232,6 @@ public class PhotoService {
     if (requester.getRole() != Role.ADMIN || requester.getStatus() != Status.ACTIVE) {
       throw new BusinessException(ErrorCode.FORBIDDEN);
     }
-
-    Photo photo =
-        photoRepository.findById(id).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
-    String storedPath = photo.getStoredPath();
-    photoRepository.delete(photo);
-    return storedPath;
   }
 
   private PhotoResponse toResponse(Photo photo) {
@@ -193,8 +251,8 @@ public class PhotoService {
   }
 
   /**
-   * {@code photos/{id}/{uuid}.{ext}} → {@code photos/{id}/thumb/{uuid}.jpg} (spec 3-2 §3-2-2 저장 키
-   * 형식). 썸네일은 항상 JPEG이므로({@link PhotoResizer#thumbnail}) 본 이미지의 확장자와 무관하게 {@code .jpg}로 고정한다.
+   * {@code photos/{id}/{uuid}.jpg} → {@code photos/{id}/thumb/{uuid}.jpg} (spec 3-2 §3-2-2 저장 키
+   * 형식). 본 이미지·썸네일 모두 항상 JPEG이므로({@link PhotoResizer}) 확장자를 조사하지 않고 {@code .jpg}로 고정한다.
    */
   private static String thumbnailKeyOf(String storedPath) {
     int lastSlash = storedPath.lastIndexOf('/');
@@ -212,15 +270,26 @@ public class PhotoService {
     return normalized;
   }
 
-  private static String extensionOf(String key) {
-    return key.substring(key.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
-  }
-
   private static String contentTypeOf(String extension) {
     return "png".equals(extension) ? "image/png" : "image/jpeg";
   }
 
   private static String normalizeCaption(String caption) {
     return (caption == null || caption.isBlank()) ? null : caption.trim();
+  }
+
+  /** {@link #registerOne} 안에서만 쓰는 항목별 실패 신호. 스택트레이스는 필요 없다 — 흐름 제어일 뿐 버그가 아니다. */
+  private static final class PhotoRegistrationException extends RuntimeException {
+
+    private final Reason reason;
+
+    PhotoRegistrationException(Reason reason) {
+      super(null, null, false, false);
+      this.reason = reason;
+    }
+
+    Reason reason() {
+      return reason;
+    }
   }
 }
