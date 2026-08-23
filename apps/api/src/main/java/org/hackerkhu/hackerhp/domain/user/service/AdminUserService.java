@@ -85,6 +85,7 @@ public class AdminUserService {
       throw new BusinessException(ErrorCode.NOT_FOUND, "회원을 찾을 수 없습니다.");
     }
     AuthoredContentRepository.Counts counts = authoredContent.countBy(userId);
-    return new ContentSummaryResponse(counts.notes(), counts.notices(), counts.photos());
+    return new ContentSummaryResponse(
+        counts.notes(), counts.notices(), counts.photos(), counts.posts());
   }
 }

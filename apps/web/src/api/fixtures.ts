@@ -753,6 +753,7 @@ export function fixtureContentSummary(id: number): Promise<ContentSummary> {
     notes: id % 5,
     notices: id % 3,
     photos: id % 7,
+    posts: id % 4,
   })
 }
 

@@ -98,12 +98,14 @@ export function reject(userIds: number[]): Promise<RejectResult> {
 /**
  * 제거하면 무엇이 남는지 (2-2 §2-2-4 MUST).
  *
- * **세 값이 항상 온다.** `0`을 빼면 화면이 "없음"과 "모름"을 가르지 못한다.
+ * **네 값이 항상 온다.** `0`을 빼면 화면이 "없음"과 "모름"을 가르지 못한다.
  */
 export interface ContentSummary {
   notes: number
   notices: number
   photos: number
+  /** 자유 게시판 글 (#236). 콘텐츠 종류가 늘면 이 응답도 늘어난다. */
+  posts: number
 }
 
 export function contentSummary(id: number): Promise<ContentSummary> {
