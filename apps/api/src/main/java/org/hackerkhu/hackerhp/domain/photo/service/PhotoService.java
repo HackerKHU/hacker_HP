@@ -28,7 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
-import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 /**
  * 활동사진 업로드·조회·삭제 (#57, spec 2-1 §2-1-7).
@@ -50,6 +50,9 @@ public class PhotoService {
   private static final long MAX_ORIGINAL_BYTES = 20L * 1024 * 1024;
 
   private static final String TEMP_PREFIX = "photos/uploads/";
+
+  /** HeadObject·GetObject가 없는 키에 응답 본문 없이 상태 코드만으로 답할 때의 값. */
+  private static final int S3_NOT_FOUND = 404;
 
   private final PhotoRepository photoRepository;
   private final UserRepository userRepository;
@@ -106,9 +109,12 @@ public class PhotoService {
    *
    * <ol>
    *   <li>요청자 권한을 잠근 채 다시 확인하고({@link #requireActiveAdmin}), 자리표시자 경로(임시 키)로 행을 만들어 커밋한다 — 최종
-   *       키({@code photos/{photoId}/{uuid}.jpg})에 이 행의 id가 들어가야 하는데, INSERT 전에는 id가 없다.
-   *   <li>그 id로 최종 키를 만들어 리사이즈본·썸네일을 올린다. <b>실패하면 방금 만든 행을 지운다</b> — 임시 원본은 아직 그대로라 같은 키로 다시 등록을
-   *       시도할 수 있다. 여기서 실패하는 것은 항목 하나의 문제가 아니라 S3 자체의 문제이므로 예외를 그대로 올려보낸다(테스트지 변환하지 않는다).
+   *       키({@code photos/{photoId}/{uuid}.jpg})에 이 행의 id가 들어가야 하는데, INSERT 전에는 id가 없다. 이 행은 아직
+   *       "완결"되지 않았으므로 {@link PhotoRepository#findByStoredPathNotStartingWith}가 목록에서 뺀다.
+   *   <li>그 id로 최종 키를 만들어 리사이즈본·썸네일을 올린 뒤, 요청자 권한을 <b>다시 한번</b> 확인하고 행에 최종 키를 반영해 커밋한다 — 1번 트랜잭션이
+   *       끝나며 잠금은 이미 풀렸고 S3 업로드는 트랜잭션 밖이라, 그 사이 다른 관리자가 요청자를 정지·강등했을 수 있다. <b>이 중 무엇이든 실패하면 1번이 만든
+   *       행을 지운다</b> — 임시 원본은 아직 그대로라 같은 키로 다시 등록을 시도할 수 있다. S3 업로드 실패는 항목 하나의 문제가 아니라 S3 자체의 문제이므로
+   *       예외를 그대로 올려보낸다(사유로 변환하지 않는다).
    *   <li>행에 최종 키를 반영하는 트랜잭션이 <b>커밋된 뒤에만</b> 임시 원본을 지운다. 반대로 지운 뒤 이 커밋이 실패하면 원본도 행도 없는 상태가 되어 복구할 수
    *       없다.
    * </ol>
@@ -127,9 +133,8 @@ public class PhotoService {
     long size;
     try {
       size = storageService.size(tempKey);
-    } catch (NoSuchKeyException e) {
-      // 발급받은 URL로 실제 업로드가 안 됐거나, 이미 등록·삭제되어 없는 키다.
-      throw new PhotoRegistrationException(Reason.NOT_FOUND);
+    } catch (S3Exception e) {
+      throw missingOrRethrow(e);
     }
     if (size > MAX_ORIGINAL_BYTES) {
       storageService.delete(tempKey);
@@ -139,9 +144,9 @@ public class PhotoService {
     byte[] original;
     try {
       original = storageService.download(tempKey);
-    } catch (NoSuchKeyException e) {
+    } catch (S3Exception e) {
       // 크기 확인과 다운로드 사이에 같은 키를 겨냥한 다른 요청이 먼저 등록을 마쳐 지웠을 수 있다.
-      throw new PhotoRegistrationException(Reason.NOT_FOUND);
+      throw missingOrRethrow(e);
     }
 
     byte[] resized;
@@ -170,32 +175,61 @@ public class PhotoService {
             });
 
     String finalKey = "photos/%d/%s.jpg".formatted(photo.getId(), UUID.randomUUID());
+    Long photoId = photo.getId();
+    PhotoResponse response;
     try {
       storageService.upload(finalKey, resized, "image/jpeg");
       storageService.upload(thumbnailKeyOf(finalKey), thumbnail, "image/jpeg");
+      /*
+       * 최종 커밋 직전에도 요청자 권한을 다시 확인한다. 첫 트랜잭션이 끝나며 행 잠금은 이미
+       * 풀렸고, S3 업로드는 트랜잭션 밖이라 그동안 다른 관리자가 요청자를 정지·강등했을 수
+       * 있다 — 그 창을 없앨 수는 없지만(그러려면 잠금을 S3 왕복 내내 들고 있어야 하는데, 그건
+       * 커넥션을 오래 쥐는 것과 같은 문제다), 되돌릴 수 없게 만드는 마지막 지점(행을 완결 상태로
+       * 커밋하는 것)만큼은 다시 확인한 뒤에 하도록 좁혀 둔다.
+       */
+      response =
+          transactionTemplate.execute(
+              status -> {
+                requireActiveAdmin(uploaderId);
+                Photo managed = photoRepository.getReferenceById(photoId);
+                managed.assignStoredPath(finalKey);
+                return toResponse(managed);
+              });
     } catch (RuntimeException e) {
-      transactionTemplate.executeWithoutResult(status -> photoRepository.deleteById(photo.getId()));
+      // 업로드 실패든 권한 재확인 실패든, 완결되지 못한 행은 남기지 않는다. 임시 원본은 그대로
+      // 두므로(아직 안 지웠다) 같은 키로 다시 시도할 수 있다.
+      transactionTemplate.executeWithoutResult(status -> photoRepository.deleteById(photoId));
       throw e;
     }
-
-    Long photoId = photo.getId();
-    PhotoResponse response =
-        transactionTemplate.execute(
-            status -> {
-              Photo managed = photoRepository.getReferenceById(photoId);
-              managed.assignStoredPath(finalKey);
-              return toResponse(managed);
-            });
     storageService.delete(tempKey);
     return response;
   }
 
-  /** 최신순 그리드 (spec 2-1 §2-1-7). */
+  /** {@code S3Exception}이 "없는 키"를 뜻하면 항목 실패로 바꾸고, 그 밖의 이유면 그대로 올려보낸다. */
+  private static PhotoRegistrationException missingOrRethrow(S3Exception e) {
+    /*
+     * HeadObject는 응답 본문이 없어 SDK가 오류 코드를 읽을 수 없다 — 그래서 키가 없을 때도
+     * NoSuchKeyException이 아니라 상태 코드 404를 단 밋밋한 S3Exception이 올라올 수 있다
+     * (같은 저장소의 S3FileStorage#describe가 같은 이유로 statusCode()를 본다). 그것까지
+     * "없음"으로 보지 않으면, 업로드가 끝나기 전에 등록을 부른 흔한 실수가 500이 된다.
+     */
+    if (e.statusCode() == S3_NOT_FOUND) {
+      return new PhotoRegistrationException(Reason.NOT_FOUND);
+    }
+    throw e;
+  }
+
+  /**
+   * 최신순 그리드 (spec 2-1 §2-1-7). 등록이 끝나지 않은 행은 뺀다 — {@link
+   * PhotoRepository#findByStoredPathNotStartingWith} 참고.
+   */
   @Transactional(readOnly = true)
   public Page<PhotoResponse> list(Pageable pageable) {
     Sort newestFirst = Sort.by(Sort.Order.desc("createdAt"));
     return photoRepository
-        .findAll(PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), newestFirst))
+        .findCompleted(
+            TEMP_PREFIX,
+            PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), newestFirst))
         .map(this::toResponse);
   }
 

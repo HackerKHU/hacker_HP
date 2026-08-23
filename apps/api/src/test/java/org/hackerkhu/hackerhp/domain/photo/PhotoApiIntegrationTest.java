@@ -273,6 +273,32 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.failed[0].reason").value("NOT_FOUND"));
   }
 
+  /* {@code @Valid}는 리스트 자체는 보되 null 원소는 거르지 않는다 — 원소에 건 @NotNull이 대신 막는다 (#186 리뷰). */
+  @Test
+  void registerWithNullItemIsRejected() throws Exception {
+    mockMvc
+        .perform(write(admin, post("/api/v1/photos"), "{\"photos\":[null]}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+  }
+
+  /*
+   * 등록이 끝나지 않은 자리표시자 행(storedPath가 아직 임시 키인 상태)은 목록에 보이지 않는다
+   * (#186 리뷰) — 두 번째 트랜잭션이 끝내 실패하면 이런 행이 영구히 남을 수 있는데, 그래도 본
+   * 이미지 URL이 리사이즈되지 않은 원본을, 썸네일 URL이 존재하지 않는 오브젝트를 가리키는 응답이
+   * 나가서는 안 된다.
+   */
+  @Test
+  void incompletePlaceholderRowIsHiddenFromList() throws Exception {
+    Photo placeholder = Photo.upload(null, "photos/uploads/never-finished.jpg", admin);
+    photoRepository.saveAndFlush(placeholder);
+
+    mockMvc
+        .perform(sessions.as(member, get("/api/v1/photos")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.page.totalElements").value(0));
+  }
+
   @Test
   void memberCannotDeletePhoto() throws Exception {
     String key = uploadOriginal(image(100, 100, "jpg"), "jpg");
