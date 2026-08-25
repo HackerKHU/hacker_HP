@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
@@ -82,6 +84,28 @@ describe('두 헤더의 로고 정렬', () => {
     const app = await classesOf(<AppHeader />)
 
     expect(app.logo).toBe(landing.logo)
+  })
+
+  /*
+   * **스크롤바 자리를 늘 비워 둔다** (#258).
+   *
+   * 클래스를 다 맞춰도 로고가 7.5px 어긋났다. 원인은 헤더가 아니라 **페이지 길이**였다 —
+   * 랜딩처럼 긴 화면은 스크롤바(15px)가 생겨 가용 폭이 줄고, 가운데 정렬된 컨테이너가
+   * 그 절반만큼 왼쪽으로 밀린다. 짧은 화면은 스크롤바가 없어 제자리다.
+   *
+   * **jsdom은 레이아웃도 스크롤바도 계산하지 않는다.** 그래서 이 검사가 확인할 수 있는
+   * 것은 "그 규칙이 스타일시트에 선언되어 있는가"뿐이고, 정렬이 실제로 맞는지는 브라우저
+   * 실측이 답한다. 그래도 남기는 이유는 **이 한 줄이 CSS 정리 중에 조용히 사라지기 쉽고,
+   * 사라지면 증상이 다시 "로고가 조금 어긋난다"로만 보이기 때문이다.**
+   */
+  it('스타일시트가 스크롤바 자리를 고정한다', () => {
+    /*
+     * jsdom 환경에서는 `import.meta.url`이 `http:`라 파일 경로로 쓸 수 없다.
+     * vitest는 `apps/web`을 작업 디렉터리로 돌고 CI도 같다(`working-directory: apps/web`).
+     */
+    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf-8')
+
+    expect(css).toContain('scrollbar-gutter: stable')
   })
 
   /*
