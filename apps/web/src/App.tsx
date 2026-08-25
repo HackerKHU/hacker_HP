@@ -5,7 +5,6 @@ import { PendingPage } from './features/auth/PendingPage'
 import { LandingPage } from './features/landing/LandingPage'
 import { PrivacyPage } from './features/legal/PrivacyPage'
 import { MemberListPage } from './features/members/MemberListPage'
-import { BookmarkListPage } from './features/notes/BookmarkListPage'
 import { NoteDetailPage } from './features/notes/NoteDetailPage'
 import { NoteFormPage } from './features/notes/NoteFormPage'
 import { NoteListPage } from './features/notes/NoteListPage'
@@ -69,7 +68,14 @@ function App() {
           <Route path="/notes/new" element={<NoteFormPage />} />
           <Route path="/notes/:id/edit" element={<NoteFormPage />} />
           <Route path="/notes/:id" element={<NoteDetailPage />} />
-          <Route path="/bookmarks" element={<BookmarkListPage />} />
+          {/*
+            **즐겨찾기는 자료게시판의 필터로 접혔다** (#261). 옛 주소를 공유했거나
+            북마크해 둔 사람이 빈 화면을 보지 않게 그 상태로 보낸다.
+          */}
+          <Route
+            path="/bookmarks"
+            element={<Navigate to="/notes?bookmarked=true" replace />}
+          />
 
           {/*
             활동사진 갤러리는 `ACTIVE`면 누구나 본다 (spec §3-1-3 매트릭스).

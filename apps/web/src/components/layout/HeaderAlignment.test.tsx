@@ -44,9 +44,12 @@ vi.mock('@/api/auth', () => ({
  * **뽑고 나면 DOM을 버린다.** 두 헤더를 한 화면에 함께 그리면 `findByAltText`가 둘을
  * 찾아 실패한다 — 둘 다 같은 `alt`를 쓰는 것이 이 파일이 지키려는 것이기도 하다.
  */
-async function classesOf(
-  header: React.ReactNode,
-): Promise<{ container: string; logo: string; src: string }> {
+async function classesOf(header: React.ReactNode): Promise<{
+  container: string
+  logo: string
+  src: string
+  navItem: string | null
+}> {
   const { unmount } = render(
     <MemoryRouter>
       <SessionProvider>{header}</SessionProvider>
@@ -57,10 +60,27 @@ async function classesOf(
   const container = logo.closest('a')?.parentElement
   if (!container) throw new Error('로고를 감싼 컨테이너를 찾지 못했다')
 
+  /*
+   * 메뉴 한 칸의 모양. **색은 뺀다** — 앱은 현재 위치를 `text-foreground`로 드러내고
+   * 랜딩에는 그런 구분이 없어서, 색까지 견주면 의도된 차이에 걸린다. 여기서 지키려는 것은
+   * **글씨 크기와 여백**이다.
+   */
+  const link = document.querySelector('header nav a')
+  const navItem =
+    link === null
+      ? null
+      : link.className
+          .split(' ')
+          .filter((name) => !name.startsWith('text-foreground'))
+          .filter((name) => !name.startsWith('text-muted-foreground'))
+          .sort()
+          .join(' ')
+
   const found = {
     container: container.className,
     logo: logo.className,
     src: logo.getAttribute('src') ?? '',
+    navItem,
   }
   unmount()
   return found
@@ -84,6 +104,25 @@ describe('두 헤더의 로고 정렬', () => {
     const app = await classesOf(<AppHeader />)
 
     expect(app.logo).toBe(landing.logo)
+  })
+
+  /*
+   * **메뉴 글씨 크기와 여백이 같다** (#261 검수).
+   *
+   * 랜딩이 `text-base py-2`(16px), 앱이 `text-sm py-1.5`(14px)로 갈려 있어 화면을 오갈 때
+   * 메뉴가 커졌다 작아졌다 했다. 두 파일이 각자 클래스를 들고 있던 것이 원인이라
+   * **한 상수에서 가져오게** 바꿨고, 여기서 그것이 유지되는지 본다.
+   *
+   * 색은 견주지 않는다 — 앱만 현재 위치를 색으로 드러내는 것이 의도된 차이다.
+   */
+  it('메뉴 한 칸의 크기·여백이 같다', async () => {
+    const landing = await classesOf(<PublicHeader />)
+    const app = await classesOf(<AppHeader />)
+
+    // 둘 다 메뉴가 그려진 상태여야 비교가 뜻을 갖는다.
+    expect(landing.navItem).not.toBeNull()
+    expect(app.navItem).not.toBeNull()
+    expect(app.navItem).toBe(landing.navItem)
   })
 
   /*

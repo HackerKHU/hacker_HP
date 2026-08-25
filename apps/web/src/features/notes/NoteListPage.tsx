@@ -1,6 +1,8 @@
+import { Star } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import {
+  bookmarks,
   type Category,
   type ExamType,
   filters as fetchFilters,
@@ -55,6 +57,11 @@ export function NoteListPage() {
   const { state, reportApiError } = useSession()
 
   const category = categoryFromParam(searchParams.get('category'))
+  /**
+   * **담아둔 것만 볼지** (#261). 별도 화면이 아니라 이 목록을 추리는 조건이라 여기 있고,
+   * 갈래와 같은 이유로 URL에 남긴다 — 새로고침·뒤로가기·링크 공유에 살아남아야 한다.
+   */
+  const onlyBookmarked = searchParams.get('bookmarked') === 'true'
   const page = parsePage(searchParams.get('page'))
   const q = searchParams.get('q') ?? ''
   const subject = searchParams.get('subject') ?? ''
@@ -83,22 +90,32 @@ export function NoteListPage() {
     let alive = true
     setData(null)
     setFailed(false)
-    list({
-      category,
-      q: q || undefined,
-      subject: subject || undefined,
-      professor: professor || undefined,
-      year: year === '' ? undefined : Number(year),
-      semester: (semester || undefined) as Semester | undefined,
-      // 시험 구분은 `EXAM`에만 붙인다. 과목 정리본에 걸면 결과가 늘 0건이다.
-      examType:
-        category === 'EXAM'
-          ? ((examType || undefined) as ExamType | undefined)
-          : undefined,
-      sort,
-      page,
-      size: PAGE_SIZE,
-    })
+    /*
+     * **두 API를 갈라 부른다** (#261). `GET /notes`에는 `bookmarked` 필터가 없고
+     * `GET /bookmarks`는 검색·필터를 받지 않는다 (계약 §3-2-4 — "이미 본인이 추린
+     * 목록이다"). 계약이 **두 응답의 형태를 같게 맞춰 두어** 표는 한 벌로 충분하다.
+     *
+     * 서버에 `bookmarked` 파라미터가 생기면 이 분기만 걷어내면 된다.
+     */
+    const query = onlyBookmarked
+      ? bookmarks({ page, size: PAGE_SIZE })
+      : list({
+          category,
+          q: q || undefined,
+          subject: subject || undefined,
+          professor: professor || undefined,
+          year: year === '' ? undefined : Number(year),
+          semester: (semester || undefined) as Semester | undefined,
+          // 시험 구분은 `EXAM`에만 붙인다. 과목 정리본에 걸면 결과가 늘 0건이다.
+          examType:
+            category === 'EXAM'
+              ? ((examType || undefined) as ExamType | undefined)
+              : undefined,
+          sort,
+          page,
+          size: PAGE_SIZE,
+        })
+    query
       .then((result) => {
         if (alive) setData(result)
       })
@@ -112,6 +129,7 @@ export function NoteListPage() {
       alive = false
     }
   }, [
+    onlyBookmarked,
     category,
     q,
     subject,
@@ -233,7 +251,7 @@ export function NoteListPage() {
          * USER·ADMIN 모두 `O`). 관리자 전용이 아니므로 `/admin` 아래에 두지 않는다.
          */}
         <Button variant="outline" size="sm" asChild>
-          <Link to={`/notes/new?category=${category}`}>자료 올리기</Link>
+          <Link to={`/notes/new?category=${category}`}>자료 업로드</Link>
         </Button>
       </div>
 
@@ -251,163 +269,205 @@ export function NoteListPage() {
        * 과목 탭으로 넘어가면 그 조건은 뜻을 잃는다 — 갈래마다 고를 수 있는 값이 다르고,
        * 특히 시험 구분은 `SUBJECT`에 걸면 결과가 늘 0건이다.
        */}
-      <nav
-        aria-label="자료 갈래"
-        className="mt-6 flex gap-1 border-b border-border"
-      >
-        {(Object.keys(CATEGORY_LABEL) as Category[]).map((value) => (
-          <Link
-            key={value}
-            to={categoryPath(value)}
-            aria-current={value === category ? 'page' : undefined}
-            className={cn(
-              '-mb-px border-b-2 px-4 py-2 text-sm transition-colors',
-              value === category
-                ? 'border-foreground font-medium text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {CATEGORY_LABEL[value]}
-          </Link>
-        ))}
-      </nav>
+      <div className="mt-6 flex items-end justify-between gap-4 border-b border-border">
+        {/*
+         * **담아둔 것만 보는 중에는 갈래 탭을 감춘다** (#261). `GET /bookmarks`는 갈래를
+         * 가리지 않고 섞어 내려주므로, 탭을 남겨 두면 눌러도 아무 일이 없다 — 화면이
+         * 거짓말을 한다. 대신 아래 표가 갈래 열을 보여준다.
+         */}
+        {onlyBookmarked ? (
+          <span />
+        ) : (
+          <nav aria-label="자료 갈래" className="flex gap-1">
+            {(Object.keys(CATEGORY_LABEL) as Category[]).map((value) => (
+              <Link
+                key={value}
+                to={categoryPath(value)}
+                aria-current={value === category ? 'page' : undefined}
+                className={cn(
+                  '-mb-px border-b-2 px-4 py-2 text-sm transition-colors',
+                  value === category
+                    ? 'border-foreground font-medium text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {CATEGORY_LABEL[value]}
+              </Link>
+            ))}
+          </nav>
+        )}
+
+        {/*
+         * **즐겨찾기는 목적지가 아니라 이 목록을 추리는 조건이다** (#261). 별도 화면이던
+         * 것을 여기로 접었다 — 갈래를 탭으로 접은 것과 같은 판단이다 (#59).
+         *
+         * **버튼이 아니라 링크다.** 주소가 바뀌는 이동이라 새 탭으로 열거나 주소를
+         * 복사하는 것이 성립해야 한다.
+         *
+         * **켜면 검색·필터를 떨군다.** `GET /bookmarks`가 그것을 받지 않으므로 들고 가면
+         * 조건이 걸린 것처럼 보이는데 실제로는 무시된다.
+         */}
+        <Link
+          to={
+            onlyBookmarked ? categoryPath(category) : '/notes?bookmarked=true'
+          }
+          aria-pressed={onlyBookmarked}
+          className={cn(
+            'mb-2 flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors',
+            onlyBookmarked
+              ? 'bg-accent font-medium text-foreground'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <Star
+            className={cn('size-4', onlyBookmarked && 'fill-current')}
+            aria-hidden="true"
+          />
+          즐겨찾기만 보기
+        </Link>
+      </div>
 
       {/*
        * **검색어와 필터는 AND로 함께 걸린다** (spec §2-1-1 MUST). 하나의 폼 안에 두어
        * 서로 배타적인 것이 아님을 화면으로 보여준다.
+       *
+       * **담아둔 것만 보는 중에는 통째로 감춘다** (#261). `GET /bookmarks`는 검색·필터를
+       * 받지 않는다 (계약 §3-2-4) — 남겨 두고 눌러도 안 먹으면 화면이 거짓말을 한다.
        */}
-      <form
-        onSubmit={submitSearch}
-        className="mt-4 flex flex-wrap items-end gap-3"
-      >
-        <div className="grow space-y-2 sm:grow-0">
-          <Label htmlFor="note-search">검색</Label>
-          {/* **통합 검색이다** — 제목·과목·교수를 한 칸으로 받는다 (§2-1-1 MUST). */}
-          <Input
-            id="note-search"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="제목 · 과목 · 교수"
-            className="sm:w-64"
-          />
-        </div>
+      {!onlyBookmarked && (
+        <form
+          onSubmit={submitSearch}
+          className="mt-4 flex flex-wrap items-end gap-3"
+        >
+          <div className="grow space-y-2 sm:grow-0">
+            <Label htmlFor="note-search">검색</Label>
+            {/* **통합 검색이다** — 제목·과목·교수를 한 칸으로 받는다 (§2-1-1 MUST). */}
+            <Input
+              id="note-search"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="제목 · 과목 · 교수"
+              className="sm:w-64"
+            />
+          </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="note-subject">과목</Label>
-          <select
-            id="note-subject"
-            value={subject}
-            onChange={(event) => setParam('subject', event.target.value)}
-            className={SELECT_CLASS}
-            style={SelectArrow}
-          >
-            <option value="">전체</option>
-            {/* **실제 등록된 값만 고를 수 있다** (§3-2-4 MUST) — 없는 과목은 늘 0건이다. */}
-            {options?.subjects.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="note-professor">교수</Label>
-          <select
-            id="note-professor"
-            value={professor}
-            onChange={(event) => setParam('professor', event.target.value)}
-            className={SELECT_CLASS}
-            style={SelectArrow}
-          >
-            <option value="">전체</option>
-            {options?.professors.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="note-year">연도</Label>
-          <select
-            id="note-year"
-            value={year}
-            onChange={(event) => setParam('year', event.target.value)}
-            className={SELECT_CLASS}
-            style={SelectArrow}
-          >
-            <option value="">전체</option>
-            {options?.years.map((value) => (
-              <option key={value} value={value}>
-                {value}년
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="note-semester">학기</Label>
-          {/* 학기·시험 구분은 값이 enum으로 고정이라 서버가 옵션을 내려주지 않는다 (§3-2-4). */}
-          <select
-            id="note-semester"
-            value={semester}
-            onChange={(event) => setParam('semester', event.target.value)}
-            className={SELECT_CLASS}
-            style={SelectArrow}
-          >
-            <option value="">전체</option>
-            {Object.entries(SEMESTER_LABEL).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* **시험 구분은 `EXAM`에만 노출된다** (spec §2-1-1 필터 표). */}
-        {category === 'EXAM' && (
           <div className="space-y-2">
-            <Label htmlFor="note-exam-type">시험 구분</Label>
+            <Label htmlFor="note-subject">과목</Label>
             <select
-              id="note-exam-type"
-              value={examType}
-              onChange={(event) => setParam('examType', event.target.value)}
+              id="note-subject"
+              value={subject}
+              onChange={(event) => setParam('subject', event.target.value)}
               className={SELECT_CLASS}
               style={SelectArrow}
             >
               <option value="">전체</option>
-              {Object.entries(EXAM_TYPE_LABEL).map(([value, label]) => (
+              {/* **실제 등록된 값만 고를 수 있다** (§3-2-4 MUST) — 없는 과목은 늘 0건이다. */}
+              {options?.subjects.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="note-professor">교수</Label>
+            <select
+              id="note-professor"
+              value={professor}
+              onChange={(event) => setParam('professor', event.target.value)}
+              className={SELECT_CLASS}
+              style={SelectArrow}
+            >
+              <option value="">전체</option>
+              {options?.professors.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="note-year">연도</Label>
+            <select
+              id="note-year"
+              value={year}
+              onChange={(event) => setParam('year', event.target.value)}
+              className={SELECT_CLASS}
+              style={SelectArrow}
+            >
+              <option value="">전체</option>
+              {options?.years.map((value) => (
+                <option key={value} value={value}>
+                  {value}년
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="note-semester">학기</Label>
+            {/* 학기·시험 구분은 값이 enum으로 고정이라 서버가 옵션을 내려주지 않는다 (§3-2-4). */}
+            <select
+              id="note-semester"
+              value={semester}
+              onChange={(event) => setParam('semester', event.target.value)}
+              className={SELECT_CLASS}
+              style={SelectArrow}
+            >
+              <option value="">전체</option>
+              {Object.entries(SEMESTER_LABEL).map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
                 </option>
               ))}
             </select>
           </div>
-        )}
 
-        <div className="space-y-2">
-          <Label htmlFor="note-sort">정렬</Label>
-          <select
-            id="note-sort"
-            value={sort}
-            onChange={(event) => setParam('sort', event.target.value)}
-            className={SELECT_CLASS}
-            style={SelectArrow}
-          >
-            {SORTS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
+          {/* **시험 구분은 `EXAM`에만 노출된다** (spec §2-1-1 필터 표). */}
+          {category === 'EXAM' && (
+            <div className="space-y-2">
+              <Label htmlFor="note-exam-type">시험 구분</Label>
+              <select
+                id="note-exam-type"
+                value={examType}
+                onChange={(event) => setParam('examType', event.target.value)}
+                className={SELECT_CLASS}
+                style={SelectArrow}
+              >
+                <option value="">전체</option>
+                {Object.entries(EXAM_TYPE_LABEL).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
-        <Button type="submit" variant="outline">
-          검색
-        </Button>
-      </form>
+          <div className="space-y-2">
+            <Label htmlFor="note-sort">정렬</Label>
+            <select
+              id="note-sort"
+              value={sort}
+              onChange={(event) => setParam('sort', event.target.value)}
+              className={SELECT_CLASS}
+              style={SelectArrow}
+            >
+              {SORTS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <Button type="submit" variant="outline">
+            검색
+          </Button>
+        </form>
+      )}
 
       {notice && (
         <p role="alert" className="mt-6 text-sm text-muted-foreground">
@@ -431,20 +491,27 @@ export function NoteListPage() {
          * "등록된 자료가 없습니다"라고 하면 검색어를 지워볼 생각을 못 한다.
          */
         <p className="mt-8 text-sm text-muted-foreground">
-          {filtered
-            ? '조건에 맞는 자료가 없습니다. 검색어나 필터를 바꿔 보세요.'
-            : '등록된 자료가 없습니다.'}
+          {onlyBookmarked
+            ? '담아둔 자료가 없습니다. 목록에서 별표를 눌러 담아보세요.'
+            : filtered
+              ? '조건에 맞는 자료가 없습니다. 검색어나 필터를 바꿔 보세요.'
+              : '등록된 자료가 없습니다.'}
         </p>
       )}
 
       {data !== null && data.content.length > 0 && (
         <>
           <p className="mt-6 text-sm text-muted-foreground">
-            전체 {data.page.totalElements}건
+            {onlyBookmarked ? '담아둔 자료' : '전체'} {data.page.totalElements}
+            건
           </p>
           <NoteTable
             notes={data.content}
-            showCategory={false}
+            /*
+             * 담아둔 목록에는 시험·과목이 섞여 오므로 갈래를 보여준다. 탭으로 가른
+             * 목록에서는 전부 같은 값이라 감춘다.
+             */
+            showCategory={onlyBookmarked}
             onToggleBookmark={toggleBookmark}
             busy={pending || state.kind !== 'active'}
           />

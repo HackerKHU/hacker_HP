@@ -198,6 +198,21 @@ describe('로그인 후 도착 경로', () => {
   })
 })
 
+/*
+ * **옛 즐겨찾기 주소를 살린다** (#261). 그 화면이 자료게시판의 토글로 접혔으므로,
+ * 주소를 공유했거나 북마크해 둔 사람이 빈 화면을 보면 안 된다.
+ */
+describe('옛 주소', () => {
+  it('/bookmarks로 들어오면 자료게시판의 즐겨찾기 상태로 보낸다', async () => {
+    auth.me = () => Promise.resolve(BASE)
+
+    renderAt('/bookmarks')
+
+    await screen.findByRole('heading', { name: '자료게시판' })
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/notes')
+  })
+})
+
 describe('헤더 메뉴 노출', () => {
   it('ADMIN에게는 회원 관리가 보인다', async () => {
     auth.me = () => Promise.resolve({ ...BASE, role: 'ADMIN' })
@@ -212,7 +227,6 @@ describe('헤더 메뉴 노출', () => {
     expect(menuLabels()).toEqual([
       '공지사항',
       '자료게시판',
-      '즐겨찾기',
       '갤러리',
       '회원 관리',
     ])
@@ -255,12 +269,11 @@ describe('헤더 메뉴 노출', () => {
      * **갤러리(활동사진)도 부원 메뉴다** — 업로드만 ADMIN이라 그 진입점은 갤러리 안에 있다
      * (spec §3-1-3 매트릭스). 메뉴를 관리자에게만 두면 부원이 사진을 볼 길이 없다.
      */
-    expect(menuLabels()).toEqual([
-      '공지사항',
-      '자료게시판',
-      '즐겨찾기',
-      '갤러리',
-    ])
+    /*
+     * **즐겨찾기 메뉴가 없다** (#261). 담아둔 자료를 보는 것은 다른 목적지가 아니라
+     * 자료게시판을 추리는 조건이라 그 화면의 토글로 접혔다.
+     */
+    expect(menuLabels()).toEqual(['공지사항', '자료게시판', '갤러리'])
     expect(menuLabels()).not.toContain('회원 관리')
   })
 

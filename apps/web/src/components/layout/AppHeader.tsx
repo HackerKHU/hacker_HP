@@ -2,6 +2,7 @@ import { Link, NavLink } from 'react-router-dom'
 import type { Role } from '@/api/types'
 import { useSession } from '@/auth/session'
 import { useLogout } from '@/auth/useLogout'
+import { HEADER_NAV_ITEM } from '@/components/header-nav'
 import { Button } from '@/components/ui/button'
 import { CLUB } from '@/features/landing/content'
 import { lookup } from '@/lib/lookup'
@@ -22,7 +23,6 @@ const MEMBER_MENUS = [
    * 탭은 URL에 남으므로(`/notes?category=`) 링크 공유도 그대로 된다.
    */
   { to: '/notes', label: '자료게시판' },
-  { to: '/bookmarks', label: '즐겨찾기' },
   /*
    * 갤러리는 `ACTIVE`면 누구나 본다 — 업로드만 ADMIN이라 그 진입점은 갤러리 안에 둔다
    * (spec §3-1-3 매트릭스). 메뉴를 관리자에게만 보이면 부원이 사진을 볼 길이 없다.
@@ -89,8 +89,13 @@ export function AppHeader() {
               to={menu.to}
               end
               className={({ isActive }) =>
+                /*
+                 * 모양은 `PublicHeader`와 **같은 상수에서 온다** (#261 검수) — 화면을
+                 * 오갈 때 메뉴 크기가 달라지지 않아야 한다. 여기만 현재 위치를 색으로
+                 * 드러낸다.
+                 */
                 cn(
-                  'rounded-md px-3 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
+                  HEADER_NAV_ITEM,
                   isActive ? 'text-foreground' : 'text-muted-foreground',
                 )
               }
