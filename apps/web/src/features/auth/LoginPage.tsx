@@ -308,12 +308,20 @@ export function LoginPage() {
             <span>
               © {COPYRIGHT_YEAR} {CLUB.name}
             </span>
-            <Link
-              to="/privacy"
-              className="transition-colors hover:text-foreground"
-            >
-              개인정보처리방침
-            </Link>
+            <span className="flex gap-3">
+              <Link
+                to="/privacy"
+                className="transition-colors hover:text-foreground"
+              >
+                개인정보처리방침
+              </Link>
+              <Link
+                to="/terms"
+                className="transition-colors hover:text-foreground"
+              >
+                이용약관
+              </Link>
+            </span>
           </div>
         </section>
       </div>
