@@ -3,13 +3,18 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { hasApplied, homePath, useSession } from '@/auth/session'
 import { useLogout } from '@/auth/useLogout'
+import { HEADER_NAV_ITEM } from '@/components/header-nav'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { CLUB, SECTIONS } from './content'
 
-/** 왼쪽 메뉴 한 칸. 앵커와 라우트 링크가 같은 무게로 읽히도록 클래스를 공유한다. */
-const NAV_ITEM =
-  'rounded-md px-3 py-2 text-base text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground'
+/**
+ * 왼쪽 메뉴 한 칸. 앵커와 라우트 링크가 같은 무게로 읽히도록 클래스를 공유한다.
+ *
+ * 모양은 `AppHeader`와 **같은 상수에서 온다** — 화면을 오갈 때 메뉴 크기가 달라지지
+ * 않아야 한다. 색만 여기서 붙인다 (랜딩에는 현재 위치 표시가 없다).
+ */
+const NAV_ITEM = cn(HEADER_NAV_ITEM, 'text-muted-foreground')
 
 /**
  * 부원 화면으로 가는 링크.

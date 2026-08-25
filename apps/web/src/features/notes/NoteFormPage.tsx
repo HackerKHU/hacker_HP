@@ -280,7 +280,7 @@ export function NoteFormPage() {
       </Link>
 
       <h1 className="mt-6 text-2xl font-semibold tracking-tight">
-        {editing ? '자료 수정' : '자료 올리기'}
+        {editing ? '자료 수정' : '자료 업로드'}
       </h1>
 
       {loading === 'loading' && (
