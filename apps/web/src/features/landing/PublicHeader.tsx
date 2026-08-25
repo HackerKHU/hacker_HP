@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { hasApplied, homePath, useSession } from '@/auth/session'
 import { useLogout } from '@/auth/useLogout'
-import { HEADER_NAV_ITEM } from '@/components/header-nav'
+import { HEADER_ACTION, HEADER_NAV_ITEM } from '@/components/header-nav'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { CLUB, SECTIONS } from './content'
@@ -161,11 +161,11 @@ export function PublicHeader() {
                  * 두면 "여기를 누르면 된다"는 거짓말이 된다. 옆의 로그인과 목적지도 겹친다.
                  */}
                 {session.state.kind === 'guest' && (
-                  <Button asChild size="sm">
+                  <Button asChild className={HEADER_ACTION}>
                     <Link to="/login">지원하기</Link>
                   </Button>
                 )}
-                <Button asChild variant="outline" size="sm">
+                <Button asChild variant="outline" className={HEADER_ACTION}>
                   <Link to="/login">로그인</Link>
                 </Button>
               </>
@@ -189,13 +189,17 @@ export function PublicHeader() {
                  * 이 자리는 내 상태와 다음 행동만 남긴다 — 로그인·로그아웃과 같은 성격이다.
                  */}
                 {!isActive && applied !== null && (
-                  <Button asChild variant="outline" size="sm">
+                  <Button asChild variant="outline" className={HEADER_ACTION}>
                     <Link to={homePath(session)}>
                       {applied ? '승인 대기 중' : '지원하기'}
                     </Link>
                   </Button>
                 )}
-                <Button variant="ghost" size="sm" onClick={logout}>
+                <Button
+                  variant="ghost"
+                  className={HEADER_ACTION}
+                  onClick={logout}
+                >
                   로그아웃
                 </Button>
               </>
@@ -205,8 +209,12 @@ export function PublicHeader() {
 
         {/*
          * 섹션 메뉴만 여기로 접는다. 지원하기·로그인은 밖에 남긴다 — 랜딩을 처음 보는
-         * 사람의 다음 행동이라 한 번의 탭 뒤로 숨기지 않는다. 버튼이 `size="sm"`이라
-         * 390px에서도 로고와 함께 들어간다.
+         * 사람의 다음 행동이라 한 번의 탭 뒤로 숨기지 않는다.
+         *
+         * ⚠️ **버튼이 커졌다.** 한때 `size="sm"`(h-8·14px)이라 390px에서도 로고와 함께
+         * 들어간다고 적혀 있었는데, 메뉴 글씨에 맞춰 기본 크기(h-9·16px)로 올리면서
+         * 가로로 더 넓어졌다. **좁은 화면에서 이 줄이 넘치는지는 실측이 필요하다** —
+         * #249가 그것을 기다리고 있고, 그 값이 여기서 한 번 더 나빠졌다.
          *
          * 세션 확인 중에도 그린다 — 섹션 이동은 세션과 무관하다.
          */}

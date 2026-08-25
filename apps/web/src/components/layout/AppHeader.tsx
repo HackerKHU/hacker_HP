@@ -2,7 +2,7 @@ import { Link, NavLink } from 'react-router-dom'
 import type { Role } from '@/api/types'
 import { useSession } from '@/auth/session'
 import { useLogout } from '@/auth/useLogout'
-import { HEADER_NAV_ITEM } from '@/components/header-nav'
+import { HEADER_ACTION, HEADER_NAV_ITEM } from '@/components/header-nav'
 import { Button } from '@/components/ui/button'
 import { CLUB } from '@/features/landing/content'
 import { lookup } from '@/lib/lookup'
@@ -116,7 +116,7 @@ export function AppHeader() {
               로그아웃하지 못했습니다. 다시 시도해 주세요.
             </p>
           )}
-          <Button variant="ghost" size="sm" onClick={logout}>
+          <Button variant="ghost" className={HEADER_ACTION} onClick={logout}>
             로그아웃
           </Button>
         </div>

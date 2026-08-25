@@ -23,3 +23,16 @@
  */
 export const HEADER_NAV_ITEM =
   'rounded-md px-3 py-2 text-base transition-colors hover:bg-accent hover:text-accent-foreground'
+
+/**
+ * 헤더의 액션 버튼(로그아웃·로그인·지원하기·승인 대기 중).
+ *
+ * **메뉴와 같은 글씨 크기를 쓴다.** `Button`의 기본은 `text-sm`이라 메뉴만 키우면 바로
+ * 옆 버튼이 한 단계 작아 보인다 — 같은 줄에 놓인 것들이라 크기가 갈리면 그것부터 눈에 띈다.
+ *
+ * **`size="sm"`(h-8)을 쓰지 않는다.** 16px 글자가 32px 상자에 들어가면 위아래가 눌린다.
+ * 기본 크기(h-9)가 메뉴 한 칸(24px 글줄 + `py-2` = 40px)과도 덜 어긋난다.
+ *
+ * 색과 테두리는 각자 `variant`가 정한다 — 여기는 크기만 맞춘다.
+ */
+export const HEADER_ACTION = 'text-base'
