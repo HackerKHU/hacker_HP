@@ -25,6 +25,7 @@ const MEMBER_LINKS = [
   { to: '/notices', label: '공지사항' },
   { to: '/notes', label: '자료게시판' },
   { to: '/photos', label: '갤러리' },
+  { to: '/posts', label: '자유 게시판' },
 ]
 
 /**

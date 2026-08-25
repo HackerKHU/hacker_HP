@@ -28,6 +28,7 @@ const MEMBER_MENUS = [
    * (spec §3-1-3 매트릭스). 메뉴를 관리자에게만 보이면 부원이 사진을 볼 길이 없다.
    */
   { to: '/photos', label: '갤러리' },
+  { to: '/posts', label: '자유 게시판' },
 ]
 
 const MENUS = {

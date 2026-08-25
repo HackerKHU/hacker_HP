@@ -50,6 +50,7 @@ import type {
 } from './notes'
 import type { Notice } from './notices'
 import type { Photo, PhotoRegisterResult, PhotoUpload } from './photos'
+import type { PostDetail, PostSummary } from './posts'
 import type { Page, Role, User } from './types'
 
 /**
@@ -1563,4 +1564,137 @@ export function fixtureRegisterPhotos(
     registered.push(created)
   })
   return Promise.resolve({ registered, failed })
+}
+
+// ── 자유 게시판 ──────────────────────────────────────────────────────────────
+
+/**
+ * 게시판 픽스처.
+ *
+ * **본문에 HTML을 섞어 둔다.** 계약이 평문만 다루기로 못 박았으므로(spec §2-1-8 MUST)
+ * 화면이 그것을 글자 그대로 그리는지 눈으로 확인할 수 있어야 한다 — 태그가 사라지거나
+ * 굵게 보이면 그 자리에서 드러난다.
+ *
+ * **작성자도 섞는다** — 나·남·탈퇴한 회원. 탈퇴한 글이 깨지지 않는 것이 #237 완료 조건이다.
+ */
+const POST_BODIES = [
+  '이번 학기 알고리즘 스터디 모집합니다.\n\n매주 수요일 저녁 7시, 동아리방에서 진행해요.\n관심 있으신 분은 댓글 대신 카톡으로 연락 주세요!',
+  '어제 세미나 자료 올려두었습니다. 자료게시판에서 받아가세요.',
+  '<script>alert(1)</script> 이런 것도 그냥 글자로 보여야 합니다.\n<b>굵게</b> 안 되는 게 맞아요.',
+  '동아리방 청소 도와주실 분 구합니다.\n토요일 오후 2시입니다.',
+  '학교 앞에 새로 생긴 카페 괜찮네요. 과제하기 좋습니다.',
+]
+
+const POST_TITLES = [
+  '이번 학기 스터디 모집합니다',
+  '세미나 자료 공유',
+  'HTML이 그대로 보이는지 확인용',
+  '동아리방 청소 도와주세요',
+  '학교 앞 카페 추천',
+]
+
+/** 게시글 하나. 목록은 여기서 `content`·`updatedAt`을 빼고 꺼낸다. */
+type FixturePost = PostDetail
+
+/**
+ * 25건. **한 페이지(20건)를 넘긴다** — 페이지네이션이 실제로 도는지 보려면 2페이지가 있어야 한다.
+ */
+const POSTS: FixturePost[] = Array.from({ length: 25 }, (_, index) => {
+  const owner = index % 3
+  return {
+    id: 701 + index,
+    title: `${POST_TITLES[index % POST_TITLES.length]}${index >= POST_TITLES.length ? ` (${index + 1})` : ''}`,
+    content: POST_BODIES[index % POST_BODIES.length],
+    author:
+      owner === 0
+        ? { id: USERS.user.id, name: USERS.user.name }
+        : owner === 1
+          ? { id: 99, name: '권승원' }
+          : // 탈퇴한 회원. 서버가 이름을 채운다 (§2-1-8).
+            { id: null, name: '탈퇴한 회원' },
+    createdAt: daysAgo(index),
+    updatedAt: daysAgo(index),
+  }
+})
+
+/** 최신순 고정 (spec §2-1-8 MUST) — 화면이 정렬을 고르지 않는다. */
+export function fixturePosts(
+  query: { page?: number; size?: number } = {},
+): Promise<Page<PostSummary>> {
+  const size = query.size ?? FIXTURE_PAGE_SIZE
+  const page = query.page ?? 0
+  const start = page * size
+  const rows = [...POSTS]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
+    // **목록은 본문을 담지 않는다** (계약 §3-2-5 MUST). 픽스처가 담으면 화면이 그것에 기댄다.
+    .map(({ content: _content, updatedAt: _updatedAt, ...rest }) => rest)
+  return Promise.resolve({
+    content: rows.slice(start, start + size),
+    page: {
+      size,
+      number: page,
+      totalElements: POSTS.length,
+      totalPages: Math.ceil(POSTS.length / size),
+    },
+  })
+}
+
+export function fixturePost(id: number): Promise<PostDetail> {
+  const found = POSTS.find((post) => post.id === id)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '게시글을 찾을 수 없습니다.'),
+    )
+  }
+  return Promise.resolve(found)
+}
+
+let nextPostId = 801
+
+/**
+ * 등록.
+ *
+ * **작성자는 인증 주체로만 정한다** (계약 §3-2-5 MUST) — 본문으로 받지 않는다. 픽스처도
+ * 같은 규칙을 써야 "남의 이름으로 쓰는" 경로가 화면에 생기지 않는다.
+ *
+ * **길이는 코드 포인트로 센다** — 서버의 `@CodePointSize`와 같다. 통과시키면 화면의
+ * 글자 수 세기가 틀려도 드러나지 않는다.
+ */
+export function fixtureCreatePost(body: {
+  title: string
+  content: string
+}): Promise<PostDetail> {
+  const title = body.title.trim()
+  const content = body.content.trim()
+  if (title === '' || content === '') {
+    return Promise.reject(
+      new ApiError('VALIDATION_ERROR', 400, '제목과 내용을 입력해 주세요.'),
+    )
+  }
+  if ([...title].length > 200) {
+    return Promise.reject(
+      new ApiError('VALIDATION_ERROR', 400, '제목은 200자까지 쓸 수 있습니다.'),
+    )
+  }
+  if ([...content].length > 10000) {
+    return Promise.reject(
+      new ApiError(
+        'VALIDATION_ERROR',
+        400,
+        '내용은 10,000자까지 쓸 수 있습니다.',
+      ),
+    )
+  }
+
+  const me = SCENARIO === 'admin' ? USERS.admin : USERS.user
+  const created: FixturePost = {
+    id: nextPostId++,
+    title,
+    content,
+    author: { id: me.id, name: me.name },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+  POSTS.unshift(created)
+  return Promise.resolve(created)
 }

@@ -977,3 +977,146 @@ describe('활동사진 픽스처', () => {
     expect(page.content[0].caption).toBe('방금 올린 사진')
   })
 })
+
+/**
+ * 게시판 픽스처가 서버 계약을 그대로 지키는지.
+ *
+ * 화면 테스트는 `@/api/posts`를 통째로 mock하므로 **이 계층은 그 뒤에 가려져 있다.**
+ * 픽스처가 계약보다 무르면 오류 UI 없이도 화면이 멀쩡해 보인다.
+ */
+describe('게시판 픽스처', () => {
+  /* **목록은 본문을 담지 않는다** (계약 §3-2-5 MUST). 담으면 화면이 그것에 기댄다. */
+  it('목록 응답에 본문이 없다', async () => {
+    const { fixturePosts } = await loadFixtures('user')
+
+    const page = await fixturePosts()
+
+    expect(page.content.length).toBeGreaterThan(0)
+    for (const post of page.content) {
+      expect(post).not.toHaveProperty('content')
+    }
+  })
+
+  /* **최신순 고정이다** (§2-1-8 MUST). 마지막 기준은 `id`다. */
+  it('목록이 최신순이다', async () => {
+    const { fixturePosts } = await loadFixtures('user')
+
+    const page = await fixturePosts({ size: 100 })
+
+    const dates = page.content.map((post) => post.createdAt)
+    expect([...dates].sort((a, b) => b.localeCompare(a))).toEqual(dates)
+  })
+
+  /* 한 페이지를 넘겨야 페이지네이션을 화면에서 확인할 수 있다. */
+  it('한 페이지를 넘는 글이 있다', async () => {
+    const { fixturePosts } = await loadFixtures('user')
+
+    expect((await fixturePosts()).page.totalPages).toBeGreaterThan(1)
+  })
+
+  /* 상세에는 본문이 있다 — 목록과 상세의 차이가 계약의 핵심이다. */
+  it('상세에는 본문이 있다', async () => {
+    const { fixturePosts, fixturePost } = await loadFixtures('user')
+    const page = await fixturePosts()
+
+    const detail = await fixturePost(page.content[0].id)
+
+    expect(detail.content.length).toBeGreaterThan(0)
+  })
+
+  /*
+   * 픽스처 본문에 **HTML이 섞여 있어야 한다** — 화면이 그것을 글자 그대로 그리는지
+   * 눈으로 확인할 수 있어야 한다 (spec §2-1-8 MUST).
+   */
+  it('본문에 HTML이 섞인 글이 있다', async () => {
+    const { fixturePosts, fixturePost } = await loadFixtures('user')
+    const page = await fixturePosts({ size: 100 })
+
+    const bodies = await Promise.all(
+      page.content.map((post) => fixturePost(post.id)),
+    )
+
+    expect(bodies.some((post) => post.content.includes('<script>'))).toBe(true)
+  })
+
+  /* 탈퇴한 회원의 글이 있어야 그 표시를 화면에서 확인할 수 있다. */
+  it('탈퇴한 회원의 글이 있다', async () => {
+    const { fixturePosts } = await loadFixtures('user')
+
+    const page = await fixturePosts({ size: 100 })
+
+    expect(
+      page.content.some(
+        (post) => post.author.id === null && post.author.name === '탈퇴한 회원',
+      ),
+    ).toBe(true)
+  })
+
+  /* **작성자는 인증 주체로만 정한다** (계약 §3-2-5 MUST) — 본문으로 받지 않는다. */
+  it('쓴 글의 작성자가 나다', async () => {
+    const { fixtureCreatePost } = await loadFixtures('user')
+
+    const created = await fixtureCreatePost({
+      title: '새 글',
+      content: '내용',
+    })
+
+    expect(created.author.name).toBe('홍길동')
+  })
+
+  it('쓴 글이 목록 맨 앞에 온다', async () => {
+    const { fixtureCreatePost, fixturePosts } = await loadFixtures('user')
+
+    const created = await fixtureCreatePost({
+      title: '방금 쓴 글',
+      content: '내용',
+    })
+    const page = await fixturePosts()
+
+    expect(page.content[0].id).toBe(created.id)
+  })
+
+  /* 서버가 거부할 것을 픽스처도 거부한다 — 통과시키면 오류 화면을 만들 수 없다. */
+  it.each([
+    ['제목이 공백', '   ', '내용'],
+    ['내용이 공백', '제목', '   '],
+  ])('%s이면 VALIDATION_ERROR다', async (_label, title, content) => {
+    const { fixtureCreatePost, ApiError } = await loadFixtures('user')
+
+    const error = await fixtureCreatePost({ title, content }).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe(
+      'VALIDATION_ERROR',
+    )
+  })
+
+  /*
+   * **길이는 코드 포인트로 센다** — 서버의 `@CodePointSize`와 같다. 픽스처가 UTF-16으로
+   * 세면 이모지가 섞인 글에서 화면과 서버의 판정이 갈리는 것을 못 잡는다.
+   */
+  it('이모지 200자 제목은 통과한다', async () => {
+    const { fixtureCreatePost } = await loadFixtures('user')
+
+    // UTF-16으로는 400단위, 코드 포인트로는 200이다.
+    const created = await fixtureCreatePost({
+      title: '🎉'.repeat(200),
+      content: '내용',
+    })
+
+    expect(created.id).toBeGreaterThan(0)
+  })
+
+  it('201자 제목은 거부한다', async () => {
+    const { fixtureCreatePost, ApiError } = await loadFixtures('user')
+
+    const error = await fixtureCreatePost({
+      title: '가'.repeat(201),
+      content: '내용',
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+  })
+})
