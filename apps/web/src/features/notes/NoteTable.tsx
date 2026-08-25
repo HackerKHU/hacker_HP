@@ -46,7 +46,7 @@ export function NoteTable({
           <TableRow>
             {/* 별표 열은 제목이 없다 — 아이콘만 있는 칸이라 이름을 붙이면 폭만 먹는다. */}
             <TableHead className="w-10" />
-            {showCategory && <TableHead className="w-28">갈래</TableHead>}
+            {showCategory && <TableHead className="w-28">카테고리</TableHead>}
             <TableHead>제목</TableHead>
             <TableHead className="w-36">과목</TableHead>
             <TableHead className="w-24">교수</TableHead>

@@ -94,7 +94,7 @@ export function PostFormPage() {
         to="/posts"
         className="text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
-        ← 자유 게시판
+        ← 자유게시판
       </Link>
 
       <h1 className="mt-6 text-2xl font-semibold tracking-tight">글쓰기</h1>
@@ -117,7 +117,7 @@ export function PostFormPage() {
             id="post-title"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="이번 학기 스터디 모집합니다"
+            placeholder="제목을 입력하세요"
             aria-invalid={titleCount > TITLE_MAX}
           />
         </div>
@@ -156,7 +156,7 @@ export function PostFormPage() {
             <Link to="/posts">취소</Link>
           </Button>
           <Button type="submit" disabled={saving || tooLong}>
-            {saving ? '올리는 중' : '올리기'}
+            {saving ? '작성 중' : '작성완료'}
           </Button>
         </div>
       </form>

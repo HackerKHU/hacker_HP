@@ -128,7 +128,7 @@ describe('자료 목록', () => {
     expect(
       await screen.findByRole('heading', { name: '자료게시판' }),
     ).toBeVisible()
-    const tabs = screen.getByRole('navigation', { name: '자료 갈래' })
+    const tabs = screen.getByRole('navigation', { name: '자료 카테고리' })
     expect(
       within(tabs)
         .getAllByRole('link')
@@ -314,12 +314,13 @@ describe('자료 목록', () => {
   })
 
   /* 자료를 올리는 진입점. 문구가 바뀌면 여기서 잡힌다. */
-  it('자료 업로드 진입점이 있다', async () => {
+  it('업로드 진입점이 있다', async () => {
     renderList()
 
-    expect(
-      await screen.findByRole('link', { name: '자료 업로드' }),
-    ).toHaveAttribute('href', '/notes/new?category=EXAM')
+    expect(await screen.findByRole('link', { name: '업로드' })).toHaveAttribute(
+      'href',
+      '/notes/new?category=EXAM',
+    )
   })
 
   /*
@@ -367,22 +368,24 @@ describe('자료 목록', () => {
     expect(screen.queryByLabelText('검색')).toBeNull()
     expect(screen.queryByLabelText('과목')).toBeNull()
     expect(screen.queryByLabelText('정렬')).toBeNull()
-    expect(screen.queryByRole('navigation', { name: '자료 갈래' })).toBeNull()
+    expect(
+      screen.queryByRole('navigation', { name: '자료 카테고리' }),
+    ).toBeNull()
   })
 
   /* 담아둔 목록에는 시험·과목이 섞여 오므로 갈래 열이 필요하다. */
-  it('토글이 켜지면 갈래 열이 보인다', async () => {
+  it('토글이 켜지면 카테고리 열이 보인다', async () => {
     renderList('/notes?bookmarked=true')
     await screen.findByText('운영체제 중간고사 정리본')
 
-    expect(screen.getByRole('columnheader', { name: '갈래' })).toBeVisible()
+    expect(screen.getByRole('columnheader', { name: '카테고리' })).toBeVisible()
   })
 
-  it('토글이 꺼져 있으면 갈래 열이 없다', async () => {
+  it('토글이 꺼져 있으면 카테고리 열이 없다', async () => {
     renderList()
     await screen.findByText('운영체제 중간고사 정리본')
 
-    expect(screen.queryByRole('columnheader', { name: '갈래' })).toBeNull()
+    expect(screen.queryByRole('columnheader', { name: '카테고리' })).toBeNull()
   })
 
   /* 토글을 끄면 갈래 탭이 있는 평소 목록으로 돌아간다. */

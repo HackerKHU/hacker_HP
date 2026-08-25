@@ -220,7 +220,7 @@ describe('자료 등록', () => {
     async (raw) => {
       renderForm(`/notes/new?category=${raw}`)
 
-      expect(await screen.findByLabelText('갈래')).toHaveValue('EXAM')
+      expect(await screen.findByLabelText('카테고리')).toHaveValue('EXAM')
       // `EXAM`이 실제로 골라졌으므로 그 갈래에만 있는 칸도 함께 나온다.
       expect(screen.getByLabelText('시험 구분')).toBeVisible()
     },
@@ -230,7 +230,7 @@ describe('자료 등록', () => {
   it('갈래가 SUBJECT면 그대로 과목 정리본으로 연다', async () => {
     renderForm('/notes/new?category=SUBJECT')
 
-    expect(await screen.findByLabelText('갈래')).toHaveValue('SUBJECT')
+    expect(await screen.findByLabelText('카테고리')).toHaveValue('SUBJECT')
     expect(screen.queryByLabelText('시험 구분')).toBeNull()
   })
 

@@ -175,7 +175,7 @@ describe('활동사진 갤러리', () => {
     renderGallery()
     await screen.findByText('2026 신입생 환영회')
 
-    expect(screen.queryByRole('link', { name: '사진 올리기' })).toBeNull()
+    expect(screen.queryByRole('link', { name: '업로드' })).toBeNull()
     expect(screen.queryByRole('button', { name: /삭제/ })).toBeNull()
   })
 
@@ -185,7 +185,7 @@ describe('활동사진 갤러리', () => {
     renderGallery()
     await screen.findByText('2026 신입생 환영회')
 
-    expect(screen.getByRole('link', { name: '사진 올리기' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: '업로드' })).toHaveAttribute(
       'href',
       '/admin/photos/new',
     )
