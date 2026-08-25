@@ -23,21 +23,6 @@ export function PrivacyPage() {
           개인정보처리방침
         </h1>
 
-        {/*
-         * 방문자와 개발자 모두가 미완성임을 알아야 한다. 법적 문서라 빠진 항목이 있는 채로
-         * 공개되면 없느니만 못하다.
-         */}
-        <p
-          role="note"
-          className="mt-6 max-w-2xl rounded-lg border border-border bg-card p-4 text-sm leading-7 text-muted-foreground"
-        >
-          <strong className="text-foreground">
-            이 문서는 초안이며 검토가 필요합니다.
-          </strong>{' '}
-          아직 정해지지 않아 비어 있는 항목이 있습니다. 아래에 “확인 후 채워야
-          하는 항목”으로 표시해 두었으며, 정식 시행 전에 모두 채워야 합니다.
-        </p>
-
         <dl className="mt-12 max-w-2xl space-y-12">
           {PRIVACY_SECTIONS.map((section) => (
             <div key={section.title}>
@@ -61,12 +46,6 @@ export function PrivacyPage() {
                     ))}
                   </ul>
                 )}
-
-                {section.todo && (
-                  <p className="rounded-md border border-border border-dashed p-3 text-sm leading-7 text-muted-foreground">
-                    확인 후 채워야 하는 항목 — {section.todo}
-                  </p>
-                )}
               </dd>
             </div>
           ))}
@@ -74,15 +53,9 @@ export function PrivacyPage() {
           <div>
             <dt className="text-lg font-semibold tracking-tight">8. 시행일</dt>
             <dd className="mt-4">
-              {PRIVACY_UPDATED.effectiveDate ? (
-                <p className="leading-8 text-muted-foreground">
-                  이 방침은 {PRIVACY_UPDATED.effectiveDate}부터 시행합니다.
-                </p>
-              ) : (
-                <p className="rounded-md border border-border border-dashed p-3 text-sm leading-7 text-muted-foreground">
-                  확인 후 채워야 하는 항목 — 시행일을 정해서 넣어야 합니다.
-                </p>
-              )}
+              <p className="leading-8 text-muted-foreground">
+                이 방침은 {PRIVACY_UPDATED.effectiveDate}부터 시행합니다.
+              </p>
             </dd>
           </div>
         </dl>

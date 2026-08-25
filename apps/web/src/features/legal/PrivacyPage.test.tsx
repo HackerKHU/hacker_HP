@@ -35,17 +35,44 @@ async function openPrivacy() {
 
 /** 항목은 `dt`/`dd` 짝이라 heading이 아니다. 제목을 감싼 블록을 집는다. */
 function retentionSection() {
-  return screen.getByText('4. 보관과 파기').parentElement as HTMLElement
+  return screen.getByText('5. 보관과 파기').parentElement as HTMLElement
 }
 
 describe('개인정보처리방침', () => {
   // 랜딩과 같은 공개 페이지다. 가드 아래로 들어가면 비로그인이 못 본다.
   it('비로그인 상태에서 열린다', async () => {
     expect(await openPrivacy()).toBeInTheDocument()
-    // 미완성 항목이 있다는 안내가 보여야 한다.
-    expect(screen.getByRole('note')).toHaveTextContent(
-      '초안이며 검토가 필요합니다',
-    )
+  })
+
+  /*
+   * **초안 안내가 남아 있으면 미완성이다** (#87 완료 조건). 문안을 확정하고도 이 문구를
+   * 지우지 않으면 방문자는 여전히 믿을 수 없는 문서로 읽는다.
+   */
+  it('초안 안내와 미확정 자리표시자가 남아 있지 않다', async () => {
+    await openPrivacy()
+
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/확인 후 채워야 하는 항목/),
+    ).not.toBeInTheDocument()
+  })
+
+  /*
+   * 공개 전에 채우기로 한 네 항목이다. 하나라도 빠지면 법적 고지로서 성립하지 않으므로
+   * 문구가 지워지는 것을 화면에서 막는다.
+   */
+  it('제3자 제공·권리 행사·보호책임자·시행일을 밝힌다', async () => {
+    await openPrivacy()
+
+    expect(
+      screen.getByText(/개인정보를 제3자에게 제공하지 않습니다/),
+    ).toBeInTheDocument()
+    // 권리 행사와 문의는 같은 주소로 받는다. 주소가 빠지면 행사할 길이 없다.
+    expect(
+      screen.getAllByText(/hacker19870101@gmail\.com/).length,
+    ).toBeGreaterThan(1)
+    expect(screen.getByText(/보호책임자는 동아리 회장/)).toBeInTheDocument()
+    expect(screen.getByText(/부터 시행합니다/)).toBeInTheDocument()
   })
 
   /*
