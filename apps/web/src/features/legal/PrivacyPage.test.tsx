@@ -128,4 +128,40 @@ describe('개인정보처리방침', () => {
     )
     expect(section).toHaveTextContent('문의처로 알려 주시기')
   })
+
+  /*
+   * **저장하는 컬럼을 빠짐없이 적는다** (#80). `users.department`는 실제로 저장되는데
+   * 수집 항목에서 빠져 있었다 — 공개 문서가 "이건 안 받습니다"라고 말한 셈이다.
+   *
+   * 학번만 보면 신청서에서 받는 두 값 중 하나가 빠져도 통과하므로 둘을 함께 본다.
+   */
+  it('신청서에서 받는 학번과 학과를 모두 수집 항목에 적는다', async () => {
+    await openPrivacy()
+    const section = screen.getByText('1. 수집하는 개인정보')
+      .parentElement as HTMLElement
+
+    expect(section).toHaveTextContent('학번')
+    expect(section).toHaveTextContent('학과')
+  })
+
+  /*
+   * **없는 화면을 정정 경로로 안내하지 않는다.** 마이페이지는 존재한 적이 없다.
+   *
+   * 실제 경로는 셋으로 갈린다 — 이름은 구글 계정 값 고정(#224), 학번·학과는 승인
+   * 대기 중 신청서 재제출, 그 밖에는 문의처. 이걸 뭉뚱그리면 이용자가 고칠 수 있는
+   * 것을 못 고치거나, 없는 화면을 찾아 헤맨다. 셋을 각각 고정한다.
+   */
+  it('정정 경로를 실제 화면대로 안내한다', async () => {
+    await openPrivacy()
+    const section = screen.getByText('6. 이용자의 권리')
+      .parentElement as HTMLElement
+
+    expect(section).not.toHaveTextContent('마이페이지')
+    // ① 이름 — 구글 계정에서 바꾼다
+    expect(section).toHaveTextContent('구글 계정에 저장된 값')
+    // ② 학번·학과 — 승인 대기 중에만 신청서 재제출로
+    expect(section).toHaveTextContent('신청서를 다시 제출해')
+    // ③ 승인된 뒤에는 화면에 길이 없다
+    expect(section).toHaveTextContent('화면에서 고치는 길이 없으니')
+  })
 })
