@@ -227,8 +227,8 @@ describe('헤더 메뉴 노출', () => {
     expect(menuLabels()).toEqual([
       '공지사항',
       '자료게시판',
-      '갤러리',
       '자유 게시판',
+      '갤러리',
       '회원 관리',
     ])
     /*
@@ -277,8 +277,8 @@ describe('헤더 메뉴 노출', () => {
     expect(menuLabels()).toEqual([
       '공지사항',
       '자료게시판',
-      '갤러리',
       '자유 게시판',
+      '갤러리',
     ])
     expect(menuLabels()).not.toContain('회원 관리')
   })

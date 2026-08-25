@@ -168,8 +168,8 @@ describe('공개 랜딩', () => {
 const MEMBER_LINKS: [string, string][] = [
   ['공지사항', '/notices'],
   ['자료게시판', '/notes'],
-  ['갤러리', '/photos'],
   ['자유 게시판', '/posts'],
+  ['갤러리', '/photos'],
 ]
 
 describe('랜딩 헤더 상태별 진입점', () => {
