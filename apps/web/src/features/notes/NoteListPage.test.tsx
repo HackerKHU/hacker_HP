@@ -23,6 +23,8 @@ import { NoteListPage } from './NoteListPage'
 const api = vi.hoisted(() => ({
   /** 나간 조회 요청. 마지막 것이 지금 화면이 보고 있는 조건이다. */
   queries: [] as NoteQuery[],
+  /** `GET /bookmarks`로 나간 조회. 토글이 어느 API를 부르는지 가른다. */
+  bookmarkCalls: [] as { page?: number; size?: number }[],
   bookmarked: [] as { id: number; next: boolean }[],
   fail: false,
 }))
@@ -57,6 +59,13 @@ vi.mock('@/api/notes', () => ({
       professors: ['김교수'],
       years: [2026, 2025],
     }),
+  bookmarks: (query: { page?: number; size?: number }) => {
+    api.bookmarkCalls.push(query)
+    return Promise.resolve({
+      content: [{ ...NOTE, category: 'SUBJECT' as const, bookmarked: true }],
+      page: { size: 20, number: 0, totalElements: 1, totalPages: 1 },
+    })
+  },
   setBookmark: (id: number, next: boolean) => {
     api.bookmarked.push({ id, next })
     return Promise.resolve()
@@ -106,6 +115,7 @@ function lastQuery(): NoteQuery {
 
 beforeEach(() => {
   api.queries = []
+  api.bookmarkCalls = []
   api.bookmarked = []
   api.fail = false
 })
@@ -301,6 +311,79 @@ describe('자료 목록', () => {
     await waitFor(() => {
       expect(api.bookmarked).toEqual([{ id: 301, next: true }])
     })
+  })
+
+  /*
+   * **즐겨찾기는 목적지가 아니라 이 목록을 추리는 조건이다** (#261). 별도 화면이던 것을
+   * 여기로 접었다 — 갈래를 탭으로 접은 것과 같은 판단이다 (#59).
+   */
+  it('즐겨찾기 토글이 URL에 상태를 남긴다', async () => {
+    renderList()
+    await screen.findByText('운영체제 중간고사 정리본')
+
+    expect(
+      screen.getByRole('link', { name: /즐겨찾기만 보기/ }),
+    ).toHaveAttribute('href', '/notes?bookmarked=true')
+  })
+
+  /*
+   * `GET /notes`에는 `bookmarked` 필터가 없으므로 **다른 API를 부른다.** 계약이 두 응답의
+   * 형태를 같게 맞춰 두어(§3-2-4) 표는 한 벌로 충분하다.
+   */
+  it('토글이 켜지면 즐겨찾기 API를 부른다', async () => {
+    renderList('/notes?bookmarked=true')
+
+    await screen.findByText('운영체제 중간고사 정리본')
+    expect(api.bookmarkCalls).toHaveLength(1)
+    // 목록 API는 부르지 않는다 — 두 번 조회하면 그만큼 낭비다.
+    expect(api.queries).toEqual([])
+  })
+
+  it('토글이 꺼져 있으면 목록 API만 부른다', async () => {
+    renderList()
+
+    await screen.findByText('운영체제 중간고사 정리본')
+    expect(api.queries).toHaveLength(1)
+    expect(api.bookmarkCalls).toEqual([])
+  })
+
+  /*
+   * **`GET /bookmarks`는 검색·필터를 받지 않는다** (계약 §3-2-4 — "이미 본인이 추린
+   * 목록이다"). 남겨 두고 눌러도 안 먹으면 화면이 거짓말을 한다.
+   */
+  it('토글이 켜지면 검색·필터·갈래 탭이 사라진다', async () => {
+    renderList('/notes?bookmarked=true')
+    await screen.findByText('운영체제 중간고사 정리본')
+
+    expect(screen.queryByLabelText('검색')).toBeNull()
+    expect(screen.queryByLabelText('과목')).toBeNull()
+    expect(screen.queryByLabelText('정렬')).toBeNull()
+    expect(screen.queryByRole('navigation', { name: '자료 갈래' })).toBeNull()
+  })
+
+  /* 담아둔 목록에는 시험·과목이 섞여 오므로 갈래 열이 필요하다. */
+  it('토글이 켜지면 갈래 열이 보인다', async () => {
+    renderList('/notes?bookmarked=true')
+    await screen.findByText('운영체제 중간고사 정리본')
+
+    expect(screen.getByRole('columnheader', { name: '갈래' })).toBeVisible()
+  })
+
+  it('토글이 꺼져 있으면 갈래 열이 없다', async () => {
+    renderList()
+    await screen.findByText('운영체제 중간고사 정리본')
+
+    expect(screen.queryByRole('columnheader', { name: '갈래' })).toBeNull()
+  })
+
+  /* 토글을 끄면 갈래 탭이 있는 평소 목록으로 돌아간다. */
+  it('켜진 토글은 갈래 목록으로 돌아가는 링크가 된다', async () => {
+    renderList('/notes?bookmarked=true')
+    await screen.findByText('운영체제 중간고사 정리본')
+
+    expect(
+      screen.getByRole('link', { name: /즐겨찾기만 보기/ }),
+    ).toHaveAttribute('href', '/notes?category=EXAM')
   })
 
   it('불러오지 못하면 안내가 뜬다', async () => {
