@@ -16,6 +16,7 @@ import {
 import { ApiError } from '@/api/client'
 import type { Page, Role, User, UserStatus } from '@/api/types'
 import { useSession } from '@/auth/session'
+import { ListSurface } from '@/components/ListSurface'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,7 +29,6 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   DropdownMenu,
@@ -882,7 +882,7 @@ export function MemberListPage() {
             )}
           </div>
 
-          <Card className="mt-4 overflow-hidden rounded-none py-0">
+          <ListSurface className="mt-4">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1053,7 +1053,7 @@ export function MemberListPage() {
                 조건에 맞는 회원이 없습니다.
               </p>
             )}
-          </Card>
+          </ListSurface>
 
           {data.page.totalPages > 1 && (
             <div className="mt-8 flex items-center justify-center gap-4">

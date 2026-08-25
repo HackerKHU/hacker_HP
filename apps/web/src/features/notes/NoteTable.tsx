@@ -1,9 +1,9 @@
 import { Star } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { NoteSummary } from '@/api/notes'
+import { ListSurface } from '@/components/ListSurface'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import {
   Table,
   TableBody,
@@ -40,7 +40,7 @@ export function NoteTable({
      * 표 래퍼는 각지게 둔다 (#218) — 표는 행이 직선으로 쌓이는 요소인데 래퍼만 둥글면
      * 네 모서리에서 행이 잘려 보인다. 공지 목록·회원 관리와 같은 기조다.
      */
-    <Card className="mt-4 overflow-hidden rounded-none py-0">
+    <ListSurface className="mt-4">
       <Table>
         <TableHeader>
           <TableRow>
@@ -132,6 +132,6 @@ export function NoteTable({
           ))}
         </TableBody>
       </Table>
-    </Card>
+    </ListSurface>
   )
 }
