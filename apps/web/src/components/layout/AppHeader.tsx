@@ -2,7 +2,7 @@ import { Link, NavLink } from 'react-router-dom'
 import type { Role } from '@/api/types'
 import { useSession } from '@/auth/session'
 import { useLogout } from '@/auth/useLogout'
-import { HEADER_NAV_ITEM } from '@/components/header-nav'
+import { HEADER_ACTION, HEADER_NAV_ITEM } from '@/components/header-nav'
 import { Button } from '@/components/ui/button'
 import { CLUB } from '@/features/landing/content'
 import { lookup } from '@/lib/lookup'
@@ -23,9 +23,13 @@ const MEMBER_MENUS = [
    * 탭은 URL에 남으므로(`/notes?category=`) 링크 공유도 그대로 된다.
    */
   { to: '/notes', label: '자료게시판' },
+  { to: '/posts', label: '자유 게시판' },
   /*
    * 갤러리는 `ACTIVE`면 누구나 본다 — 업로드만 ADMIN이라 그 진입점은 갤러리 안에 둔다
    * (spec §3-1-3 매트릭스). 메뉴를 관리자에게만 보이면 부원이 사진을 볼 길이 없다.
+   *
+   * **글이 오가는 화면을 앞에 모으고 갤러리를 끝에 둔다.** 공지·자료·게시판은 읽고 쓰러
+   * 오는 자리고, 갤러리는 둘러보는 자리다.
    */
   { to: '/photos', label: '갤러리' },
 ]
@@ -112,7 +116,7 @@ export function AppHeader() {
               로그아웃하지 못했습니다. 다시 시도해 주세요.
             </p>
           )}
-          <Button variant="ghost" size="sm" onClick={logout}>
+          <Button variant="ghost" className={HEADER_ACTION} onClick={logout}>
             로그아웃
           </Button>
         </div>

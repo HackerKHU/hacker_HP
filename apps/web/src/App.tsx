@@ -13,6 +13,9 @@ import { NoticeFormPage } from './features/notices/NoticeFormPage'
 import { NoticeListPage } from './features/notices/NoticeListPage'
 import { PhotoGalleryPage } from './features/photos/PhotoGalleryPage'
 import { PhotoUploadPage } from './features/photos/PhotoUploadPage'
+import { PostDetailPage } from './features/posts/PostDetailPage'
+import { PostFormPage } from './features/posts/PostFormPage'
+import { PostListPage } from './features/posts/PostListPage'
 import { GuestOnly, PendingOnly, RequireActive } from './routes/guards'
 
 function App() {
@@ -82,6 +85,17 @@ function App() {
             **업로드·삭제만 ADMIN**이라 그쪽은 아래 관리자 라우트에 둔다.
           */}
           <Route path="/photos" element={<PhotoGalleryPage />} />
+
+          {/*
+            자유 게시판. **`/admin` 아래가 아니다** — 조회·작성 모두 `ACTIVE`면 할 수 있다
+            (spec §3-1-3 매트릭스).
+
+            **수정·삭제 라우트가 없다.** 빠뜨린 것이 아니라 API에 그 경로가 없다
+            (spec §3-2-5). 관리자 삭제는 후속이다 (#238).
+          */}
+          <Route path="/posts" element={<PostListPage />} />
+          <Route path="/posts/new" element={<PostFormPage />} />
+          <Route path="/posts/:id" element={<PostDetailPage />} />
         </Route>
       </Route>
 
