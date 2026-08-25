@@ -7,10 +7,10 @@
 | 문서 | 내용 | 수명 |
 |---|---|---|
 | [ops/runbook.md](ops/runbook.md) | 증상별 원인과 디버깅 명령어 | **유지** |
-| [ops/infra.md](ops/infra.md) | Terraform, VPC, ECS, ALB, RDS, S3, IAM | `infra/terraform/` 생기면 삭제 |
-| [ops/deployment.md](ops/deployment.md) | Docker, GitHub Actions, Vercel 설정 | 워크플로·Dockerfile 실물 생기면 삭제 |
+| [ops/infra.md](ops/infra.md) | Terraform, VPC, ECS, ALB, RDS, S3, IAM | `infra/terraform/`이 원본, 설계 근거만 유지 (#44) |
+| [ops/deployment.md](ops/deployment.md) | Docker, GitHub Actions, Vercel 설정 | Dockerfile·워크플로가 원본, 설계 근거만 유지 (#139) |
 
-**이 폴더는 대부분 비계입니다.** 지금은 코드가 없어 이 문서들이 유일한 원본이지만, 해당 코드가 생기는 순간 코드의 복사본이 됩니다. 복사본을 남겨두면 한쪽만 고쳐져서 문서가 거짓말을 시작합니다. 각 문서 서두에 은퇴 조건을 적어뒀고, 해당 코드를 넣는 PR에서 같이 지웁니다.
+**이 폴더는 원래 대부분 비계였습니다.** 코드가 없던 시점엔 이 문서들이 유일한 원본이었지만, 해당 코드가 생긴 지금은 코드의 복사본이 되면 한쪽만 고쳐져서 문서가 거짓말을 시작합니다. 그래서 `.tf`·Dockerfile·워크플로와 겹치는 내용은 코드 쪽에 맡기고, 여기는 "왜 이런 모양인지"와 처음 세팅하는 사람을 위한 사전 준비만 남겼습니다.
 
 `runbook.md`만 영구 문서입니다. "증상 → 원인"은 어떤 코드에도 적히지 않는 정보라서요.
 

@@ -34,7 +34,23 @@ import type {
   RejectResult,
 } from './adminUsers'
 import { ApiError } from './client'
+import type {
+  DownloadUrl,
+  FileRef,
+  NoteDetail,
+  NoteFile,
+  NoteFilterOptions,
+  NoteMetadata,
+  NoteQuery,
+  NoteSummary,
+  Upload,
+  UploadCandidate,
+  UploadedFile,
+  Uploader,
+} from './notes'
 import type { Notice } from './notices'
+import type { Photo, PhotoRegisterResult, PhotoUpload } from './photos'
+import type { PostDetail, PostSummary } from './posts'
 import type { Page, Role, User } from './types'
 
 /**
@@ -738,6 +754,7 @@ export function fixtureContentSummary(id: number): Promise<ContentSummary> {
     notes: id % 5,
     notices: id % 3,
     photos: id % 7,
+    posts: id % 4,
   })
 }
 
@@ -870,4 +887,827 @@ export function fixtureUpdateUserStatus(
 
   found.status = status
   return Promise.resolve(found)
+}
+
+// ── 자료·즐겨찾기 ────────────────────────────────────────────────────────────
+
+/**
+ * 자료 픽스처.
+ *
+ * **업로더를 섞어 둔다** — 본인 것(`SELF`), 남의 것, 탈퇴한 회원의 것. 그래야 "본인
+ * 자료에만 수정·삭제 진입점이 보인다"(#59 완료 조건)를 화면에서 확인할 수 있다.
+ * 하나로 통일하면 그 분기가 늘 참이거나 늘 거짓이라 아무것도 못 잡는다.
+ *
+ * **과목·교수·연도도 흩어 둔다.** 필터가 실제로 걸러내는지 보려면 걸러질 것이 있어야 한다.
+ */
+const NOTE_SUBJECTS = [
+  { subject: '운영체제', professor: '김교수' },
+  { subject: '컴퓨터네트워크', professor: '이교수' },
+  { subject: '자료구조', professor: '박교수' },
+  { subject: '알고리즘', professor: null },
+  { subject: '데이터베이스', professor: '최교수' },
+]
+
+/** 로그인한 나. `GET /auth/me`가 주는 계정과 같아야 소유 판단이 화면과 맞는다. */
+function viewer(): User {
+  return SCENARIO === 'admin' ? USERS.admin : USERS.user
+}
+
+/**
+ * 목록·상세가 함께 쓰는 자료 하나. `files`까지 들고 있고 목록은 개수만 꺼내 쓴다 —
+ * 두 벌로 두면 수정 화면에서 고친 값이 목록에 반영되지 않는다.
+ */
+type FixtureNote = Omit<NoteDetail, 'bookmarked'>
+
+/** 담아둔 자료 id. **응답의 `bookmarked`는 여기서 만든다** (계약 §3-2-4). */
+const bookmarked = new Set<number>()
+
+const NOTES: FixtureNote[] = Array.from({ length: 23 }, (_, index) => {
+  const { subject, professor } = NOTE_SUBJECTS[index % NOTE_SUBJECTS.length]
+  const isExam = index % 3 !== 2
+  /*
+   * 셋 중 하나는 내 것, 하나는 남의 것, 하나는 업로더가 빈 자료(탈퇴한 회원)다.
+   * 마지막 것은 `ADMIN`만 손댈 수 있다 (계약 §3-2-4).
+   */
+  const owner = index % 3
+  const me = viewer()
+  return {
+    id: 301 + index,
+    category: isExam ? ('EXAM' as const) : ('SUBJECT' as const),
+    title: isExam
+      ? `${subject} ${2026 - (index % 3)}년 ${index % 2 === 0 ? '중간' : '기말'}고사 정리본`
+      : `${subject} 전체 정리 노트`,
+    subjectName: subject,
+    professor,
+    year: 2026 - (index % 3),
+    semester: index % 2 === 0 ? ('SPRING' as const) : ('FALL' as const),
+    examType: isExam
+      ? index % 2 === 0
+        ? ('MIDTERM' as const)
+        : ('FINAL' as const)
+      : null,
+    uploader:
+      owner === 0
+        ? { id: me.id, name: me.name }
+        : owner === 1
+          ? { id: 99, name: '권승원' }
+          : { id: null, name: '탈퇴한 회원' },
+    files: [
+      {
+        id: 1000 + index * 2,
+        originalName: `${subject} 정리본.pdf`,
+        sizeBytes: 1_048_576 * ((index % 4) + 1),
+      },
+      ...(index % 4 === 0
+        ? [
+            {
+              id: 1001 + index * 2,
+              originalName: `${subject} 요약.png`,
+              sizeBytes: 204_800,
+            },
+          ]
+        : []),
+    ],
+    createdAt: daysAgo(index),
+    updatedAt: daysAgo(index),
+  }
+})
+
+// 몇 개는 담긴 채로 시작한다 — 즐겨찾기 화면이 처음부터 비어 있으면 확인할 것이 없다.
+for (const note of [NOTES[0], NOTES[2], NOTES[5]]) bookmarked.add(note.id)
+
+/** 담긴 순서. **정렬 기준이 "언제 내가 담았나"다** (계약 §3-2-4) — 자료 등록 시각이 아니다. */
+const bookmarkOrder: number[] = [NOTES[5].id, NOTES[2].id, NOTES[0].id]
+
+function withBookmark(note: FixtureNote): NoteDetail {
+  return { ...note, bookmarked: bookmarked.has(note.id) }
+}
+
+function toSummary(note: FixtureNote): NoteSummary {
+  const { files, updatedAt: _updatedAt, ...rest } = note
+  return {
+    ...rest,
+    fileCount: files.length,
+    bookmarked: bookmarked.has(note.id),
+  }
+}
+
+function matchesNote(note: FixtureNote, query: NoteQuery): boolean {
+  const keyword = query.q?.trim().toLowerCase()
+  /*
+   * **통합 검색이다** (spec §2-1-1 MUST) — 제목·과목명·교수명을 한 낱말로 훑는다.
+   * 필드를 나눠 받는 화면을 만들지 않기 위해 픽스처도 같은 규칙을 쓴다.
+   */
+  if (
+    keyword &&
+    ![note.title, note.subjectName, note.professor ?? '']
+      .join(' ')
+      .toLowerCase()
+      .includes(keyword)
+  ) {
+    return false
+  }
+  if (query.category && note.category !== query.category) return false
+  if (query.subject && note.subjectName !== query.subject) return false
+  if (query.professor && note.professor !== query.professor) return false
+  if (query.year !== undefined && note.year !== query.year) return false
+  if (query.semester && note.semester !== query.semester) return false
+  /*
+   * **있을 수 없는 조합은 오류가 아니라 0건이다** (계약 §3-2-4). `SUBJECT`에
+   * `examType`을 걸면 아무것도 안 맞을 뿐 `400`이 아니다.
+   */
+  if (query.examType && note.examType !== query.examType) return false
+  return true
+}
+
+function pageOf(
+  rows: NoteSummary[],
+  page = 0,
+  size = FIXTURE_PAGE_SIZE,
+): Page<NoteSummary> {
+  const start = page * size
+  return {
+    content: rows.slice(start, start + size),
+    page: {
+      size,
+      number: page,
+      totalElements: rows.length,
+      totalPages: Math.ceil(rows.length / size),
+    },
+  }
+}
+
+export function fixtureNotes(
+  query: NoteQuery = {},
+): Promise<Page<NoteSummary>> {
+  const matched = NOTES.filter((note) => matchesNote(note, query))
+    .map(toSummary)
+    /*
+     * **마지막 기준은 언제나 `id`다** (계약 §3-2-4 MUST). 같은 시각·같은 제목이 여럿이면
+     * 순서가 정해지지 않아 페이지를 넘길 때마다 배치가 달라진다.
+     */
+    .sort((a, b) =>
+      query.sort === 'title'
+        ? a.title.localeCompare(b.title) || a.id - b.id
+        : b.createdAt.localeCompare(a.createdAt) || b.id - a.id,
+    )
+  return Promise.resolve(pageOf(matched, query.page, query.size))
+}
+
+export function fixtureNote(id: number): Promise<NoteDetail> {
+  const found = NOTES.find((note) => note.id === id)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '자료를 찾을 수 없습니다.'),
+    )
+  }
+  return Promise.resolve(withBookmark(found))
+}
+
+/**
+ * 필터 옵션. **실제 등록된 값에서 만든다** (계약 §3-2-4 MUST). 목록을 손으로 적어두면
+ * 자료를 추가했을 때 옵션이 따라오지 않아, 고를 수 없는 과목이 생긴다.
+ */
+export function fixtureNoteFilters(): Promise<NoteFilterOptions> {
+  return Promise.resolve({
+    subjects: [...new Set(NOTES.map((note) => note.subjectName))].sort((a, b) =>
+      a.localeCompare(b),
+    ),
+    // 교수명이 없는 자료는 옵션을 만들지 않는다 — 화면이 빈 항목을 그린다.
+    professors: [
+      ...new Set(
+        NOTES.map((note) => note.professor).filter(
+          (name): name is string => name !== null,
+        ),
+      ),
+    ].sort((a, b) => a.localeCompare(b)),
+    years: [...new Set(NOTES.map((note) => note.year))].sort((a, b) => b - a),
+  })
+}
+
+export function fixtureBookmarks(
+  query: { page?: number; size?: number } = {},
+): Promise<Page<NoteSummary>> {
+  /*
+   * **담긴 순서다** (계약 §3-2-4) — 자료 등록 시각이 아니다. 그리고 이 목록의
+   * `bookmarked`는 언제나 참이다: 목록에 있다는 것이 곧 담겨 있다는 뜻이다.
+   */
+  const rows = bookmarkOrder
+    .map((id) => NOTES.find((note) => note.id === id))
+    .filter((note): note is FixtureNote => note !== undefined)
+    .map(toSummary)
+  return Promise.resolve(pageOf(rows, query.page, query.size))
+}
+
+export function fixtureSetBookmark(id: number, next: boolean): Promise<void> {
+  const found = NOTES.find((note) => note.id === id)
+  /*
+   * **담기는 없는 자료에 `404`, 빼기는 그래도 성공이다** (계약 §3-2-4). 자료가 지워지면
+   * 즐겨찾기도 함께 사라져 뺄 것이 이미 없다.
+   */
+  if (!found) {
+    return next
+      ? Promise.reject(
+          new ApiError('NOT_FOUND', 404, '자료를 찾을 수 없습니다.'),
+        )
+      : Promise.resolve()
+  }
+  // **멱등이다** — 이미 담긴 것에 담기, 담기지 않은 것에 빼기 모두 아무 일도 없이 성공한다.
+  if (next) {
+    if (!bookmarked.has(id)) {
+      bookmarked.add(id)
+      bookmarkOrder.unshift(id)
+    }
+  } else {
+    bookmarked.delete(id)
+    const at = bookmarkOrder.indexOf(id)
+    if (at !== -1) bookmarkOrder.splice(at, 1)
+  }
+  return Promise.resolve()
+}
+
+/**
+ * 업로드 URL 발급.
+ *
+ * **확장자와 용량을 픽스처도 거부한다** (계약 §3-2-4). 통과시키면 `413`·`415` 화면을
+ * 만들 수 없고, 그 오류는 서버가 붙는 날 처음 보게 된다. **확장자를 크기보다 먼저 본다** —
+ * "이 종류는 아예 안 받는다"가 "조금 줄여서 다시"보다 먼저 알아야 할 사실이다.
+ */
+const FIXTURE_EXTENSIONS = ['pdf', 'docx', 'pptx', 'hwp', 'zip', 'png', 'jpg']
+const FIXTURE_MAX_BYTES = 20 * 1024 * 1024
+const FIXTURE_MAX_FILES = 10
+
+export function fixtureUploadUrls(files: UploadCandidate[]): Promise<Upload[]> {
+  if (files.length === 0 || files.length > FIXTURE_MAX_FILES) {
+    return Promise.reject(
+      new ApiError(
+        'VALIDATION_ERROR',
+        400,
+        `파일은 1개 이상 ${FIXTURE_MAX_FILES}개 이하로 올려 주세요.`,
+      ),
+    )
+  }
+  for (const file of files) {
+    const extension = file.originalName.split('.').pop()?.toLowerCase() ?? ''
+    if (!FIXTURE_EXTENSIONS.includes(extension)) {
+      return Promise.reject(
+        new ApiError(
+          'UNSUPPORTED_FILE_TYPE',
+          415,
+          `${file.originalName}은(는) 올릴 수 없는 형식입니다.`,
+        ),
+      )
+    }
+    if (file.sizeBytes > FIXTURE_MAX_BYTES) {
+      return Promise.reject(
+        new ApiError(
+          'FILE_TOO_LARGE',
+          413,
+          `${file.originalName}이(가) 20MB를 넘습니다.`,
+        ),
+      )
+    }
+  }
+  return Promise.resolve(
+    files.map((file, index) => ({
+      originalName: file.originalName,
+      key: `notes/uploads/1/fixture-${Date.now()}-${index}`,
+      /*
+       * **픽스처 URL은 `blob:`이다.** 실제 S3 주소를 흉내내면 브라우저가 그 호스트로
+       * 진짜 요청을 보내고, 실패가 업로드 오류로 보인다. `uploadAll`의 PUT은 픽스처
+       * 모드에서도 실제로 나가므로 **닿아도 안전한 주소**여야 한다.
+       */
+      url: URL.createObjectURL(new Blob([])),
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    })),
+  )
+}
+
+/** 다음 자료 id. 등록한 자료가 목록·상세에 그대로 남아야 왕복을 확인할 수 있다. */
+let nextNoteId = 401
+
+function toDetail(
+  id: number,
+  body: NoteMetadata,
+  files: NoteFile[],
+  uploader: Uploader,
+  createdAt: string,
+): FixtureNote {
+  return {
+    id,
+    category: body.category,
+    title: body.title,
+    subjectName: body.subjectName,
+    professor: body.professor,
+    year: body.year,
+    semester: body.semester,
+    // `SUBJECT`에는 시험 구분이 없다 (계약 §3-2-2 CHECK 제약).
+    examType: body.category === 'EXAM' ? body.examType : null,
+    uploader,
+    files,
+    createdAt,
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+/** 등록 요청의 파일을 첨부 레코드로 바꾼다. 크기는 픽스처가 모르므로 적당히 채운다. */
+let nextFileId = 2000
+function toFiles(files: UploadedFile[]): NoteFile[] {
+  return files.map((file) => ({
+    id: nextFileId++,
+    originalName: file.originalName,
+    sizeBytes: 1_048_576,
+  }))
+}
+
+/**
+ * 등록. **업로더는 인증 주체로만 정한다** (계약 §3-2-4 MUST) — 본문으로 받지 않는다.
+ * 픽스처도 같은 규칙을 써야 "남의 이름으로 올리는" 경로가 화면에 생기지 않는다.
+ */
+export function fixtureCreateNote(
+  body: NoteMetadata & { files: UploadedFile[] },
+): Promise<NoteDetail> {
+  const invalid = validateNote(body)
+  if (invalid) return Promise.reject(invalid)
+
+  const me = viewer()
+  const created = toDetail(
+    nextNoteId++,
+    body,
+    toFiles(body.files),
+    { id: me.id, name: me.name },
+    new Date().toISOString(),
+  )
+  NOTES.unshift(created)
+  return Promise.resolve(withBookmark(created))
+}
+
+/**
+ * 수정. **보낸 것으로 통째로 바꾼다** (계약 §3-2-4) — `files`에 없는 기존 파일은
+ * 삭제되고, **업로더는 바뀌지 않는다.**
+ */
+export function fixtureUpdateNote(
+  id: number,
+  body: NoteMetadata & { files: FileRef[] },
+): Promise<NoteDetail> {
+  const found = NOTES.find((note) => note.id === id)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '자료를 찾을 수 없습니다.'),
+    )
+  }
+  const denied = requireOwner(found)
+  if (denied) return Promise.reject(denied)
+
+  const invalid = validateNote(body)
+  if (invalid) return Promise.reject(invalid)
+
+  const files: NoteFile[] = []
+  for (const ref of body.files) {
+    if ('fileId' in ref) {
+      const existing = found.files.find((file) => file.id === ref.fileId)
+      if (!existing) {
+        return Promise.reject(
+          new ApiError('VALIDATION_ERROR', 400, '없는 첨부를 남기려 했습니다.'),
+        )
+      }
+      files.push(existing)
+    } else {
+      files.push(...toFiles([ref]))
+    }
+  }
+
+  const updated = toDetail(
+    id,
+    body,
+    files,
+    // 업로더는 그대로다. ADMIN이 남의 자료를 고쳐도 그렇다.
+    found.uploader,
+    found.createdAt,
+  )
+  NOTES[NOTES.indexOf(found)] = updated
+  return Promise.resolve(withBookmark(updated))
+}
+
+export function fixtureRemoveNote(id: number): Promise<void> {
+  const found = NOTES.find((note) => note.id === id)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '자료를 찾을 수 없습니다.'),
+    )
+  }
+  const denied = requireOwner(found)
+  if (denied) return Promise.reject(denied)
+
+  NOTES.splice(NOTES.indexOf(found), 1)
+  // 첨부와 즐겨찾기는 DB가 함께 지운다 (`ON DELETE CASCADE`). 픽스처도 같이 지운다.
+  bookmarked.delete(id)
+  const at = bookmarkOrder.indexOf(id)
+  if (at !== -1) bookmarkOrder.splice(at, 1)
+  return Promise.resolve()
+}
+
+/**
+ * **본인 것만, `ADMIN`은 전체다** (계약 §3-2-4). 업로더가 빈 자료는 `ADMIN`만 손댈 수
+ * 있다 — 주인이 없으므로 "본인"이 성립하지 않는다.
+ *
+ * 픽스처가 이걸 통과시키면 화면이 버튼을 잘못 보여줘도 드러나지 않는다.
+ */
+function requireOwner(note: FixtureNote): ApiError | null {
+  const me = viewer()
+  if (me.role === 'ADMIN') return null
+  if (note.uploader.id !== null && note.uploader.id === me.id) return null
+  return new ApiError(
+    'FORBIDDEN',
+    403,
+    '본인이 올린 자료만 수정·삭제할 수 있습니다.',
+  )
+}
+
+/** 서버가 거부할 것을 픽스처도 거부한다 — 통과시키면 오류 화면을 만들 수 없다. */
+function validateNote(
+  body: NoteMetadata & { files: unknown[] },
+): ApiError | null {
+  if (body.title.trim() === '' || body.subjectName.trim() === '') {
+    return new ApiError(
+      'VALIDATION_ERROR',
+      400,
+      '제목과 과목명을 입력해 주세요.',
+    )
+  }
+  /*
+   * **`EXAM`이면 시험 구분이 필수다** (계약 §3-2-2 CHECK 제약). 짝이 어긋나면 서버가
+   * `400`이므로 화면도 같은 규칙으로 미리 막는다.
+   */
+  if (body.category === 'EXAM' && body.examType === null) {
+    return new ApiError('VALIDATION_ERROR', 400, '시험 구분을 선택해 주세요.')
+  }
+  if (body.files.length === 0) {
+    return new ApiError(
+      'VALIDATION_ERROR',
+      400,
+      '파일을 하나 이상 남겨 주세요.',
+    )
+  }
+  return null
+}
+
+/**
+ * 내려받기 URL.
+ *
+ * 픽스처에는 진짜 파일이 없다. **빈 `blob:` 주소를 준다** — 실제 S3 주소를 흉내내면
+ * 브라우저가 그 호스트로 요청을 보내고, 그 실패가 우리 오류처럼 보인다.
+ */
+export function fixtureDownloadUrl(
+  noteId: number,
+  fileId: number,
+): Promise<DownloadUrl> {
+  const note = NOTES.find((item) => item.id === noteId)
+  const file = note?.files.find((item) => item.id === fileId)
+  /*
+   * **`fileId`는 그 자료의 것이어야 한다** (계약 §3-2-4 MUST). 아니면 `404`다 —
+   * 경로가 거짓말하게 두면 소유자를 따지는 수정·삭제와 기준이 갈린다.
+   */
+  if (!note || !file) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '파일을 찾을 수 없습니다.'),
+    )
+  }
+  return Promise.resolve({
+    url: URL.createObjectURL(new Blob([`fixture: ${file.originalName}`])),
+    originalName: file.originalName,
+    expiresAt: new Date(Date.now() + 60 * 1000).toISOString(),
+  })
+}
+
+// ── 활동사진 ─────────────────────────────────────────────────────────────────
+
+/**
+ * 활동사진 픽스처.
+ *
+ * **랜딩이 쓰는 실제 이미지를 재사용한다** (`public/landing/`). 자리표시자 회색 사각형을
+ * 쓰면 그리드 간격·비율이 실제와 달라 화면을 확인하는 뜻이 없다. 출처는
+ * `public/landing/README.md`에 있다.
+ */
+const LANDING_PHOTOS = [
+  '/landing/mt.jpg',
+  '/landing/education.jpg',
+  '/landing/festival.jpg',
+  '/landing/club.jpg',
+  '/landing/opening.jpg',
+  '/landing/samak.jpg',
+]
+
+const PHOTO_CAPTIONS = [
+  '2026 신입생 환영회',
+  '정기 세미나 — 리버싱 기초',
+  null,
+  'CTF 대회 준비 모임',
+  '동아리방 정리하는 날',
+  null,
+]
+
+type FixturePhoto = Photo
+
+/**
+ * 25장. **한 페이지(20장)를 넘긴다** — 페이지네이션이 실제로 동작하는지 보려면 2페이지가
+ * 있어야 한다 (#60 완료 조건).
+ *
+ * **업로더를 섞는다** — 본인·남·탈퇴한 회원. 탈퇴한 회원의 사진도 깨지지 않아야 한다.
+ */
+const PHOTOS: FixturePhoto[] = Array.from({ length: 25 }, (_, index) => {
+  const image = LANDING_PHOTOS[index % LANDING_PHOTOS.length]
+  const owner = index % 3
+  return {
+    id: 501 + index,
+    caption: PHOTO_CAPTIONS[index % PHOTO_CAPTIONS.length],
+    url: image,
+    // 픽스처에는 리사이즈본이 없다. 같은 파일을 쓰되 화면은 썸네일 자리에 그린다.
+    thumbnailUrl: image,
+    uploaderId: owner === 0 ? USERS.admin.id : owner === 1 ? 99 : null,
+    uploaderName:
+      owner === 0 ? USERS.admin.name : owner === 1 ? '권승원' : '탈퇴한 회원',
+    createdAt: daysAgo(index),
+  }
+})
+
+/** 목록은 **최신순 고정**이다 (spec §2-1-7) — 화면이 정렬을 고르지 않는다. */
+export function fixturePhotos(
+  query: { page?: number; size?: number } = {},
+): Promise<Page<Photo>> {
+  const size = query.size ?? FIXTURE_PAGE_SIZE
+  const page = query.page ?? 0
+  const start = page * size
+  const sorted = [...PHOTOS].sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt),
+  )
+  return Promise.resolve({
+    content: sorted.slice(start, start + size),
+    page: {
+      size,
+      number: page,
+      totalElements: PHOTOS.length,
+      totalPages: Math.ceil(PHOTOS.length / size),
+    },
+  })
+}
+
+/** 업로드·삭제는 `ADMIN` 전용이다 (계약 §3-2-5). 픽스처가 통과시키면 그 가드를 확인할 수 없다. */
+function requirePhotoAdmin(): ApiError | null {
+  return SCENARIO === 'admin'
+    ? null
+    : new ApiError('FORBIDDEN', 403, '관리자만 할 수 있습니다.')
+}
+
+export function fixtureRemovePhoto(id: number): Promise<void> {
+  const denied = requirePhotoAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const at = PHOTOS.findIndex((photo) => photo.id === id)
+  if (at === -1) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '사진을 찾을 수 없습니다.'),
+    )
+  }
+  PHOTOS.splice(at, 1)
+  return Promise.resolve()
+}
+
+const PHOTO_EXTENSIONS_FIXTURE = ['jpg', 'jpeg', 'png']
+const PHOTO_MAX_COUNT_FIXTURE = 20
+
+/**
+ * 발급. **확장자만 받는다** (계약 §3-2-5) — 파일명도 크기도 오지 않는다.
+ *
+ * 서버가 `jpg`·`jpeg`·`png`가 아니면 `415`다. 픽스처가 통과시키면 그 오류 화면을 만들 수 없다.
+ */
+export function fixtureIssuePhotoUploadUrls(
+  extensions: string[],
+): Promise<PhotoUpload[]> {
+  const denied = requirePhotoAdmin()
+  if (denied) return Promise.reject(denied)
+
+  if (extensions.length === 0 || extensions.length > PHOTO_MAX_COUNT_FIXTURE) {
+    return Promise.reject(
+      new ApiError(
+        'VALIDATION_ERROR',
+        400,
+        `사진은 1장 이상 ${PHOTO_MAX_COUNT_FIXTURE}장 이하로 올려 주세요.`,
+      ),
+    )
+  }
+  for (const extension of extensions) {
+    if (!PHOTO_EXTENSIONS_FIXTURE.includes(extension.toLowerCase())) {
+      return Promise.reject(
+        new ApiError(
+          'UNSUPPORTED_FILE_TYPE',
+          415,
+          'jpg, jpeg, png만 올릴 수 있습니다.',
+        ),
+      )
+    }
+  }
+  return Promise.resolve(
+    extensions.map((extension, index) => ({
+      key: `photos/uploads/fixture-${Date.now()}-${index}.${extension.toLowerCase()}`,
+      /*
+       * **픽스처 URL은 `blob:`이다.** 실제 S3 주소를 흉내내면 브라우저가 그 호스트로 진짜
+       * 요청을 보내고, 그 실패가 업로드 오류로 보인다. `uploadAll`의 PUT은 픽스처 모드에서도
+       * 실제로 나가므로 **닿아도 안전한 주소**여야 한다.
+       */
+      uploadUrl: URL.createObjectURL(new Blob([])),
+    })),
+  )
+}
+
+let nextPhotoId = 601
+
+/**
+ * 등록.
+ *
+ * **일부가 실패해도 성공 응답이다** (계약 §3-2-5). 픽스처도 그래야 화면이 `registered`와
+ * `failed`를 함께 읽는지 확인할 수 있다 — **마지막 한 장을 일부러 실패시킨다**(2장 이상일 때).
+ * 전부 성공시키면 실패 안내를 화면에서 만들 수 없다.
+ */
+export function fixtureRegisterPhotos(
+  photos: { key: string; caption: string | null }[],
+): Promise<PhotoRegisterResult> {
+  const denied = requirePhotoAdmin()
+  if (denied) return Promise.reject(denied)
+
+  if (photos.length === 0 || photos.length > PHOTO_MAX_COUNT_FIXTURE) {
+    return Promise.reject(
+      new ApiError('VALIDATION_ERROR', 400, '등록할 사진이 없습니다.'),
+    )
+  }
+
+  const registered: Photo[] = []
+  const failed: PhotoRegisterResult['failed'] = []
+  photos.forEach((item, index) => {
+    // 2장 이상이면 마지막 한 장이 실패한다 — 부분 실패 화면을 볼 수 있어야 한다.
+    if (photos.length > 1 && index === photos.length - 1) {
+      failed.push({ key: item.key, reason: 'NOT_FOUND' })
+      return
+    }
+    const image = LANDING_PHOTOS[registered.length % LANDING_PHOTOS.length]
+    const created: Photo = {
+      id: nextPhotoId++,
+      caption: item.caption,
+      url: image,
+      thumbnailUrl: image,
+      // 업로더는 인증 주체로만 정한다 (계약 §3-2-5 MUST). 본문으로 받지 않는다.
+      uploaderId: USERS.admin.id,
+      uploaderName: USERS.admin.name,
+      createdAt: new Date().toISOString(),
+    }
+    PHOTOS.unshift(created)
+    registered.push(created)
+  })
+  return Promise.resolve({ registered, failed })
+}
+
+// ── 자유 게시판 ──────────────────────────────────────────────────────────────
+
+/**
+ * 게시판 픽스처.
+ *
+ * **본문에 HTML을 섞어 둔다.** 계약이 평문만 다루기로 못 박았으므로(spec §2-1-8 MUST)
+ * 화면이 그것을 글자 그대로 그리는지 눈으로 확인할 수 있어야 한다 — 태그가 사라지거나
+ * 굵게 보이면 그 자리에서 드러난다.
+ *
+ * **작성자도 섞는다** — 나·남·탈퇴한 회원. 탈퇴한 글이 깨지지 않는 것이 #237 완료 조건이다.
+ */
+const POST_BODIES = [
+  '이번 학기 알고리즘 스터디 모집합니다.\n\n매주 수요일 저녁 7시, 동아리방에서 진행해요.\n관심 있으신 분은 댓글 대신 카톡으로 연락 주세요!',
+  '어제 세미나 자료 올려두었습니다. 자료게시판에서 받아가세요.',
+  '<script>alert(1)</script> 이런 것도 그냥 글자로 보여야 합니다.\n<b>굵게</b> 안 되는 게 맞아요.',
+  '동아리방 청소 도와주실 분 구합니다.\n토요일 오후 2시입니다.',
+  '학교 앞에 새로 생긴 카페 괜찮네요. 과제하기 좋습니다.',
+]
+
+const POST_TITLES = [
+  '이번 학기 스터디 모집합니다',
+  '세미나 자료 공유',
+  'HTML이 그대로 보이는지 확인용',
+  '동아리방 청소 도와주세요',
+  '학교 앞 카페 추천',
+]
+
+/** 게시글 하나. 목록은 여기서 `content`·`updatedAt`을 빼고 꺼낸다. */
+type FixturePost = PostDetail
+
+/**
+ * 25건. **한 페이지(20건)를 넘긴다** — 페이지네이션이 실제로 도는지 보려면 2페이지가 있어야 한다.
+ */
+const POSTS: FixturePost[] = Array.from({ length: 25 }, (_, index) => {
+  const owner = index % 3
+  return {
+    id: 701 + index,
+    title: `${POST_TITLES[index % POST_TITLES.length]}${index >= POST_TITLES.length ? ` (${index + 1})` : ''}`,
+    content: POST_BODIES[index % POST_BODIES.length],
+    author:
+      owner === 0
+        ? { id: USERS.user.id, name: USERS.user.name }
+        : owner === 1
+          ? { id: 99, name: '권승원' }
+          : // 탈퇴한 회원. 서버가 이름을 채운다 (§2-1-8).
+            { id: null, name: '탈퇴한 회원' },
+    createdAt: daysAgo(index),
+    updatedAt: daysAgo(index),
+  }
+})
+
+/** 최신순 고정 (spec §2-1-8 MUST) — 화면이 정렬을 고르지 않는다. */
+export function fixturePosts(
+  query: { page?: number; size?: number } = {},
+): Promise<Page<PostSummary>> {
+  const size = query.size ?? FIXTURE_PAGE_SIZE
+  const page = query.page ?? 0
+  const start = page * size
+  const rows = [...POSTS]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
+    // **목록은 본문을 담지 않는다** (계약 §3-2-5 MUST). 픽스처가 담으면 화면이 그것에 기댄다.
+    .map(({ content: _content, updatedAt: _updatedAt, ...rest }) => rest)
+  return Promise.resolve({
+    content: rows.slice(start, start + size),
+    page: {
+      size,
+      number: page,
+      totalElements: POSTS.length,
+      totalPages: Math.ceil(POSTS.length / size),
+    },
+  })
+}
+
+export function fixturePost(id: number): Promise<PostDetail> {
+  const found = POSTS.find((post) => post.id === id)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '게시글을 찾을 수 없습니다.'),
+    )
+  }
+  return Promise.resolve(found)
+}
+
+let nextPostId = 801
+
+/**
+ * 등록.
+ *
+ * **작성자는 인증 주체로만 정한다** (계약 §3-2-5 MUST) — 본문으로 받지 않는다. 픽스처도
+ * 같은 규칙을 써야 "남의 이름으로 쓰는" 경로가 화면에 생기지 않는다.
+ *
+ * **길이는 코드 포인트로 센다** — 서버의 `@CodePointSize`와 같다. 통과시키면 화면의
+ * 글자 수 세기가 틀려도 드러나지 않는다.
+ */
+export function fixtureCreatePost(body: {
+  title: string
+  content: string
+}): Promise<PostDetail> {
+  /*
+   * **검사는 원문에 건다.** 서버의 `@NotBlank`·`@CodePointSize`도 다듬기 전 값에 걸린다 —
+   * 화면이 다듬은 뒤 재면 상한 언저리에서 판정이 갈린다.
+   */
+  if (body.title.trim() === '' || body.content.trim() === '') {
+    return Promise.reject(
+      new ApiError('VALIDATION_ERROR', 400, '제목과 내용을 입력해 주세요.'),
+    )
+  }
+  if ([...body.title].length > 200) {
+    return Promise.reject(
+      new ApiError('VALIDATION_ERROR', 400, '제목은 200자까지 쓸 수 있습니다.'),
+    )
+  }
+  if ([...body.content].length > 10000) {
+    return Promise.reject(
+      new ApiError(
+        'VALIDATION_ERROR',
+        400,
+        '내용은 10,000자까지 쓸 수 있습니다.',
+      ),
+    )
+  }
+
+  const me = SCENARIO === 'admin' ? USERS.admin : USERS.user
+  /*
+   * **등록 직후 두 시각은 같다** (`PostService`가 한 `now`를 둘에 쓴다). 여기서 각각
+   * `new Date()`를 부르면 밀리초가 갈려, 화면이 "수정된 글"을 가리려 할 때 픽스처만
+   * 다르게 답한다.
+   */
+  const now = new Date().toISOString()
+  const created: FixturePost = {
+    id: nextPostId++,
+    /*
+     * **제목은 다듬고 본문은 그대로 둔다** — 서버가 그렇게 한다 (§3-2-5 MUST,
+     * `PostService` — "본문은 trim하지 않는다"). 픽스처가 본문을 털면 들여쓴 코드가
+     * 사라지는 회귀를 화면에서 못 잡는다.
+     */
+    title: body.title.trim(),
+    content: body.content,
+    author: { id: me.id, name: me.name },
+    createdAt: now,
+    updatedAt: now,
+  }
+  POSTS.unshift(created)
+  return Promise.resolve(created)
 }

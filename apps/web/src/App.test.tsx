@@ -124,7 +124,7 @@ describe('라우트 가드', () => {
   })
 
   /*
-   * 회귀 — 가입도 구글 버튼 하나로 하므로 `/signup`은 없다(2-1 §2-1-8, 3-3 결정 13).
+   * 회귀 — 가입도 구글 버튼 하나로 하므로 `/signup`은 없다(2-1 §2-1-9, 3-3 결정 13).
    * **저장된 링크로 들어오면 로그인으로 보낸다.** wildcard에 맡기면 랜딩으로 가는데,
    * 가입하러 온 사람이 길을 다시 찾아야 한다.
    */
@@ -198,6 +198,21 @@ describe('로그인 후 도착 경로', () => {
   })
 })
 
+/*
+ * **옛 즐겨찾기 주소를 살린다** (#261). 그 화면이 자료게시판의 토글로 접혔으므로,
+ * 주소를 공유했거나 북마크해 둔 사람이 빈 화면을 보면 안 된다.
+ */
+describe('옛 주소', () => {
+  it('/bookmarks로 들어오면 자료게시판의 즐겨찾기 상태로 보낸다', async () => {
+    auth.me = () => Promise.resolve(BASE)
+
+    renderAt('/bookmarks')
+
+    await screen.findByRole('heading', { name: '자료게시판' })
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/notes')
+  })
+})
+
 describe('헤더 메뉴 노출', () => {
   it('ADMIN에게는 회원 관리가 보인다', async () => {
     auth.me = () => Promise.resolve({ ...BASE, role: 'ADMIN' })
@@ -205,9 +220,19 @@ describe('헤더 메뉴 노출', () => {
     renderAt('/admin/members')
     await screen.findByRole('heading', { name: '회원 관리' })
 
-    expect(menuLabels()).toEqual(['공지사항', '회원 관리'])
     /*
-     * 목록형 "공지 관리" 화면은 없다 (spec §2-1-8). 라우트도 메뉴도 두지 않는다 —
+     * 자료 메뉴는 부원 것과 같고 **회원 관리만 더 붙는다** (spec §3-1-3 매트릭스 —
+     * 자료·즐겨찾기는 USER·ADMIN 모두 `O`). 관리자에게만 보이는 것은 회원 관리뿐이다.
+     */
+    expect(menuLabels()).toEqual([
+      '공지사항',
+      '자료게시판',
+      '자유 게시판',
+      '갤러리',
+      '회원 관리',
+    ])
+    /*
+     * 목록형 "공지 관리" 화면은 없다 (spec §2-1-9). 라우트도 메뉴도 두지 않는다 —
      * 작성·수정은 /admin/notices/new·/edit이 맡고 고정 토글은 공지 목록에 있다.
      * 무심코 되살리면 여기서 잡힌다.
      */
@@ -233,13 +258,28 @@ describe('헤더 메뉴 노출', () => {
     expect(menuLabels()).toEqual([])
   })
 
-  it('ACTIVE USER에게는 공지만 보이고 관리 메뉴는 없다', async () => {
+  it('ACTIVE USER에게는 부원 메뉴만 보이고 관리 메뉴는 없다', async () => {
     auth.me = () => Promise.resolve(BASE)
 
     renderAt('/notices')
     await screen.findByRole('heading', { name: '공지사항' })
 
-    expect(menuLabels()).toEqual(['공지사항'])
+    // 자료·즐겨찾기는 `ACTIVE`면 누구나 쓴다 (spec §3-1-3). 관리자 전용이 아니다.
+    /*
+     * 자료는 메뉴 하나다 — 갈래(시험·과목)는 그 화면 안의 탭이다.
+     * **갤러리(활동사진)도 부원 메뉴다** — 업로드만 ADMIN이라 그 진입점은 갤러리 안에 있다
+     * (spec §3-1-3 매트릭스). 메뉴를 관리자에게만 두면 부원이 사진을 볼 길이 없다.
+     */
+    /*
+     * **즐겨찾기 메뉴가 없다** (#261). 담아둔 자료를 보는 것은 다른 목적지가 아니라
+     * 자료게시판을 추리는 조건이라 그 화면의 토글로 접혔다.
+     */
+    expect(menuLabels()).toEqual([
+      '공지사항',
+      '자료게시판',
+      '자유 게시판',
+      '갤러리',
+    ])
     expect(menuLabels()).not.toContain('회원 관리')
   })
 

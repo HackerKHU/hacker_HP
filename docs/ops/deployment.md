@@ -1,6 +1,5 @@
-> **은퇴 조건 — Dockerfile·`docker-compose.yml`·워크플로 실물이 생기면 이 문서를 삭제합니다.**
-> 아래 코드 블록은 그때부터 실제 파일의 복사본입니다.
-> 배포에서 지켜야 할 원칙은 [spec/7-DEPLOYMENT](../../spec/7-DEPLOYMENT.md)가 원본이고, 장애 대응은 [runbook.md](runbook.md)에 남습니다.
+> **원본은 [`apps/api/Dockerfile`](../../apps/api/Dockerfile)·[`docker-compose.yml`](../../docker-compose.yml)·[`.github/workflows/`](../../.github/workflows/)다.** 이 문서는 그 실물이 왜 이런 모양인지, 처음 세팅하는 사람이 무엇을 채워야 하는지만 남긴다.
+> 배포에서 지켜야 할 원칙과 프록시 구조의 배경은 [spec/7-DEPLOYMENT](../../spec/7-DEPLOYMENT.md)가 원본이고, 장애 대응은 [runbook.md](runbook.md)에 있다.
 
 [← 문서 인덱스](../README.md)
 
@@ -10,185 +9,23 @@
 
 ## API 프록시
 
-프론트는 `www.khuhacker.com`(Vercel), API는 `api.khuhacker.com`(ALB)입니다. 브라우저가 API를 직접 부르지 않고 **Vercel rewrites 프록시**를 거칩니다.
-
-```json
-// apps/web/vercel.json
-{
-  "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "https://api.khuhacker.com/api/:path*"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
-  ]
-}
-```
+프론트는 `www.khuhacker.com`(Vercel), API는 `api.khuhacker.com`(ALB)입니다. 브라우저가 API를 직접 부르지 않고 `apps/web/vercel.json`의 rewrites로 프록시합니다. 프록시가 필요한 이유(same-origin 쿠키 — mixed content는 [결정 15](../../spec/3-3-DESIGN-DECISIONS.md#3-3-16-결정-15--api에-커스텀-도메인과-acm-인증서를-붙인다) 이후 해당 없음), rewrites 순서가 중요한 이유, 파일 업로드가 이 경로를 안 타는 이유는 [spec/7-DEPLOYMENT §7-1](../../spec/7-DEPLOYMENT.md#7-1-구성-요약)에 있습니다.
 
 ```
 브라우저 ──HTTPS──> Vercel Edge ──HTTPS──> ALB ──> ECS
 ```
 
-**순서가 중요합니다.** Vercel은 위에서부터 첫 번째로 맞는 규칙을 적용하므로 `/api/*` 규칙이 SPA fallback **위에** 있어야 합니다. 아래에 두면 fallback이 API 요청까지 `/index.html`로 삼켜서 로그인이 되지 않습니다.
-
-브라우저는 Vercel하고만 통신하므로 mixed content가 없습니다. **덤으로 same-origin이 되어 쿠키 문제도 사라집니다** — `SameSite=None; Secure`가 필요 없고 `SameSite=Lax`로 충분해집니다. 프론트 코드에서는 그냥 `/api/v1/...`로 호출하면 됩니다. `api.khuhacker.com`을 직접 부르면 CORS와 쿠키 설정이 따라붙으므로 절대 URL은 쓰지 않습니다.
-
-프록시 `source`는 `/api/v1/:path*`이 아니라 `/api/:path*`로 둡니다. 나중에 `/api/v2`가 생겨도 rewrites 설정을 건드리지 않기 위해서입니다 ([3-3 결정 9](../../spec/3-3-DESIGN-DECISIONS.md)).
-
-**파일은 이 프록시를 거치지 않습니다.** Vercel의 서버리스/Edge 함수는 요청 본문이 4.5MB로 제한되는데, 자료 파일 최대 용량은 20MB([3-3 §3-3-7](../../spec/3-3-DESIGN-DECISIONS.md))라 애초에 프록시를 통과할 수 없습니다. 그래서 파일은 presigned URL로 브라우저→S3 직접 업로드/다운로드하고([2-1 §2-1-2·§2-1-4](../../spec/2-1-USER-STORIES.md)), `/api/*` 프록시는 메타데이터를 주고받는 JSON 요청에만 씁니다.
-
-### 구간별 암호화
-
-ALB는 ACM 인증서로 443을 받고 80은 443으로 리다이렉트합니다(`infra/terraform/alb.tf`). 브라우저↔Vercel, Vercel↔ALB 모두 HTTPS라 **공개 인터넷을 지나는 평문 구간이 없습니다.** ALB↔ECS 구간만 HTTP인데, 이건 VPC 내부이고 ECS 보안그룹이 ALB 보안그룹에서 오는 트래픽만 받습니다.
-
-인증 쿠키(JWT·세션)를 가로채면 그 계정으로 로그인한 것과 같으므로([결정 13](../../spec/3-3-DESIGN-DECISIONS.md)) 이 조건이 깨지면 부원 공개를 멈춰야 합니다 ([결정 5](../../spec/3-3-DESIGN-DECISIONS.md)).
-
 ---
 
 ## Docker
 
-### apps/api/Dockerfile
+**`apps/api/Dockerfile`** — 멀티스테이지 빌드(build → extract → runtime)로 레이어 추출을 씁니다. 의존성 레이어가 재사용돼 배포 시 업로드 용량이 수십 MB로 줄어듭니다. JVM 옵션은 ECS에서 `JAVA_TOOL_OPTIONS`로 주입하며 `java`가 자동으로 읽습니다.
 
-```dockerfile
-# ---------- build ----------
-FROM gradle:8.10-jdk21 AS build
-WORKDIR /build
+> 로더 클래스명(`org.springframework.boot.loader.launch.JarLauncher`)은 Spring Boot 3.2 이상 기준입니다. 3.1 이하면 `org.springframework.boot.loader.JarLauncher`.
 
-# 의존성 캐시 레이어 (소스만 바뀌면 재다운로드 안 함)
-COPY build.gradle.kts settings.gradle.kts gradle.properties* ./
-COPY gradle ./gradle
-RUN gradle dependencies --no-daemon || true
+**`docker-compose.yml`** (로컬 개발) — Postgres와, 활동사진 업로드(#57)를 로컬에서 검증할 MinIO를 띄웁니다. `docker compose up -d`로 함께 뜨고, MinIO 웹 콘솔(`http://localhost:9001`, `minioadmin`/`minioadmin`)로 버킷 안의 오브젝트를 눈으로 확인할 수 있습니다. 자료 업로드(#207)는 로컬에서 실제 버킷이 필요 없습니다 — 테스트가 `FileStorage`를 갈아끼우기 때문입니다.
 
-COPY src ./src
-RUN gradle bootJar --no-daemon -x test
-
-# ---------- extract layers ----------
-FROM eclipse-temurin:21-jre-alpine AS extract
-WORKDIR /app
-COPY --from=build /build/build/libs/*.jar app.jar
-RUN java -Djarmode=layertools -jar app.jar extract
-
-# ---------- runtime ----------
-FROM eclipse-temurin:21-jre-alpine
-WORKDIR /app
-
-RUN apk add --no-cache curl && \
-    addgroup -S app && adduser -S app -G app
-
-COPY --from=extract /app/dependencies/          ./
-COPY --from=extract /app/spring-boot-loader/    ./
-COPY --from=extract /app/snapshot-dependencies/ ./
-COPY --from=extract /app/application/           ./
-
-USER app
-EXPOSE 8080
-
-ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]
-```
-
-레이어 추출을 쓰면 의존성 레이어가 재사용돼서 배포 시 업로드 용량이 수십 MB로 줄어듭니다.
-`curl`은 컨테이너 헬스체크에 필요합니다.
-JVM 옵션은 ECS에서 `JAVA_TOOL_OPTIONS`로 주입하며, `java`가 이 환경변수를 자동으로 읽습니다.
-
-> 로더 클래스명은 Spring Boot 3.2 이상 기준입니다. 3.1 이하면 `org.springframework.boot.loader.JarLauncher`.
-
-### apps/api/.dockerignore
-
-```
-build/
-.gradle/
-.git/
-*.md
-src/test/
-.env*
-```
-
-### docker-compose.yml (로컬 개발)
-
-```yaml
-services:
-  postgres:
-    image: postgres:16-alpine        # RDS와 메이저 버전 일치
-    environment:
-      POSTGRES_DB: hacker
-      POSTGRES_USER: hacker
-      POSTGRES_PASSWORD: localdev
-    ports: ["127.0.0.1:5432:5432"]   # 루프백만. 공유 네트워크에서 기본 계정 노출 방지
-    volumes: [pgdata:/var/lib/postgresql/data]
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U hacker"]
-      interval: 5s
-
-  # 활동사진 업로드(#57)의 로컬 S3 대역. 운영은 실제 S3를 쓴다 — 여기는 presigned URL 흐름을
-  # 로컬에서 그대로 재현하기 위한 것뿐이다 (application-local.yml의 app.photo-storage.endpoint).
-  # 자료 업로드(#207)는 로컬에서 실제 버킷을 쓰지 않는다 — app.storage.bucket은 자리표시자
-  # 값이면 충분하다(FileStorage를 테스트용으로 갈아끼우기 때문).
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - "127.0.0.1:9000:9000" # S3 API
-      - "127.0.0.1:9001:9001" # 웹 콘솔 — 로컬에서 오브젝트를 눈으로 확인할 때만 쓴다
-    volumes: [miniodata:/data]
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-
-  # MinIO는 버킷을 미리 만들어주지 않는다. 기동할 때 한 번 만들고 끝나는 1회성 컨테이너다.
-  minio-init:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 minioadmin minioadmin &&
-      mc mb --ignore-existing local/hacker-uploads-local
-      "
-
-volumes:
-  pgdata:
-  miniodata:
-```
-
-`docker compose up -d`로 두 서비스를 함께 띄운다. 웹 콘솔(`http://localhost:9001`, `minioadmin`/`minioadmin`)로 버킷 안의 오브젝트를 눈으로 확인할 수 있다.
-
-```yaml
-# application-local.yml
-spring:
-  datasource:
-    url: jdbc:postgresql://localhost:5432/hacker
-    username: hacker
-    password: localdev
-
-app:
-  photo-storage:
-    bucket: hacker-uploads-local
-    region: ap-northeast-2   # MinIO는 리전을 실제로 쓰지 않지만 값 자체는 필수다
-    endpoint: http://localhost:9000
-    access-key: minioadmin
-    secret-key: minioadmin
-```
-
-```yaml
-# application-prod.yml
-spring:
-  datasource:
-    url: ${DB_URL}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
-management:
-  endpoints.web.exposure.include: health
-  endpoint.health.probes.enabled: true
-```
-
-**`/actuator/health`를 Spring Security에서 `permitAll` 해야 합니다.** 안 하면 401이 나오고 ALB가 계속 unhealthy 판정 → 태스크 무한 재시작. 첫 배포 실패 원인 1위입니다.
+**`application-local.yml` / `application-prod.yml`** 분리 — 로컬은 위 docker-compose 값을, 운영은 `${DB_URL}` 등 환경변수를 읽습니다. `/actuator/health`가 Spring Security에서 `permitAll`이어야 하는 이유는 [spec/7-DEPLOYMENT §7-2](../../spec/7-DEPLOYMENT.md#7-2-배포-원칙)에 있습니다 — 빠뜨리면 첫 배포 실패 원인 1위입니다.
 
 ---
 
@@ -220,145 +57,9 @@ release 브랜치 삭제는 ruleset으로 보호된다. `develop` 동기화와 �
 
 ## GitHub Actions
 
-### .github/workflows/ci.yml
+**`.github/workflows/ci.yml`** — PR마다 API(`./gradlew build`)와 웹(`npm ci && npm run lint && npm run build`)을 각각 검증합니다.
 
-```yaml
-name: CI
-
-on:
-  pull_request:
-    branches: [main, develop, 'release/**']
-
-jobs:
-  api:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: hacker_test
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready --health-interval 5s --health-retries 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: temurin
-          cache: gradle
-      - working-directory: apps/api
-        run: ./gradlew build
-
-  web:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: apps/web/package-lock.json
-      - working-directory: apps/web
-        run: |
-          npm ci
-          npm run lint
-          npm run build
-```
-
-### .github/workflows/deploy-api.yml
-
-```yaml
-name: Deploy API
-
-on:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/api/**'              # 모노레포 — API 바뀔 때만
-      - '.github/workflows/deploy-api.yml'
-  workflow_dispatch:
-
-concurrency:
-  group: deploy-api
-  cancel-in-progress: false
-
-env:
-  AWS_REGION: ap-northeast-2
-  ECR_REPO: hacker-api
-  ECS_CLUSTER: hacker-cluster
-  ECS_SERVICE: hacker-api
-  TASK_FAMILY: hacker-api
-  CONTAINER_NAME: api
-
-permissions:
-  id-token: write                  # ★ OIDC 필수
-  contents: read
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Build & Push
-        uses: docker/build-push-action@v6
-        with:
-          context: apps/api
-          platforms: linux/amd64   # ★ 태스크 정의의 X86_64와 일치
-          push: true
-          tags: |
-            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }}
-            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Download current task definition
-        run: |
-          aws ecs describe-task-definition \
-            --task-definition ${{ env.TASK_FAMILY }} \
-            --query taskDefinition > task-definition.json
-
-      - name: Update image in task definition
-        id: taskdef
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: task-definition.json
-          container-name: ${{ env.CONTAINER_NAME }}
-          image: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }}
-
-      - name: Deploy to ECS
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-        with:
-          task-definition: ${{ steps.taskdef.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
-
-      - name: Health check
-        run: |
-          for i in $(seq 1 20); do
-            if curl -sf http://${{ secrets.ALB_DNS }}/actuator/health; then
-              echo "✅ deployed"; exit 0
-            fi
-            echo "waiting... ($i/20)"; sleep 15
-          done
-          echo "❌ health check failed"; exit 1
-```
-
-**이미지 태그를 `github.sha`로 씁니다.** `latest`만 쓰면 "배포했는데 옛날 코드가 도는" 사고가 반드시 생깁니다. 롤백도 SHA만 있으면 간단합니다.
+**`.github/workflows/deploy-api.yml`** — `main`에 `apps/api/**`가 바뀐 push에서만 돈다. 이미지를 커밋 SHA로 태그하는 이유, 배포 서킷 브레이커, `ignore_changes` 필요성 같은 원칙은 [spec/7-DEPLOYMENT §7-2](../../spec/7-DEPLOYMENT.md#7-2-배포-원칙)에 있습니다.
 
 ### GitHub Secrets
 
@@ -377,47 +78,6 @@ Settings → Secrets and variables → Actions:
 - **Ignored Build Step**: `git diff --quiet HEAD^ HEAD -- ./`
 - `vercel.json`에 위 rewrites 설정
 - 프론트 코드에서는 `fetch('/api/v1/...')` — 별도 base URL 불필요
-
----
-
-## 앱 / 배포 체크리스트
-
-**앱**
-- [ ] Dockerfile + .dockerignore
-- [ ] `docker compose up` 로컬 postgres 확인
-- [ ] `/actuator/health` permitAll 설정
-- [ ] Flyway 마이그레이션
-- [ ] `application-local.yml` / `application-prod.yml` 분리
-
-**배포**
-- [ ] GitHub Secrets 2개
-- [ ] `deploy-api.yml` 수동 실행 성공
-- [ ] Vercel Root Directory = `apps/web`
-- [ ] `vercel.json` rewrites destination = `https://api.khuhacker.com`, SPA fallback 위에 위치
-- [ ] 프론트에서 `/api/v1/...` 호출 성공 → **최초 배포 완료**
-
-**배포 직후 30분 동안 알아둘 것**
-
-배포 시점에 이미 로그인해 있던 세션은 **정지·승인이 반영되지 않는다.** 세션을 사용자로 찾으려면 `SPRING_SESSION.PRINCIPAL_NAME`이 채워져 있어야 하는데, 그 값은 로그인할 때 들어간다 ([3-1 §3-1-5](../../spec/3-1-DESIGN-ARCHITECTURE.md)).
-
-- 세션 수명이 30분이라 **그냥 두면 사라진다.** 마이그레이션은 필요 없다.
-- 그 사이에 **급히 정지해야 하는 계정**이 있으면 DB에서 그 사람의 세션을 직접 지운다. 지우면 다음 요청이 `401`이 되어 정지 안내 대신 로그인 화면으로 가지만, 접근은 즉시 끊긴다.
-
-```sql
--- 급할 때만. 평소에는 관리자 화면의 정지를 쓴다.
-DELETE FROM spring_session WHERE primary_id IN (
-  SELECT session_primary_id FROM spring_session_attributes
-  WHERE attribute_name = 'auth.userId'
-);
-```
-
-위 질의는 **로그인한 세션 전부**를 지운다 — 배포 직후 특정 계정만 골라낼 방법이 없기 때문이다(그래서 이 창이 문제다). 전원이 다시 로그인하면 된다.
-
-**공개 전 (필수)**
-- [ ] 도메인 구매 → ACM 인증서 → ALB 443 리스너
-- [ ] `vercel.json` 프록시 정리
-- [ ] RDS `deletion_protection = true`, `skip_final_snapshot = false`
-- [ ] 그전까지 **실제 부원 계정·시험 자료는 올리지 않기**
 
 ---
 [← 이전: 인프라](infra.md) · [다음: 런북 →](runbook.md)

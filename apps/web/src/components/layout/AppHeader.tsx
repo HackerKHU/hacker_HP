@@ -2,6 +2,7 @@ import { Link, NavLink } from 'react-router-dom'
 import type { Role } from '@/api/types'
 import { useSession } from '@/auth/session'
 import { useLogout } from '@/auth/useLogout'
+import { HEADER_ACTION, HEADER_NAV_ITEM } from '@/components/header-nav'
 import { Button } from '@/components/ui/button'
 import { CLUB } from '@/features/landing/content'
 import { lookup } from '@/lib/lookup'
@@ -14,12 +15,28 @@ import { cn } from '@/lib/utils'
  * **메뉴 노출은 권한 통제가 아니다** (spec §3-1-7). 감춘 메뉴를 주소창으로 직접 열어도
  * #36의 라우트 가드가 막고, 서버가 다시 검증한다. 여기가 담당하는 것은 노출뿐이다.
  */
+const MEMBER_MENUS = [
+  { to: '/notices', label: '공지사항' },
+  /*
+   * 자료는 **메뉴 하나**다. 갈래(시험·과목)는 그 화면 안의 탭으로 가른다 — 자료를 보러
+   * 가는 것은 한 가지 일이고, 갈래는 거기서 고르는 조건이지 다른 목적지가 아니다.
+   * 탭은 URL에 남으므로(`/notes?category=`) 링크 공유도 그대로 된다.
+   */
+  { to: '/notes', label: '자료게시판' },
+  { to: '/posts', label: '자유 게시판' },
+  /*
+   * 갤러리는 `ACTIVE`면 누구나 본다 — 업로드만 ADMIN이라 그 진입점은 갤러리 안에 둔다
+   * (spec §3-1-3 매트릭스). 메뉴를 관리자에게만 보이면 부원이 사진을 볼 길이 없다.
+   *
+   * **글이 오가는 화면을 앞에 모으고 갤러리를 끝에 둔다.** 공지·자료·게시판은 읽고 쓰러
+   * 오는 자리고, 갤러리는 둘러보는 자리다.
+   */
+  { to: '/photos', label: '갤러리' },
+]
+
 const MENUS = {
-  USER: [{ to: '/notices', label: '공지사항' }],
-  ADMIN: [
-    { to: '/notices', label: '공지사항' },
-    { to: '/admin/members', label: '회원 관리' },
-  ],
+  USER: MEMBER_MENUS,
+  ADMIN: [...MEMBER_MENUS, { to: '/admin/members', label: '회원 관리' }],
 } satisfies Record<Role, { to: string; label: string }[]>
 
 /*
@@ -40,7 +57,14 @@ export function AppHeader() {
 
   return (
     <header className="border-b border-border bg-background">
-      <div className="mx-auto flex h-20 w-full max-w-[1152px] items-center gap-8 px-6">
+      {/*
+       * **`PublicHeader`와 같은 컨테이너다** (#247). 높이·폭·패딩·간격이 전부 같아야
+       * 랜딩과 앱을 오갈 때 로고가 제자리에 있다.
+       *
+       * 모바일에서 간격을 줄이는 것도 같이 따른다 — 메뉴가 셋으로 늘어(#59) 좁은 화면에서
+       * 랜딩 헤더와 같은 압박을 받는다.
+       */}
+      <div className="mx-auto flex h-20 w-full max-w-[1152px] items-center gap-4 px-6 md:gap-8">
         {/*
          * **로고는 랜딩으로 간다.** 헤더 로고는 사이트의 홈으로 가는 자리다 — `/notices`를
          * 가리키던 때는 바로 옆 주요 메뉴의 `공지사항`과 목적지가 겹쳤고, 로그인한 부원이
@@ -69,8 +93,13 @@ export function AppHeader() {
               to={menu.to}
               end
               className={({ isActive }) =>
+                /*
+                 * 모양은 `PublicHeader`와 **같은 상수에서 온다** (#261 검수) — 화면을
+                 * 오갈 때 메뉴 크기가 달라지지 않아야 한다. 여기만 현재 위치를 색으로
+                 * 드러낸다.
+                 */
                 cn(
-                  'rounded-md px-3 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
+                  HEADER_NAV_ITEM,
                   isActive ? 'text-foreground' : 'text-muted-foreground',
                 )
               }
@@ -87,7 +116,7 @@ export function AppHeader() {
               로그아웃하지 못했습니다. 다시 시도해 주세요.
             </p>
           )}
-          <Button variant="ghost" size="sm" onClick={logout}>
+          <Button variant="ghost" className={HEADER_ACTION} onClick={logout}>
             로그아웃
           </Button>
         </div>

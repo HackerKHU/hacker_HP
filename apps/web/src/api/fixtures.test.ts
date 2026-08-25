@@ -647,3 +647,476 @@ describe('회원 관리 픽스처', () => {
     expect((error as InstanceType<typeof ApiError>).code).toBe('SUSPENDED')
   })
 })
+
+/**
+ * 자료 픽스처가 서버 계약을 그대로 지키는지.
+ *
+ * 화면 테스트는 `@/api/notes`를 통째로 mock하므로 **이 계층은 그 뒤에 가려져 있다.**
+ * 픽스처가 계약보다 무르면 오류 UI 없이도 화면이 멀쩡해 보이고, 그 회귀는 서버가 붙는
+ * 날까지 드러나지 않는다.
+ */
+describe('자료 픽스처', () => {
+  /* 검색어와 필터는 AND로 함께 걸린다 (spec §2-1-1 MUST). */
+  it('검색어와 필터를 함께 적용한다', async () => {
+    const { fixtureNotes } = await loadFixtures('user')
+
+    const all = await fixtureNotes({ subject: '운영체제' })
+    const narrowed = await fixtureNotes({ subject: '운영체제', q: '없는낱말' })
+
+    expect(all.page.totalElements).toBeGreaterThan(0)
+    expect(narrowed.page.totalElements).toBe(0)
+  })
+
+  /*
+   * **있을 수 없는 조합은 오류가 아니라 0건이다** (계약 §3-2-4). 조회에 검증을 넣으면
+   * 화면이 필터를 조합하는 순간마다 `400`을 받는다.
+   */
+  it('SUBJECT + examType 조합은 오류가 아니라 0건이다', async () => {
+    const { fixtureNotes } = await loadFixtures('user')
+
+    const page = await fixtureNotes({
+      category: 'SUBJECT',
+      examType: 'MIDTERM',
+    })
+
+    expect(page.page.totalElements).toBe(0)
+  })
+
+  /* 필터 옵션은 **실제 등록된 값에서** 만든다 (계약 §3-2-4 MUST). */
+  it('필터 옵션이 등록된 자료에서 나온다', async () => {
+    const { fixtureNotes, fixtureNoteFilters } = await loadFixtures('user')
+
+    const options = await fixtureNoteFilters()
+    const page = await fixtureNotes({ size: 100 })
+    const subjects = new Set(page.content.map((note) => note.subjectName))
+
+    expect(options.subjects.length).toBeGreaterThan(0)
+    for (const subject of options.subjects) {
+      expect(subjects.has(subject)).toBe(true)
+    }
+    // 교수명이 없는 자료는 옵션을 만들지 않는다 — 화면이 빈 항목을 그린다.
+    expect(options.professors).not.toContain('')
+  })
+
+  /*
+   * **담기·빼기는 멱등이다** (계약 §3-2-4 MUST). 같은 요청을 두 번 보내도 상태가 뒤집히지
+   * 않는다 — 토글이면 재시도가 방금 담은 것을 조용히 뺀다.
+   */
+  it('같은 담기를 두 번 보내도 상태가 뒤집히지 않는다', async () => {
+    const { fixtureNotes, fixtureSetBookmark, fixtureNote } =
+      await loadFixtures('user')
+    const page = await fixtureNotes({ size: 100 })
+    const target = page.content.find((note) => !note.bookmarked)
+    if (!target) throw new Error('담기지 않은 자료가 없다')
+
+    await fixtureSetBookmark(target.id, true)
+    await fixtureSetBookmark(target.id, true)
+
+    expect((await fixtureNote(target.id)).bookmarked).toBe(true)
+  })
+
+  /* 없는 자료에 빼기는 성공이다 — 자료가 지워지면 즐겨찾기도 함께 사라진다. */
+  it('없는 자료에 빼기는 성공, 담기는 404다', async () => {
+    const { fixtureSetBookmark, ApiError } = await loadFixtures('user')
+
+    await expect(fixtureSetBookmark(-1, false)).resolves.toBeUndefined()
+
+    const error = await fixtureSetBookmark(-1, true).catch(
+      (caught: unknown) => caught,
+    )
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe('NOT_FOUND')
+  })
+
+  /* **`GET /bookmarks`의 `bookmarked`는 언제나 참이다** (계약 §3-2-4 MUST). */
+  it('즐겨찾기 목록은 전부 담긴 상태다', async () => {
+    const { fixtureBookmarks } = await loadFixtures('user')
+
+    const page = await fixtureBookmarks()
+
+    expect(page.content.length).toBeGreaterThan(0)
+    for (const note of page.content) {
+      expect(note.bookmarked).toBe(true)
+    }
+  })
+
+  /*
+   * 확장자·용량을 픽스처도 거부한다 (계약 §3-2-4). **확장자를 크기보다 먼저 본다** —
+   * "이 종류는 아예 안 받는다"가 "조금 줄여서 다시"보다 먼저 알아야 할 사실이다.
+   */
+  it('허용되지 않는 확장자는 415, 큰 파일은 413이다', async () => {
+    const { fixtureUploadUrls, ApiError } = await loadFixtures('user')
+
+    const bad = await fixtureUploadUrls([
+      { originalName: 'malware.exe', sizeBytes: 10 },
+    ]).catch((caught: unknown) => caught)
+    expect((bad as InstanceType<typeof ApiError>).code).toBe(
+      'UNSUPPORTED_FILE_TYPE',
+    )
+
+    const big = await fixtureUploadUrls([
+      { originalName: 'huge.pdf', sizeBytes: 21 * 1024 * 1024 },
+    ]).catch((caught: unknown) => caught)
+    expect((big as InstanceType<typeof ApiError>).code).toBe('FILE_TOO_LARGE')
+  })
+
+  /* 발급은 **한 번에** 받는다 — 요청한 개수만큼 자리가 나오고 이름이 그대로 돌아온다. */
+  it('발급 응답이 요청과 같은 개수·순서다', async () => {
+    const { fixtureUploadUrls } = await loadFixtures('user')
+
+    const uploads = await fixtureUploadUrls([
+      { originalName: 'a.pdf', sizeBytes: 10 },
+      { originalName: 'b.png', sizeBytes: 10 },
+    ])
+
+    expect(uploads.map((upload) => upload.originalName)).toEqual([
+      'a.pdf',
+      'b.png',
+    ])
+  })
+
+  /*
+   * **업로더는 인증 주체로만 정한다** (계약 §3-2-4 MUST). 본문으로 받으면 다른 사람 이름으로
+   * 올릴 수 있다.
+   */
+  it('등록한 자료의 업로더가 나다', async () => {
+    const { fixtureCreateNote } = await loadFixtures('user')
+
+    const created = await fixtureCreateNote({
+      category: 'SUBJECT',
+      title: '새 자료',
+      subjectName: '운영체제',
+      professor: null,
+      year: 2026,
+      semester: 'SPRING',
+      examType: null,
+      files: [{ key: 'notes/uploads/1/a.pdf', originalName: 'a.pdf' }],
+    })
+
+    expect(created.uploader.id).toBe(1)
+    expect(created.files).toHaveLength(1)
+  })
+
+  /*
+   * **본인 것만, `ADMIN`은 전체다** (계약 §3-2-4). 픽스처가 통과시키면 화면이 버튼을
+   * 잘못 보여줘도 드러나지 않는다.
+   */
+  it('남의 자료는 USER가 수정·삭제할 수 없다', async () => {
+    const { fixtureNotes, fixtureRemoveNote, ApiError } =
+      await loadFixtures('user')
+    const page = await fixtureNotes({ size: 100 })
+    const others = page.content.find((note) => note.uploader.id !== 1)
+    if (!others) throw new Error('남의 자료가 없다')
+
+    const error = await fixtureRemoveNote(others.id).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+  })
+
+  /* **`EXAM`이면 시험 구분이 필수다** (계약 §3-2-2 CHECK 제약). */
+  it('EXAM인데 시험 구분이 없으면 거부한다', async () => {
+    const { fixtureCreateNote, ApiError } = await loadFixtures('user')
+
+    const error = await fixtureCreateNote({
+      category: 'EXAM',
+      title: '제목',
+      subjectName: '과목',
+      professor: null,
+      year: 2026,
+      semester: 'SPRING',
+      examType: null,
+      files: [{ key: 'notes/uploads/1/a.pdf', originalName: 'a.pdf' }],
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe(
+      'VALIDATION_ERROR',
+    )
+  })
+
+  /*
+   * **`fileId`는 그 자료의 것이어야 한다** (계약 §3-2-4 MUST). 아니면 `404`다 — 경로가
+   * 거짓말하게 두면 소유자를 따지는 수정·삭제와 기준이 갈린다.
+   */
+  it('다른 자료의 fileId로 내려받기를 요청하면 404다', async () => {
+    const { fixtureNotes, fixtureNote, fixtureDownloadUrl, ApiError } =
+      await loadFixtures('user')
+    const page = await fixtureNotes({ size: 100 })
+    const first = await fixtureNote(page.content[0].id)
+    const second = await fixtureNote(page.content[1].id)
+
+    const error = await fixtureDownloadUrl(first.id, second.files[0].id).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe('NOT_FOUND')
+  })
+})
+
+/**
+ * 활동사진 픽스처가 서버 계약을 그대로 지키는지.
+ *
+ * 화면 테스트는 `@/api/photos`를 통째로 mock하므로 **이 계층은 그 뒤에 가려져 있다.**
+ * 픽스처가 계약보다 무르면 오류 UI 없이도 화면이 멀쩡해 보이고, 그 회귀는 서버가 붙는
+ * 날까지 드러나지 않는다.
+ */
+describe('활동사진 픽스처', () => {
+  /* **최신순 고정이다** (spec §2-1-7) — 화면이 정렬을 고르지 않는다. */
+  it('목록이 최신순이다', async () => {
+    const { fixturePhotos } = await loadFixtures('user')
+
+    const page = await fixturePhotos({ size: 100 })
+
+    const dates = page.content.map((photo) => photo.createdAt)
+    expect([...dates].sort((a, b) => b.localeCompare(a))).toEqual(dates)
+  })
+
+  /* 한 페이지를 넘겨야 페이지네이션을 화면에서 확인할 수 있다 (#60 완료 조건). */
+  it('한 페이지를 넘는 장수가 있다', async () => {
+    const { fixturePhotos } = await loadFixtures('user')
+
+    const page = await fixturePhotos()
+
+    expect(page.page.totalPages).toBeGreaterThan(1)
+  })
+
+  /*
+   * **업로드·삭제는 `ADMIN` 전용이다** (계약 §3-2-5). 픽스처가 통과시키면 그 가드가
+   * 화면에서 확인되지 않는다.
+   */
+  it.each(['user', 'pending'])(
+    '%s 시나리오는 업로드·삭제가 FORBIDDEN이다',
+    async (scenario) => {
+      const { fixtureIssuePhotoUploadUrls, fixtureRemovePhoto, ApiError } =
+        await loadFixtures(scenario)
+
+      const issued = await fixtureIssuePhotoUploadUrls(['jpg']).catch(
+        (caught: unknown) => caught,
+      )
+      expect(issued).toBeInstanceOf(ApiError)
+      expect((issued as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+
+      const removed = await fixtureRemovePhoto(501).catch(
+        (caught: unknown) => caught,
+      )
+      expect((removed as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+    },
+  )
+
+  /*
+   * 서버가 받는 것은 `jpg`·`jpeg`·`png`뿐이다 (계약 §3-2-5) — 디코딩해 리사이즈해야
+   * 하므로 이미지만 받는다. 통과시키면 `415` 화면을 만들 수 없다.
+   */
+  it('이미지가 아닌 확장자는 415다', async () => {
+    const { fixtureIssuePhotoUploadUrls, ApiError } =
+      await loadFixtures('admin')
+
+    const error = await fixtureIssuePhotoUploadUrls(['pdf']).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe(
+      'UNSUPPORTED_FILE_TYPE',
+    )
+  })
+
+  /* 발급은 요청한 개수만큼, 순서대로 나온다 — 짝짓기 수단이 순서뿐이다 (§3-2-5). */
+  it('발급이 요청 개수·순서와 같다', async () => {
+    const { fixtureIssuePhotoUploadUrls } = await loadFixtures('admin')
+
+    const uploads = await fixtureIssuePhotoUploadUrls(['jpg', 'png'])
+
+    expect(uploads).toHaveLength(2)
+    expect(uploads[0].key.endsWith('.jpg')).toBe(true)
+    expect(uploads[1].key.endsWith('.png')).toBe(true)
+  })
+
+  /*
+   * **일부가 실패해도 성공 응답이다** (계약 §3-2-5). 픽스처가 전부 성공시키면 화면이
+   * `failed`를 읽는지 확인할 수 없다 — 그래서 2장 이상이면 마지막 한 장을 실패시킨다.
+   */
+  it('두 장 이상 등록하면 일부 실패가 함께 온다', async () => {
+    const { fixtureRegisterPhotos } = await loadFixtures('admin')
+
+    const result = await fixtureRegisterPhotos([
+      { key: 'photos/uploads/a.jpg', caption: '가' },
+      { key: 'photos/uploads/b.jpg', caption: null },
+    ])
+
+    expect(result.registered).toHaveLength(1)
+    expect(result.failed).toHaveLength(1)
+    expect(result.failed[0].key).toBe('photos/uploads/b.jpg')
+  })
+
+  /* **업로더는 인증 주체로만 정한다** (계약 §3-2-5 MUST) — 본문으로 받지 않는다. */
+  it('등록한 사진의 업로더가 나다', async () => {
+    const { fixtureRegisterPhotos } = await loadFixtures('admin')
+
+    const result = await fixtureRegisterPhotos([
+      { key: 'photos/uploads/a.jpg', caption: null },
+    ])
+
+    expect(result.registered[0].uploaderName).toBe('김관리')
+  })
+
+  /* 등록한 사진이 목록에 남아야 업로드 → 갤러리 왕복을 확인할 수 있다. */
+  it('등록한 사진이 목록 맨 앞에 온다', async () => {
+    const { fixtureRegisterPhotos, fixturePhotos } = await loadFixtures('admin')
+
+    const result = await fixtureRegisterPhotos([
+      { key: 'photos/uploads/a.jpg', caption: '방금 올린 사진' },
+    ])
+    const page = await fixturePhotos()
+
+    expect(page.content[0].id).toBe(result.registered[0].id)
+    expect(page.content[0].caption).toBe('방금 올린 사진')
+  })
+})
+
+/**
+ * 게시판 픽스처가 서버 계약을 그대로 지키는지.
+ *
+ * 화면 테스트는 `@/api/posts`를 통째로 mock하므로 **이 계층은 그 뒤에 가려져 있다.**
+ * 픽스처가 계약보다 무르면 오류 UI 없이도 화면이 멀쩡해 보인다.
+ */
+describe('게시판 픽스처', () => {
+  /* **목록은 본문을 담지 않는다** (계약 §3-2-5 MUST). 담으면 화면이 그것에 기댄다. */
+  it('목록 응답에 본문이 없다', async () => {
+    const { fixturePosts } = await loadFixtures('user')
+
+    const page = await fixturePosts()
+
+    expect(page.content.length).toBeGreaterThan(0)
+    for (const post of page.content) {
+      expect(post).not.toHaveProperty('content')
+    }
+  })
+
+  /* **최신순 고정이다** (§2-1-8 MUST). 마지막 기준은 `id`다. */
+  it('목록이 최신순이다', async () => {
+    const { fixturePosts } = await loadFixtures('user')
+
+    const page = await fixturePosts({ size: 100 })
+
+    const dates = page.content.map((post) => post.createdAt)
+    expect([...dates].sort((a, b) => b.localeCompare(a))).toEqual(dates)
+  })
+
+  /* 한 페이지를 넘겨야 페이지네이션을 화면에서 확인할 수 있다. */
+  it('한 페이지를 넘는 글이 있다', async () => {
+    const { fixturePosts } = await loadFixtures('user')
+
+    expect((await fixturePosts()).page.totalPages).toBeGreaterThan(1)
+  })
+
+  /* 상세에는 본문이 있다 — 목록과 상세의 차이가 계약의 핵심이다. */
+  it('상세에는 본문이 있다', async () => {
+    const { fixturePosts, fixturePost } = await loadFixtures('user')
+    const page = await fixturePosts()
+
+    const detail = await fixturePost(page.content[0].id)
+
+    expect(detail.content.length).toBeGreaterThan(0)
+  })
+
+  /*
+   * 픽스처 본문에 **HTML이 섞여 있어야 한다** — 화면이 그것을 글자 그대로 그리는지
+   * 눈으로 확인할 수 있어야 한다 (spec §2-1-8 MUST).
+   */
+  it('본문에 HTML이 섞인 글이 있다', async () => {
+    const { fixturePosts, fixturePost } = await loadFixtures('user')
+    const page = await fixturePosts({ size: 100 })
+
+    const bodies = await Promise.all(
+      page.content.map((post) => fixturePost(post.id)),
+    )
+
+    expect(bodies.some((post) => post.content.includes('<script>'))).toBe(true)
+  })
+
+  /* 탈퇴한 회원의 글이 있어야 그 표시를 화면에서 확인할 수 있다. */
+  it('탈퇴한 회원의 글이 있다', async () => {
+    const { fixturePosts } = await loadFixtures('user')
+
+    const page = await fixturePosts({ size: 100 })
+
+    expect(
+      page.content.some(
+        (post) => post.author.id === null && post.author.name === '탈퇴한 회원',
+      ),
+    ).toBe(true)
+  })
+
+  /* **작성자는 인증 주체로만 정한다** (계약 §3-2-5 MUST) — 본문으로 받지 않는다. */
+  it('쓴 글의 작성자가 나다', async () => {
+    const { fixtureCreatePost } = await loadFixtures('user')
+
+    const created = await fixtureCreatePost({
+      title: '새 글',
+      content: '내용',
+    })
+
+    expect(created.author.name).toBe('홍길동')
+  })
+
+  it('쓴 글이 목록 맨 앞에 온다', async () => {
+    const { fixtureCreatePost, fixturePosts } = await loadFixtures('user')
+
+    const created = await fixtureCreatePost({
+      title: '방금 쓴 글',
+      content: '내용',
+    })
+    const page = await fixturePosts()
+
+    expect(page.content[0].id).toBe(created.id)
+  })
+
+  /* 서버가 거부할 것을 픽스처도 거부한다 — 통과시키면 오류 화면을 만들 수 없다. */
+  it.each([
+    ['제목이 공백', '   ', '내용'],
+    ['내용이 공백', '제목', '   '],
+  ])('%s이면 VALIDATION_ERROR다', async (_label, title, content) => {
+    const { fixtureCreatePost, ApiError } = await loadFixtures('user')
+
+    const error = await fixtureCreatePost({ title, content }).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe(
+      'VALIDATION_ERROR',
+    )
+  })
+
+  /*
+   * **길이는 코드 포인트로 센다** — 서버의 `@CodePointSize`와 같다. 픽스처가 UTF-16으로
+   * 세면 이모지가 섞인 글에서 화면과 서버의 판정이 갈리는 것을 못 잡는다.
+   */
+  it('이모지 200자 제목은 통과한다', async () => {
+    const { fixtureCreatePost } = await loadFixtures('user')
+
+    // UTF-16으로는 400단위, 코드 포인트로는 200이다.
+    const created = await fixtureCreatePost({
+      title: '🎉'.repeat(200),
+      content: '내용',
+    })
+
+    expect(created.id).toBeGreaterThan(0)
+  })
+
+  it('201자 제목은 거부한다', async () => {
+    const { fixtureCreatePost, ApiError } = await loadFixtures('user')
+
+    const error = await fixtureCreatePost({
+      title: '가'.repeat(201),
+      content: '내용',
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+  })
+})

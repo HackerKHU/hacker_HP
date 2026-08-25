@@ -505,7 +505,7 @@ export function MemberListPage() {
           ? '남을 콘텐츠를 확인하는 중입니다.'
           : summary === 'failed'
             ? '남을 콘텐츠 건수를 불러오지 못했습니다. 다시 시도해 주세요.'
-            : `자료 ${summary.notes}건, 공지 ${summary.notices}건, 활동사진 ${summary.photos}건이 "탈퇴한 회원"으로 남습니다.`
+            : `자료 ${summary.notes}건, 공지 ${summary.notices}건, 활동사진 ${summary.photos}건, 게시글 ${summary.posts}건이 "탈퇴한 회원"으로 남습니다.`
       return {
         title: '이 회원을 제거할까요?',
         body: `${user.name} 회원의 계정을 지웁니다. 되돌릴 수 없습니다. ${leaves}`,

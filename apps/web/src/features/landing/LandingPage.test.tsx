@@ -159,6 +159,19 @@ describe('공개 랜딩', () => {
     expect(await screen.findByText(first.answer)).toBeInTheDocument()
   })
 })
+/**
+ * 부원 화면 링크 — **[라벨, 주소] 쌍이다.**
+ *
+ * `PublicHeader`에서 가져오지 않는다. 화면 코드가 목록을 잘못 바꿔도 같이 틀린 값을
+ * 비교하게 되어 아무것도 잡지 못한다 — 여기 적힌 것이 계약이고, 어긋나면 이 파일이 진다.
+ */
+const MEMBER_LINKS: [string, string][] = [
+  ['공지사항', '/notices'],
+  ['자료게시판', '/notes'],
+  ['자유 게시판', '/posts'],
+  ['갤러리', '/photos'],
+]
+
 describe('랜딩 헤더 상태별 진입점', () => {
   /*
    * 정지된 계정에는 지원하기를 보이지 않는다 (#194 검수). 그 계정은 로그인이 막혀 있어
@@ -343,45 +356,100 @@ describe('랜딩 헤더 상태별 진입점', () => {
     expect(document.getElementById('mobile-menu')).toBeNull()
   })
 
-  it('부원이면 모바일 메뉴에도 공지사항이 있다', async () => {
+  /*
+   * **모바일 메뉴가 데스크톱과 같은 목록을 그린다** (#251). 두 곳에 따로 적으면 화면이
+   * 늘 때마다 한쪽만 고치게 되고, 그 어긋남은 좁은 화면에서만 드러나 오래 남는다 —
+   * 자료게시판·갤러리가 생기고도 랜딩에는 공지사항만 있던 것이 그 예다.
+   */
+  it('부원이면 모바일 메뉴에도 부원 화면 링크가 전부 있다', async () => {
     auth.me = () => Promise.resolve(BASE)
 
     renderLanding()
-    // 세션 확인이 끝나 데스크톱 헤더에 공지사항이 뜬 뒤에 연다.
-    await screen.findByRole('link', { name: '공지사항' })
+    // 세션 확인이 끝나 데스크톱 헤더에 링크가 뜬 뒤에 연다.
+    await screen.findAllByRole('link', { name: '공지사항' })
 
     fireEvent.click(screen.getByRole('button', { name: '메뉴 열기' }))
     const menu = document.getElementById('mobile-menu') as HTMLElement
-    expect(
-      within(menu).getByRole('link', { name: '공지사항' }),
-    ).toBeInTheDocument()
-    // 데스크톱과 같은 원칙 — 라우트 링크는 섹션 nav 밖이다 (#148).
-    expect(
-      within(menu).getByRole('navigation', { name: '섹션 이동' }),
-    ).not.toContainElement(within(menu).getByRole('link', { name: '공지사항' }))
+
+    for (const [label, href] of MEMBER_LINKS) {
+      const link = within(menu).getByRole('link', { name: label })
+      expect(link).toHaveAttribute('href', href)
+      // 데스크톱과 같은 원칙 — 라우트 링크는 섹션 nav 밖이다 (#148).
+      expect(
+        within(menu).getByRole('navigation', { name: '섹션 이동' }),
+      ).not.toContainElement(link)
+    }
   })
 
-  it('공지사항이 섹션 메뉴와 같은 묶음에 놓인다', async () => {
+  /*
+   * #155가 정한 자리다 — 섹션 앵커와 **한 묶음이되 그 nav 안에는 넣지 않는다.** 새로
+   * 늘어난 링크도 같은 규칙을 따라야 한다: 하나만 어긋나면 그것만 다른 성격으로 읽힌다.
+   */
+  it('부원 화면 링크가 섹션 메뉴와 같은 묶음에 놓인다', async () => {
     auth.me = () => Promise.resolve(BASE)
 
     renderLanding()
+    await screen.findAllByRole('link', { name: '공지사항' })
 
-    const notices = await screen.findByRole('link', { name: '공지사항' })
-    const sectionNav = screen.getByRole('navigation', { name: '섹션 이동' })
+    const sectionNav = screen.getAllByRole('navigation', {
+      name: '섹션 이동',
+    })[0]
 
-    expect(notices.parentElement).toContainElement(sectionNav)
-    expect(sectionNav).not.toContainElement(notices)
+    for (const [label] of MEMBER_LINKS) {
+      // 데스크톱 묶음의 것을 고른다 — 모바일 메뉴는 닫혀 있어 하나뿐이다.
+      const link = screen.getByRole('link', { name: label })
+      expect(link.parentElement).toContainElement(sectionNav)
+      expect(sectionNav).not.toContainElement(link)
+    }
   })
 
-  it('ACTIVE에게는 공지사항 링크와 로그아웃이 보인다', async () => {
+  it('ACTIVE에게는 부원 화면 링크와 로그아웃이 보인다', async () => {
     auth.me = () => Promise.resolve(BASE)
 
     renderLanding()
+    await screen.findByRole('link', { name: '공지사항' })
 
-    expect(
-      await screen.findByRole('link', { name: '공지사항' }),
-    ).toHaveAttribute('href', '/notices')
+    for (const [label, href] of MEMBER_LINKS) {
+      expect(screen.getByRole('link', { name: label })).toHaveAttribute(
+        'href',
+        href,
+      )
+    }
     expect(screen.getByRole('button', { name: '로그아웃' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '지원하기' })).toBeNull()
+  })
+
+  /*
+   * **비로그인에게는 하나도 보이지 않는다** (#251). 셋 다 `ACTIVE` 전용 화면이라
+   * (spec §3-1-3) 누르면 가드가 로그인으로 보내는데, **누르기 전에는 그렇게 될 줄
+   * 모른다.** 랜딩을 처음 보는 사람의 다음 행동은 지원하기·로그인이고, 튕겨 나갈 링크를
+   * 그 옆에 늘어놓으면 무엇을 눌러야 하는지 흐려진다.
+   */
+  it('비로그인에게는 부원 화면 링크가 하나도 없다', async () => {
+    auth.me = () => Promise.reject(new Error('비로그인'))
+
+    renderLanding()
+    await screen.findByRole('link', { name: '로그인' })
+
+    for (const [label] of MEMBER_LINKS) {
+      expect(screen.queryByRole('link', { name: label })).toBeNull()
+    }
+  })
+
+  /* `PENDING`도 마찬가지다 — 그 계정이 볼 수 있는 인증 화면은 신청·대기뿐이다 (§3-1-6). */
+  it('PENDING에게도 부원 화면 링크가 없다', async () => {
+    auth.me = () =>
+      Promise.resolve({
+        ...BASE,
+        status: 'PENDING' as const,
+        approvedAt: null,
+      })
+
+    renderLanding()
+    await screen.findByRole('link', { name: '승인 대기 중' })
+
+    for (const [label] of MEMBER_LINKS) {
+      expect(screen.queryByRole('link', { name: label })).toBeNull()
+    }
   })
 })

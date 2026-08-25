@@ -13,7 +13,7 @@
 §3-2-2   테이블 정의       컬럼과 제약
 §3-2-3   API — 인증
 §3-2-4   API — 자료·즐겨찾기
-§3-2-5   API — 공지·사진
+§3-2-5   API — 공지·사진·게시판
 §3-2-6   API — 회원 관리
 §3-2-7   공통 에러 코드
 §3-2-8   공통 페이지 응답
@@ -31,6 +31,7 @@ erDiagram
   NOTES ||--o{ NOTE_FILES : has
   USERS |o--o{ NOTICES : writes
   USERS |o--o{ PHOTOS : uploads
+  USERS |o--o{ POSTS : writes
 ```
 
 `admin_actions`는 ERD에 넣지 않는다. `users`를 가리키지만 **FK가 없어 관계가 아니고**, 그렇게 둔 이유가 바로 "이력은 현재 상태에 종속되지 않는다"이기 때문이다 — 선으로 이으면 정반대로 읽힌다.
@@ -215,6 +216,26 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 버전을 붙이지 않는 경로가 두 개 있다. `/actuator/health`는 ALB 헬스체크가 쓰는 운영 경로이고, `/v3/api-docs`와 Swagger UI는 springdoc이 제공하는 경로다. 둘 다 클라이언트 계약이 아니므로 `/api/v1` 아래에 두지 않는다.
 
 권한 컬럼은 [3-1 §3-1-3](3-1-DESIGN-ARCHITECTURE.md) 매트릭스와 반드시 일치해야 한다 (MUST).
+
+
+### posts
+
+**자유 게시판** (2026-08-23 확정, #235). 부원끼리 글을 올리고 읽는다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | bigint | PK, auto | |
+| `title` | varchar(200) | NOT NULL | `notices.title`과 같은 상한이다 |
+| `content` | text | NOT NULL, **CHECK(길이 ≤ 10000)** | 평문만 담는다 |
+| `author_id` | bigint | NULL, FK → users.id, **ON DELETE SET NULL** | `NULL`이면 탈퇴한 회원 |
+| `created_at` | timestamp | NOT NULL | |
+| `updated_at` | timestamp | NOT NULL | 수정 기능은 없지만 열은 둔다 — 다른 테이블과 모양을 맞춘다 |
+
+인덱스: `(created_at DESC, id DESC)` — 목록의 고정 정렬과 같다.
+
+**`author_id`의 `ON DELETE SET NULL`은 MUST다.** 빠뜨리면 **글을 한 번이라도 쓴 회원은 삭제 자체가 FK 위반으로 실패한다** — `notices.author_id`가 `ON DELETE` 절 없이 만들어져 #58에서 뒤늦게 마이그레이션으로 고쳤다. 같은 실수를 두 번 하지 않는다.
+
+**본문 길이를 DB에서도 막는다** (MUST). `text`는 무제한이라 요청 검증만 두면 다른 경로로 들어온 값이 그대로 저장되고, **글 하나로 목록 응답이 망가진다.** 반대로 DB에만 두면 위반이 사용자 오류가 아니라 `500`으로 나간다 — 양쪽에 건다. **양쪽을 각각 확인한다** ([5-TESTING](5-TESTING.md) T-325·T-331) — API만 재면 `CHECK`를 빠뜨려도 통과한다.
 
 ## 3-2-3 API — 인증
 
@@ -507,7 +528,7 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 
 **검색·필터는 받지 않는다.** 이미 본인이 추린 목록이다.
 
-## 3-2-5 API — 공지·사진
+## 3-2-5 API — 공지·사진·게시판
 
 | Method | Path | 권한 | 설명 |
 |---|---|---|---|
@@ -521,6 +542,9 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | POST | `/photos/upload-url` | ADMIN | 원본 파일별 presigned PUT URL 발급 (다중) |
 | POST | `/photos` | ADMIN | 메타데이터 등록 (JSON) — body에 업로드 완료된 원본 파일 키 목록. 서버가 그 키들을 S3에서 읽어 리사이즈한 뒤 최종 위치에 저장하고 사진마다 행을 만든다 |
 | DELETE | `/photos/{id}` | ADMIN | 삭제 |
+| GET | `/posts` | ACTIVE | 자유 게시판 목록 (최신순 고정) |
+| GET | `/posts/{id}` | ACTIVE | 게시글 상세 |
+| POST | `/posts` | ACTIVE | 게시글 등록 |
 
 ### `POST /photos` — 업로드 경로 (확정, [1-BACKGROUND §1-5](1-BACKGROUND.md) #5)
 
@@ -570,6 +594,51 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 
 공지 응답은 **`authorId`(`null` 가능)와 `authorName`(`null` 아님)을 함께 담는다** (MUST, #58) — 규칙은 [§3-2-2 "작성자를 내려주는 규칙"](#작성자를-내려주는-규칙)과 같다. 작성자가 제거되어 `author_id`가 `NULL`이면 서버가 `authorName`에 `"탈퇴한 회원"`을 넣는다.
 
+### 자유 게시판 (2026-08-23 확정, #235)
+
+| Method | Path | 권한 | 설명 |
+|---|---|---|---|
+| GET | `/posts` | ACTIVE | 목록 (최신순 고정) |
+| GET | `/posts/{id}` | ACTIVE | 상세 |
+| POST | `/posts` | ACTIVE | 등록 |
+
+**수정·삭제는 없다.** 관리자 삭제는 후속이다 ([#238](https://github.com/HackerKHU/hacker_HP/issues/238)).
+
+**정렬 파라미터를 받지 않는다** (MUST). `created_at DESC, id DESC` 고정이다 — 이유는 [2-1 §2-1-8](2-1-USER-STORIES.md#2-1-8-자유-게시판)에 있다. 페이지 파라미터는 [§3-2-8](#3-2-8-공통-페이지-응답)의 공통 규약을 따른다.
+
+**`GET /posts` 응답** — 한 행은 `id`·`title`·`author`·`createdAt`이다.
+
+**본문을 담지 않는다** (MUST). 상세에서만 준다 — 자료 목록이 파일을 개수만 담는 것과 같은 판단이다. 본문 상한이 10,000자라 20건이면 그것만으로 응답이 200KB가 된다.
+
+**`GET /posts/{id}` 응답** — 위에 `content`와 `updatedAt`이 더해진다.
+
+**`POST /posts` 요청·응답**
+
+```json
+// 요청
+{ "title": "이번 학기 스터디 모집합니다", "content": "매주 수요일 저녁에…" }
+
+// 응답 201
+{ "id": 12, "title": "…", "content": "…",
+  "author": { "id": 7, "name": "김부원" },
+  "createdAt": "2026-08-23T09:00:00Z", "updatedAt": "2026-08-23T09:00:00Z" }
+```
+
+**작성자를 요청으로 받지 않는다** (MUST). 인증 주체의 id로만 정한다 — 받으면 **다른 사람 이름으로 글을 올릴 수 있다.** 공지 등록·자료 등록과 같은 규칙이다.
+
+**`author`는 [§3-2-2 "작성자를 내려주는 규칙"](#작성자를-내려주는-규칙)을 따른다** — `id`는 `null`이 될 수 있고 `name`은 절대 `null`이 아니다. 작성자가 나갔으면 서버가 `"탈퇴한 회원"`을 채운다.
+
+**본문은 평문이다** (MUST). 서버는 받은 문자열을 그대로 저장하고 그대로 내보낸다 — 마크다운으로 해석하지도, HTML을 정화하지도 않는다. 화면이 텍스트 노드로 그리는 것까지가 이 계약의 일부다 ([2-1 §2-1-8](2-1-USER-STORIES.md#2-1-8-자유-게시판)).
+
+**상한은 코드포인트로 센다** (MUST). 이모지 한 개는 한 글자다 — DB의 `CHECK(LENGTH(...))`가 세는 단위와 같아야 하고, 사용자가 세는 "자"도 그쪽이다. `@Size`는 UTF-16 길이를 세므로 이 자리에 쓰면 안 된다 (T-332·T-333).
+
+| 오류 | 언제 |
+|---|---|
+| `400 VALIDATION_ERROR` | 제목·본문이 비었거나 상한(200자 / 10,000자)을 넘었다 |
+| `401 UNAUTHENTICATED` | 쿠키 두 개가 함께 있어야 한다 |
+| `403` | `PENDING_APPROVAL` · `SUSPENDED` · CSRF 토큰 없음 |
+| `404 NOT_FOUND` | 없는 게시글 |
+
 ## 3-2-6 API — 회원 관리
 
 | Method | Path | 권한 | 설명 |
@@ -579,7 +648,7 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | POST | `/admin/users/reject` | ADMIN | 일괄 거부 — body: `{ "userIds": [1,2,3] }` |
 | PATCH | `/admin/users/{id}/status` | ADMIN | `ACTIVE` ↔ `SUSPENDED` (본인을 `SUSPENDED`로: 마지막 활성 관리자면 차단) |
 | PATCH | `/admin/users/{id}/role` | ADMIN | 권한 부여/회수 (본인 대상: 마지막 활성 관리자면 차단) |
-| GET | `/admin/users/{id}/content-summary` | ADMIN | 제거 확인 창이 쓰는 건수 — 그 회원이 남길 자료·공지·사진 |
+| GET | `/admin/users/{id}/content-summary` | ADMIN | 제거 확인 창이 쓰는 건수 — 그 회원이 남길 자료·공지·사진·게시글 |
 | DELETE | `/admin/users/{id}` | ADMIN | 회원 제거 (본인 대상: 마지막 활성 관리자면 차단) |
 
 ### 목록 파라미터
@@ -704,10 +773,12 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 `GET /admin/users/{id}/content-summary` — 제거 확인 창이 **"무엇이 남는지"** 를 보여주려면 필요하다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거) MUST).
 
 ```json
-응답  200 { "notes": 12, "notices": 3, "photos": 0 }
+응답  200 { "notes": 12, "notices": 3, "photos": 0, "posts": 5 }
 ```
 
-**세 값 모두 항상 담는다** (MUST). `0`을 빼면 화면이 "없음"과 "모름"을 가르지 못한다.
+**네 값 모두 항상 담는다** (MUST). `0`을 빼면 화면이 "없음"과 "모름"을 가르지 못한다.
+
+**`posts`는 게시판과 함께 들어온다** (2026-08-23, #235). 빠뜨리면 관리자가 **게시글이 남는다는 사실을 보지 못한 채** 되돌릴 수 없는 제거를 하게 되고, `author_id`가 `NULL`이 된 뒤에는 그 회원의 글을 다시 찾을 수도 없다 — 이 조회가 존재하는 이유 그대로다.
 
 없는 `id`는 `404 NOT_FOUND`다. 이 값은 **확인 창을 여는 시점의 참고치**이지 제거의 조건이 아니다 — 그 사이 건수가 바뀌어도 제거는 그대로 진행한다. 건수를 맞추려고 제거까지 막으면 확인 창을 다시 열어도 같은 자리를 맴돌 수 있다.
 
@@ -750,7 +821,7 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 
 ## 3-2-8 공통 페이지 응답
 
-목록 API는 모두 페이지 응답을 쓴다. MVP는 `GET /notices`, `GET /admin/users`, `Post Launch`는 `GET /notes`, `GET /bookmarks`, `GET /photos`가 대상이다.
+목록 API는 모두 페이지 응답을 쓴다. MVP는 `GET /notices`, `GET /admin/users`, `Post Launch`는 `GET /notes`, `GET /bookmarks`, `GET /photos`, `GET /posts`가 대상이다.
 
 공통 요청 파라미터는 `page`(0부터 시작), `size`(기본 20, **상한 100**)다. 상한을 두지 않으면 Spring 기본값인 2000까지 한 번에 요청할 수 있다.
 

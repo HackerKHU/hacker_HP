@@ -61,7 +61,7 @@ describe('개인정보처리방침', () => {
 
     // ① 콘텐츠는 남는다
     expect(section).toHaveTextContent(
-      '자료와 첨부 파일, 공지, 활동사진은 남습니다',
+      '자료와 첨부 파일, 공지, 활동사진, 게시글은 남습니다',
     )
     // ② 남되 올린 사람 표시만 바뀐다
     expect(section).toHaveTextContent('탈퇴한 회원')
@@ -79,7 +79,26 @@ describe('개인정보처리방침', () => {
 
     expect(section).toHaveTextContent('올린 사람 이름 자리까지')
     expect(section).toHaveTextContent('그것만으로 누구인지 알아볼 수 있습니다')
+    // 자료·공지뿐 아니라 게시글 본문도 같은 대상이다 (#235).
+    expect(section).toHaveTextContent('게시글 내용')
     // 계정이 제거된 뒤에는 본인이 지울 수 없다는 것도 알려야 한다.
     expect(section).toHaveTextContent('로그인하실 수 없어')
+  })
+
+  /*
+   * 게시판에는 삭제 기능이 자체가 없다 (spec 3-3 결정 16, #235).
+   *
+   * 바로 위 문단이 "남기고 싶지 않은 것은 직접 삭제하시라"고 안내하는데,
+   * 게시글에는 그 길이 없다. 구분해 적지 않으면 이용자는 계정을 유지하는
+   * 동안에는 스스로 지울 수 있다고 읽는다 — 사실과 다른 안내다.
+   */
+  it('게시글은 직접 지울 수 없다는 것을 따로 알린다', async () => {
+    await openPrivacy()
+    const section = retentionSection()
+
+    expect(section).toHaveTextContent(
+      '자유 게시판에 올리신 글은 직접 지우실 수 없습니다',
+    )
+    expect(section).toHaveTextContent('문의처로 알려 주시기')
   })
 })

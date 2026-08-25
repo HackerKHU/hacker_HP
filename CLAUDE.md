@@ -4,7 +4,7 @@
 
 ## 구조
 
-모노레포. 현재 `apps/api`와 `apps/web` 보일러플레이트, `spec/`·`docs/`가 있으며, `infra/`는 다음 단계에서 만든다. 현재 상태·범위·역할·협업 흐름은 [README.md](README.md)가 통합 진입점이다.
+모노레포. `apps/api`·`apps/web`·`infra/terraform`·`spec/`·`docs/`가 모두 있고 **`khuhacker.com`으로 운영 중이다.** 현재 상태·범위·역할·협업 흐름은 [README.md](README.md)가 통합 진입점이다.
 
 ## 현재 MVP
 
