@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
@@ -251,6 +257,28 @@ describe('자료 등록', () => {
       expect(api.created).toHaveLength(1)
     })
     expect(api.created[0].professor).toBeNull()
+  })
+
+  /*
+   * **연도 하한은 2016년이다** (#266). 5년 전까지만 두던 것을 내렸는데, 목록을
+   * `THIS_YEAR - OLDEST_YEAR + 1`개로 만들기 때문에 **길이가 한 칸만 어긋나도
+   * 경계에서 조용히 잘린다** — 화면은 멀쩡해 보이고 가장 오래된 해만 사라진다.
+   *
+   * 그래서 있어야 할 끝(2016)과 없어야 할 그 앞(2015)을 함께 고정한다. 하나만
+   * 보면 목록 전체가 밀려도 통과한다.
+   */
+  it('연도는 2016년까지 있고 그 앞은 없다', async () => {
+    renderForm('/notes/new')
+
+    const year = await screen.findByLabelText('연도')
+    expect(within(year).getByRole('option', { name: '2016년' })).toBeTruthy()
+    expect(within(year).queryByRole('option', { name: '2015년' })).toBeNull()
+    // 위 끝은 실행 시점의 연도다 — 해가 바뀌면 손대지 않아도 늘어나야 한다.
+    expect(
+      within(year).getByRole('option', {
+        name: `${new Date().getFullYear()}년`,
+      }),
+    ).toBeTruthy()
   })
 })
 
