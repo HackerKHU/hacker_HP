@@ -1664,19 +1664,21 @@ export function fixtureCreatePost(body: {
   title: string
   content: string
 }): Promise<PostDetail> {
-  const title = body.title.trim()
-  const content = body.content.trim()
-  if (title === '' || content === '') {
+  /*
+   * **검사는 원문에 건다.** 서버의 `@NotBlank`·`@CodePointSize`도 다듬기 전 값에 걸린다 —
+   * 화면이 다듬은 뒤 재면 상한 언저리에서 판정이 갈린다.
+   */
+  if (body.title.trim() === '' || body.content.trim() === '') {
     return Promise.reject(
       new ApiError('VALIDATION_ERROR', 400, '제목과 내용을 입력해 주세요.'),
     )
   }
-  if ([...title].length > 200) {
+  if ([...body.title].length > 200) {
     return Promise.reject(
       new ApiError('VALIDATION_ERROR', 400, '제목은 200자까지 쓸 수 있습니다.'),
     )
   }
-  if ([...content].length > 10000) {
+  if ([...body.content].length > 10000) {
     return Promise.reject(
       new ApiError(
         'VALIDATION_ERROR',
@@ -1687,13 +1689,24 @@ export function fixtureCreatePost(body: {
   }
 
   const me = SCENARIO === 'admin' ? USERS.admin : USERS.user
+  /*
+   * **등록 직후 두 시각은 같다** (`PostService`가 한 `now`를 둘에 쓴다). 여기서 각각
+   * `new Date()`를 부르면 밀리초가 갈려, 화면이 "수정된 글"을 가리려 할 때 픽스처만
+   * 다르게 답한다.
+   */
+  const now = new Date().toISOString()
   const created: FixturePost = {
     id: nextPostId++,
-    title,
-    content,
+    /*
+     * **제목은 다듬고 본문은 그대로 둔다** — 서버가 그렇게 한다 (§3-2-5 MUST,
+     * `PostService` — "본문은 trim하지 않는다"). 픽스처가 본문을 털면 들여쓴 코드가
+     * 사라지는 회귀를 화면에서 못 잡는다.
+     */
+    title: body.title.trim(),
+    content: body.content,
     author: { id: me.id, name: me.name },
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
   }
   POSTS.unshift(created)
   return Promise.resolve(created)

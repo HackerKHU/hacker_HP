@@ -30,6 +30,9 @@ export function PostFormPage() {
    * **코드 포인트로 센다.** 서버가 `codePointCount`로 재므로(`CodePointSizeValidator`)
    * `String.length`(UTF-16 단위)로 세면 이모지 하나가 2로 잡혀 **서버는 받아주는 글을
    * 화면이 먼저 막는다.** 남은 양 표시와 제출 검사가 같은 함수를 쓴다.
+   *
+   * **재는 값이 곧 보내는 값이다.** 검증(`@CodePointSize`)은 서버가 다듬기 전의 원문에
+   * 걸리므로, 화면이 다듬은 뒤 세면 상한 언저리에서 판정이 갈린다.
    */
   const titleCount = countCodePoints(title)
   const contentCount = countCodePoints(content)
@@ -55,10 +58,18 @@ export function PostFormPage() {
     setSaving(true)
     setError(null)
     try {
-      const saved = await create({
-        title: title.trim(),
-        content: content.trim(),
-      })
+      /*
+       * **원문 그대로 보낸다.** 서버는 본문을 다듬지 않고 저장한다 (계약 §3-2-5 MUST,
+       * `PostService` — "본문은 trim하지 않는다"). 화면이 앞뒤를 털면 **들여쓴 코드나
+       * 일부러 띄운 줄이 조용히 사라진다.**
+       *
+       * 제목은 서버가 다듬지만 여기서 미리 털지 않는다 — 다듬는 자리가 둘이면 어느 쪽이
+       * 진짜인지 갈리고, 길이 검증도 원문에 걸린다.
+       *
+       * 공백뿐인지는 아래 제출 검사가 `trim`으로 이미 걸렀다. **거르는 것과 보내는 것은
+       * 다른 일이다.**
+       */
+      const saved = await create({ title, content })
       // 쓴 글을 볼 수 있는 곳으로 보낸다. `replace`로 뒤로가기가 폼에 돌아오지 않게 한다.
       navigate(`/posts/${saved.id}`, { replace: true })
     } catch (caught: unknown) {

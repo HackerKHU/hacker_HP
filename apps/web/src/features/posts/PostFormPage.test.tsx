@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/api/client'
@@ -122,6 +122,63 @@ describe('글쓰기', () => {
 
     // UTF-16이면 6, 코드 포인트면 3이다.
     expect(screen.getByText('3/200')).toBeVisible()
+  })
+
+  /*
+   * **본문을 다듬지 않고 보낸다** (계약 §3-2-5 MUST — `PostService`가 본문을 trim하지
+   * 않는다). 앞뒤를 털면 **들여쓴 코드나 일부러 띄운 줄이 조용히 사라진다.**
+   */
+  it('본문의 앞뒤 공백과 개행을 그대로 보낸다', async () => {
+    renderForm()
+    await fill('제목', '\n  들여쓴 줄\n\n마지막 줄  \n')
+
+    fireEvent.click(screen.getByRole('button', { name: '올리기' }))
+
+    await waitFor(() => {
+      expect(api.created).toHaveLength(1)
+    })
+    expect(api.created[0].content).toBe('\n  들여쓴 줄\n\n마지막 줄  \n')
+  })
+
+  /* 제목도 화면이 미리 털지 않는다 — 다듬는 자리가 둘이면 어느 쪽이 진짜인지 갈린다. */
+  it('제목도 원문 그대로 보낸다', async () => {
+    renderForm()
+    await fill('  제목  ', '내용')
+
+    fireEvent.click(screen.getByRole('button', { name: '올리기' }))
+
+    await waitFor(() => {
+      expect(api.created).toHaveLength(1)
+    })
+    expect(api.created[0].title).toBe('  제목  ')
+  })
+
+  /*
+   * **거르는 것과 보내는 것은 다른 일이다.** 공백뿐인지는 `trim`으로 걸러야 하지만,
+   * 통과한 글은 원문 그대로 나가야 한다.
+   */
+  it('공백뿐이면 막되 공백이 섞인 글은 통과시킨다', async () => {
+    renderForm()
+    await fill('제목', '   \n   ')
+    fireEvent.click(screen.getByRole('button', { name: '올리기' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '제목과 내용을 입력해주세요',
+    )
+    expect(api.created).toEqual([])
+  })
+
+  /*
+   * **재는 값이 곧 보내는 값이다.** 서버의 `@CodePointSize`는 다듬기 전 원문에 걸리므로,
+   * 화면이 다듬은 뒤 세면 상한 언저리에서 판정이 갈린다 — 공백 두 칸 + 200자 제목은
+   * 서버가 202로 보고 거절하는데 화면은 200으로 세어 보내게 된다.
+   */
+  it('앞뒤 공백까지 세어 상한을 판정한다', async () => {
+    renderForm()
+    await fill(`  ${'가'.repeat(200)}`, '내용')
+
+    expect(screen.getByText('202/200')).toBeVisible()
+    expect(screen.getByRole('button', { name: '올리기' })).toBeDisabled()
   })
 
   /* 상한을 넘으면 제출 자체를 막는다 — 서버가 거부할 요청을 굳이 보내지 않는다. */
