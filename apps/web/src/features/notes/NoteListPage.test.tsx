@@ -313,6 +313,15 @@ describe('자료 목록', () => {
     })
   })
 
+  /* 자료를 올리는 진입점. 문구가 바뀌면 여기서 잡힌다. */
+  it('자료 업로드 진입점이 있다', async () => {
+    renderList()
+
+    expect(
+      await screen.findByRole('link', { name: '자료 업로드' }),
+    ).toHaveAttribute('href', '/notes/new?category=EXAM')
+  })
+
   /*
    * **즐겨찾기는 목적지가 아니라 이 목록을 추리는 조건이다** (#261). 별도 화면이던 것을
    * 여기로 접었다 — 갈래를 탭으로 접은 것과 같은 판단이다 (#59).

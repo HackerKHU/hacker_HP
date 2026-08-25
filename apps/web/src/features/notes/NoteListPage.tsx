@@ -251,7 +251,7 @@ export function NoteListPage() {
          * USER·ADMIN 모두 `O`). 관리자 전용이 아니므로 `/admin` 아래에 두지 않는다.
          */}
         <Button variant="outline" size="sm" asChild>
-          <Link to={`/notes/new?category=${category}`}>자료 올리기</Link>
+          <Link to={`/notes/new?category=${category}`}>자료 업로드</Link>
         </Button>
       </div>
 
