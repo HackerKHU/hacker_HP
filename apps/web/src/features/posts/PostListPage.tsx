@@ -3,9 +3,9 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { list, type PostSummary } from '@/api/posts'
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
+import { ListSurface } from '@/components/ListSurface'
 import { Pager, parsePage } from '@/components/Pager'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { formatDate } from './format'
 
 const PAGE_SIZE = 20
@@ -72,7 +72,7 @@ export function PostListPage() {
   return (
     <section>
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">자유 게시판</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">자유게시판</h1>
         {/*
          * 글쓰기는 `ACTIVE`면 누구나 한다 (spec §3-1-3 매트릭스 — 게시판 작성은 USER·ADMIN
          * 모두 `O`). 관리자 전용이 아니므로 `/admin` 아래에 두지 않는다.
@@ -107,7 +107,7 @@ export function PostListPage() {
            * 래퍼는 각지게 둔다 (#218) — 행이 직선으로 쌓이는데 래퍼만 둥글면 네 모서리에서
            * 행이 잘려 보인다.
            */}
-          <Card className="mt-6 overflow-hidden rounded-none py-0">
+          <ListSurface className="mt-6">
             <ul>
               {data.content.map((post) => (
                 <li
@@ -135,7 +135,7 @@ export function PostListPage() {
                 </li>
               ))}
             </ul>
-          </Card>
+          </ListSurface>
 
           <Pager
             className="mt-8"

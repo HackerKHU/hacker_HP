@@ -90,7 +90,7 @@ describe('글쓰기', () => {
     renderForm()
     await fill('스터디 모집', '수요일 저녁입니다.')
 
-    fireEvent.click(screen.getByRole('button', { name: '올리기' }))
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     expect(
       await screen.findByRole('heading', { name: '게시글 상세' }),
@@ -104,7 +104,7 @@ describe('글쓰기', () => {
     renderForm()
     await fill('  ', '   ')
 
-    fireEvent.click(screen.getByRole('button', { name: '올리기' }))
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '제목과 내용을 입력해주세요',
@@ -132,7 +132,7 @@ describe('글쓰기', () => {
     renderForm()
     await fill('제목', '\n  들여쓴 줄\n\n마지막 줄  \n')
 
-    fireEvent.click(screen.getByRole('button', { name: '올리기' }))
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     await waitFor(() => {
       expect(api.created).toHaveLength(1)
@@ -145,7 +145,7 @@ describe('글쓰기', () => {
     renderForm()
     await fill('  제목  ', '내용')
 
-    fireEvent.click(screen.getByRole('button', { name: '올리기' }))
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     await waitFor(() => {
       expect(api.created).toHaveLength(1)
@@ -160,7 +160,7 @@ describe('글쓰기', () => {
   it('공백뿐이면 막되 공백이 섞인 글은 통과시킨다', async () => {
     renderForm()
     await fill('제목', '   \n   ')
-    fireEvent.click(screen.getByRole('button', { name: '올리기' }))
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '제목과 내용을 입력해주세요',
@@ -178,7 +178,7 @@ describe('글쓰기', () => {
     await fill(`  ${'가'.repeat(200)}`, '내용')
 
     expect(screen.getByText('202/200')).toBeVisible()
-    expect(screen.getByRole('button', { name: '올리기' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '저장' })).toBeDisabled()
   })
 
   /* 상한을 넘으면 제출 자체를 막는다 — 서버가 거부할 요청을 굳이 보내지 않는다. */
@@ -186,7 +186,7 @@ describe('글쓰기', () => {
     renderForm()
     await fill('가'.repeat(201), '내용')
 
-    expect(screen.getByRole('button', { name: '올리기' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '저장' })).toBeDisabled()
     expect(screen.getByText('201/200')).toBeVisible()
   })
 
@@ -194,7 +194,7 @@ describe('글쓰기', () => {
     renderForm()
     await fill('가'.repeat(200), '내용')
 
-    expect(screen.getByRole('button', { name: '올리기' })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: '저장' })).not.toBeDisabled()
   })
 
   /*
@@ -220,7 +220,7 @@ describe('글쓰기', () => {
 
     renderForm()
     await fill('제목', '내용')
-    fireEvent.click(screen.getByRole('button', { name: '올리기' }))
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     // 서버가 준 문구를 그대로 보여준다 — 무엇을 고쳐야 하는지는 서버가 안다.
     expect(await screen.findByRole('alert')).toHaveTextContent(
