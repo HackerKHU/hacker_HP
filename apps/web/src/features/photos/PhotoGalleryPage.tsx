@@ -131,7 +131,7 @@ export function PhotoGalleryPage() {
          */}
         {isAdmin && (
           <Button variant="outline" size="sm" asChild>
-            <Link to="/admin/photos/new">사진 올리기</Link>
+            <Link to="/admin/photos/new">업로드</Link>
           </Button>
         )}
       </div>

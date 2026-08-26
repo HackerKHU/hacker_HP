@@ -56,9 +56,21 @@ const ACCEPT = ALLOWED_EXTENSIONS.map((extension) => `.${extension}`).join(',')
 
 type Loading = 'loading' | 'ready' | 'notFound' | 'failed' | 'denied'
 
-/** 연도 선택지. 올해부터 5년 전까지 — 그보다 오래된 자료는 직접 고를 일이 드물다. */
+/**
+ * 연도 선택지. **올해부터 2016년까지** 내려간다.
+ *
+ * 한때 5년 전까지만 뒀는데 **그보다 오래된 정리본을 올릴 방법이 아예 없었다.** 선배들이
+ * 남긴 자료가 그 범위 밖이라 고를 값이 없었던 것이다.
+ *
+ * 아래로 끝을 고정하고 위는 실행 시점의 연도를 쓴다 — 해가 바뀌면 저절로 늘어난다.
+ * 서버는 2000~2100을 받으므로(`NoteCreateRequest`) 이 목록은 그 안이다.
+ */
 const THIS_YEAR = new Date().getFullYear()
-const YEARS = Array.from({ length: 6 }, (_, index) => THIS_YEAR - index)
+const OLDEST_YEAR = 2016
+const YEARS = Array.from(
+  { length: THIS_YEAR - OLDEST_YEAR + 1 },
+  (_, index) => THIS_YEAR - index,
+)
 
 /**
  * 자료 등록·수정 화면. **한 컴포넌트가 두 라우트를 맡는다** — 공지 폼과 같은 이유다.
@@ -280,7 +292,7 @@ export function NoteFormPage() {
       </Link>
 
       <h1 className="mt-6 text-2xl font-semibold tracking-tight">
-        {editing ? '자료 수정' : '자료 업로드'}
+        {editing ? '자료 수정' : '업로드'}
       </h1>
 
       {loading === 'loading' && (
@@ -309,7 +321,7 @@ export function NoteFormPage() {
         <form onSubmit={handleSubmit} className="mt-8 space-y-6">
           <div className="grid gap-6 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="note-category">갈래</Label>
+              <Label htmlFor="note-category">카테고리</Label>
               <select
                 id="note-category"
                 value={category}
@@ -366,7 +378,7 @@ export function NoteFormPage() {
               value={title}
               maxLength={TITLE_MAX}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="운영체제 중간고사 정리본"
+              placeholder="예) 운영체제 중간고사 정리본"
             />
           </div>
 
@@ -378,7 +390,7 @@ export function NoteFormPage() {
                 value={subjectName}
                 maxLength={SUBJECT_MAX}
                 onChange={(event) => setSubjectName(event.target.value)}
-                placeholder="운영체제"
+                placeholder="예) 운영체제"
               />
             </div>
             <div className="space-y-2">

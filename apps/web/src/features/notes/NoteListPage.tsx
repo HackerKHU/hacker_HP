@@ -251,7 +251,7 @@ export function NoteListPage() {
          * USER·ADMIN 모두 `O`). 관리자 전용이 아니므로 `/admin` 아래에 두지 않는다.
          */}
         <Button variant="outline" size="sm" asChild>
-          <Link to={`/notes/new?category=${category}`}>자료 업로드</Link>
+          <Link to={`/notes/new?category=${category}`}>업로드</Link>
         </Button>
       </div>
 
@@ -278,7 +278,7 @@ export function NoteListPage() {
         {onlyBookmarked ? (
           <span />
         ) : (
-          <nav aria-label="자료 갈래" className="flex gap-1">
+          <nav aria-label="자료 카테고리" className="flex gap-1">
             {(Object.keys(CATEGORY_LABEL) as Category[]).map((value) => (
               <Link
                 key={value}
