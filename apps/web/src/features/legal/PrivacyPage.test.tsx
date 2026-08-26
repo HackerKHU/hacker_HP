@@ -151,6 +151,17 @@ describe('개인정보처리방침', () => {
    * 대기 중 신청서 재제출, 그 밖에는 문의처. 이걸 뭉뚱그리면 이용자가 고칠 수 있는
    * 것을 못 고치거나, 없는 화면을 찾아 헤맨다. 셋을 각각 고정한다.
    */
+  /*
+   * **본문에 줄표를 쓰지 않는다.** 줄표 뒤에 있던 것은 곁가지가 아니라 조건이었고,
+   * 곁가지처럼 읽히면 안 되는 말이었다. 문안을 고칠 때 한 군데씩 되돌아오기 쉬워
+   * 화면 전체에서 한 번에 막는다.
+   */
+  it('본문에 줄표가 없다', async () => {
+    await openPrivacy()
+
+    expect(document.body.textContent).not.toContain('—')
+  })
+
   it('정정 경로를 실제 화면대로 안내한다', async () => {
     await openPrivacy()
     const section = screen.getByText('6. 이용자의 권리')
