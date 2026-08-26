@@ -4,6 +4,7 @@ import { LoginPage } from './features/auth/LoginPage'
 import { PendingPage } from './features/auth/PendingPage'
 import { LandingPage } from './features/landing/LandingPage'
 import { PrivacyPage } from './features/legal/PrivacyPage'
+import { TermsPage } from './features/legal/TermsPage'
 import { MemberListPage } from './features/members/MemberListPage'
 import { NoteDetailPage } from './features/notes/NoteDetailPage'
 import { NoteFormPage } from './features/notes/NoteFormPage'
@@ -26,8 +27,12 @@ function App() {
         (spec 5-TESTING T-57~T-61). PendingOnly나 RequireActive 아래로 옮기지 말 것.
       */}
       <Route path="/" element={<LandingPage />} />
-      {/* 개인정보처리방침도 공개다. 랜딩과 같은 취급이라 가드를 붙이지 않는다. */}
+      {/*
+        법적 문서도 공개다. 랜딩과 같은 취급이라 가드를 붙이지 않는다 — 정지된 사람도
+        자기가 무엇을 어겼다는 것인지 읽을 수 있어야 한다.
+      */}
       <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/terms" element={<TermsPage />} />
 
       {/*
         비로그인 진입점은 /login 하나다. 가입도 같은 구글 버튼으로 하므로

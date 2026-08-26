@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { AppLayout } from './AppLayout'
@@ -39,6 +39,19 @@ describe('AppLayout', () => {
     expect(root?.className).toContain('min-h-screen')
     expect(root?.className).toContain('flex-col')
     expect(main?.className).toContain('flex-1')
+  })
+
+  /*
+   * 로그인 이후 화면에서 법적 문서로 가는 유일한 길이다. 랜딩 푸터와 로그인 카드는
+   * 로그인한 사람이 다시 갈 일이 없으므로, 여기서 빠지면 사실상 닿을 수 없어진다.
+   */
+  it.each([
+    ['개인정보처리방침', '/privacy'],
+    ['이용약관', '/terms'],
+  ])('푸터에서 %s로 갈 수 있다', (name, href) => {
+    renderLayout()
+
+    expect(screen.getByRole('link', { name })).toHaveAttribute('href', href)
   })
 
   it('세로 가운데를 정렬 속성으로 잡지 않는다 — 넘치면 위쪽이 스크롤 밖으로 밀린다', () => {
