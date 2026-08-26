@@ -364,7 +364,7 @@ export function PhotoUploadPage() {
             <Link to="/photos">취소</Link>
           </Button>
           <Button type="submit" disabled={saving}>
-            {saving ? '업로드 중' : '업로드'}
+            {saving ? '저장 중' : '저장'}
           </Button>
         </div>
       </form>

@@ -156,7 +156,7 @@ export function PostFormPage() {
             <Link to="/posts">취소</Link>
           </Button>
           <Button type="submit" disabled={saving || tooLong}>
-            {saving ? '작성 중' : '작성완료'}
+            {saving ? '저장 중' : '저장'}
           </Button>
         </div>
       </form>
