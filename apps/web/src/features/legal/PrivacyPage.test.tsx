@@ -156,6 +156,26 @@ describe('개인정보처리방침', () => {
    * 곁가지처럼 읽히면 안 되는 말이었다. 문안을 고칠 때 한 군데씩 되돌아오기 쉬워
    * 화면 전체에서 한 번에 막는다.
    */
+  /*
+   * **문단은 통짜 문자열이고 줄을 바꾸는 것은 브라우저 몫이다.**
+   *
+   * 문자열에 `\n`을 박거나 `whitespace-pre-wrap`을 걸면 화면 폭과 상관없이 정해진
+   * 자리에서 꺾인다. 좁은 화면에서는 한 줄이 두 번 접히고 넓은 화면에서는 오른쪽이
+   * 비는데, **소스에서는 그냥 보기 좋게 정리한 것처럼 보여서** 알아채기 어렵다.
+   *
+   * 둘 다 본다. 문자열 쪽만 보면 CSS로 같은 결과가 나는 것을 놓친다.
+   */
+  it('문단에 개행이 남지 않는다', async () => {
+    await openPrivacy()
+    const blocks = document.querySelectorAll('dd p, dd li')
+
+    expect(blocks.length).toBeGreaterThan(0)
+    for (const block of blocks) {
+      expect(block.textContent).not.toMatch(/[\n\r]/)
+      expect(block.className).not.toMatch(/whitespace-(pre|break-spaces)/)
+    }
+  })
+
   it('본문에 줄표가 없다', async () => {
     await openPrivacy()
 

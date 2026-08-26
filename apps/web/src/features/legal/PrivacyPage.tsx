@@ -11,7 +11,16 @@ import { PRIVACY_SECTIONS, PRIVACY_UPDATED } from './privacyContent'
 export function PrivacyPage() {
   return (
     <div className="dark min-h-screen bg-background text-foreground">
-      <div className="mx-auto w-full max-w-[1152px] px-6 py-20">
+      {/*
+       * **한 칸으로 읽는다.** 예전에는 바깥이 1152px이고 본문만 `max-w-2xl`이라, 제목과
+       * 돌아가기는 화면을 가로지르는데 문단은 왼쪽 절반에서 끝났다. 문단마다 줄이 화면
+       * 한참 앞에서 꺾이는 것처럼 보이고 오른쪽은 계속 비어 있었다.
+       *
+       * 폭을 문단 쪽에 맞춰 통째로 줄이고 가운데 세운다. 이제 문단은 자기 칸을 끝까지
+       * 채우고, 어디서 줄을 바꿀지는 브라우저가 정한다. 문자열에는 줄바꿈을 넣지 않고
+       * 문단 사이는 여백(`space-y-*`)으로만 벌린다.
+       */}
+      <div className="mx-auto w-full max-w-3xl px-6 py-20">
         <Link
           to="/"
           className="text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -23,7 +32,7 @@ export function PrivacyPage() {
           개인정보처리방침
         </h1>
 
-        <dl className="mt-12 max-w-2xl space-y-12">
+        <dl className="mt-12 space-y-12">
           {PRIVACY_SECTIONS.map((section) => (
             <div key={section.title}>
               <dt className="text-lg font-semibold tracking-tight">
