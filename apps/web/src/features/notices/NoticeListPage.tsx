@@ -4,9 +4,9 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { list, type Notice, togglePin } from '@/api/notices'
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
+import { ListSurface } from '@/components/ListSurface'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import {
   Pagination,
   PaginationContent,
@@ -249,7 +249,7 @@ export function NoticeListPage() {
       )}
 
       {data !== null && data.content.length > 0 && (
-        <Card className="mt-6 overflow-hidden rounded-none py-0">
+        <ListSurface className="mt-6">
           <ul>
             {data.content.map((notice) => (
               <li
@@ -324,7 +324,7 @@ export function NoticeListPage() {
               </li>
             ))}
           </ul>
-        </Card>
+        </ListSurface>
       )}
 
       {data !== null && data.page.totalPages > 1 && (

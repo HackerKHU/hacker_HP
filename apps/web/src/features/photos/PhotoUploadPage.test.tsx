@@ -131,7 +131,7 @@ describe('활동사진 업로드', () => {
     fireEvent.change(await screen.findByLabelText('설명 (선택)'), {
       target: { value: '엠티 사진' },
     })
-    fireEvent.click(screen.getByRole('button', { name: '올리기' }))
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     await waitFor(() => {
       expect(api.registered).toHaveLength(1)
@@ -148,7 +148,7 @@ describe('활동사진 업로드', () => {
     renderUpload()
     pick('mt.jpg')
 
-    fireEvent.click(await screen.findByRole('button', { name: '올리기' }))
+    fireEvent.click(await screen.findByRole('button', { name: '저장' }))
 
     await waitFor(() => {
       expect(api.registered).toHaveLength(1)
@@ -168,7 +168,7 @@ describe('활동사진 업로드', () => {
     expect(captions).toHaveLength(2)
     fireEvent.change(captions[0], { target: { value: '엠티' } })
     fireEvent.change(captions[1], { target: { value: '축제' } })
-    fireEvent.click(screen.getByRole('button', { name: '올리기' }))
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     await waitFor(() => {
       expect(api.registered).toHaveLength(2)
@@ -190,7 +190,7 @@ describe('활동사진 업로드', () => {
 
     renderUpload()
     pick('mt.jpg', 'huge.jpg')
-    fireEvent.click(await screen.findByRole('button', { name: '올리기' }))
+    fireEvent.click(await screen.findByRole('button', { name: '저장' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '1장을 올렸고 1장이 실패했습니다',
@@ -208,7 +208,7 @@ describe('활동사진 업로드', () => {
     renderUpload()
     pick('mt.jpg')
 
-    fireEvent.click(await screen.findByRole('button', { name: '올리기' }))
+    fireEvent.click(await screen.findByRole('button', { name: '저장' }))
 
     expect(await screen.findByRole('heading', { name: '갤러리' })).toBeVisible()
   })
@@ -232,7 +232,7 @@ describe('활동사진 업로드', () => {
   it('사진 없이 올리면 요청이 나가지 않는다', async () => {
     renderUpload()
 
-    fireEvent.click(await screen.findByRole('button', { name: '올리기' }))
+    fireEvent.click(await screen.findByRole('button', { name: '저장' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '사진을 한 장 이상 골라주세요',
@@ -252,7 +252,7 @@ describe('활동사진 업로드', () => {
 
     renderUpload()
     pick('mt.jpg')
-    fireEvent.click(await screen.findByRole('button', { name: '올리기' }))
+    fireEvent.click(await screen.findByRole('button', { name: '저장' }))
 
     // 등록이 붙잡혀 있어 아직 진행 중이다.
     await waitFor(() => {
@@ -261,7 +261,7 @@ describe('활동사진 업로드', () => {
     expect(screen.getByLabelText('사진')).toBeDisabled()
     expect(screen.getByLabelText('설명 (선택)')).toBeDisabled()
     expect(screen.getByRole('button', { name: 'mt.jpg 빼기' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '올리는 중' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '저장 중' })).toBeDisabled()
 
     release()
     expect(await screen.findByRole('heading', { name: '갤러리' })).toBeVisible()
@@ -295,7 +295,7 @@ describe('활동사진 업로드', () => {
     const captions = await screen.findAllByLabelText('설명 (선택)')
     fireEvent.change(captions[0], { target: { value: '성공할 사진' } })
     fireEvent.change(captions[1], { target: { value: '실패할 사진' } })
-    fireEvent.click(screen.getByRole('button', { name: '올리기' }))
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     await waitFor(() => {
       expect(api.registered).toHaveLength(2)
@@ -334,7 +334,7 @@ describe('활동사진 업로드', () => {
     fireEvent.change(await screen.findByLabelText('설명 (선택)'), {
       target: { value: '처음 설명' },
     })
-    fireEvent.click(screen.getByRole('button', { name: '올리기' }))
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     await waitFor(() => {
       expect(api.registered).toHaveLength(1)

@@ -11,7 +11,16 @@ import { PRIVACY_SECTIONS, PRIVACY_UPDATED } from './privacyContent'
 export function PrivacyPage() {
   return (
     <div className="dark min-h-screen bg-background text-foreground">
-      <div className="mx-auto w-full max-w-[1152px] px-6 py-20">
+      {/*
+       * **한 칸으로 읽는다.** 예전에는 바깥이 1152px이고 본문만 `max-w-2xl`이라, 제목과
+       * 돌아가기는 화면을 가로지르는데 문단은 왼쪽 절반에서 끝났다. 문단마다 줄이 화면
+       * 한참 앞에서 꺾이는 것처럼 보이고 오른쪽은 계속 비어 있었다.
+       *
+       * 폭을 문단 쪽에 맞춰 통째로 줄이고 가운데 세운다. 이제 문단은 자기 칸을 끝까지
+       * 채우고, 어디서 줄을 바꿀지는 브라우저가 정한다. 문자열에는 줄바꿈을 넣지 않고
+       * 문단 사이는 여백(`space-y-*`)으로만 벌린다.
+       */}
+      <div className="mx-auto w-full max-w-3xl px-6 py-20">
         <Link
           to="/"
           className="text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -23,22 +32,7 @@ export function PrivacyPage() {
           개인정보처리방침
         </h1>
 
-        {/*
-         * 방문자와 개발자 모두가 미완성임을 알아야 한다. 법적 문서라 빠진 항목이 있는 채로
-         * 공개되면 없느니만 못하다.
-         */}
-        <p
-          role="note"
-          className="mt-6 max-w-2xl rounded-lg border border-border bg-card p-4 text-sm leading-7 text-muted-foreground"
-        >
-          <strong className="text-foreground">
-            이 문서는 초안이며 검토가 필요합니다.
-          </strong>{' '}
-          아직 정해지지 않아 비어 있는 항목이 있습니다. 아래에 “확인 후 채워야
-          하는 항목”으로 표시해 두었으며, 정식 시행 전에 모두 채워야 합니다.
-        </p>
-
-        <dl className="mt-12 max-w-2xl space-y-12">
+        <dl className="mt-12 space-y-12">
           {PRIVACY_SECTIONS.map((section) => (
             <div key={section.title}>
               <dt className="text-lg font-semibold tracking-tight">
@@ -61,12 +55,6 @@ export function PrivacyPage() {
                     ))}
                   </ul>
                 )}
-
-                {section.todo && (
-                  <p className="rounded-md border border-border border-dashed p-3 text-sm leading-7 text-muted-foreground">
-                    확인 후 채워야 하는 항목 — {section.todo}
-                  </p>
-                )}
               </dd>
             </div>
           ))}
@@ -74,15 +62,9 @@ export function PrivacyPage() {
           <div>
             <dt className="text-lg font-semibold tracking-tight">8. 시행일</dt>
             <dd className="mt-4">
-              {PRIVACY_UPDATED.effectiveDate ? (
-                <p className="leading-8 text-muted-foreground">
-                  이 방침은 {PRIVACY_UPDATED.effectiveDate}부터 시행합니다.
-                </p>
-              ) : (
-                <p className="rounded-md border border-border border-dashed p-3 text-sm leading-7 text-muted-foreground">
-                  확인 후 채워야 하는 항목 — 시행일을 정해서 넣어야 합니다.
-                </p>
-              )}
+              <p className="leading-8 text-muted-foreground">
+                이 방침은 {PRIVACY_UPDATED.effectiveDate}부터 시행합니다.
+              </p>
             </dd>
           </div>
         </dl>

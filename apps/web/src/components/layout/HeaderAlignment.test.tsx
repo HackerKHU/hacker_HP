@@ -129,11 +129,16 @@ describe('두 헤더의 로고 정렬', () => {
   })
 
   /*
-   * **스크롤바 자리를 늘 비워 둔다** (#258).
+   * **스크롤바 자리를 늘 비워 둔다** (#258 → #264).
    *
    * 클래스를 다 맞춰도 로고가 7.5px 어긋났다. 원인은 헤더가 아니라 **페이지 길이**였다 —
    * 랜딩처럼 긴 화면은 스크롤바(15px)가 생겨 가용 폭이 줄고, 가운데 정렬된 컨테이너가
    * 그 절반만큼 왼쪽으로 밀린다. 짧은 화면은 스크롤바가 없어 제자리다.
+   *
+   * **`overflow-y: scroll`을 함께 본다.** `scrollbar-gutter: stable`만으로는 Chromium이
+   * 스크롤 없는 페이지에 자리를 예약하지 않았다 — 운영 실측에서 `/login`이 1440, 랜딩이
+   * 1425로 갈렸다(#264). 둘 중 **실제로 자리를 잡은 것은 `overflow-y: scroll`**이므로
+   * 그쪽이 빠지면 증상이 그대로 돌아온다.
    *
    * **jsdom은 레이아웃도 스크롤바도 계산하지 않는다.** 그래서 이 검사가 확인할 수 있는
    * 것은 "그 규칙이 스타일시트에 선언되어 있는가"뿐이고, 정렬이 실제로 맞는지는 브라우저
@@ -145,8 +150,16 @@ describe('두 헤더의 로고 정렬', () => {
      * jsdom 환경에서는 `import.meta.url`이 `http:`라 파일 경로로 쓸 수 없다.
      * vitest는 `apps/web`을 작업 디렉터리로 돌고 CI도 같다(`working-directory: apps/web`).
      */
-    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf-8')
+    const raw = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf-8')
+    /*
+     * **주석을 걷어내고 본다.** 그러지 않으면 규칙을 지워도 **그 근거를 적어둔 주석이
+     * 단정을 통과시킨다** — 실제로 그랬다. 검사가 지키려는 것은 선언이지 설명이 아니다.
+     */
+    const css = raw.replace(/\/\*[\s\S]*?\*\//g, '')
 
+    // 자리를 실제로 잡는 쪽. 이것이 빠지면 Chromium에서 흔들림이 돌아온다.
+    expect(css).toContain('overflow-y: scroll')
+    // 이 속성을 제대로 지키는 엔진을 위해 함께 둔다.
     expect(css).toContain('scrollbar-gutter: stable')
   })
 
