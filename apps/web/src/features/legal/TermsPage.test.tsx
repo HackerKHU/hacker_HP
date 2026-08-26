@@ -73,6 +73,22 @@ describe('이용약관', () => {
     ).toBeInTheDocument()
   })
 
+  /*
+   * 방침과 같다. 문단은 통짜 문자열이고 줄을 바꾸는 것은 브라우저 몫이다. 문자열의
+   * `\n`과 `whitespace-pre` 계열 클래스를 함께 본다. 한쪽만 보면 다른 쪽으로 같은
+   * 결과가 나는 것을 놓친다.
+   */
+  it('문단에 개행이 남지 않는다', async () => {
+    await openTerms()
+    const blocks = document.querySelectorAll('dd p, dd li')
+
+    expect(blocks.length).toBeGreaterThan(0)
+    for (const block of blocks) {
+      expect(block.textContent).not.toMatch(/[\n\r]/)
+      expect(block.className).not.toMatch(/whitespace-(pre|break-spaces)/)
+    }
+  })
+
   /* 방침과 같은 규칙이다. 줄표 뒤에 놓이던 것이 조건 쪽이라 곁가지로 읽히면 안 된다. */
   it('본문에 줄표가 없다', async () => {
     await openTerms()

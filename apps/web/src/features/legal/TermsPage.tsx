@@ -12,7 +12,15 @@ import { TERMS_SECTIONS, TERMS_UPDATED } from './termsContent'
 export function TermsPage() {
   return (
     <div className="dark min-h-screen bg-background text-foreground">
-      <div className="mx-auto w-full max-w-[1152px] px-6 py-20">
+      {/*
+       * **한 칸으로 읽는다.** 방침과 같은 이유다. 바깥이 1152px이고 본문만 `max-w-2xl`이면
+       * 제목은 화면을 가로지르는데 문단은 왼쪽 절반에서 끝나, 줄이 화면 한참 앞에서
+       * 꺾이는 것처럼 보인다.
+       *
+       * 폭을 문단 쪽에 맞춰 통째로 줄이고 가운데 세운다. 문단은 자기 칸을 끝까지 채우고
+       * 줄을 어디서 바꿀지는 브라우저가 정한다. 문자열에는 줄바꿈을 넣지 않는다.
+       */}
+      <div className="mx-auto w-full max-w-3xl px-6 py-20">
         <Link
           to="/"
           className="text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -22,7 +30,7 @@ export function TermsPage() {
 
         <h1 className="mt-8 text-3xl font-semibold tracking-tight">이용약관</h1>
 
-        <dl className="mt-12 max-w-2xl space-y-12">
+        <dl className="mt-12 space-y-12">
           {TERMS_SECTIONS.map((section) => (
             <div key={section.title}>
               <dt className="text-lg font-semibold tracking-tight">
