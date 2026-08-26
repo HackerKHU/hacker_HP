@@ -59,7 +59,7 @@ function renderDetail() {
       <SessionProvider>
         <Routes>
           <Route path="/posts/:id" element={<PostDetailPage />} />
-          <Route path="/posts" element={<h1>자유 게시판</h1>} />
+          <Route path="/posts" element={<h1>자유게시판</h1>} />
         </Routes>
       </SessionProvider>
     </MemoryRouter>,

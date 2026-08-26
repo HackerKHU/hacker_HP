@@ -64,7 +64,7 @@ export function PostDetailPage() {
         to="/posts"
         className="text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
-        ← 자유 게시판
+        ← 자유게시판
       </Link>
 
       {status === 'loading' && (

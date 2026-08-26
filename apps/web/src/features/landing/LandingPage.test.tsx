@@ -168,7 +168,7 @@ describe('공개 랜딩', () => {
 const MEMBER_LINKS: [string, string][] = [
   ['공지사항', '/notices'],
   ['자료게시판', '/notes'],
-  ['자유 게시판', '/posts'],
+  ['자유게시판', '/posts'],
   ['갤러리', '/photos'],
 ]
 
