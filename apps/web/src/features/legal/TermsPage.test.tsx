@@ -73,6 +73,13 @@ describe('이용약관', () => {
     ).toBeInTheDocument()
   })
 
+  /* 방침과 같은 규칙이다. 줄표 뒤에 놓이던 것이 조건 쪽이라 곁가지로 읽히면 안 된다. */
+  it('본문에 줄표가 없다', async () => {
+    await openTerms()
+
+    expect(document.body.textContent).not.toContain('—')
+  })
+
   /*
    * 링크가 없으면 문서가 있어도 아무도 못 읽는다. 랜딩 푸터와 로그인 카드 두 곳을
    * 본다 — 앱 셸 푸터는 로그인 이후 화면이라 여기서 열리지 않는다.
