@@ -267,7 +267,7 @@ describe('활동사진 갤러리', () => {
     )
   })
 
-  /* 닫는 버튼이 있다. ESC와 바깥 클릭은 `<dialog>`가 맡아 jsdom에서 재현되지 않는다. */
+  /* 닫는 버튼이 있다. ESC와 포커스 트랩은 `<dialog>`가 맡아 jsdom에서 재현되지 않는다. */
   it('크게 보기에 닫기 버튼이 있다', async () => {
     renderGallery()
     fireEvent.click(
@@ -277,6 +277,60 @@ describe('활동사진 갤러리', () => {
     )
 
     expect(screen.getByRole('button', { name: '닫기' })).toBeVisible()
+  })
+
+  /*
+   * **바깥 클릭 닫기는 우리 코드다** (#270 검수). `<dialog>`가 주지 않는 동작이고,
+   * `::backdrop`은 화면을 채운 안쪽 칸에 가려 누를 자리가 없다. 그래서 그 칸 자신이
+   * 바깥 역할을 하는데, **이건 브라우저 기능이 아니라 평범한 클릭 핸들러라 여기서 본다.**
+   *
+   * 사진을 누를 때 닫히면 안 되는 것이 짝이다. 하나만 보면 "무엇을 눌러도 닫힌다"와
+   * 구분되지 않아 통과한다.
+   */
+  it('사진 바깥을 누르면 닫히고 사진을 누르면 닫히지 않는다', async () => {
+    renderGallery()
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: '2026 신입생 환영회 크게 보기',
+      }),
+    )
+
+    const dialog = document.querySelector('dialog') as HTMLDialogElement
+    const outside = dialog.querySelector('div') as HTMLElement
+    const image = dialog.querySelector('img') as HTMLElement
+
+    // 사진은 안쪽이다. 누른다고 닫히면 확대해서 보는 일 자체가 안 된다.
+    fireEvent.click(image)
+    expect(dialog.open).toBe(true)
+
+    fireEvent.click(outside)
+    await waitFor(() => {
+      expect(dialog.open).toBe(false)
+    })
+  })
+
+  /*
+   * 닫은 뒤 부모 상태도 풀려야 다음 사진이 열린다. `close` 이벤트를 `onClose`로
+   * 돌려주지 않으면 다이얼로그만 닫히고 `photo`가 남아 두 번째 클릭이 먹지 않는다.
+   */
+  it('닫은 뒤에 다른 사진을 다시 열 수 있다', async () => {
+    renderGallery()
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: '2026 신입생 환영회 크게 보기',
+      }),
+    )
+
+    const dialog = document.querySelector('dialog') as HTMLDialogElement
+    fireEvent.click(screen.getByRole('button', { name: '닫기' }))
+    await waitFor(() => {
+      expect(dialog.open).toBe(false)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '사진 크게 보기' }))
+    await waitFor(() => {
+      expect(dialog.open).toBe(true)
+    })
   })
 
   /* 설명이 없는 사진도 열린다 — `aria-label`이 그때는 일반 문구가 된다. */
