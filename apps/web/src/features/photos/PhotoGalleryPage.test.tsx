@@ -84,7 +84,29 @@ function renderGallery(path = '/photos') {
   )
 }
 
+/**
+ * `<dialog>` 대역.
+ *
+ * **jsdom은 `showModal()`을 구현하지 않는다.** 그냥 `vi.fn()`으로 두면 `open`이 서지 않아
+ * 다이얼로그 안이 숨은 상태가 되고, 접근성 질의(`getByRole`)가 그 안을 못 본다 —
+ * 실제 브라우저와 다른 결과가 나온다. **진짜가 하는 일 중 `open`을 세우는 것까지** 흉내낸다.
+ *
+ * 포커스 트랩·ESC·`::backdrop`은 브라우저가 주는 것이라 여기서 검증할 대상이 아니다.
+ */
+function stubDialog() {
+  HTMLDialogElement.prototype.showModal = vi.fn(function (
+    this: HTMLDialogElement,
+  ) {
+    this.open = true
+  })
+  HTMLDialogElement.prototype.close = vi.fn(function (this: HTMLDialogElement) {
+    this.open = false
+    this.dispatchEvent(new Event('close'))
+  })
+}
+
 beforeEach(() => {
+  stubDialog()
   api.rows = [photo(501, '2026 신입생 환영회'), photo(502, null)]
   api.calls = []
   api.removed = []
@@ -114,17 +136,27 @@ describe('활동사진 갤러리', () => {
 
   /*
    * **목록에는 썸네일을 쓴다** (계약 §3-2-5). 원본을 그리면 스무 장이 원본 크기로 내려와
-   * 갤러리를 여는 것만으로 트래픽이 터진다. 원본은 눌렀을 때 새 탭으로 연다.
+   * 갤러리를 여는 것만으로 트래픽이 터진다. 원본은 눌렀을 때 오버레이가 보여준다 (#270).
    */
-  it('썸네일을 그리고 원본은 링크로 둔다', async () => {
+  it('목록에는 썸네일을 그린다', async () => {
     renderGallery()
 
-    const image = await screen.findByAltText('2026 신입생 환영회')
-    expect(image).toHaveAttribute('src', '/landing/mt.jpg?thumb=501')
-    expect(image.closest('a')).toHaveAttribute(
-      'href',
-      '/landing/mt.jpg?full=501',
+    expect(await screen.findByAltText('2026 신입생 환영회')).toHaveAttribute(
+      'src',
+      '/landing/mt.jpg?thumb=501',
     )
+  })
+
+  /*
+   * **갤러리를 떠나지 않는다** (#270). 한때 원본을 새 탭으로 열었는데, 사진 한 장을 보려고
+   * 화면을 떠났다가 돌아와야 해 훑는 흐름이 매번 끊겼다. 링크가 아니라 버튼이어야 한다.
+   */
+  it('썸네일이 다른 주소로 가는 링크가 아니다', async () => {
+    renderGallery()
+    const image = await screen.findByAltText('2026 신입생 환영회')
+
+    expect(image.closest('a')).toBeNull()
+    expect(image.closest('button')).not.toBeNull()
   })
 
   /*
@@ -209,6 +241,105 @@ describe('활동사진 갤러리', () => {
     await waitFor(() => {
       expect(api.removed).toEqual([501])
     })
+  })
+
+  /*
+   * **크게 보기** (#270).
+   *
+   * jsdom에는 `showModal()`이 없다 — `<dialog>`를 구현하지 않는다. 그래서 여는 동작만
+   * 대역으로 세우고, **화면이 무엇을 넘기는가**를 본다: 원본 주소와 설명이다.
+   * 포커스 트랩·ESC·`::backdrop`은 브라우저가 주는 것이라 여기서 검증할 대상이 아니다.
+   */
+  it('썸네일을 누르면 원본을 크게 보여준다', async () => {
+    renderGallery()
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: '2026 신입생 환영회 크게 보기',
+      }),
+    )
+
+    expect(HTMLDialogElement.prototype.showModal).toHaveBeenCalled()
+    // 목록은 썸네일이지만 크게 보는 자리는 원본이다.
+    const dialog = document.querySelector('dialog') as HTMLDialogElement
+    expect(dialog.querySelector('img')).toHaveAttribute(
+      'src',
+      '/landing/mt.jpg?full=501',
+    )
+  })
+
+  /* 닫는 버튼이 있다. ESC와 포커스 트랩은 `<dialog>`가 맡아 jsdom에서 재현되지 않는다. */
+  it('크게 보기에 닫기 버튼이 있다', async () => {
+    renderGallery()
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: '2026 신입생 환영회 크게 보기',
+      }),
+    )
+
+    expect(screen.getByRole('button', { name: '닫기' })).toBeVisible()
+  })
+
+  /*
+   * **바깥 클릭 닫기는 우리 코드다** (#270 검수). `<dialog>`가 주지 않는 동작이고,
+   * `::backdrop`은 화면을 채운 안쪽 칸에 가려 누를 자리가 없다. 그래서 그 칸 자신이
+   * 바깥 역할을 하는데, **이건 브라우저 기능이 아니라 평범한 클릭 핸들러라 여기서 본다.**
+   *
+   * 사진을 누를 때 닫히면 안 되는 것이 짝이다. 하나만 보면 "무엇을 눌러도 닫힌다"와
+   * 구분되지 않아 통과한다.
+   */
+  it('사진 바깥을 누르면 닫히고 사진을 누르면 닫히지 않는다', async () => {
+    renderGallery()
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: '2026 신입생 환영회 크게 보기',
+      }),
+    )
+
+    const dialog = document.querySelector('dialog') as HTMLDialogElement
+    const outside = dialog.querySelector('div') as HTMLElement
+    const image = dialog.querySelector('img') as HTMLElement
+
+    // 사진은 안쪽이다. 누른다고 닫히면 확대해서 보는 일 자체가 안 된다.
+    fireEvent.click(image)
+    expect(dialog.open).toBe(true)
+
+    fireEvent.click(outside)
+    await waitFor(() => {
+      expect(dialog.open).toBe(false)
+    })
+  })
+
+  /*
+   * 닫은 뒤 부모 상태도 풀려야 다음 사진이 열린다. `close` 이벤트를 `onClose`로
+   * 돌려주지 않으면 다이얼로그만 닫히고 `photo`가 남아 두 번째 클릭이 먹지 않는다.
+   */
+  it('닫은 뒤에 다른 사진을 다시 열 수 있다', async () => {
+    renderGallery()
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: '2026 신입생 환영회 크게 보기',
+      }),
+    )
+
+    const dialog = document.querySelector('dialog') as HTMLDialogElement
+    fireEvent.click(screen.getByRole('button', { name: '닫기' }))
+    await waitFor(() => {
+      expect(dialog.open).toBe(false)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '사진 크게 보기' }))
+    await waitFor(() => {
+      expect(dialog.open).toBe(true)
+    })
+  })
+
+  /* 설명이 없는 사진도 열린다 — `aria-label`이 그때는 일반 문구가 된다. */
+  it('설명이 없는 사진도 크게 볼 수 있다', async () => {
+    renderGallery()
+
+    expect(
+      await screen.findByRole('button', { name: '사진 크게 보기' }),
+    ).toBeVisible()
   })
 
   it('사진이 없으면 안내가 뜬다', async () => {

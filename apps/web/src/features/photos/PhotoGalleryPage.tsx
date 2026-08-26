@@ -18,6 +18,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { PhotoLightbox } from './PhotoLightbox'
 
 /** 한 페이지 장수. 4열 그리드에서 5줄이 된다. */
 const PAGE_SIZE = 20
@@ -53,6 +54,8 @@ export function PhotoGalleryPage() {
   const [data, setData] = useState<Page<Photo> | null>(null)
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
+  /** 크게 보고 있는 사진. `null`이면 오버레이가 닫혀 있다 (#270). */
+  const [zoomed, setZoomed] = useState<Photo | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
 
@@ -119,6 +122,8 @@ export function PhotoGalleryPage() {
 
   return (
     <section>
+      <PhotoLightbox photo={zoomed} onClose={() => setZoomed(null)} />
+
       <div className="flex items-center justify-between gap-4">
         {/*
          * 화면 이름은 **갤러리**다 (2026-08-23). 담고 있는 것은 여전히 활동사진이고
@@ -174,14 +179,20 @@ export function PhotoGalleryPage() {
             {data.content.map((photo) => (
               <li key={photo.id} className="group relative">
                 {/*
-                 * **원본을 새 탭으로 연다.** 목록에는 썸네일을 쓰고(§3-2-5), 크게 보려면
-                 * 원본이 필요하다. 라이트박스는 이 이슈의 범위 밖이라 브라우저에 맡긴다.
+                 * **그 자리에서 크게 본다** (#270). 한때 원본을 새 탭으로 열었는데, 사진
+                 * 한 장을 보려고 갤러리를 떠났다가 돌아와야 해 훑는 흐름이 매번 끊겼다.
+                 *
+                 * 링크가 아니라 버튼이다 — 다른 주소로 가지 않고 이 화면에서 열고 닫는다.
                  */}
-                <a
-                  href={photo.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block overflow-hidden rounded-none border border-border outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                <button
+                  type="button"
+                  onClick={() => setZoomed(photo)}
+                  aria-label={
+                    photo.caption
+                      ? `${photo.caption} 크게 보기`
+                      : '사진 크게 보기'
+                  }
+                  className="block w-full cursor-zoom-in overflow-hidden rounded-none border border-border outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 >
                   <img
                     src={photo.thumbnailUrl}
@@ -194,7 +205,7 @@ export function PhotoGalleryPage() {
                     loading="lazy"
                     className="aspect-square w-full bg-muted object-cover transition-transform group-hover:scale-105"
                   />
-                </a>
+                </button>
 
                 <div className="mt-2 flex items-start justify-between gap-2">
                   <div className="min-w-0 text-sm">
