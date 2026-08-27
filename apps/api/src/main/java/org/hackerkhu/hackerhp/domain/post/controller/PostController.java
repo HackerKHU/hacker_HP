@@ -18,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,10 +30,11 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 자유 게시판 (spec 2-1 §2-1-8, 3-2 §3-2-5).
  *
- * <p><b>{@code isAuthenticated()}만 적는다.</b> 매트릭스의 {@code ACTIVE} 조건은 {@code AccountStatusFilter}가
- * 인가보다 먼저 보장한다 — 같은 규칙을 두 곳에 두면 한쪽만 고쳐진다 ({@code NoteController}·{@code NoticeController}와 같은 관례).
+ * <p><b>조회·등록은 {@code isAuthenticated()}, 삭제는 {@code hasRole('ADMIN')}만 적는다.</b> 매트릭스의 {@code
+ * ACTIVE} 조건은 {@code AccountStatusFilter}가 인가보다 먼저 보장한다 — 같은 규칙을 두 곳에 두면 한쪽만 고쳐진다 ({@code
+ * NoteController}·{@code NoticeController}와 같은 관례).
  *
- * <p><b>수정·삭제는 없다</b> (3-3 결정 16). 작성자 수정은 #256, 관리자 삭제는 #238이다.
+ * <p><b>수정은 아직 없다</b> (3-3 결정 17). 작성자 수정은 #256이다. 삭제는 관리자 전용이고 작성자 본인 삭제는 없다 (#238).
  */
 @Tag(name = "자유 게시판", description = "부원끼리 글을 올리고 읽는다. ACTIVE 전용")
 @RestController
@@ -131,7 +133,8 @@ public class PostController {
           그대로 남는다 — 전 부원이 쓰는 자리라 서식을 허용하면 그 입력이 다른 부원의
           브라우저에서 실행될 수 있는 표면이 된다 (3-3 결정 16).
 
-          **수정·삭제는 없다.** 올린 글은 지울 수 없다.
+          **수정은 아직 없다.** 삭제는 관리자만 할 수 있다 — 작성자 본인도 자기 글을
+          지울 수 없다.
           """)
   @ApiResponse(responseCode = "201", description = "등록됨. 본문은 저장된 글이다")
   @ApiResponse(
@@ -161,5 +164,40 @@ public class PostController {
   public PostDetailResponse write(
       @AuthenticationPrincipal Long authorId, @Valid @RequestBody PostCreateRequest request) {
     return postService.write(authorId, request);
+  }
+
+  /**
+   * 글 삭제 (#238).
+   *
+   * <p><b>관리자 전용이다.</b> 작성자 본인 삭제는 없다 — 필요해지면 별도 이슈로 다룬다. <b>완전 삭제</b>이며 되돌릴 수 없다.
+   */
+  @Operation(
+      summary = "게시글 삭제",
+      description =
+          """
+          **관리자만** 지울 수 있다. 작성자 본인도 예외가 아니다.
+
+          **완전 삭제다.** 감추는 것이 아니라 행 자체가 사라지며, 되돌릴 수 없다.
+          """)
+  @ApiResponse(responseCode = "204", description = "삭제됨")
+  @ApiResponse(
+      responseCode = "403",
+      description = "`FORBIDDEN` — `ADMIN`이 아니다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "404",
+      description = "`NOT_FOUND` — 없는 게시글",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @DeleteMapping("/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  @PreAuthorize("hasRole('ADMIN')")
+  public void delete(@AuthenticationPrincipal Long adminId, @PathVariable Long id) {
+    postService.delete(adminId, id);
   }
 }

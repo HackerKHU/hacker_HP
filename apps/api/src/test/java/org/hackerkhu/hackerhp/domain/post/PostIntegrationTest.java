@@ -2,6 +2,7 @@ package org.hackerkhu.hackerhp.domain.post;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -31,7 +32,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
- * 자유 게시판 (#236, spec 2-1 §2-1-8, 3-2 §3-2-5, 3-3 결정 16).
+ * 자유 게시판 (#236·#238, spec 2-1 §2-1-8, 3-2 §3-2-5, 3-3 결정 17).
  *
  * <p><b>이 저장소에서 일반 부원이 자유 서술을 남기는 첫 기능이다.</b> 지금까지 텍스트를 남기는 길은 공지({@code ADMIN} 전용)와 자료 메타데이터뿐이었다 —
  * 승인된 모든 부원이 쓰는 입력이라 지금까지 없던 표면이 함께 생긴다.
@@ -49,12 +50,14 @@ class PostIntegrationTest extends AbstractIntegrationTest {
   @Autowired private ObjectMapper objectMapper;
 
   private User member;
+  private User admin;
 
   @BeforeEach
   void setUp() {
     clearAll();
     member =
         userRepository.saveAndFlush(Accounts.approved("sub-me", "me@khu.ac.kr", "20250001", "김부원"));
+    admin = userRepository.saveAndFlush(Accounts.admin("sub-ad", "ad@khu.ac.kr", "20200000"));
   }
 
   @AfterEach
@@ -431,7 +434,6 @@ class PostIntegrationTest extends AbstractIntegrationTest {
   @Test
   void removingTheAuthorKeepsThePostAndShowsWithdrawn() throws Exception {
     long id = write(member, "남을 글", "본문");
-    User admin = userRepository.saveAndFlush(Accounts.admin("sub-ad", "ad@khu.ac.kr", "20200000"));
 
     mockMvc
         .perform(
@@ -503,5 +505,69 @@ class PostIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.code").value("SUSPENDED"));
 
     assertThat(posts.count()).isZero();
+  }
+
+  /* ------------------------------------------------------------------ 삭제 (#238) */
+
+  /**
+   * T-337 — <b>관리자가 글을 완전히 지운다</b> (MUST).
+   *
+   * <p>목록·상세 어디서도 다시 보이지 않는다 — 감춤이 아니라 행 자체가 사라진다.
+   */
+  @Test
+  void adminDeletesAPost() throws Exception {
+    long id = write(member, "지워질 글", "본문");
+
+    mockMvc
+        .perform(Csrf.with(sessions.as(admin, delete(POSTS + "/" + id))))
+        .andExpect(status().isNoContent());
+
+    assertThat(posts.existsById(id)).isFalse();
+    mockMvc.perform(sessions.as(admin, get(POSTS + "/" + id))).andExpect(status().isNotFound());
+    mockMvc
+        .perform(sessions.as(admin, get(POSTS)))
+        .andExpect(jsonPath("$.content.length()").value(0));
+  }
+
+  /** T-338 — <b>작성자 본인도 지울 수 없다</b> (MUST). 관리자 전용이다 — 예외가 없다. */
+  @Test
+  void theAuthorCannotDeleteTheirOwnPost() throws Exception {
+    long id = write(member, "내가 쓴 글", "본문");
+
+    mockMvc
+        .perform(Csrf.with(sessions.as(member, delete(POSTS + "/" + id))))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+    assertThat(posts.existsById(id)).isTrue();
+  }
+
+  /** 비로그인은 삭제를 시도조차 할 수 없다. */
+  @Test
+  void guestsCannotDelete() throws Exception {
+    long id = write(member, "제목", "본문");
+
+    mockMvc.perform(Csrf.with(delete(POSTS + "/" + id))).andExpect(status().isUnauthorized());
+
+    assertThat(posts.existsById(id)).isTrue();
+  }
+
+  /** 삭제에도 CSRF 토큰이 필요하다 (§3-2-3, {@link #writingNeedsACsrfToken}과 같은 이유). */
+  @Test
+  void deletingNeedsACsrfToken() throws Exception {
+    long id = write(member, "제목", "본문");
+
+    mockMvc.perform(sessions.as(admin, delete(POSTS + "/" + id))).andExpect(status().isForbidden());
+
+    assertThat(posts.existsById(id)).isTrue();
+  }
+
+  /** 없는 글은 {@code 404}다 — 관리자 권한과 별개로 대상이 있어야 한다. */
+  @Test
+  void deletingAMissingPostIsNotFound() throws Exception {
+    mockMvc
+        .perform(Csrf.with(sessions.as(admin, delete(POSTS + "/999999"))))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("NOT_FOUND"));
   }
 }

@@ -12,6 +12,8 @@ import org.hackerkhu.hackerhp.domain.post.dto.PostDetailResponse;
 import org.hackerkhu.hackerhp.domain.post.dto.PostSummaryResponse;
 import org.hackerkhu.hackerhp.domain.post.entity.Post;
 import org.hackerkhu.hackerhp.domain.post.repository.PostRepository;
+import org.hackerkhu.hackerhp.domain.user.entity.Role;
+import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.domain.user.service.RequesterCheck;
@@ -27,7 +29,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 자유 게시판 (spec 2-1 §2-1-8, 3-2 §3-2-5, 3-3 결정 16).
+ * 자유 게시판 (spec 2-1 §2-1-8, 3-2 §3-2-5, 3-3 결정 16·17).
  *
  * <p><b>본문을 건드리지 않는다.</b> 받은 문자열을 그대로 저장하고 그대로 내보낸다 — 마크다운으로 해석하지도, HTML을 정화하지도 않는다. 이스케이프는 화면이 텍스트
  * 노드로 그리면서 한다. <b>서버가 정화를 시작하면 그 규칙이 어디까지인지 아무도 모르게 된다.</b>
@@ -120,6 +122,41 @@ public class PostService {
      */
     log.info("게시글 등록: postId={} authorId={}", saved.getId(), authorId);
     return PostDetailResponse.of(saved, authorOf(saved, authorNames(List.of(saved))));
+  }
+
+  /**
+   * 삭제 (관리자 전용, #238).
+   *
+   * <p><b>완전 삭제다.</b> 감춤을 쓰지 않는다 — 감추면 "지웠는데 DB에 남아 있다"를 개인정보처리방침에 고지해야 하는데, 그 값을 하지 않는다 (공지 삭제와 같은
+   * 판단).
+   *
+   * <p><b>이력을 남기지 않는다.</b> {@code admin_actions}는 회원에 대한 조작 테이블이라(#143) 글 id를 넣으면 두 종류의 대상이 한 컬럼에
+   * 섞인다 — 자료 삭제(#54)도 같은 이유로 이력을 남기지 않는다.
+   */
+  @Transactional
+  public void delete(Long requesterId, Long id) {
+    requireActiveAdmin(requesterId);
+    Post post =
+        posts
+            .findById(id)
+            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "게시글을 찾을 수 없습니다."));
+    posts.delete(post);
+    log.info("게시글 삭제: postId={} adminId={}", id, requesterId);
+  }
+
+  /**
+   * 요청자의 <b>현재</b> 권한을 행을 잠근 채 확인한다 (3-1 §3-1-4 MUST, {@code PhotoService}와 같은 이유).
+   * {@code @PreAuthorize}는 세션에 담긴 값을 볼 뿐이라, 인가를 지난 뒤 다른 관리자가 이 계정을 강등·정지해도 그 요청은 여기까지 그대로 온다 — 되돌릴
+   * 수 없는 삭제이므로 커밋 직전에 다시 본다.
+   */
+  private void requireActiveAdmin(Long requesterId) {
+    User requester =
+        users
+            .findByIdForUpdate(requesterId)
+            .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHENTICATED));
+    if (requester.getRole() != Role.ADMIN || requester.getStatus() != Status.ACTIVE) {
+      throw new BusinessException(ErrorCode.FORBIDDEN);
+    }
   }
 
   /**
