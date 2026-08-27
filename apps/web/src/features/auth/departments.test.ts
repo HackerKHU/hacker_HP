@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest'
 import { DEPARTMENTS } from './departments'
 
 /*
- * 학과 목록이 세 곳에 있다 — 이 파일, `apps/api`의 `Department.ALL`, `V3__add_department.sql`의
- * CHECK 제약. 한쪽만 고치면 **가입이 막힌다.**
+ * 학과 목록이 세 곳에 있다 — 이 파일, `apps/api`의 `Department.ALL`, DB의 `users_department_check`
+ * CHECK 제약(마이그레이션으로 정의). 한쪽만 고치면 **가입이 막힌다.**
  *
  *   웹에만 추가  → 서버가 400 VALIDATION_ERROR
  *   서버에만 추가 → 목록에 안 보여서 고를 수 없음
@@ -58,7 +58,11 @@ const JAVA = literals(
 const SQL = literals(
   readFileSync(
     fromRepoRoot(
-      'apps/api/src/main/resources/db/migration/V3__add_department.sql',
+      // CHECK 제약을 다시 정의한 가장 최근 마이그레이션이다. V3가 원본이었지만 #166에서
+      // 학과명을 바로잡으며 V10이 DROP·ADD로 값을 교체했다 (V9는 develop에 먼저 병합된
+      // 다른 작업이 씀) — 마이그레이션은 지난 뒤 고치지 않으므로, 그다음에도 이 제약이 또
+      // 바뀌면 최신 마이그레이션 파일명으로 옮겨야 한다.
+      'apps/api/src/main/resources/db/migration/V10__fix_department_names.sql',
     ),
     'utf8',
   ),
