@@ -59,9 +59,10 @@ const SQL = literals(
   readFileSync(
     fromRepoRoot(
       // CHECK 제약을 다시 정의한 가장 최근 마이그레이션이다. V3가 원본이었지만 #166에서
-      // 학과명을 바로잡으며 V9이 DROP·ADD로 값을 교체했다 — 마이그레이션은 지난 뒤 고치지
-      // 않으므로, 그다음에도 이 제약이 또 바뀌면 최신 마이그레이션 파일명으로 옮겨야 한다.
-      'apps/api/src/main/resources/db/migration/V9__fix_department_names.sql',
+      // 학과명을 바로잡으며 V10이 DROP·ADD로 값을 교체했다 (V9는 develop에 먼저 병합된
+      // 다른 작업이 씀) — 마이그레이션은 지난 뒤 고치지 않으므로, 그다음에도 이 제약이 또
+      // 바뀌면 최신 마이그레이션 파일명으로 옮겨야 한다.
+      'apps/api/src/main/resources/db/migration/V10__fix_department_names.sql',
     ),
     'utf8',
   ),
