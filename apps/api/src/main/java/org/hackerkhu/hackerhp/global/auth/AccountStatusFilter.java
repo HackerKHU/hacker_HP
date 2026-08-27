@@ -59,6 +59,12 @@ public class AccountStatusFilter extends OncePerRequestFilter {
               matcher(HttpMethod.GET, "/api/v1/auth/me"),
               matcher(HttpMethod.POST, "/api/v1/auth/logout"),
               /*
+               * 학과 목록 (#166). 신청 폼(PENDING)이 그리는 값인데, 이 목록에 없으면 신청서를
+               * 채우기도 전에 PENDING이 막힌다 — SecurityConfig의 permitAll은 이 필터보다
+               * 뒤에서 도므로, 여기서 따로 열어야 한다.
+               */
+              matcher(HttpMethod.GET, "/api/v1/departments"),
+              /*
                * 최초 관리자 승격 (3-3 결정 11). PENDING이 불러야 하는 경로다 — 최초 관리자는
                * 신청서까지 낸 PENDING 상태로 이것을 부른다.
                *

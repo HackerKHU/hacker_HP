@@ -83,7 +83,7 @@ erDiagram
 
 **`department`는 정해진 목록에서만 고른다** (MUST) — 자유 입력이 아니다. `컴공`/`컴퓨터공학과`/`소프트웨어융합대학 컴퓨터공학부`처럼 표기가 제각각이 되면 회원 목록에서 학과로 걸러보는 것이 사실상 불가능해진다. 목록은 경희대 서울·국제캠퍼스 전체 학과이며, 별도 관리 화면 없이 `apps/api`의 `Department` 클래스(`domain/user/entity` 패키지)에 코드로 고정한다 — 학과 개편이 잦지 않아 관리 화면을 따로 둘 만큼의 빈도가 아니다.
 
-**지금 이 목록은 세 곳에 복제되어 있다** — 위 `Department.ALL`, CHECK 제약을 정의하는 마이그레이션(최초 `V3__add_department.sql`, 목록을 학교 공식 안내와 대조해 바로잡은 `V10__fix_department_names.sql`이 갱신 — develop에 먼저 병합된 다른 작업이 V9를 먼저 썼다), 그리고 신청 화면이 쓰는 `apps/web`의 `features/auth/departments.ts`다. 서버가 목록을 내려주는 API가 없어서 화면이 사본을 갖는다. **한 곳만 고치면 그 학과 지원자의 가입이 막힌다** — 웹에만 있으면 `400`, CHECK에만 없으면 저장이 터진다. 세 벌이 어긋나면 `apps/web`의 `departments.test.ts`가 원본 파일을 직접 읽어 CI에서 실패시킨다. 사본을 없애는 것은 `GET /api/v1/departments`를 만드는 별도 작업이다 (#166).
+**`GET /departments`가 이 목록을 그대로 내려준다** (아래 §3-2-3, #166). 그래도 이 목록은 세 곳에 있다 — 위 `Department.ALL`(원본), CHECK 제약을 정의하는 마이그레이션(최초 `V3__add_department.sql`, 목록을 학교 공식 안내와 대조해 바로잡은 `V10__fix_department_names.sql`이 갱신 — develop에 먼저 병합된 다른 작업이 V9를 먼저 썼다), 그리고 API가 생기기 전부터 화면이 써 온 `apps/web`의 `features/auth/departments.ts`다. **한 곳만 고치면 그 학과 지원자의 가입이 막힌다** — 웹에만 있으면 `400`, CHECK에만 없으면 저장이 터진다. 세 벌이 어긋나면 `apps/web`의 `departments.test.ts`가 원본 파일을 직접 읽어 CI에서 실패시킨다. 화면이 `GET /departments`를 쓰도록 바꾸고 나면(#166) `departments.ts`·`departments.test.ts`를 지워 두 벌로 줄인다.
 
 신규 신청은 `department`를 **필수**로 받는다 (MUST) — 관리자가 승인 심사에서 실제로 참고하는 값이다. 다만 **컬럼 자체는 `NULL`을 허용한다**: 이 필드가 생기기 전에 이미 승인된 기존 회원은 값이 없고, 일괄 채우지 않는다 — 잘못 추정한 기본값을 넣느니 비워 두고 개별적으로 보완하는 쪽을 택했다. 그래서 "필수"는 DB 제약이 아니라 `POST /auth/application`의 검증이 담당한다 (아래).
 
@@ -244,12 +244,19 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 | GET | `/auth/csrf` | 비로그인 | CSRF 토큰 발급 |
 | GET | `/oauth2/authorization/google` | 비로그인 | 구글 로그인 시작 (가입 겸용) |
 | GET | `/login/oauth2/code/google` | 비로그인 | 구글 콜백. 성공 시 계정 생성 또는 조회 후 세션 발급 |
+| GET | `/departments` | **비로그인 포함 전체** | 학과 고정 목록 (#166). 신청 폼이 그린다 |
 | POST | `/auth/application` | PENDING | 신청서 제출·수정. body: `{ "studentNo": "...", "department": "..." }` |
 | POST | `/auth/logout` | 로그인 | 로그아웃 |
 | GET | `/auth/me` | **비로그인 포함 전체** | 로그인이면 내 정보, 아니면 `204` |
 | POST | `/auth/bootstrap-admin` | 로그인 + **신청서 제출 완료** | 최초 관리자 승격/마지막 관리자 복구. body: `{ "token": "..." }` — [3-3 결정 11](3-3-DESIGN-DECISIONS.md) |
 
 **`POST /auth/signup`과 `POST /auth/login`은 없다.** 자체 비밀번호를 쓰지 않으므로 두 엔드포인트가 사라졌다 ([3-3 결정 13](3-3-DESIGN-DECISIONS.md#3-3-14-결정-13--가입로그인을-구글-oauth로-한다)).
+
+### `GET /departments` — 학과 고정 목록
+
+응답은 문자열 배열이다 — `["컴퓨터공학과", "인공지능학과", ...]`. `Department.ALL`(§3-2-2)을 순서 그대로 내려준다.
+
+**인증 없이 연다.** 신청 폼(`PENDING`)이 쓰는 값이라 로그인 상태에서만 불러도 되지만, 목록 자체가 민감한 정보가 아니라 굳이 가릴 이유가 없다 — 여는 쪽이 더 단순하다.
 
 ### `POST /auth/application` — 신청서
 
