@@ -4,7 +4,8 @@ import jakarta.validation.constraints.NotBlank;
 import org.hackerkhu.hackerhp.global.validation.CodePointSize;
 
 /**
- * 글 등록 (spec 3-2 §3-2-5).
+ * 글 등록·수정 (spec 3-2 §3-2-5). {@code PATCH}(#256)도 같은 모양을 쓴다 — 수정은 <b>보낸 것으로 통째로 바꾸므로</b> 등록과 받는 값이
+ * 같다({@code NoticeRequest}와 같은 판단).
  *
  * <p><b>작성자를 받지 않는다</b> (MUST). 인증 주체의 id로만 정한다 — 받으면 다른 사람 이름으로 글을 올릴 수 있다. 공지 등록·자료 등록과 같은 규칙이다.
  *

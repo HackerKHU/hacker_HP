@@ -20,6 +20,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -30,10 +31,10 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 자유 게시판 (spec 2-1 §2-1-8, 3-2 §3-2-5).
  *
- * <p><b>조회·등록·삭제는 {@code isAuthenticated()}를 적는다.</b> 삭제의 관리자/작성자 판정은 저장된 글을 읽어야 하므로 서비스가 잠근 최신
- * 계정·게시글 행으로 한다. 승인 대기·정지는 {@code AccountStatusFilter}가 먼저 막는다.
+ * <p><b>조회·등록·수정·삭제는 {@code isAuthenticated()}를 적는다.</b> 수정·삭제의 작성자 판정과 삭제의 관리자 판정은 저장된 글을 읽어야 하므로
+ * 서비스가 잠근 최신 계정·게시글 행으로 한다. 승인 대기·정지는 {@code AccountStatusFilter}가 먼저 막는다.
  *
- * <p><b>수정은 아직 없다</b> (3-3 결정 16). 작성자 수정은 #256이다. 삭제는 활성 관리자 또는 작성자 본인에게 열린다 (#238·#278).
+ * <p>수정은 작성자 본인만 가능하고, 삭제는 활성 관리자 또는 작성자 본인에게 열린다 (결정 20·21, #238·#256).
  */
 @Tag(name = "자유 게시판", description = "승인된 부원끼리 글을 올리고 읽는다. SUSPENDED는 제외한다")
 @RestController
@@ -132,7 +133,7 @@ public class PostController {
           그대로 남는다 — 전 부원이 쓰는 자리라 서식을 허용하면 그 입력이 다른 부원의
           브라우저에서 실행될 수 있는 표면이 된다 (3-3 결정 16).
 
-          **수정은 아직 없다.** 삭제는 관리자 또는 작성자 본인이 할 수 있다.
+          **수정은 작성자 본인만 할 수 있다.** 삭제는 관리자 또는 작성자 본인이 할 수 있다.
           """)
   @ApiResponse(responseCode = "201", description = "등록됨. 본문은 저장된 글이다")
   @ApiResponse(
@@ -162,6 +163,52 @@ public class PostController {
   public PostDetailResponse write(
       @AuthenticationPrincipal Long authorId, @Valid @RequestBody PostCreateRequest request) {
     return postService.write(authorId, request);
+  }
+
+  /**
+   * 글 수정 (#256).
+   *
+   * <p><b>작성자 본인만</b> 할 수 있다. 관리자도 예외가 아니다 — 관리자 수정은 이번 범위가 아니다. 제목·본문을 <b>보낸 것으로 통째로 바꾼다.</b>
+   */
+  @Operation(
+      summary = "게시글 수정",
+      description =
+          """
+          제목과 본문을 보낸 것으로 통째로 바꾼다. **작성자 본인만** 할 수 있다 —
+          관리자도 예외가 아니다.
+
+          **수정 기한은 없다.** 등록 뒤 언제든 고칠 수 있다. `updatedAt`이
+          `createdAt`과 달라지므로 화면은 이 값으로 "수정됨"을 표시할 수 있다.
+          """)
+  @ApiResponse(responseCode = "200", description = "수정됨. 본문은 저장된 글이다")
+  @ApiResponse(
+      responseCode = "400",
+      description = "`VALIDATION_ERROR` — 제목·본문이 비었거나(공백뿐인 경우 포함) 상한(200자 / 10,000자)을 넘었다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description = "`FORBIDDEN` — 본인이 쓴 글이 아니다 · CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL`",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "404",
+      description = "`NOT_FOUND` — 없는 게시글",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @PatchMapping("/{id}")
+  @PreAuthorize("isAuthenticated()")
+  public PostDetailResponse edit(
+      @AuthenticationPrincipal Long requesterId,
+      @PathVariable Long id,
+      @Valid @RequestBody PostCreateRequest request) {
+    return postService.edit(requesterId, id, request);
   }
 
   /**

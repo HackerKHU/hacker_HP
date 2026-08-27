@@ -2,8 +2,10 @@ package org.hackerkhu.hackerhp.domain.post;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -34,7 +36,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
- * 자유 게시판 (#236·#238, spec 2-1 §2-1-8, 3-2 §3-2-5, 3-3 결정 16·20).
+ * 자유 게시판 (#236·#238·#256, spec 2-1 §2-1-8, 3-2 §3-2-5, 3-3 결정 16·20·21).
  *
  * <p><b>이 저장소에서 일반 부원이 자유 서술을 남기는 첫 기능이다.</b> 지금까지 텍스트를 남기는 길은 공지({@code ADMIN} 전용)와 자료 메타데이터뿐이었다 —
  * 승인된 모든 부원이 쓰는 입력이라 지금까지 없던 표면이 함께 생긴다.
@@ -76,6 +78,13 @@ class PostIntegrationTest extends AbstractIntegrationTest {
 
   private MockHttpServletRequestBuilder writeRequest(User caller, String title, String content) {
     return Csrf.with(sessions.as(caller, post(POSTS)))
+        .contentType(MediaType.APPLICATION_JSON)
+        .content("{\"title\":\"" + title + "\",\"content\":\"" + content + "\"}");
+  }
+
+  private MockHttpServletRequestBuilder editRequest(
+      User caller, long id, String title, String content) {
+    return Csrf.with(sessions.as(caller, patch(POSTS + "/" + id)))
         .contentType(MediaType.APPLICATION_JSON)
         .content("{\"title\":\"" + title + "\",\"content\":\"" + content + "\"}");
   }
@@ -509,6 +518,166 @@ class PostIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.code").value("SUSPENDED"));
 
     assertThat(posts.count()).isZero();
+  }
+
+  /* ------------------------------------------------------------------ 수정 (#256) */
+
+  /**
+   * T-341 — <b>작성자 본인이 제목·본문을 통째로 고친다</b> (MUST).
+   *
+   * <p>{@code updatedAt}이 {@code createdAt}과 달라진다 — 그 자체가 "수정됨"의 근거다 (결정 18).
+   */
+  @Test
+  void authorEditsTheirOwnPost() throws Exception {
+    long id = write(member, "원래 제목", "원래 본문");
+    String before =
+        objectMapper
+            .readTree(
+                mockMvc
+                    .perform(sessions.as(member, get(POSTS + "/" + id)))
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString())
+            .path("updatedAt")
+            .asText();
+
+    mockMvc
+        .perform(editRequest(member, id, "고친 제목", "고친 본문"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.title").value("고친 제목"))
+        .andExpect(jsonPath("$.content").value("고친 본문"))
+        .andExpect(jsonPath("$.author.id").value(member.getId()));
+
+    mockMvc
+        .perform(sessions.as(member, get(POSTS + "/" + id)))
+        .andExpect(jsonPath("$.title").value("고친 제목"))
+        .andExpect(jsonPath("$.content").value("고친 본문"))
+        .andExpect(jsonPath("$.updatedAt").value(not(before)));
+  }
+
+  /** T-342 — <b>남의 글은 고칠 수 없다</b> (MUST). 예외가 없다 — 작성자 본인만이다. */
+  @Test
+  void aMemberCannotEditSomeoneElsesPost() throws Exception {
+    long id = write(member, "제목", "본문");
+    User other =
+        userRepository.saveAndFlush(Accounts.approved("sub-ot", "ot@khu.ac.kr", "20250002", "남"));
+
+    mockMvc
+        .perform(editRequest(other, id, "가로챈 제목", "가로챈 본문"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+    assertThat(posts.findById(id).orElseThrow().getTitle()).isEqualTo("제목");
+  }
+
+  /** T-343 — <b>관리자도 예외가 아니다</b> (MUST, 결정 18 D1). 삭제는 관리자 전용이지만 수정은 반대다 — 관리자도 남의 글은 고칠 수 없다. */
+  @Test
+  void anAdminCannotEditSomeoneElsesPostEither() throws Exception {
+    long id = write(member, "제목", "본문");
+
+    mockMvc
+        .perform(editRequest(admin, id, "관리자가 고친 제목", "관리자가 고친 본문"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+    assertThat(posts.findById(id).orElseThrow().getTitle()).isEqualTo("제목");
+  }
+
+  /** 없는 글을 수정하면 {@code 404}다 — 소유자 확인보다 존재 확인이 먼저다. */
+  @Test
+  void editingAMissingPostIsNotFound() throws Exception {
+    mockMvc
+        .perform(editRequest(member, 999_999L, "제목", "본문"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+  }
+
+  /** <b>작성자는 바뀌지 않는다</b> (MUST, 결정 18 완료 조건). 수정은 내용만 바꾼다. */
+  @Test
+  void editingDoesNotChangeTheAuthor() throws Exception {
+    long id = write(member, "제목", "본문");
+
+    mockMvc
+        .perform(editRequest(member, id, "고친 제목", "고친 본문"))
+        .andExpect(jsonPath("$.author.id").value(member.getId()))
+        .andExpect(jsonPath("$.author.name").value("김부원"));
+  }
+
+  /** 수정 요청도 등록과 같은 검증을 받는다 — 빈 값·상한 초과는 {@code 400}이다. */
+  @Test
+  void editRequestsAreValidatedLikeCreation() throws Exception {
+    long id = write(member, "제목", "본문");
+
+    mockMvc.perform(editRequest(member, id, "", "본문")).andExpect(status().isBadRequest());
+    mockMvc
+        .perform(editRequest(member, id, "제목", "가".repeat(10_001)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+    // 거절된 수정은 반영되지 않는다.
+    assertThat(posts.findById(id).orElseThrow().getTitle()).isEqualTo("제목");
+  }
+
+  /** 수정 본문도 평문이다 (T-323과 같은 이유) — 서버가 정화하거나 변형하지 않는다. */
+  @Test
+  void editedHtmlIsStoredVerbatimToo() throws Exception {
+    long id = write(member, "제목", "본문");
+    String payload = "<script>alert(1)</script>";
+
+    mockMvc
+        .perform(editRequest(member, id, "제목", payload))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.content").value(payload));
+
+    assertThat(posts.findById(id).orElseThrow().getContent()).isEqualTo(payload);
+  }
+
+  /** 비로그인은 수정을 시도조차 할 수 없다. */
+  @Test
+  void guestsCannotEdit() throws Exception {
+    long id = write(member, "제목", "본문");
+
+    mockMvc
+        .perform(
+            Csrf.with(patch(POSTS + "/" + id))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isUnauthorized());
+
+    assertThat(posts.findById(id).orElseThrow().getTitle()).isEqualTo("제목");
+  }
+
+  /** 수정에도 CSRF 토큰이 필요하다 (§3-2-3). */
+  @Test
+  void editingNeedsACsrfToken() throws Exception {
+    long id = write(member, "제목", "본문");
+
+    mockMvc
+        .perform(
+            sessions
+                .as(member, patch(POSTS + "/" + id))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"제목\",\"content\":\"본문\"}"))
+        .andExpect(status().isForbidden());
+  }
+
+  /**
+   * <b>필터를 지난 뒤 정지된 사람은 수정을 끝내지 못한다</b> (3-1 §3-1-7 MUST, {@link
+   * #anAuthorSuspendedAfterAuthorizationCannotFinishWriting}과 같은 이유).
+   */
+  @Test
+  void anAuthorSuspendedAfterAuthorizationCannotFinishEditing() throws Exception {
+    long id = write(member, "제목", "본문");
+    User target = userRepository.findById(member.getId()).orElseThrow();
+    target.suspend();
+    userRepository.saveAndFlush(target);
+
+    mockMvc
+        .perform(editRequest(member, id, "정지 뒤에 도착한 수정", "본문"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("SUSPENDED"));
+
+    assertThat(posts.findById(id).orElseThrow().getTitle()).isEqualTo("제목");
   }
 
   /* ------------------------------------------------------------------ 삭제 (#238) */
