@@ -14,6 +14,7 @@ import {
 } from '@/api/notes'
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
+import { clampedOutOfRange } from '@/components/clampPage'
 import { SELECT_CLASS, SelectArrow } from '@/components/native-select'
 import { Pager, parsePage, writePage } from '@/components/Pager'
 import { Button } from '@/components/ui/button'
@@ -117,7 +118,14 @@ export function NoteListPage() {
         })
     query
       .then((result) => {
-        if (alive) setData(result)
+        /*
+         * **이 조회가 아직 유효할 때만 손댄다.** 조건이 바뀌면 정리 함수가 `alive`를
+         * 내리므로 여기를 건너뛴다 — 그 가드가 아래 되돌리기의 안전장치다.
+         */
+        if (!alive) return
+        if (clampedOutOfRange(result, page, searchParams, setSearchParams))
+          return
+        setData(result)
       })
       .catch((caught: unknown) => {
         if (!alive) return
@@ -141,6 +149,8 @@ export function NoteListPage() {
     page,
     reloadKey,
     reportApiError,
+    searchParams,
+    setSearchParams,
   ])
 
   /**
@@ -162,20 +172,6 @@ export function NoteListPage() {
       alive = false
     }
   }, [reportApiError])
-
-  /**
-   * F-2 — 범위를 넘은 `page`로 들어오면 마지막 유효 페이지로 되돌린다. 그냥 두면 자료가
-   * 있는데도 "자료가 없습니다"가 뜬다. `totalPages`가 0이면 되돌릴 곳이 없어 움직이지 않는다.
-   */
-  useEffect(() => {
-    if (!data) return
-    const { totalPages } = data.page
-    if (totalPages >= 1 && page >= totalPages) {
-      const next = new URLSearchParams(searchParams)
-      writePage(next, totalPages - 1)
-      setSearchParams(next, { replace: true })
-    }
-  }, [data, page, searchParams, setSearchParams])
 
   /**
    * 조회 조건을 URL에 쓰는 **유일한 지점** (`apps/web/AGENTS.md` — 뒤로가기·새로고침·링크
