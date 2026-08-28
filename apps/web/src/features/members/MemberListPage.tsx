@@ -434,7 +434,7 @@ export function MemberListPage() {
     const next = new URLSearchParams(searchParams)
     if (value === '') next.delete(key)
     else next.set(key, value)
-    next.delete('page')
+    writePage(next, 0)
     setSearchParams(next)
   }
 
@@ -451,7 +451,7 @@ export function MemberListPage() {
     else next.set('status', filter.status)
     if (filter?.applied === undefined) next.delete('applied')
     else next.set('applied', String(filter.applied))
-    next.delete('page')
+    writePage(next, 0)
     setSearchParams(next)
   }
 
