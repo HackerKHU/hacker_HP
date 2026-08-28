@@ -188,6 +188,19 @@ public class AdminBootstrapService {
     if (requester.getStatus() == Status.PENDING) {
       requester.approve();
     }
+    /*
+     * 비활동 계정도 올려서 승격한다 (#228 리뷰, 3-1 §3-1-2 MUST).
+     *
+     * 거절하면 자격을 갖춘 그 계정이 마침 비활동일 때 복구 경로가 통째로 막힌다. 그렇다고
+     * 상태를 그대로 두고 role만 바꾸면 ADMIN/INACTIVE가 생기는데, 이 문이 열리는 조건이
+     * "활성 관리자 0명"이라 그 조합은 0명을 그대로 둔 채 남는다 — 몇 번을 불러도 복구되지
+     * 않고 시도 상한만 깎인다.
+     *
+     * approve()가 아니라 restore()다. 이미 승인된 계정이라 approved_at을 덮으면 안 된다.
+     */
+    if (requester.getStatus() == Status.INACTIVE) {
+      requester.restore();
+    }
     requester.promoteToAdmin();
 
     log.warn("최초 관리자 승격: userId={} email={} — 활성 관리자가 0명이었다", requesterId, requester.getEmail());

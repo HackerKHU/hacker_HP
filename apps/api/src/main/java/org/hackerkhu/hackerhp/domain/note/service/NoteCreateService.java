@@ -92,7 +92,7 @@ public class NoteCreateService {
   private Note persist(
       Long uploaderId, NoteCreateRequest request, List<StagedUploads.Stored> files) {
     User uploader = userRepository.findByIdForUpdate(uploaderId).orElse(null);
-    RequesterCheck.requireActive(uploader, uploaderId);
+    RequesterCheck.requireNoteAccess(uploader, uploaderId);
 
     Instant now = Instant.now();
     Note note =

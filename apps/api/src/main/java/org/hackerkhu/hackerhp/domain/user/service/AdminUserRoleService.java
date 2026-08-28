@@ -111,6 +111,15 @@ public class AdminUserRoleService {
       throw new BusinessException(ErrorCode.VALIDATION_ERROR, "승인 대기 중인 계정의 권한은 바꿀 수 없습니다.");
     }
 
+    /*
+     * 비활동 계정도 이 경로의 대상이 아니다 (2-2 §2-2-5 MUST, #228). 관리자로 만들면
+     * 자료를 못 보는 관리자가 생긴다 — 회원 관리 화면에서 남의 자료를 지울 수는 있는데
+     * 자기는 목록을 열지 못한다. 올려야 할 사람이면 학기 복구를 먼저 한다.
+     */
+    if (user.getStatus() == Status.INACTIVE) {
+      throw new BusinessException(ErrorCode.VALIDATION_ERROR, "비활동 계정의 권한은 바꿀 수 없습니다. 먼저 복구해 주세요.");
+    }
+
     // 회수가 활성 관리자를 0명으로 만들면 막는다. 지금 활성 관리자인 경우에만 해당한다.
     if (desired == Role.USER && isActiveAdmin(user)) {
       guardLastActiveAdmin(requesterId, targetId);

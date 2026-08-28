@@ -155,6 +155,33 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
   }
 
   /**
+   * T-358. <b>비활동 계정도 {@code ACTIVE}로 올린 뒤 승격한다</b> (#228 리뷰, #229).
+   *
+   * <p>거절하면 자격을 갖춘 그 계정이 마침 비활동일 때 <b>복구 경로가 통째로 막힌다.</b> 그렇다고 상태를 그대로 두고 role만 바꾸면 {@code
+   * ADMIN}/{@code INACTIVE}가 생기는데, 이 문이 열리는 조건이 <i>"활성 관리자 0명"</i>이라 그 조합은 <b>0명을 그대로 둔 채 남는다</b> —
+   * 몇 번을 불러도 복구되지 않는다.
+   *
+   * <p>승인일시는 덮지 않는다. 이미 승인된 계정이다.
+   */
+  @Test
+  void promotesAnInactiveAccountAfterRestoringItToActive() throws Exception {
+    attempts.deleteAll();
+    userRepository.deleteAll();
+    User member = Accounts.applied("sub-in", "founder@khu.ac.kr", "20200007");
+    member.approve();
+    member.deactivate();
+    User saved = userRepository.saveAndFlush(member);
+    Instant approvedBefore = reload(saved).getApprovedAt();
+
+    mockMvc.perform(bootstrap(saved, TOKEN)).andExpect(status().isNoContent());
+
+    User promoted = reload(saved);
+    assertThat(promoted.getRole()).isEqualTo(Role.ADMIN);
+    assertThat(promoted.getStatus()).as("ADMIN/INACTIVE 조합을 만들지 않는다").isEqualTo(Status.ACTIVE);
+    assertThat(promoted.getApprovedAt()).isEqualTo(approvedBefore);
+  }
+
+  /**
    * <b>같은 요청을 다시 보내는 것이 복구 수단이어야 한다.</b>
    *
    * <p>승격은 커밋됐는데 세션 갱신이 실패하는 경우가 있다 — 그 실패는 예외로 올리지 않는다(이미 커밋된 변경까지 실패한 것처럼 보이면 안 되기 때문이다). 그러면 본인이

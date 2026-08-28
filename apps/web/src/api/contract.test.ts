@@ -27,7 +27,7 @@ const PAGE_META = ['size', 'number', 'totalElements', 'totalPages'] as const
 const CONTRACT_DEFAULT_PAGE_SIZE = 20
 
 /**
- * 출처: `spec/3-2-DESIGN-CONTRACT.md` §3-2-7 "공통 에러 코드" 표의 10행.
+ * 출처: `spec/3-2-DESIGN-CONTRACT.md` §3-2-7 "공통 에러 코드" 표의 11행.
  *
  * **손으로 옮겨 적었다. `types.ts`의 `ERROR_CODES`를 가져오지 않는다** — 그것이 검사
  * 대상이기 때문이다. 대상을 기대값으로 쓰면 구현과 픽스처가 같은 방향으로 계약을 벗어날 때
@@ -39,6 +39,7 @@ const CONTRACT_ERROR_CODES = [
   'UNAUTHENTICATED',
   'PENDING_APPROVAL',
   'SUSPENDED',
+  'INACTIVE',
   'FORBIDDEN',
   'NOT_FOUND',
   'DUPLICATE_STUDENT_NO',

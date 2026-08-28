@@ -42,6 +42,27 @@ public final class RequesterCheck {
     }
   }
 
+  /**
+   * <b>자료를 쓸 수 있는 계정인가</b> (#228, #229).
+   *
+   * <p>{@link #requireActive}는 {@code INACTIVE}를 통과시킨다 — 그것이 맞다. 비활동 부원은 공지·활동사진·게시판·마이페이지를 그대로 쓰고,
+   * 여기서 막으면 <b>게시판 글쓰기까지 함께 막힌다.</b> 자료 경로만 이 검사를 쓴다.
+   *
+   * <p><b>필터만으로는 부족하다.</b> {@code AccountStatusFilter}는 세션 값을 보는데, 세션이 {@code ACTIVE}인 채로 통과한 요청이
+   * 잠금을 기다리는 사이에 관리자가 학기 전환을 누를 수 있다. 그러면 <b>대기 중이던 등록·수정·삭제가 그대로 커밋된다</b> — 정지에 같은 창이 있어 {@link
+   * #requireActive}를 둔 것과 같은 자리다.
+   *
+   * <p>코드는 {@code INACTIVE}다. 여기서 {@code FORBIDDEN}으로 뭉개면 <b>필터가 막았을 때와 사유가 달라져</b> 화면이 같은 상황에 다른
+   * 안내를 띄운다.
+   */
+  public static void requireNoteAccess(User requester, Long requesterId) {
+    requireActive(requester, requesterId);
+    if (requester.getStatus() == Status.INACTIVE) {
+      log.info("비활동 계정의 대기 중 자료 요청을 거절했다: requesterId={}", requesterId);
+      throw new BusinessException(ErrorCode.INACTIVE);
+    }
+  }
+
   /** 코드를 상태별로 가른다 — 필터가 막았을 때와 같은 사유가 나가야 화면이 안내를 고른다 (§3-2-7). */
   static void requireActiveAdmin(User requester, Long requesterId) {
     requireActive(requester, requesterId);

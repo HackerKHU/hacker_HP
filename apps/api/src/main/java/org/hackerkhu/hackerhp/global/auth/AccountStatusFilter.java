@@ -105,6 +105,23 @@ public class AccountStatusFilter extends OncePerRequestFilter {
               matcher(HttpMethod.GET, "/api/v1/auth/me/content-summary"),
               matcher(HttpMethod.DELETE, "/api/v1/auth/me")));
 
+  /**
+   * {@code INACTIVE}에게 막히는 경로 — <b>자료 갈래 전체</b> (#228, #229).
+   *
+   * <p>이 상태는 <b>경로마다 다르게 작용하는 첫 사례다</b> (3-3 결정 17). {@code PENDING}·{@code SUSPENDED}는 경로와 무관하게
+   * 막히지만 {@code INACTIVE}는 여기 걸리는 경로에서만 막힌다.
+   *
+   * <p><b>경로를 하나씩 열거하지 않고 접두사로 막는다</b> (2026-08-28, #229). 결정 17이 트레이드오프로 적어 둔 위험이 <i>"목록은 기본이
+   * 열림이라, 새 자료 API를 넣는 것을 잊으면 비활동 부원에게 열린다"</i>였다. 접두사로 하면 <b>기본이 닫힘으로 뒤집힌다</b> — 자료 갈래에 무엇이 늘어도
+   * 자동으로 막히고, 열어야 할 것이 생기면 그때 예외를 적는 것이 결정이 된다.
+   *
+   * <p>계약이 세는 열한 경로(§3-2-4)가 전부 이 둘 아래에 있다. 그것이 실제로 그러한지는 T-338이 <b>표를 그대로 옮긴 목록으로</b> 순회해 확인한다 —
+   * 접두사가 맞다는 것을 접두사로 재면 아무것도 재지 않는 것과 같다.
+   */
+  private static final RequestMatcher NOTES_AND_BOOKMARKS =
+      new OrRequestMatcher(
+          List.of(matcher(null, "/api/v1/notes/**"), matcher(null, "/api/v1/bookmarks/**")));
+
   private final ErrorResponseWriter errorResponseWriter;
 
   public AccountStatusFilter(ErrorResponseWriter errorResponseWriter) {
@@ -154,6 +171,16 @@ public class AccountStatusFilter extends OncePerRequestFilter {
       return PENDING_ALLOWED.matches(request)
           ? Optional.empty()
           : Optional.of(ErrorCode.PENDING_APPROVAL);
+    }
+    /*
+     * 비활동 부원은 자료 갈래에서만 막힌다 (#228). 공지·활동사진·게시판·마이페이지는 ACTIVE와
+     * 같으므로 여기서 걸러지지 않는다 — 그 사실 자체가 이 상태의 정의다.
+     *
+     * 코드를 SUSPENDED나 FORBIDDEN으로 뭉개지 않는다. 셋 다 403이라 화면이 "정지"·"권한 없음"·
+     * "이번 학기 비활동"을 가르는 근거는 코드뿐이다 (§3-2-7).
+     */
+    if (hasStatus(authentication, Status.INACTIVE) && NOTES_AND_BOOKMARKS.matches(request)) {
+      return Optional.of(ErrorCode.INACTIVE);
     }
     return Optional.empty();
   }

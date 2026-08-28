@@ -111,7 +111,8 @@ public class NoteController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @ApiResponse(
       responseCode = "403",
-      description = "CSRF 토큰이 없다 · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
+      description =
+          "CSRF 토큰이 없다 · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정 · `INACTIVE` — **이번 학기 비활동 부원**",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -174,7 +175,7 @@ public class NoteController {
   @ApiResponse(
       responseCode = "403",
       description =
-          "`FORBIDDEN` — **남이 올린 파일 키다** 또는 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL`",
+          "`FORBIDDEN` — **남이 올린 파일 키다** 또는 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL` · `INACTIVE`",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -302,7 +303,7 @@ public class NoteController {
   @ApiResponse(
       responseCode = "403",
       description =
-          "`FORBIDDEN` — **남의 자료다** 또는 남이 올린 파일 키다 또는 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL`",
+          "`FORBIDDEN` — **남의 자료다** 또는 남이 올린 파일 키다 또는 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL` · `INACTIVE`",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -364,7 +365,8 @@ public class NoteController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @ApiResponse(
       responseCode = "403",
-      description = "`FORBIDDEN` — **남의 자료다** 또는 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL`",
+      description =
+          "`FORBIDDEN` — **남의 자료다** 또는 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL` · `INACTIVE`",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -413,7 +415,8 @@ public class NoteController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @ApiResponse(
       responseCode = "403",
-      description = "`SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
+      description =
+          "`SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정 · `INACTIVE` — **이번 학기 비활동 부원**",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
