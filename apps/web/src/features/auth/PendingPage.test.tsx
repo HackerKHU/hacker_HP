@@ -688,13 +688,28 @@ describe('접근 범위', () => {
     expect(pathname()).toBe('/')
   })
 
-  // 로그아웃은 AppLayout 헤더가 이미 제공한다 (결정 2). 여기서 새로 만들지 않는다.
-  it('로그아웃 버튼은 헤더에 하나만 있다', async () => {
+  /*
+   * 로그아웃은 `AppLayout` 헤더의 계정 메뉴가 제공한다 (결정 2, #178). 이 화면이 새로
+   * 만들지 않는다 — 만들면 같은 조작이 두 곳에 생기고, 한쪽만 고쳐진다.
+   */
+  it('로그아웃은 이 화면이 아니라 헤더의 계정 메뉴에 있다', async () => {
     api.me = APPLIED
 
     renderAt()
     await screen.findByRole('heading', { name: '승인 대기 중' })
 
-    expect(screen.getAllByRole('button', { name: '로그아웃' })).toHaveLength(1)
+    // 메뉴를 열기 전에는 화면 어디에도 없다.
+    expect(screen.queryByRole('button', { name: '로그아웃' })).toBeNull()
+
+    const trigger = screen.getByRole('button', { name: '계정 메뉴' })
+    fireEvent.pointerDown(
+      trigger,
+      new MouseEvent('pointerdown', { bubbles: true, button: 0 }),
+    )
+    await screen.findByRole('menu')
+
+    expect(screen.getAllByRole('menuitem', { name: '로그아웃' })).toHaveLength(
+      1,
+    )
   })
 })

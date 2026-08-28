@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
+import { MyPage } from './features/account/MyPage'
 import { LoginPage } from './features/auth/LoginPage'
 import { PendingPage } from './features/auth/PendingPage'
 import { LandingPage } from './features/landing/LandingPage'
@@ -58,6 +59,12 @@ function App() {
       {/* 부원 화면 — ACTIVE(USER·ADMIN) */}
       <Route element={<RequireActive />}>
         <Route element={<AppLayout />}>
+          {/*
+            마이페이지. **`PENDING`에게는 닫혀 있다** (spec §3-1-3 매트릭스) — 신청·대기
+            화면이 그쪽의 유일한 인증 화면이다. 탈퇴는 #226이 이 위에 얹는다.
+          */}
+          <Route path="/me" element={<MyPage />} />
+
           <Route path="/notices" element={<NoticeListPage />} />
           <Route path="/notices/:id" element={<NoticeDetailPage />} />
 
