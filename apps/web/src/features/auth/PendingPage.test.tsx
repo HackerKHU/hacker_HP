@@ -11,7 +11,6 @@ import App from '@/App'
 import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
-import { DEPARTMENTS } from './departments'
 
 /**
  * 신청·대기 화면 (#38).
@@ -32,6 +31,14 @@ const api = vi.hoisted(() => ({
   meCalls: 0,
   submitted: [] as { studentNo: string; department: string }[],
   submitError: null as ApiError | null,
+  /**
+   * 학과 목록. **서버가 내려주는 값이다** (`GET /departments`, #166) — 화면이 갖고 있던
+   * 사본은 지웠으므로, 여기 적은 값이 곧 화면에 뜨는 목록이다.
+   */
+  departments: ['컴퓨터공학과', '인공지능학과', '전자공학과'] as string[],
+  departmentsError: null as Error | null,
+  /** 호출 횟수. "다시 불러오기"가 실제로 다시 물었는지 본다. */
+  departmentsCalls: 0,
 }))
 
 const BASE: User = {
@@ -83,6 +90,15 @@ vi.mock('@/api/auth', async (importOriginal) => {
   }
 })
 
+vi.mock('@/api/departments', () => ({
+  getDepartments: async () => {
+    api.departmentsCalls += 1
+    await later(null)
+    if (api.departmentsError) throw api.departmentsError
+    return api.departments
+  },
+}))
+
 vi.mock('@/api/notices', () => ({
   list: () =>
     Promise.resolve({
@@ -128,6 +144,8 @@ async function fillApplication(studentNo: string, department = '컴퓨터공학�
   fireEvent.change(await screen.findByLabelText('학번'), {
     target: { value: studentNo },
   })
+  // 목록이 오기 전에는 `<select>`가 잠겨 있어 값이 바뀌지 않는다 (#166).
+  await screen.findByRole('option', { name: department })
   fireEvent.change(screen.getByLabelText('학과'), {
     target: { value: department },
   })
@@ -138,6 +156,9 @@ beforeEach(() => {
   api.meError = null
   api.meCalls = 0
   api.submitted = []
+  api.departments = ['컴퓨터공학과', '인공지능학과', '전자공학과']
+  api.departmentsError = null
+  api.departmentsCalls = 0
   api.submitError = null
 })
 
@@ -277,19 +298,49 @@ describe('신청서 제출', () => {
    * 학과는 목록에서만 고른다 (§3-2-2 MUST). 자유 입력 칸이면 표기가 제각각이 되어 회원
    * 목록에서 학과로 거르는 것이 무의미해진다.
    */
-  it('학과는 목록에서 고르고, 서버 목록과 같은 값이다', async () => {
+  it('학과는 서버가 내려준 목록에서 고른다', async () => {
     renderAt()
 
     const select = await screen.findByLabelText('학과')
     expect(select.tagName).toBe('SELECT')
 
-    const options = within(select).getAllByRole('option')
-    // 첫 항목은 "안 고름"이라 목록 길이는 하나 더 많다.
-    expect(options).toHaveLength(DEPARTMENTS.length + 1)
-    expect(options[0]).toHaveValue('')
-    expect(options.slice(1).map((option) => option.textContent)).toEqual([
-      ...DEPARTMENTS,
-    ])
+    /*
+     * **목록을 화면이 갖고 있지 않다** (#166). 사본을 두면 서버에만 학과를 더했을 때
+     * 그 학과 지원자가 고를 자리가 없고, 웹에만 더하면 `400`으로 막힌다.
+     */
+    await waitFor(() =>
+      expect(
+        within(select)
+          .getAllByRole('option')
+          .slice(1)
+          .map((option) => option.textContent),
+      ).toEqual(api.departments),
+    )
+    // 첫 항목은 "안 고름"이다.
+    expect(within(select).getAllByRole('option')[0]).toHaveValue('')
+  })
+
+  /*
+   * 목록을 못 받으면 학과를 고를 수 없고, 학과 없이는 서버가 신청을 거부한다 (§3-2-3 MUST).
+   * 조용히 빈 `<select>`를 두면 사용자는 제출이 안 되는 이유를 알 방법이 없다 (#166).
+   */
+  it('학과 목록을 못 받으면 알리고 다시 불러올 수 있다', async () => {
+    api.departmentsError = new Error('network')
+    renderAt()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '학과 목록을 불러오지 못했습니다.',
+    )
+    expect(api.departmentsCalls).toBe(1)
+
+    api.departmentsError = null
+    fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }))
+
+    expect(
+      await screen.findByRole('option', { name: '인공지능학과' }),
+    ).toBeInTheDocument()
+    expect(api.departmentsCalls).toBe(2)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   /*
