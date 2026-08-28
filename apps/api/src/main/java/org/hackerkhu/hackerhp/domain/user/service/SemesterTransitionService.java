@@ -1,0 +1,183 @@
+package org.hackerkhu.hackerhp.domain.user.service;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.SortedSet;
+import java.util.TreeSet;
+import java.util.stream.Stream;
+import org.hackerkhu.hackerhp.domain.audit.entity.AdminAction;
+import org.hackerkhu.hackerhp.domain.audit.service.AdminActionRecorder;
+import org.hackerkhu.hackerhp.domain.user.dto.DeactivateResponse;
+import org.hackerkhu.hackerhp.domain.user.dto.ReactivateResponse;
+import org.hackerkhu.hackerhp.domain.user.entity.Role;
+import org.hackerkhu.hackerhp.domain.user.entity.Status;
+import org.hackerkhu.hackerhp.domain.user.entity.User;
+import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.global.auth.SessionSynchronizer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+/**
+ * 학기 전환 — 일괄 비활성화와 복구 (spec 2-2 §2-2-3, 3-2 §3-2-6, #228 #230).
+ *
+ * <p><b>두 방향의 모양이 다르다.</b> 내리는 것은 <b>조건</b>이고 올리는 것은 <b>id 목록</b>이다 — 매 학기 전원이 대상이라 고를 것이 없지만, 올라올
+ * 사람은 매번 다르다. 조건으로 전원을 올리면 비활성화가 무의미해진다.
+ *
+ * <p><b>대상에서 빼는 것</b> (MUST): {@code ADMIN}(운영자가 자기 손으로 자기 자료 접근을 끊는다), {@code SUSPENDED}(정지가 풀린다 —
+ * 비활동은 자료 말고 다 되기 때문이다), {@code PENDING}(승인 절차를 건너뛴다).
+ */
+@Service
+public class SemesterTransitionService {
+
+  private static final Logger log = LoggerFactory.getLogger(SemesterTransitionService.class);
+
+  /**
+   * 세션을 다시 맞출 상태 — <b>바뀐 사람보다 넓다.</b>
+   *
+   * <p>이유는 {@link UserRepository#findIdsByRoleAndStatusIn}에 있다: 재요청이 복구 수단이려면 이미 내려간 사람도 대상에 남아야
+   * 한다.
+   */
+  private static final List<Status> REFRESH_TARGETS = List.of(Status.ACTIVE, Status.INACTIVE);
+
+  private final UserRepository userRepository;
+  private final SessionSynchronizer sessionSynchronizer;
+  private final AdminActionRecorder recorder;
+  private final TransactionTemplate transaction;
+
+  public SemesterTransitionService(
+      UserRepository userRepository,
+      SessionSynchronizer sessionSynchronizer,
+      AdminActionRecorder recorder,
+      PlatformTransactionManager transactionManager) {
+    this.userRepository = userRepository;
+    this.sessionSynchronizer = sessionSynchronizer;
+    this.recorder = recorder;
+    this.transaction = new TransactionTemplate(transactionManager);
+  }
+
+  /**
+   * {@code ACTIVE}인 일반 부원 <b>전원</b>을 내린다.
+   *
+   * <p><b>차단이 강해지는 변경이다</b> (2-2 §2-2-5 MUST). 세션에 닿지 않으면 성공으로 답하지 않고, <b>변경은 되돌리지 않는다</b> — 같은 요청을
+   * 다시 보내는 것이 복구 수단이다.
+   */
+  public DeactivateResponse deactivate(Long requesterId) {
+    Applied applied = transaction.execute(ignored -> applyDeactivation(requesterId));
+
+    /*
+     * 세션 반영은 커밋 뒤다 (3-1 §3-1-5). 대상이 바뀐 사람보다 넓은 이유는 REFRESH_TARGETS에
+     * 있다 — 이미 INACTIVE인 사람이 빠지면 재요청이 복구 수단이 되지 못한다.
+     *
+     * 반영 대상을 커밋 뒤에 다시 읽는다. 방금 바뀐 사람들이 INACTIVE로 보여야 하기 때문이다.
+     */
+    List<Long> toRefresh =
+        userRepository.findIdsByRoleAndStatusIn(
+            Role.USER, SemesterTransitionService.REFRESH_TARGETS);
+    boolean reflected = sessionSynchronizer.refreshReporting(toRefresh);
+
+    /*
+     * 이력은 세션 반영보다 뒤다 (§2-2-7). 아무것도 바꾸지 않은 재요청은 남기지 않는다 —
+     * 빈 목록이면 recorder가 그대로 지나간다.
+     */
+    recorder.record(requesterId, applied.changed(), AdminAction.DEACTIVATE, applied.occurredAt());
+
+    log.warn(
+        "학기 전환 — 비활성화: requesterId={} 내려간 {}명 / 세션 반영 {}명",
+        requesterId,
+        applied.changed().size(),
+        toRefresh.size());
+
+    // 이력을 남긴 뒤에 던진다. 변경은 이미 커밋됐으므로 여기서 빠져나가면 기록만 사라진다.
+    if (!reflected) {
+      throw SessionSynchronizer.notReflected("비활성화", requesterId);
+    }
+    return new DeactivateResponse(applied.changed());
+  }
+
+  /** 바뀐 id와 그 시각. 시각은 잠근 채 잡아야 이력의 "언제"가 실제 순서를 따른다 (§2-2-7). */
+  private record Applied(List<Long> changed, Instant occurredAt) {}
+
+  private Applied applyDeactivation(Long requesterId) {
+    /*
+     * 요청자의 권한을 잠근 뒤 다시 확인한다 (MUST). 인가는 세션 값으로 이루어지므로, 여기까지
+     * 오는 사이에 다른 관리자가 요청자를 정지시켰을 수 있다.
+     */
+    RequesterCheck.requireActiveAdmin(
+        userRepository.findByIdForUpdate(requesterId).orElse(null), requesterId);
+
+    Instant occurredAt = Instant.now();
+    /*
+     * 세는 것과 바꾸는 것이 한 문장이다. 조회 후 갱신하면 동시에 도착한 둘이 같은 ACTIVE
+     * 집합을 읽어 양쪽 응답에 같은 id가 담긴다 (UserRepository 참고).
+     */
+    List<Long> changed = userRepository.deactivateActiveMembers(occurredAt);
+    return new Applied(changed.stream().sorted().toList(), occurredAt);
+  }
+
+  /**
+   * 고른 사람을 {@code ACTIVE}로 되돌린다.
+   *
+   * <p><b>완화되는 변경이라 세션 반영 실패를 성공으로 답한다</b> (2-2 §2-2-5). 늦게 닿아도 그 사람이 아직 자료를 못 보는 것뿐이다.
+   *
+   * <p>일부가 실패해도 {@code 200}이다 — 한 건 때문에 되돌리면 <b>성공한 복구까지 사라진다.</b>
+   */
+  public ReactivateResponse reactivate(Long requesterId, List<Long> userIds) {
+    Restored restored = transaction.execute(ignored -> applyRestoration(requesterId, userIds));
+
+    sessionSynchronizer.refresh(restored.response().reactivated());
+    recorder.record(
+        requesterId,
+        restored.response().reactivated(),
+        AdminAction.REACTIVATE,
+        restored.occurredAt());
+
+    log.info(
+        "학기 전환 — 복구: requesterId={} 올라간 {}명 / 실패 {}건",
+        requesterId,
+        restored.response().reactivated().size(),
+        restored.response().failed().size());
+    return restored.response();
+  }
+
+  private record Restored(ReactivateResponse response, Instant occurredAt) {}
+
+  private Restored applyRestoration(Long requesterId, List<Long> userIds) {
+    List<Long> targets = userIds.stream().distinct().sorted().toList();
+    /*
+     * 요청자와 대상을 함께, id 오름차순으로 잠근다. 순서가 저장소 전체에서 하나여야 두
+     * 트랜잭션이 엇갈린 순서로 같은 행들을 원하는 일이 없다 (일괄 승인과 같은 규칙).
+     */
+    SortedSet<Long> toLock =
+        new TreeSet<>(Stream.concat(Stream.of(requesterId), targets.stream()).toList());
+    Map<Long, User> locked = new LinkedHashMap<>();
+    toLock.forEach(
+        id -> userRepository.findByIdForUpdate(id).ifPresent(user -> locked.put(id, user)));
+
+    RequesterCheck.requireActiveAdmin(locked.get(requesterId), requesterId);
+
+    Instant occurredAt = Instant.now();
+    List<Long> reactivated = new ArrayList<>();
+    List<ReactivateResponse.Failure> failed = new ArrayList<>();
+    for (Long targetId : targets) {
+      User target = locked.get(targetId);
+      if (target == null) {
+        failed.add(new ReactivateResponse.Failure(targetId, ReactivateResponse.Reason.NOT_FOUND));
+        continue;
+      }
+      if (target.getStatus() != Status.INACTIVE) {
+        failed.add(
+            new ReactivateResponse.Failure(targetId, ReactivateResponse.Reason.NOT_INACTIVE));
+        continue;
+      }
+      target.restore();
+      reactivated.add(targetId);
+    }
+    return new Restored(new ReactivateResponse(reactivated, failed), occurredAt);
+  }
+}

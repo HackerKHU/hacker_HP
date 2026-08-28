@@ -44,6 +44,22 @@ public enum AdminAction {
    */
   WITHDRAW,
 
+  /**
+   * 학기 전환 — 비활성화 (2-2 §2-2-3, #228 #230). {@code ACTIVE} → {@code INACTIVE}.
+   *
+   * <p><b>학기마다 전원이 대상이라 행이 많이 쌓이는데, 그것이 이 이력의 목적이다</b> — <i>"저는 지난 학기에 활동했는데 왜 자료가 안 보이나요"</i>에 답할
+   * 수 있어야 한다.
+   */
+  DEACTIVATE,
+
+  /**
+   * 학기 전환 — 복구 (2-2 §2-2-3, #228 #230). {@code INACTIVE} → {@code ACTIVE}.
+   *
+   * <p><b>{@link #ACTIVATE}(정지 해제)와 가른다.</b> 도착지는 같지만 있었던 일이 다르다 — 뭉치면 이력을 읽어도 정지가 풀린 것인지 학기가 바뀐
+   * 것인지 알 수 없다. {@link #SUSPEND}와 {@link #ACTIVATE}를 가른 것과 같은 이유다.
+   */
+  REACTIVATE,
+
   /** 관리자 권한 부여 (2-2 §2-2-5). */
   GRANT_ADMIN,
 

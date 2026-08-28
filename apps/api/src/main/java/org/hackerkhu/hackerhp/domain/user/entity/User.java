@@ -60,6 +60,21 @@ public class User {
   private Instant approvedAt;
 
   /**
+   * 학기 전환으로 내려간 시각 (#228 #230). <b>{@link Status#INACTIVE}일 때만 값이 있다.</b>
+   *
+   * <p>비활성화는 조건으로 실행되므로 "방금 누가 내려갔나"가 응답에만 담기는데, <b>그 응답은 잃을 수 있다</b> — 세션 반영이 실패해 {@code 500}이
+   * 나가거나, 브라우저가 닫히거나, 연결이 끊긴다. 재요청은 "이미 전원 {@code INACTIVE}"라 빈 목록을 주므로 그 뒤로는 <b>원래 비활동이던 사람과 방금
+   * 내려간 사람을 영영 가르지 못한다.</b>
+   *
+   * <p><b>한 배치는 같은 값을 갖는다</b> — 그래야 "직전 배치"를 고를 수 있다.
+   *
+   * <p><b>이전 상태를 기억하는 열이 아니다.</b> {@code SUSPENDED}가 된 사람에게서도 지워지므로 정지 해제가 {@code INACTIVE}로 돌아가는
+   * 근거로 쓸 수 없다 (2-2 §2-2-3 — "해제는 언제나 {@code ACTIVE}다").
+   */
+  @Column(name = "deactivated_at")
+  private Instant deactivatedAt;
+
+  /**
    * 낙관적 잠금 — spec/3-1-DESIGN-ARCHITECTURE.md §3-1-4의 직렬화 요구.
    *
    * <p>아래 상태 검사들은 <b>각 트랜잭션이 읽어둔 인메모리 값</b>만 본다. 신청서 제출과 관리자 승인이 같은 행을 동시에 읽으면 둘 다 통과하고, 나중에
@@ -154,9 +169,15 @@ public class User {
     this.approvedAt = Instant.now();
   }
 
-  /** ADM-03 회원 상태 변경 — 정지. */
+  /**
+   * ADM-03 회원 상태 변경 — 정지.
+   *
+   * <p>{@code INACTIVE}에서 정지할 수 있다 (2-2 §2-2-3). 그때 {@link #deactivatedAt}을 지운다 — 남겨 두면 지금 비활동이 아닌
+   * 사람이 "직전 배치"에 섞여 <b>되돌리기가 엉뚱한 사람을 올린다.</b>
+   */
   public void suspend() {
     this.status = Status.SUSPENDED;
+    this.deactivatedAt = null;
   }
 
   /** ADM-03 회원 상태 변경 — 정지 해제. SUSPENDED 상태에서만 허용한다. */
@@ -173,11 +194,12 @@ public class User {
    * <p>{@code PENDING}은 승인 절차를 건너뛰게 되고, {@code SUSPENDED}는 <b>정지가 풀린다</b> — 비활동은 자료 말고 다 되기 때문이다
    * (2-2 §2-2-3 MUST).
    */
-  public void deactivate() {
+  public void deactivate(Instant at) {
     if (this.status != Status.ACTIVE) {
       throw new IllegalStateException("ACTIVE 상태에서만 비활성화할 수 있습니다: " + this.status);
     }
     this.status = Status.INACTIVE;
+    this.deactivatedAt = at;
   }
 
   /**
@@ -191,6 +213,7 @@ public class User {
       throw new IllegalStateException("INACTIVE 상태에서만 복구할 수 있습니다: " + this.status);
     }
     this.status = Status.ACTIVE;
+    this.deactivatedAt = null;
   }
 
   /** ADM-05 권한 부여. */
@@ -201,6 +224,10 @@ public class User {
   /** ADM-05 권한 회수. */
   public void demoteToUser() {
     this.role = Role.USER;
+  }
+
+  public Instant getDeactivatedAt() {
+    return deactivatedAt;
   }
 
   public Long getId() {

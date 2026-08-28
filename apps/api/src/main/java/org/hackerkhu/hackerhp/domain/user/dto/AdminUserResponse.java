@@ -27,7 +27,11 @@ public record AdminUserResponse(
     Status status,
     @Schema(description = "계정 생성 시각(첫 구글 로그인). **가입 신청일이 아니다**") Instant createdAt,
     @Schema(description = "가입 신청일 — 신청서를 제출한 시각. 화면이 \"가입 신청일\"로 부르는 값이다") Instant appliedAt,
-    Instant approvedAt) {
+    Instant approvedAt,
+    @Schema(
+            description =
+                "학기 전환으로 내려간 시각. `INACTIVE`일 때만 값이 있다. **한 배치는 같은 값이라** 화면이 직전 배치를 골라 복구할 수 있다")
+        Instant deactivatedAt) {
 
   public static AdminUserResponse from(User user) {
     return new AdminUserResponse(
@@ -40,6 +44,7 @@ public record AdminUserResponse(
         user.getStatus(),
         user.getCreatedAt(),
         user.getAppliedAt(),
-        user.getApprovedAt());
+        user.getApprovedAt(),
+        user.getDeactivatedAt());
   }
 }
