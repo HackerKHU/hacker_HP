@@ -48,13 +48,23 @@ class InactiveAccessIntegrationTest extends AbstractIntegrationTest {
 
   @BeforeEach
   void setUp() {
-    userRepository.deleteAll();
+    clearAll();
     inactive = userRepository.saveAndFlush(Accounts.inactive("sub-i", "i@khu.ac.kr", "20250001"));
     active = userRepository.saveAndFlush(Accounts.approved("sub-a", "a@khu.ac.kr", "20250002"));
   }
 
   @AfterEach
   void clear() {
+    clearAll();
+  }
+
+  /**
+   * <b>자료는 회원을 지워도 남는다</b> ({@code ON DELETE SET NULL}) — 2-2 §2-2-4가 그렇게 정했다. 사례마다 지우지 않으면 다음 사례의
+   * 조회가 앞의 것까지 집는다.
+   */
+  private void clearAll() {
+    jdbcTemplate.update("DELETE FROM bookmarks");
+    jdbcTemplate.update("DELETE FROM notes");
     userRepository.deleteAll();
   }
 
@@ -327,6 +337,28 @@ class InactiveAccessIntegrationTest extends AbstractIntegrationTest {
   }
 
   /**
+   * 즐겨찾기도 같은 창에서 막힌다 (#229 리뷰).
+   *
+   * <p>이 경로에는 <b>애초에 잠금 후 재검사가 없어</b> {@code SUSPENDED}도 같은 창을 갖고 있었다. {@code requireNoteAccess}가
+   * 그것까지 함께 본다 — 즐겨찾기는 자료 갈래이므로 자료와 같은 규칙을 받아야 한다 (2-1 §2-1-5).
+   */
+  @Test
+  void aBookmarkWriteIsRejectedInTheSameWindow() throws Exception {
+    Long noteId = insertNoteOwnedBy(active.getId());
+    MockHttpServletRequestBuilder bookmark =
+        Csrf.with(sessions.signIn(active).on(post("/api/v1/notes/" + noteId + "/bookmark")));
+
+    jdbcTemplate.update("UPDATE users SET status = 'INACTIVE' WHERE id = ?", active.getId());
+
+    mockMvc
+        .perform(bookmark)
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("INACTIVE"));
+
+    assertThat(bookmarkCount(noteId)).as("담기지 않는다").isZero();
+  }
+
+  /**
    * 같은 창에서 <b>게시판 글쓰기는 막히지 않는다.</b>
    *
    * <p>{@code RequesterCheck.requireActive}를 통째로 고쳐 {@code INACTIVE}를 거절하게 만들면 위 사례는 통과하면서 <b>여기가
@@ -361,16 +393,21 @@ class InactiveAccessIntegrationTest extends AbstractIntegrationTest {
   /* -------------------------------------------------------------- 거들기 */
 
   private Long insertNoteOwnedBy(Long uploaderId) {
-    String title = "창 테스트용 자료";
-    jdbcTemplate.update(
+    // 제목으로 되찾지 않는다 — 같은 제목이 둘이면 조회가 터진다.
+    return jdbcTemplate.queryForObject(
         """
         INSERT INTO notes (category, title, subject_name, professor, year, semester,
                            uploader_id, created_at, updated_at)
-        VALUES ('SUBJECT', ?, '과목', '교수', 2026, 'SPRING', ?, now(), now())
+        VALUES ('SUBJECT', '창 테스트용 자료', '과목', '교수', 2026, 'SPRING', ?, now(), now())
+        RETURNING id
         """,
-        title,
+        Long.class,
         uploaderId);
-    return jdbcTemplate.queryForObject("SELECT id FROM notes WHERE title = ?", Long.class, title);
+  }
+
+  private Integer bookmarkCount(Long noteId) {
+    return jdbcTemplate.queryForObject(
+        "SELECT count(*) FROM bookmarks WHERE note_id = ?", Integer.class, noteId);
   }
 
   private boolean noteExists(Long noteId) {
