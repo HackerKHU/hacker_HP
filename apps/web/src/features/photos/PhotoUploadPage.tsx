@@ -332,7 +332,7 @@ export function PhotoUploadPage() {
                      */
                     disabled={saving}
                     onChange={(event) => setCaption(index, event.target.value)}
-                    placeholder="비워둘 수 있습니다"
+                    placeholder="사진에 대한 설명을 작성해주세요"
                   />
                 </div>
               </li>
@@ -364,7 +364,7 @@ export function PhotoUploadPage() {
             <Link to="/photos">취소</Link>
           </Button>
           <Button type="submit" disabled={saving}>
-            {saving ? '올리는 중' : '올리기'}
+            {saving ? '저장 중' : '저장'}
           </Button>
         </div>
       </form>

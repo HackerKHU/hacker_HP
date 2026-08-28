@@ -78,7 +78,12 @@ public class SecurityConfig {
            * 여는 것은 "세션이 있는가"라는 답뿐이다. 비로그인에게는 204가 나가고 계정 정보는
            * 한 줄도 실리지 않는다 (§3-2-3).
            */
-          PublicPath.of(HttpMethod.GET, "/api/v1/auth/me", "최초 진입의 세션 확인. 비로그인에게는 204만 나간다"));
+          PublicPath.of(HttpMethod.GET, "/api/v1/auth/me", "최초 진입의 세션 확인. 비로그인에게는 204만 나간다"),
+          /*
+           * 학과 목록 (#166). 신청 폼(PENDING)이 쓰는 값이지만 목록 자체가 민감하지 않아
+           * 굳이 로그인으로 가릴 이유가 없다.
+           */
+          PublicPath.of(HttpMethod.GET, "/api/v1/departments", "신청 폼이 쓰는 고정 목록. 민감한 정보가 아니다"));
 
   /**
    * 공개 경로 한 줄.

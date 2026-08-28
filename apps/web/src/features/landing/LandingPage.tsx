@@ -351,6 +351,9 @@ function Footer() {
           >
             개인정보처리방침
           </Link>
+          <Link to="/terms" className="transition-colors hover:text-foreground">
+            이용약관
+          </Link>
         </nav>
       </div>
     </footer>
