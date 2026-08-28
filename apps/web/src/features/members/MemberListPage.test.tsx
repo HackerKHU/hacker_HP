@@ -61,6 +61,10 @@ const api = vi.hoisted(() => ({
   activeUserCount: 37,
   /** 그 건수 조회만 실패시킨다. `listError`는 목록까지 함께 죽여 화면이 아예 안 뜬다. */
   countError: null as ApiError | null,
+  /** 켜면 건수 조회가 응답을 붙들고 있는다 — "세는 중"인 창을 만들 때 쓴다. */
+  holdCount: false,
+  /** 붙들린 건수 응답을 놓아주는 함수. 테스트가 원하는 순간에 완료시킨다. */
+  releaseCount: null as (() => void) | null,
 }))
 
 function member(overrides: Partial<User> & { id: number; name: string }): User {
@@ -130,6 +134,11 @@ vi.mock('@/api/adminUsers', () => ({
       query.size === 1
     ) {
       if (api.countError) return Promise.reject(api.countError)
+      if (api.holdCount) {
+        await new Promise<void>((resolve) => {
+          api.releaseCount = resolve
+        })
+      }
       await new Promise((resolve) => setTimeout(resolve, 0))
       return {
         content: [],
@@ -355,6 +364,8 @@ beforeEach(() => {
   api.reactivateError = null
   api.activeUserCount = 37
   api.countError = null
+  api.holdCount = false
+  api.releaseCount = null
   auth.role = 'ADMIN'
   // approve·학기 전환 mock이 명단을 실제로 고치므로 매 테스트마다 처음 상태로 되돌린다.
   for (const user of MEMBERS) {
@@ -1345,6 +1356,30 @@ describe('일괄 비활성화', () => {
   })
 
   /*
+   * **누르기 전에 대상 건수를 보여준다** (2-2 §2-2-3 MUST). 세는 동안 실행 버튼이 살아
+   * 있으면 건수가 도착하기 전에 수십 명이 바뀌는데, **그것을 막는 것이 이 창의 존재
+   * 이유다.** 아래(못 셌을 때는 누를 수 있다)와 한 벌로 봐야 한다 — 세는 중과 못 셈을
+   * 가르지 않으면 둘 중 하나가 반드시 어긋난다.
+   */
+  it('대상 인원수를 세는 동안에는 전환 버튼이 잠겨 있다', async () => {
+    api.holdCount = true
+
+    renderAt()
+    await loaded()
+
+    fireEvent.click(screen.getByRole('button', { name: '일괄 비활동 전환' }))
+    await screen.findByText(/대상 인원수를 확인하는 중입니다/)
+
+    expect(screen.getByRole('button', { name: '비활동 전환' })).toBeDisabled()
+
+    // 건수가 도착하면 풀린다 — 잠근 채로 두면 창이 영영 아무것도 못 한다.
+    api.releaseCount?.()
+    await screen.findByText(/일반 부원 37명이 비활동이 됩니다/)
+    expect(screen.getByRole('button', { name: '비활동 전환' })).toBeEnabled()
+    expect(api.deactivateCalls).toBe(0)
+  })
+
+  /*
    * **건수는 참고치이지 실행의 조건이 아니다** (2-2 §2-2-3). 제거 확인 창과 다른 점이다 —
    * 거기서는 남을 콘텐츠를 못 보면 누를 수 없지만, 여기서 막으면 건수 조회가 실패할 때
    * 학기 전환이 통째로 멈춘다. 대상을 정하는 것은 어차피 서버다.
@@ -1501,6 +1536,30 @@ describe('일괄 복구', () => {
     await screen.findByText(/1명을 복구했습니다/)
     expect(screen.getByText(/이 페이지에서 1명 선택됨/)).toBeInTheDocument()
     expect(within(row('신청한하나')).getByRole('checkbox')).toBeChecked()
+  })
+
+  /*
+   * **요청 자체가 실패하면 선택을 지킨다** (검수 권고). 그 사람들은 여전히 `INACTIVE`이고
+   * 여전히 복구 대상이다 — 선택까지 풀면 *"다시 시도하라"* 고 해 놓고 **다시 시도할 수단을
+   * 치우는 셈**이라 관리자가 명단을 처음부터 다시 골라야 한다. 응답을 받은 경우(부분 실패
+   * 포함)와 갈리는 지점이다.
+   */
+  it('요청이 실패하면 선택이 그대로 남는다', async () => {
+    api.reactivateError = new ApiError(
+      'NETWORK_ERROR',
+      0,
+      '연결하지 못했습니다.',
+    )
+
+    renderAt()
+    await loaded()
+
+    await selectAndConfirm()
+    fireEvent.click(screen.getByRole('button', { name: '복구' }))
+
+    await screen.findByText(/복구하지 못했습니다/)
+    expect(screen.getByText(/이 페이지에서 1명 선택됨/)).toBeInTheDocument()
+    expect(within(row('비활동회원')).getByRole('checkbox')).toBeChecked()
   })
 
   /*

@@ -3,7 +3,9 @@ import { clearCookies, setCookie } from '@/test/cookies'
 import {
   approve,
   contentSummary,
+  deactivateAll,
   list,
+  reactivate,
   reject,
   remove,
   updateRole,
@@ -131,6 +133,67 @@ describe('회원 관리 API method와 경로', () => {
       RequestInit,
     ]
     expect(JSON.parse(String(init.body))).toEqual({ userIds: [1, 2] })
+  })
+
+  /*
+   * **본문을 보내지 않는다** (계약 §3-2-6 MUST). 대상은 서버가 조건으로 정한다 — id를
+   * 실으면 100개 상한에 걸려 학기 전환이 페이지 수만큼 쪼개지고, **한 페이지를 빠뜨려도
+   * 아무도 모른다.** 화면 테스트는 이 모듈을 mock하므로 여기가 아니면 아무도 안 본다.
+   */
+  it('일괄 비활성화는 POST이고 본문이 없다', async () => {
+    const fetchMock = stubFetch({ deactivated: [1, 2] })
+
+    await deactivateAll()
+
+    expect(lastCall(fetchMock)).toEqual([
+      '/api/v1/admin/users/deactivate',
+      'POST',
+    ])
+    const [, init] = fetchMock.mock.calls.at(-1) as unknown as [
+      string,
+      RequestInit,
+    ]
+    expect(init.body).toBeUndefined()
+  })
+
+  it('일괄 비활성화 응답의 deactivated를 그대로 돌려준다', async () => {
+    stubFetch({ deactivated: [1, 2, 7] })
+
+    // 바뀐 건수를 안내하고 되돌릴 근거로 삼으려면 이 값이 화면까지 와야 한다 (§3-2-6 MUST).
+    await expect(deactivateAll()).resolves.toEqual({ deactivated: [1, 2, 7] })
+  })
+
+  /*
+   * **복구는 반대로 id를 싣는다** (2-2 §2-2-3). 올라올 사람은 매번 다르므로 조건으로
+   * 전원을 올리면 비활성화가 무의미해진다 — 두 경로의 요청 모양이 다른 것이 그 규칙이다.
+   */
+  it('일괄 복구는 POST /api/v1/admin/users/reactivate에 userIds를 담는다', async () => {
+    const fetchMock = stubFetch({ reactivated: [1], failed: [] })
+
+    await reactivate([1, 6])
+
+    expect(lastCall(fetchMock)).toEqual([
+      '/api/v1/admin/users/reactivate',
+      'POST',
+    ])
+    const [, init] = fetchMock.mock.calls.at(-1) as unknown as [
+      string,
+      RequestInit,
+    ]
+    expect(JSON.parse(String(init.body))).toEqual({ userIds: [1, 6] })
+  })
+
+  it('일괄 복구 응답의 reactivated·failed를 그대로 돌려준다', async () => {
+    stubFetch({
+      reactivated: [1],
+      failed: [{ userId: 6, reason: 'NOT_INACTIVE' }],
+    })
+
+    // 부분 실패를 안내하려면(T-365) 사유가 화면까지 와야 한다.
+    await expect(reactivate([1, 6])).resolves.toEqual({
+      reactivated: [1],
+      failed: [{ userId: 6, reason: 'NOT_INACTIVE' }],
+    })
   })
 
   it('제거는 DELETE이고 본문을 보내지 않는다', async () => {

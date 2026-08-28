@@ -132,8 +132,10 @@ type PendingAction =
    * 대신 몇 명이 바뀌는지를 들고 있는다 — 관리자는 목록에서 누가 바뀌는지 볼 수 없으므로
    * **최소한 몇 명인지는 보고 눌러야 한다** (2-2 §2-2-3 MUST).
    *
-   * `null`이면 아직 세는 중, `'failed'`면 못 셌다. 제거와 달리 **못 세도 진행할 수 있다** —
-   * 그 건수는 확인 창을 여는 시점의 참고치이지 실행의 조건이 아니다 (§2-2-3).
+   * `null`이면 아직 세는 중, `'failed'`면 못 셌다. **세는 중에는 누를 수 없고**(위 MUST),
+   * **못 셌으면 누를 수 있다** — 그때는 셀 수 없다는 것까지 보여준 상태이고, 건수는 확인
+   * 창을 여는 시점의 참고치이지 실행의 조건이 아니다 (§2-2-3). 셋을 가르지 않으면 둘 중
+   * 하나가 반드시 어긋난다.
    */
   | { kind: 'deactivate'; count: number | 'failed' | null; token: number }
   | { kind: 'status'; user: User; next: 'ACTIVE' | 'SUSPENDED' }
@@ -778,17 +780,25 @@ export function MemberListPage() {
           ? `${result.reactivated.length}명을 복구했습니다. ${result.failed.length}명은 복구하지 못했습니다 — ${failures}`
           : `${result.reactivated.length}명을 복구했습니다.`,
       )
+      /*
+       * **보낸 사람만 뺀다** (T-161, 승인과 같은 규칙) — 그리고 **응답을 받았을 때만** 뺀다.
+       *
+       * 요청 자체가 실패하면(네트워크·5xx) 그 사람들은 여전히 `INACTIVE`이고 여전히 복구
+       * 대상이다. 거기서 선택까지 풀어 버리면 관리자는 **방금 고른 명단을 처음부터 다시
+       * 골라야 한다** — 실패했으니 다시 시도하라고 해 놓고 다시 시도할 수단을 치우는 셈이다.
+       * 승인이 성공 경로에서만 선택을 정리하는 것과 같은 이유다.
+       */
+      setSelection(selectedRef.current.filter((id) => !ids.includes(id)))
       setReloadKey((key) => key + 1)
     } catch (error: unknown) {
       reportApiError(error)
+      // 선택은 그대로 둔다 — 위 주석 참고. 다시 누르면 같은 명단이 그대로 나간다.
       setNotice(
         error instanceof ApiError
           ? `복구하지 못했습니다. ${error.message}`
           : '복구하지 못했습니다. 잠시 후 다시 시도해 주세요.',
       )
     } finally {
-      // 승인·거부와 같은 규칙이다 (T-161) — 보낸 사람만 뺀다.
-      setSelection(selectedRef.current.filter((id) => !ids.includes(id)))
       setWorking(false)
       setConfirm(null)
     }
@@ -803,7 +813,8 @@ export function MemberListPage() {
    * 관리자가 100명을 내리면서 20명으로 안다.
    *
    * 제거 확인 창과 같이 **먼저 열고 뒤이어 채운다.** 다 받고 나서 열면 누른 뒤 아무 반응이
-   * 없는 구간이 생겨 두 번 누르게 된다.
+   * 없는 구간이 생겨 두 번 누르게 된다. 그동안 창은 "확인하는 중"이라고 말하고 **실행
+   * 버튼은 잠겨 있다** — 건수를 보여주기 전에 눌리면 이 창이 있는 이유가 사라진다.
    */
   async function openDeactivate() {
     const token = ++deactivateToken.current
@@ -1396,8 +1407,18 @@ export function MemberListPage() {
             */}
             <AlertDialogAction
               disabled={
-                pending?.kind === 'remove' &&
-                (pending.summary === null || pending.summary === 'failed')
+                (pending?.kind === 'remove' &&
+                  (pending.summary === null || pending.summary === 'failed')) ||
+                /*
+                 * **세는 중에는 누를 수 없다** (2-2 §2-2-3 MUST — 누르기 전에 대상 건수를
+                 * 보여준다). 열자마자 누를 수 있게 두면 건수가 도착하기 전에 수십 명이
+                 * 바뀌는데, 그 창이 있는 이유가 정확히 그것을 막는 것이다.
+                 *
+                 * **`'failed'`는 다르다.** 그때는 셀 수 없다는 것까지 보여준 상태이고,
+                 * 건수는 참고치이지 실행의 조건이 아니다 (§2-2-3) — 여기서 막으면 건수
+                 * 조회가 실패할 때 학기 전환이 통째로 멈춘다.
+                 */
+                (pending?.kind === 'deactivate' && pending.count === null)
               }
               onClick={() => {
                 if (pending) run(pending)
