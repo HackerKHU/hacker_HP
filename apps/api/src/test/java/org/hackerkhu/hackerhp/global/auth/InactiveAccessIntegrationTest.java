@@ -24,6 +24,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpMethod;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
@@ -40,6 +41,7 @@ class InactiveAccessIntegrationTest extends AbstractIntegrationTest {
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository userRepository;
+  @Autowired private JdbcTemplate jdbcTemplate;
 
   private User inactive;
   private User active;
@@ -296,6 +298,56 @@ class InactiveAccessIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.content[0].id").value(inactive.getId()));
   }
 
+  /* -------------------------------------------------- 필터를 지난 뒤에 바뀌면 */
+
+  /**
+   * <b>필터만으로는 부족하다.</b> 세션이 {@code ACTIVE}인 채로 통과한 요청이 잠금을 기다리는 사이에 관리자가 학기 전환을 누를 수 있다 (#229 리뷰).
+   *
+   * <p>그 창을 세션 갱신 없이 DB만 바꿔 재현한다 — 필터는 세션 값을 보므로 <b>여기까지는 {@code ACTIVE}로 통과하고</b>, 저장 직전의 재검사만이
+   * 이것을 잡는다. 정지에 같은 창이 있어 {@code RequesterCheck.requireActive}를 둔 것과 같은 자리다.
+   *
+   * <p>코드가 {@code INACTIVE}여야 한다. {@code FORBIDDEN}으로 뭉개면 <b>필터가 막았을 때와 사유가 달라져</b> 화면이 같은 상황에 다른
+   * 안내를 띄운다.
+   */
+  @Test
+  void aNoteWriteIsRejectedWhenTheAccountTurnsInactiveAfterTheFilter() throws Exception {
+    Long noteId = insertNoteOwnedBy(active.getId());
+    MockHttpServletRequestBuilder deleteNote =
+        Csrf.with(sessions.signIn(active).on(delete("/api/v1/notes/" + noteId)));
+
+    // 세션은 그대로 ACTIVE다. 학기 전환이 방금 커밋됐고 세션 갱신이 아직 닿지 않은 상태.
+    jdbcTemplate.update("UPDATE users SET status = 'INACTIVE' WHERE id = ?", active.getId());
+
+    mockMvc
+        .perform(deleteNote)
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("INACTIVE"));
+
+    assertThat(noteExists(noteId)).as("지워지지 않는다").isTrue();
+  }
+
+  /**
+   * 같은 창에서 <b>게시판 글쓰기는 막히지 않는다.</b>
+   *
+   * <p>{@code RequesterCheck.requireActive}를 통째로 고쳐 {@code INACTIVE}를 거절하게 만들면 위 사례는 통과하면서 <b>여기가
+   * 깨진다</b> — 자료만 막는다는 이 상태의 뜻이 사라진다.
+   */
+  @Test
+  void aBoardWriteStillGoesThroughInTheSameWindow() throws Exception {
+    MockHttpServletRequestBuilder write =
+        Csrf.with(
+            sessions
+                .signIn(active)
+                .on(
+                    post("/api/v1/posts")
+                        .contentType("application/json")
+                        .content("{\"title\":\"창 안에서 쓴 글\",\"content\":\"본문\"}")));
+
+    jdbcTemplate.update("UPDATE users SET status = 'INACTIVE' WHERE id = ?", active.getId());
+
+    mockMvc.perform(write).andExpect(status().isCreated());
+  }
+
   /** 비활동 부원이 탈퇴하는 것은 막지 않는다 — 나가는 문을 자료와 함께 잠그면 안 된다 (#225). */
   @Test
   void anInactiveMemberCanStillWithdraw() throws Exception {
@@ -304,5 +356,27 @@ class InactiveAccessIntegrationTest extends AbstractIntegrationTest {
         .andExpect(status().isNoContent());
 
     assertThat(userRepository.existsById(inactive.getId())).isFalse();
+  }
+
+  /* -------------------------------------------------------------- 거들기 */
+
+  private Long insertNoteOwnedBy(Long uploaderId) {
+    String title = "창 테스트용 자료";
+    jdbcTemplate.update(
+        """
+        INSERT INTO notes (category, title, subject_name, professor, year, semester,
+                           uploader_id, created_at, updated_at)
+        VALUES ('SUBJECT', ?, '과목', '교수', 2026, 'SPRING', ?, now(), now())
+        """,
+        title,
+        uploaderId);
+    return jdbcTemplate.queryForObject("SELECT id FROM notes WHERE title = ?", Long.class, title);
+  }
+
+  private boolean noteExists(Long noteId) {
+    Integer count =
+        jdbcTemplate.queryForObject(
+            "SELECT count(*) FROM notes WHERE id = ?", Integer.class, noteId);
+    return count != null && count > 0;
   }
 }
