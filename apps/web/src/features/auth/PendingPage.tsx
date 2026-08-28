@@ -6,6 +6,7 @@ import { hasApplied, useSession } from '@/auth/session'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { WithdrawButton } from '@/features/account/WithdrawButton'
 
 /**
  * 입력 상한. **스키마에서 온 값이다** — `student_no varchar(20)` (spec §3-2-2).
@@ -534,6 +535,22 @@ export function PendingPage() {
           </div>
         </>
       )}
+
+      {/*
+        **탈퇴 진입점** (spec §3-1-6 MUST, 5-TESTING T-390). `PENDING`은 마이페이지를 볼 수
+        없으므로 **탈퇴가 화면에 드러나는 곳이 여기뿐이다** — 없으면 구글 로그인만 해보고
+        신청서를 내지 않은 사람이 자기 계정을 지울 방법이 아예 없다. 그 계정은
+        승인 목록(`status=PENDING&applied=true`)에도 뜨지 않아 관리자 눈에도 안 띈다.
+
+        **두 모습 모두에 둔다** (MUST). 삼항 밖에 두어 신청 폼에서도 대기 안내에서도 보인다 —
+        마음이 바뀌는 것은 신청서를 내기 전에도 낸 뒤에도 일어난다.
+
+        로그아웃(헤더)과 **나란히 두되 같은 무게로 두지 않는다.** 되돌릴 수 없는 조작이라
+        구분선 아래 글자 버튼 하나이고, 확인 창을 거친다.
+      */}
+      <div className="mt-10 flex flex-col items-end gap-2 border-t border-border pt-4">
+        <WithdrawButton />
+      </div>
     </section>
   )
 }
