@@ -87,11 +87,17 @@ public class SemesterTransitionService {
      */
     recorder.record(requesterId, applied.changed(), AdminAction.DEACTIVATE, applied.occurredAt());
 
+    /*
+     * "반영 {}명"으로 적지 않는다. refreshReporting은 한 명이라도 못 닿으면 false를 주는데
+     * 대상 수를 그대로 적으면 실패한 요청의 로그가 전원 반영된 것처럼 보인다 — 그때가
+     * 바로 누가 아직 옛 권한으로 자료를 받아 가는지 찾아야 하는 순간이다.
+     */
     log.warn(
-        "학기 전환 — 비활성화: requesterId={} 내려간 {}명 / 세션 반영 {}명",
+        "학기 전환 — 비활성화: requesterId={} 내려간 {}명 / 세션 반영 대상 {}명 / 전원 반영 {}",
         requesterId,
         applied.changed().size(),
-        toRefresh.size());
+        toRefresh.size(),
+        reflected);
 
     // 이력을 남긴 뒤에 던진다. 변경은 이미 커밋됐으므로 여기서 빠져나가면 기록만 사라진다.
     if (!reflected) {

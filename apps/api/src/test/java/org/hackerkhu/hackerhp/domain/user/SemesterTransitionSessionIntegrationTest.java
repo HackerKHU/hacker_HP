@@ -67,10 +67,6 @@ class SemesterTransitionSessionIntegrationTest extends AbstractIntegrationTest {
     userRepository.deleteAll();
   }
 
-  private Status statusOf(User user) {
-    return userRepository.findById(user.getId()).orElseThrow().getStatus();
-  }
-
   /**
    * T-342. 이용 중인 회원의 <b>기존 세션</b>이 다음 자료 요청에서 막힌다.
    *
@@ -121,7 +117,13 @@ class SemesterTransitionSessionIntegrationTest extends AbstractIntegrationTest {
     assertThatThrownBy(() -> withFailure.deactivate(admin.getId()))
         .isInstanceOf(IllegalStateException.class);
 
-    assertThat(statusOf(member)).as("변경은 되돌아가지 않는다").isEqualTo(Status.INACTIVE);
+    User after = userRepository.findById(member.getId()).orElseThrow();
+    assertThat(after.getStatus()).as("변경은 되돌아가지 않는다").isEqualTo(Status.INACTIVE);
+    /*
+     * T-360. 500 응답에서는 deactivated 목록을 받을 수 없으므로, 이 시각이 직전 배치를
+     * 되돌릴 유일한 근거다. 상태만 재면 여기가 NULL인 회귀도 통과한다.
+     */
+    assertThat(after.getDeactivatedAt()).as("되돌릴 근거가 남아야 한다").isNotNull();
   }
 
   /**

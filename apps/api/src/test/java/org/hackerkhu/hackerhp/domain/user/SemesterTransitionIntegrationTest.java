@@ -8,7 +8,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.audit.entity.AdminAction;
 import org.hackerkhu.hackerhp.domain.audit.entity.AdminActionLog;
@@ -16,6 +23,7 @@ import org.hackerkhu.hackerhp.domain.audit.repository.AdminActionLogRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.domain.user.service.SemesterTransitionService;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
@@ -42,6 +50,7 @@ class SemesterTransitionIntegrationTest extends AbstractIntegrationTest {
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository userRepository;
   @Autowired private AdminActionLogRepository actions;
+  @Autowired private SemesterTransitionService transitionService;
 
   private User admin;
   private User member;
@@ -208,7 +217,16 @@ class SemesterTransitionIntegrationTest extends AbstractIntegrationTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.reactivated.length()").value(1))
         .andExpect(jsonPath("$.reactivated[0]").value(member.getId()))
-        .andExpect(jsonPath("$.failed.length()").value(2));
+        .andExpect(jsonPath("$.failed.length()").value(2))
+        /*
+         * 사유를 각각 확인한다. 길이만 재면 둘이 뒤바뀌거나 reason이 잘못 직렬화돼도
+         * 통과하는데, 화면은 이 값으로 "정지된 계정이라 복구할 수 없다"와 "없는
+         * 계정이다"를 갈라 안내한다.
+         */
+        .andExpect(
+            jsonPath("$.failed[?(@.userId == " + suspended.getId() + ")].reason")
+                .value("NOT_INACTIVE"))
+        .andExpect(jsonPath("$.failed[?(@.userId == 999999)].reason").value("NOT_FOUND"));
 
     assertThat(reload(member).getStatus()).isEqualTo(Status.ACTIVE);
     assertThat(reload(suspended).getStatus()).as("이 경로로 정지를 풀 수 없다").isEqualTo(Status.SUSPENDED);
@@ -251,6 +269,59 @@ class SemesterTransitionIntegrationTest extends AbstractIntegrationTest {
     mockMvc.perform(deactivate()).andExpect(status().isOk());
 
     assertThat(actions.findAll()).hasSize(after);
+  }
+
+  /**
+   * T-359. 두 관리자가 <b>동시에</b> 전환을 실행해도 한 id는 한 응답에만 담긴다.
+   *
+   * <p>순차로 두 번 부르는 T-341은 <b>조회 후 갱신하는 구현도 통과한다.</b> 그 구현은 동시 호출에서만 깨진다 — 둘이 같은 {@code ACTIVE} 집합을
+   * 읽어 양쪽 응답에 같은 id가 담기고 이력도 두 벌 쌓인다. 그러면 한쪽 응답으로 되돌리기를 하면 <b>남이 방금 내린 사람까지 올라온다.</b>
+   */
+  @Test
+  void twoTransitionsAtOnceNeverClaimTheSameMember() throws Exception {
+    User second = save(Accounts.approved("sub-m2", "m2@khu.ac.kr", "20250004"));
+
+    CyclicBarrier ready = new CyclicBarrier(2);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    List<Long> claimed = Collections.synchronizedList(new ArrayList<>());
+    try {
+      pool.invokeAll(List.of(running(ready, claimed), running(ready, claimed)));
+    } finally {
+      pool.shutdownNow();
+      pool.awaitTermination(10, TimeUnit.SECONDS);
+    }
+
+    assertThat(claimed).as("한 id가 양쪽 응답에 담기면 안 된다").doesNotHaveDuplicates();
+    assertThat(claimed).containsExactlyInAnyOrder(member.getId(), second.getId());
+    assertThat(actions.findAll()).as("이력도 대상마다 한 행이다").hasSize(2);
+  }
+
+  private Callable<Boolean> running(CyclicBarrier ready, List<Long> claimed) {
+    return () -> {
+      ready.await(10, TimeUnit.SECONDS);
+      claimed.addAll(transitionService.deactivate(admin.getId()).deactivated());
+      return true;
+    };
+  }
+
+  /**
+   * T-369. 교체한 {@code CHECK} 제약이 <b>열한 값을 전부</b> 받는다.
+   *
+   * <p>새 값 둘만 저장하는 사례로는 부족하다 — 제약에서 기존 값 하나를 빠뜨려도 <b>{@link
+   * org.hackerkhu.hackerhp.domain.audit.service.AdminActionRecorder}가 실패를 삼켜</b> 화면에는 아무 일도 없어 보인 채
+   * 감사 기록만 조용히 빈다. 실제 마이그레이션이 돈 DB에 하나씩 넣어 본다.
+   */
+  @Test
+  void everyAdminActionValueSurvivesTheCheckConstraint() {
+    Instant at = Instant.now();
+    for (AdminAction action : AdminAction.values()) {
+      actions.save(AdminActionLog.of(admin.getId(), member.getId(), action, at));
+    }
+    actions.flush();
+
+    assertThat(actions.findAll())
+        .extracting(AdminActionLog::getAction)
+        .containsExactlyInAnyOrder(AdminAction.values());
   }
 
   /* ------------------------------------------------------------------ 인가 */
