@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jayway.jsonpath.JsonPath;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.IntStream;
@@ -22,6 +23,8 @@ import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -322,6 +325,58 @@ class NoteUploadIntegrationTest extends AbstractIntegrationTest {
     mockMvc.perform(jsonPost(me, NOTES, body)).andExpect(status().isBadRequest());
 
     assertThat(storage.keys()).containsExactly(good);
+  }
+
+  /**
+   * 학기 <b>네 값</b>이 모두 저장되고 그대로 돌아온다 (#272).
+   *
+   * <p>enum만 늘리고 {@code CHECK} 제약을 그대로 두면 <b>여기서 저장이 터진다</b> — V4가 두 값으로 못 박아 두었다. 계약이 네 값을 말하는데
+   * DB가 둘만 받는 어긋남을 이 사례가 잡는다.
+   *
+   * <p>기존 두 값도 함께 넣는다. 제약을 교체할 때 새 값만 적으면 <b>이미 쌓인 자료의 수정이 전부 거절된다.</b>
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"SPRING", "SUMMER", "FALL", "WINTER"})
+  void everySemesterValueIsStoredAndReturned(String semester) throws Exception {
+    String key = uploaded(me, semester + ".pdf", 1024);
+    String body =
+        """
+        {"category":"SUBJECT","title":"계절학기 정리본","subjectName":"과목","year":2026,
+         "semester":"%s","files":[{"key":"%s","originalName":"%s.pdf"}]}
+        """
+            .formatted(semester, key, semester);
+
+    String created =
+        mockMvc
+            .perform(jsonPost(me, NOTES, body))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.semester").value(semester))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    long id = JsonPath.parse(created).read("$.id", Integer.class);
+    mockMvc
+        .perform(sessions.as(me, get(NOTES + "/" + id)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.semester").value(semester));
+  }
+
+  /** 계약에 없는 학기는 역직렬화 단계에서 끊긴다 — 조용히 기본값으로 떨어지지 않는다. */
+  @Test
+  void anUnknownSemesterIsRejected() throws Exception {
+    String key = uploaded(me, "이상한학기.pdf", 1024);
+    String body =
+        """
+        {"category":"SUBJECT","title":"제목","subjectName":"과목","year":2026,
+         "semester":"AUTUMN","files":[{"key":"%s","originalName":"이상한학기.pdf"}]}
+        """
+            .formatted(key);
+
+    mockMvc
+        .perform(jsonPost(me, NOTES, body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
   }
 
   /** {@code category=EXAM}인데 시험 구분이 없으면 <b>DB 제약이 아니라 우리가</b> 막는다 (§3-2-2). */

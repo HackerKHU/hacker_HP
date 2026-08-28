@@ -116,7 +116,7 @@ erDiagram
 | `subject_name` | varchar(100) | NOT NULL | 과목명 |
 | `professor` | varchar(50) | NULL | 교수명 |
 | `year` | int | NOT NULL | 개설 연도 |
-| `semester` | enum | NOT NULL | `SPRING`, `FALL` |
+| `semester` | enum | NOT NULL | `SPRING`, `SUMMER`, `FALL`, `WINTER` — **학사 순서다** (2026-08-29 #272) |
 | `exam_type` | enum | NULL | `MIDTERM`, `FINAL` |
 | `uploader_id` | bigint | NULL, FK → users.id, **ON DELETE SET NULL** | `NULL`이면 탈퇴한 회원 |
 | `created_at` | datetime | NOT NULL | |
@@ -495,7 +495,7 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | `subject` | string | 과목 필터 |
 | `professor` | string | 교수 필터 |
 | `year` | int | 연도 필터 |
-| `semester` | string | `SPRING` \| `FALL` |
+| `semester` | string | `SPRING` \| `SUMMER` \| `FALL` \| `WINTER` |
 | `examType` | string | `MIDTERM` \| `FINAL` |
 | `sort` | string | `latest`(기본) \| `title` |
 | `page` | int | 0부터 시작 |
