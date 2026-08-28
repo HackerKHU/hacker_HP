@@ -3,6 +3,8 @@ import {
   fixtureAdminUsers,
   fixtureApproveUsers,
   fixtureContentSummary,
+  fixtureDeactivateUsers,
+  fixtureReactivateUsers,
   fixtureRejectUsers,
   fixtureRemoveUser,
   fixtureUpdateUserRole,
@@ -90,6 +92,68 @@ export function reject(userIds: number[]): Promise<RejectResult> {
     return fixtureRejectUsers(userIds)
   }
   return request<RejectResult>('/admin/users/reject', {
+    method: 'POST',
+    body: JSON.stringify({ userIds }),
+  })
+}
+
+/**
+ * 학기 전환 — 일괄 비활성화 결과 (계약 §3-2-6, #228).
+ *
+ * **실패 배열이 없다** (MUST). 승인·거부와 다른 점이다 — 대상을 서버가 골랐으므로
+ * *"이 사람은 대상이 아니었다"* 가 성립하지 않는다.
+ */
+export interface DeactivateResult {
+  /** 실제로 `INACTIVE`가 된 id. 이미 비활동이던 사람은 들어가지 않는다. */
+  deactivated: number[]
+}
+
+/**
+ * 학기 전환 — 일괄 비활성화 (2-2 §2-2-3).
+ *
+ * **본문을 보내지 않는다** (계약 §3-2-6 MUST). 대상은 `role = 'USER' AND status = 'ACTIVE'`인
+ * 전원으로 **서버가 정한다** — id를 보내면 100개 상한에 걸려 학기 전환이 페이지 수만큼
+ * 쪼개지고, **한 페이지를 빠뜨려도 아무도 모른다.**
+ *
+ * 대상 건수는 목록을 같은 조건으로 조회해 얻는다(`status=ACTIVE&role=USER&size=1`) —
+ * 미리보기 전용 API를 두지 않는다.
+ */
+export function deactivateAll(): Promise<DeactivateResult> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true') {
+    return fixtureDeactivateUsers()
+  }
+  return request<DeactivateResult>('/admin/users/deactivate', {
+    method: 'POST',
+  })
+}
+
+/**
+ * 복구 실패 사유 (§3-2-6).
+ *
+ * **`NOT_INACTIVE`를 "이미 활동 중"으로 뭉개지 않는다.** 정지된 계정도 이 사유로 걸리는데,
+ * 그 사람은 복구되지 않았고 **정지도 풀리지 않았다** — 두 경우를 같은 문구로 안내하면
+ * 관리자는 정지된 사람이 올라온 줄 안다.
+ */
+export type ReactivateFailureReason = 'NOT_FOUND' | 'NOT_INACTIVE'
+
+/** 일괄 복구 결과 (§3-2-6). 모양과 규약은 일괄 승인과 같다. */
+export interface ReactivateResult {
+  reactivated: number[]
+  failed: { userId: number; reason: ReactivateFailureReason }[]
+}
+
+/**
+ * 학기 전환 — 일괄 복구. `INACTIVE` → `ACTIVE` (2-2 §2-2-3).
+ *
+ * **비활성화와 모양이 다르다.** 내리는 것은 매 학기 전원이 대상이지만 **올라올 사람은
+ * 매번 다르다** — 조건으로 전원을 올리면 비활성화가 무의미해진다. 그래서 화면이 명단에서
+ * 고른 id를 보낸다. 상한·중복·부분 실패 규약은 일괄 승인과 같다.
+ */
+export function reactivate(userIds: number[]): Promise<ReactivateResult> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true') {
+    return fixtureReactivateUsers(userIds)
+  }
+  return request<ReactivateResult>('/admin/users/reactivate', {
     method: 'POST',
     body: JSON.stringify({ userIds }),
   })

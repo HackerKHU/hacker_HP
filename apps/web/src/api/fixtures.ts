@@ -30,6 +30,8 @@ import type {
   AdminUserQuery,
   ApproveResult,
   ContentSummary,
+  DeactivateResult,
+  ReactivateResult,
   RejectResult,
 } from './adminUsers'
 import { ApiError } from './client'
@@ -676,6 +678,12 @@ for (const [index, name] of MEMBER_NAMES.entries()) {
   const applied = pending ? index < 4 : true
   const admin = index === 6 || index === 7
   const suspended = index === 8
+  /*
+   * 지난 학기 부원 둘 (#228). **비활동이 없으면 회원 목록에서 확인할 수 없는 것이 많다** —
+   * "비활동" 필터·배지가 `SUSPENDED`와 갈리는지, 일괄 복구로 고를 수 있는지 전부
+   * 이 두 사람이 있어야 화면에 나온다.
+   */
+  const inactive = index === 9 || index === 10
 
   MEMBERS.push({
     id: 1000 + index,
@@ -693,7 +701,13 @@ for (const [index, name] of MEMBER_NAMES.entries()) {
      */
     department: applied ? DEPARTMENTS[index % 3] : null,
     role: admin ? 'ADMIN' : 'USER',
-    status: pending ? 'PENDING' : suspended ? 'SUSPENDED' : 'ACTIVE',
+    status: pending
+      ? 'PENDING'
+      : suspended
+        ? 'SUSPENDED'
+        : inactive
+          ? 'INACTIVE'
+          : 'ACTIVE',
     // 계정 생성(첫 구글 로그인)은 신청보다 앞선다. 둘을 며칠 벌려 둬야 화면이 어느
     // 날짜를 쓰는지 눈으로 구분된다 (2-2 §2-2-1 MUST — 신청일은 appliedAt이다).
     /*
@@ -843,6 +857,60 @@ export function fixtureRejectUsers(userIds: number[]): Promise<RejectResult> {
     }
     MEMBERS.splice(index, 1)
     result.rejected.push(id)
+  }
+  return Promise.resolve(result)
+}
+
+/**
+ * 학기 전환 — 일괄 비활성화 (2-2 §2-2-3, 계약 §3-2-6).
+ *
+ * **대상을 서버가 고른다.** `ACTIVE`인 일반 부원 전원이고, `ADMIN`·`SUSPENDED`·`PENDING`은
+ * 휩쓸리지 않는다 (MUST). 픽스처가 이 셋 중 하나라도 함께 내리면 **화면이 확인 창에 적은
+ * "제외됩니다"가 거짓이 되는데 아무도 알아채지 못한다.**
+ *
+ * **실제로 바뀐 id만 담는다** — 이미 `INACTIVE`였던 사람은 빠진다. 그래서 두 번째 호출은
+ * 빈 배열이다(멱등).
+ */
+export function fixtureDeactivateUsers(): Promise<DeactivateResult> {
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const deactivated: number[] = []
+  for (const user of MEMBERS) {
+    if (user.role !== 'USER' || user.status !== 'ACTIVE') continue
+    user.status = 'INACTIVE'
+    deactivated.push(user.id)
+  }
+  return Promise.resolve({ deactivated })
+}
+
+/**
+ * 학기 전환 — 일괄 복구 (계약 §3-2-6).
+ *
+ * **`INACTIVE`가 아니면 실패로 집계한다** (MUST). 특히 정지된 계정을 여기서 통과시키면
+ * **명단을 붙여넣는 것만으로 정지가 풀린다** — 승인 픽스처가 `NOT_APPLIED`를 가르는 것과
+ * 같은 이유로, 통과시키면 화면의 부분 실패 안내를 검증할 길도 사라진다.
+ */
+export function fixtureReactivateUsers(
+  userIds: number[],
+): Promise<ReactivateResult> {
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const result: ReactivateResult = { reactivated: [], failed: [] }
+  // 승인·거부와 같이 중복을 먼저 지운다 — 그대로 두면 실제로는 나올 수 없는 부분 실패가 생긴다.
+  for (const id of [...new Set(userIds)]) {
+    const found = MEMBERS.find((user) => user.id === id)
+    if (!found) {
+      result.failed.push({ userId: id, reason: 'NOT_FOUND' })
+      continue
+    }
+    if (found.status !== 'INACTIVE') {
+      result.failed.push({ userId: id, reason: 'NOT_INACTIVE' })
+      continue
+    }
+    found.status = 'ACTIVE'
+    result.reactivated.push(id)
   }
   return Promise.resolve(result)
 }

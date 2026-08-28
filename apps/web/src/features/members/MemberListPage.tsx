@@ -6,8 +6,11 @@ import {
   approve,
   type ContentSummary,
   contentSummary,
+  deactivateAll,
   list,
+  type ReactivateFailureReason,
   type RejectFailureReason,
+  reactivate,
   reject,
   remove,
   updateRole,
@@ -77,6 +80,17 @@ const REJECT_FAILURE_TEXT: Record<RejectFailureReason, string> = {
   NOT_FOUND: '찾을 수 없는 계정',
 }
 
+/**
+ * 복구 실패 문구 (§3-2-6). 승인·거부와 사유 집합이 또 다르다.
+ *
+ * **`NOT_INACTIVE`에 정지된 계정이 섞여 있다.** "이미 활동 중"으로만 옮기면 관리자는
+ * 정지된 사람이 올라온 줄 알고 자리를 뜬다 — 그 사람은 복구되지도, 정지가 풀리지도 않았다.
+ */
+const REACTIVATE_FAILURE_TEXT: Record<ReactivateFailureReason, string> = {
+  NOT_INACTIVE: '비활동이 아닌 계정 (이미 활동 중이거나 정지됨)',
+  NOT_FOUND: '찾을 수 없는 계정',
+}
+
 const FAILURE_ORDER: ApproveFailureReason[] = [
   'NOT_APPLIED',
   'NOT_PENDING',
@@ -111,6 +125,17 @@ function describeFailures(
 /** 확인 창을 거쳐야 하는 조작. 승인은 한 명이든 여럿이든 같은 모양이다. */
 type PendingAction =
   | { kind: 'approve'; ids: number[] }
+  /** 학기 전환 — 일괄 복구. 승인과 같은 모양이다 (2-2 §2-2-3). */
+  | { kind: 'reactivate'; ids: number[] }
+  /*
+   * 학기 전환 — 일괄 비활성화. **대상을 고르지 않으므로 ids가 없다** (계약 §3-2-6 MUST).
+   * 대신 몇 명이 바뀌는지를 들고 있는다 — 관리자는 목록에서 누가 바뀌는지 볼 수 없으므로
+   * **최소한 몇 명인지는 보고 눌러야 한다** (2-2 §2-2-3 MUST).
+   *
+   * `null`이면 아직 세는 중, `'failed'`면 못 셌다. 제거와 달리 **못 세도 진행할 수 있다** —
+   * 그 건수는 확인 창을 여는 시점의 참고치이지 실행의 조건이 아니다 (§2-2-3).
+   */
+  | { kind: 'deactivate'; count: number | 'failed' | null; token: number }
   | { kind: 'status'; user: User; next: 'ACTIVE' | 'SUSPENDED' }
   | { kind: 'role'; user: User; next: Role }
   | { kind: 'reject'; ids: number[] }
@@ -146,7 +171,13 @@ function statusLabel(user: User): string {
   if (user.status === 'PENDING') {
     return user.appliedAt === null ? '미승인' : '승인 대기'
   }
-  return user.status === 'ACTIVE' ? '활동중' : '정지'
+  if (user.status === 'ACTIVE') return '활동중'
+  /*
+   * **"비활동"은 "정지"와 같은 낱말이 아니다** (2-2 §2-2-3 MUST, T-362). 뭉치면 관리자가
+   * **정지된 사람을 복구하려다 실패하고**, 비활동인 사람은 정지된 줄 안다 — 복구는 id로
+   * 고르는 조작이라 이 칸이 고르는 근거 전부다.
+   */
+  return user.status === 'INACTIVE' ? '비활동' : '정지'
 }
 
 /**
@@ -162,6 +193,12 @@ function statusVariant(
   user: User,
 ): 'default' | 'secondary' | 'outline' | 'destructive' {
   if (user.status === 'SUSPENDED') return 'destructive'
+  /*
+   * 비활동은 정지보다 가볍고 활동중보다 무겁다 (#228). 자료가 막혀 있으니 그냥 흘려보낼
+   * 상태는 아니지만 **제재가 아니다** — 정지와 같은 무게로 그리면 낱말만 갈라 놓고 화면이
+   * 다시 뭉치는 것이다.
+   */
+  if (user.status === 'INACTIVE') return 'secondary'
   if (user.status === 'ACTIVE') return 'outline'
   // PENDING 둘 — 신청서를 낸 쪽만 승인 대상이라 눈에 걸려야 한다.
   return user.appliedAt === null ? 'outline' : 'default'
@@ -199,6 +236,12 @@ const STATUS_FILTERS: StatusFilter[] = [
   },
   { value: 'PENDING:none', label: '미승인', status: 'PENDING', applied: false },
   { value: 'ACTIVE', label: '활동중', status: 'ACTIVE' },
+  /*
+   * **복구가 이 필터에 매달려 있다** (2-2 §2-2-3 MUST). 복구는 id 목록을 받으므로 비활동
+   * 회원을 추릴 수 없으면 전원을 내린 뒤 **아무도 다시 올릴 수 없다** — API만 있고 누를
+   * 곳이 없는 상태가 된다.
+   */
+  { value: 'INACTIVE', label: '비활동', status: 'INACTIVE' },
   { value: 'SUSPENDED', label: '정지', status: 'SUSPENDED' },
 ]
 
@@ -232,6 +275,23 @@ const SORTS = [
  */
 function isApprovable(user: User): boolean {
   return user.status === 'PENDING' && user.appliedAt !== null
+}
+
+/** **복구 대상인가.** `INACTIVE`만이다 (계약 §3-2-6 — 정지된 계정을 이 경로로 풀 수 없다). */
+function isReactivatable(user: User): boolean {
+  return user.status === 'INACTIVE'
+}
+
+/**
+ * 체크박스로 고를 수 있는가.
+ *
+ * **두 일괄 조작이 체크박스 한 벌을 나눠 쓴다.** "전체" 필터에서는 한 페이지에 승인 대상과
+ * 복구 대상이 섞여 있는데, 한쪽만 고를 수 있게 하면 나머지 한쪽은 **필터를 먼저 걸 줄
+ * 아는 사람에게만** 보인다. 골라 놓고 나서 무엇을 할지는 아래 버튼이 각자의 몫만
+ * 가져가 정한다.
+ */
+function isSelectable(user: User): boolean {
+  return isApprovable(user) || isReactivatable(user)
 }
 
 /**
@@ -291,6 +351,8 @@ export function MemberListPage() {
   const pendingRef = useRef<PendingAction | null>(null)
   /** 제거 확인 창의 건수 요청 세대. 늦게 도착한 응답을 가려낸다. */
   const removeToken = useRef(0)
+  /** 학기 전환 확인 창의 대상 건수 요청 세대. 같은 이유다. */
+  const deactivateToken = useRef(0)
 
   function setConfirm(next: PendingAction | null) {
     pendingRef.current = next
@@ -463,11 +525,27 @@ export function MemberListPage() {
   }
 
   const rows = data?.content ?? []
-  /** **이 페이지에서** 승인할 수 있는 사람. 전체 선택의 범위가 이것이다. */
+  /** **이 페이지에서** 승인할 수 있는 사람. */
   const approvableHere = rows.filter(isApprovable)
+  /** **이 페이지에서** 복구할 수 있는 사람. */
+  const reactivatableHere = rows.filter(isReactivatable)
+  /** 전체 선택의 범위. 승인 대상과 복구 대상을 합친 것이다. */
+  const selectableHere = rows.filter(isSelectable)
   const allSelected =
-    approvableHere.length > 0 &&
-    approvableHere.every((user) => selected.includes(user.id))
+    selectableHere.length > 0 &&
+    selectableHere.every((user) => selected.includes(user.id))
+
+  /*
+   * **고른 사람을 조작별로 가른다.** 버튼은 각자 자기 몫만 보내고 자기 몫의 수만 말한다 —
+   * 합계를 적으면 "선택한 5명 승인"을 눌렀는데 3명만 승인되고, 관리자는 나머지 둘이
+   * 어디로 갔는지 알 수 없다.
+   */
+  const selectedApprovable = selected.filter((id) =>
+    approvableHere.some((user) => user.id === id),
+  )
+  const selectedReactivatable = selected.filter((id) =>
+    reactivatableHere.some((user) => user.id === id),
+  )
 
   /** 확인 창이 물어볼 문장. 무엇을 누구에게 하는지 드러나야 한다. */
   function describe(action: PendingAction): { title: string; body: string } {
@@ -479,6 +557,41 @@ export function MemberListPage() {
       return {
         title: '선택한 회원을 승인할까요?',
         body: `${action.ids.length}명을 승인합니다: ${names}`,
+      }
+    }
+    if (action.kind === 'reactivate') {
+      const names = action.ids
+        .map((id) => rows.find((user) => user.id === id)?.name)
+        .filter(Boolean)
+        .join(', ')
+      return {
+        title: '선택한 회원을 복구할까요?',
+        body: `${action.ids.length}명을 이번 학기 활동 부원으로 되돌립니다: ${names}`,
+      }
+    }
+    if (action.kind === 'deactivate') {
+      /*
+       * **대상 건수를 보여준다** (2-2 §2-2-3 MUST). 조건으로 고르므로 관리자는 목록에서
+       * 누가 바뀌는지 볼 수 없다 — 최소한 몇 명인지는 보고 눌러야 한다.
+       *
+       * 못 세도 진행할 수 있다는 것을 문구가 말한다. 건수는 **참고치이지 실행의 조건이
+       * 아니다** — 확인 창을 여는 사이 누가 승인을 받아 늘어나도 전환은 그대로 진행한다.
+       */
+      const target =
+        action.count === null
+          ? '대상 인원수를 확인하는 중입니다.'
+          : action.count === 'failed'
+            ? '대상 인원수를 불러오지 못했습니다. 그래도 전환은 진행할 수 있습니다.'
+            : `지금 활동 중인 일반 부원 ${action.count}명이 비활동이 됩니다.`
+      return {
+        title: '활동 부원 전원을 비활동으로 바꿀까요?',
+        /*
+         * **무엇이 대상이 아닌지도 말한다** (#228 D4). 셋을 적지 않으면 관리자는 "전원"을
+         * 글자 그대로 믿고, 관리자인 자기 계정까지 내려가는 줄 안다.
+         */
+        body:
+          `${target} 관리자·정지된 회원·승인 대기 계정은 바뀌지 않습니다.` +
+          ' 되돌리려면 상태 필터에서 "비활동"을 골라 복구합니다.',
       }
     }
     if (action.kind === 'reject') {
@@ -527,7 +640,7 @@ export function MemberListPage() {
   }
 
   function toggleAll(next: boolean) {
-    setSelection(next ? approvableHere.map((user) => user.id) : [])
+    setSelection(next ? selectableHere.map((user) => user.id) : [])
   }
 
   function toggleOne(id: number, next: boolean) {
@@ -540,6 +653,8 @@ export function MemberListPage() {
 
   function run(action: PendingAction) {
     if (action.kind === 'approve') return runApprove(action.ids)
+    if (action.kind === 'reactivate') return runReactivate(action.ids)
+    if (action.kind === 'deactivate') return runDeactivate()
     if (action.kind === 'reject') return runReject(action.ids)
     if (action.kind === 'remove') return runRemove(action.user)
     if (action.kind === 'role') return runRole(action.user, action.next)
@@ -635,6 +750,117 @@ export function MemberListPage() {
         setConfirm({ ...open, summary: 'failed' })
         setNotice('남을 콘텐츠 건수를 불러오지 못했습니다.')
       }
+    }
+  }
+
+  /**
+   * 일괄 복구 (2-2 §2-2-3). **승인과 같은 규칙으로 움직인다** — 부분 실패도 `200`이고,
+   * 성공·실패 건수를 안내하며, 보낸 사람만 선택에서 뺀다.
+   */
+  async function runReactivate(ids: number[]) {
+    setWorking(true)
+    setNotice(null)
+    try {
+      const result = await reactivate(ids)
+      /*
+       * **누가 왜 실패했는지 말한다.** 건수만으로는 조치할 수 없고, 특히 `NOT_INACTIVE`에는
+       * 정지된 계정이 섞여 있다 — 그 사람은 복구되지도 정지가 풀리지도 않았다.
+       */
+      const failures = result.failed
+        .map(({ userId, reason }) => {
+          const who =
+            rows.find((user) => user.id === userId)?.name ?? `#${userId}`
+          return `${REACTIVATE_FAILURE_TEXT[reason]}: ${who}`
+        })
+        .join(' / ')
+      setNotice(
+        failures
+          ? `${result.reactivated.length}명을 복구했습니다. ${result.failed.length}명은 복구하지 못했습니다 — ${failures}`
+          : `${result.reactivated.length}명을 복구했습니다.`,
+      )
+      setReloadKey((key) => key + 1)
+    } catch (error: unknown) {
+      reportApiError(error)
+      setNotice(
+        error instanceof ApiError
+          ? `복구하지 못했습니다. ${error.message}`
+          : '복구하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+      )
+    } finally {
+      // 승인·거부와 같은 규칙이다 (T-161) — 보낸 사람만 뺀다.
+      setSelection(selectedRef.current.filter((id) => !ids.includes(id)))
+      setWorking(false)
+      setConfirm(null)
+    }
+  }
+
+  /**
+   * 학기 전환 확인 창을 연다. **대상 건수는 목록을 같은 조건으로 조회해 얻는다**
+   * (2-2 §2-2-3 — 미리보기 전용 API를 두지 않는다).
+   *
+   * **`size=1`로 부른다.** 필요한 것은 `page.totalElements` 하나이고, 20명을 받아 와도
+   * 화면에 쓰지 않는다. **현재 페이지의 행 수를 세지 않는다** (T-356 MUST) — 그러면
+   * 관리자가 100명을 내리면서 20명으로 안다.
+   *
+   * 제거 확인 창과 같이 **먼저 열고 뒤이어 채운다.** 다 받고 나서 열면 누른 뒤 아무 반응이
+   * 없는 구간이 생겨 두 번 누르게 된다.
+   */
+  async function openDeactivate() {
+    const token = ++deactivateToken.current
+    setConfirm({ kind: 'deactivate', count: null, token })
+
+    /** 이 응답이 아직 화면에 붙어 있는 창의 것인가. */
+    const current = () => {
+      const open = pendingRef.current
+      return open?.kind === 'deactivate' && open.token === token ? open : null
+    }
+
+    try {
+      const result = await list({ status: 'ACTIVE', role: 'USER', size: 1 })
+      const open = current()
+      if (open) setConfirm({ ...open, count: result.page.totalElements })
+    } catch (error: unknown) {
+      reportApiError(error)
+      const open = current()
+      // 취소된 요청의 실패는 삼킨다 — 창을 닫은 뒤 뜨는 오류가 다른 안내를 덮지 않게.
+      if (open) setConfirm({ ...open, count: 'failed' })
+    }
+  }
+
+  /**
+   * 일괄 비활성화 (2-2 §2-2-3).
+   *
+   * **바뀐 id를 응답에서 받아 건수로 안내한다** (계약 §3-2-6 MUST). 조건으로 실행했으므로
+   * 응답이 아니면 방금 무엇이 바뀌었는지 알 방법이 없다. **되돌리는 길은 복구 하나뿐이라**
+   * (§2-2-3 MUST) 여기에 취소를 따로 두지 않고 어디서 되돌리는지만 알려준다.
+   */
+  async function runDeactivate() {
+    setWorking(true)
+    setNotice(null)
+    try {
+      const result = await deactivateAll()
+      setNotice(
+        result.deactivated.length === 0
+          ? '비활동으로 바뀐 회원이 없습니다. 이미 전원이 비활동이거나 활동 중인 일반 부원이 없습니다.'
+          : `${result.deactivated.length}명을 비활동으로 바꿨습니다. 되돌리려면 상태 필터에서 "비활동"을 골라 복구하세요.`,
+      )
+      setReloadKey((key) => key + 1)
+    } catch (error: unknown) {
+      reportApiError(error)
+      /*
+       * **세션 반영에 실패하면 `500`이지만 상태는 이미 바뀌었을 수 있다** (2-2 §2-2-5 MUST).
+       * "실패했으니 아무 일도 없었다"고 말하면 관리자가 다시 누르는데, 그 재요청이 실제로는
+       * 복구 수단이다 — 목록을 확인하라고 말하는 편이 정확하다.
+       */
+      setNotice(
+        error instanceof ApiError
+          ? `학기 전환에 실패했습니다. ${error.message} 목록에서 상태를 확인해 주세요.`
+          : '학기 전환에 실패했습니다. 목록에서 상태를 확인해 주세요.',
+      )
+      setReloadKey((key) => key + 1)
+    } finally {
+      setWorking(false)
+      setConfirm(null)
     }
   }
 
@@ -750,7 +976,26 @@ export function MemberListPage() {
 
   return (
     <section>
-      <h1 className="text-2xl font-semibold tracking-tight">회원 관리</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">회원 관리</h1>
+        {/*
+         * **학기 전환은 목록의 조작이 아니라 화면의 조작이다** (2-2 §2-2-3). 대상을 서버가
+         * 고르므로 선택과 무관하고, 그래서 선택했을 때만 나오는 일괄 버튼 줄이 아니라
+         * 제목 옆에 늘 있다.
+         *
+         * **`outline`이다.** 이 화면에서 가장 자주 하는 일은 승인이라 채워진 버튼은 그쪽
+         * 몫이고, 학기마다 한 번 누르는 것이 그 옆에서 더 눈에 띄면 안 된다.
+         */}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={working}
+          onClick={openDeactivate}
+        >
+          일괄 비활동 전환
+        </Button>
+      </div>
 
       <form
         onSubmit={submitSearch}
@@ -854,29 +1099,55 @@ export function MemberListPage() {
              */}
             <p className="text-sm text-muted-foreground">
               이 페이지에서 {selected.length}명 선택됨 (승인 가능{' '}
-              {approvableHere.length}명 · 전체 {data.page.totalElements}명)
+              {approvableHere.length}명 · 복구 가능 {reactivatableHere.length}명
+              · 전체 {data.page.totalElements}명)
             </p>
-            {selected.length > 0 && (
-              <div className="flex items-center gap-2">
+            {/*
+             * **버튼은 자기 몫이 있을 때만 나온다.** "전체" 필터에서는 승인 대상과 복구
+             * 대상이 한 선택에 섞이는데, 셋을 늘 띄워 두면 그중 둘은 늘 0명짜리다.
+             */}
+            <div className="flex items-center gap-2">
+              {selectedApprovable.length > 0 && (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={working}
+                    onClick={() =>
+                      setConfirm({ kind: 'approve', ids: selectedApprovable })
+                    }
+                  >
+                    선택한 {selectedApprovable.length}명 승인
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={working}
+                    onClick={() =>
+                      setConfirm({ kind: 'reject', ids: selectedApprovable })
+                    }
+                  >
+                    선택한 {selectedApprovable.length}명 거부
+                  </Button>
+                </>
+              )}
+              {selectedReactivatable.length > 0 && (
                 <Button
                   type="button"
                   size="sm"
                   disabled={working}
-                  onClick={() => setConfirm({ kind: 'approve', ids: selected })}
+                  onClick={() =>
+                    setConfirm({
+                      kind: 'reactivate',
+                      ids: selectedReactivatable,
+                    })
+                  }
                 >
-                  선택한 {selected.length}명 승인
+                  선택한 {selectedReactivatable.length}명 복구
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={working}
-                  onClick={() => setConfirm({ kind: 'reject', ids: selected })}
-                >
-                  선택한 {selected.length}명 거부
-                </Button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           <ListSurface className="mt-4">
@@ -886,9 +1157,9 @@ export function MemberListPage() {
                   <TableHead className="w-10">
                     <Checkbox
                       checked={allSelected}
-                      disabled={approvableHere.length === 0}
+                      disabled={selectableHere.length === 0}
                       onCheckedChange={(next) => toggleAll(next === true)}
-                      aria-label="이 페이지의 승인 대상 전체 선택"
+                      aria-label="이 페이지의 일괄 처리 대상 전체 선택"
                     />
                   </TableHead>
                   <TableHead>이름</TableHead>
@@ -910,7 +1181,7 @@ export function MemberListPage() {
                       <TableCell>
                         <Checkbox
                           checked={selected.includes(user.id)}
-                          disabled={!approvable}
+                          disabled={!isSelectable(user)}
                           onCheckedChange={(next) =>
                             toggleOne(user.id, next === true)
                           }
@@ -1134,17 +1405,21 @@ export function MemberListPage() {
             >
               {pending?.kind === 'approve'
                 ? '승인'
-                : pending?.kind === 'reject'
-                  ? '거부'
-                  : pending?.kind === 'remove'
-                    ? '제거'
-                    : pending?.kind === 'role'
-                      ? pending.next === 'ADMIN'
-                        ? '관리자 지정'
-                        : '권한 회수'
-                      : pending?.next === 'SUSPENDED'
-                        ? '정지'
-                        : '정지 해제'}
+                : pending?.kind === 'reactivate'
+                  ? '복구'
+                  : pending?.kind === 'deactivate'
+                    ? '비활동 전환'
+                    : pending?.kind === 'reject'
+                      ? '거부'
+                      : pending?.kind === 'remove'
+                        ? '제거'
+                        : pending?.kind === 'role'
+                          ? pending.next === 'ADMIN'
+                            ? '관리자 지정'
+                            : '권한 회수'
+                          : pending?.next === 'SUSPENDED'
+                            ? '정지'
+                            : '정지 해제'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
