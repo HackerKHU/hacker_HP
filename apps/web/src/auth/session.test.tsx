@@ -37,6 +37,8 @@ const ACTIVE: User = {
   approvedAt: '2026-03-03T09:00:00Z',
 }
 
+const INACTIVE: User = { ...ACTIVE, status: 'INACTIVE' }
+
 /**
  * 세션이 계산한 값을 화면에 그대로 드러내는 프로브.
  *
@@ -51,6 +53,10 @@ function Probe() {
     <>
       <span data-testid="applied">{String(applied)}</span>
       <span data-testid="kind">{session.state.kind}</span>
+      {/* 비활동 부원은 `kind`가 `active`라 상태까지 봐야 갈린다 (#231). */}
+      <span data-testid="status">
+        {session.state.kind === 'active' ? session.state.user.status : '-'}
+      </span>
       <span data-testid="refresh-error">{refreshError}</span>
       <button
         type="button"
@@ -101,6 +107,7 @@ const RESPONSES = {
   unauthenticated: new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
   suspended: new ApiError('SUSPENDED', 403, '정지된 계정입니다.'),
   pendingApproval: new ApiError('PENDING_APPROVAL', 403, '승인 대기 중입니다.'),
+  inactive: new ApiError('INACTIVE', 403, '이번 학기 활동 부원이 아닙니다.'),
 } as const
 
 /** 상태를 알려주는 응답과 그때 세션이 되어야 할 값. 세 경로가 같이 쓴다. */
@@ -313,5 +320,73 @@ describe('PENDING 세션의 신청 여부', () => {
     fireEvent.click(screen.getByRole('button', { name: '새로고침' }))
 
     await waitFor(() => expect(el).toHaveTextContent('true'))
+  })
+})
+
+/**
+ * 비활동 부원 (#231, spec 3-1 §3-1-2·§3-1-5).
+ *
+ * **`INACTIVE`는 이용 가능한 상태다.** 다른 두 403과 결정적으로 다르다 — 정지·승인 대기는
+ * 세션을 내보내지만 이 사람은 로그인한 채로 공지·게시판을 계속 쓴다. 그래서 `TELLING` 표에
+ * 넣지 않았다: 그 표의 규칙("서버가 알려준 상태로 정리한다")은 같지만 **도착지가 세 경로마다
+ * 다르다.**
+ */
+describe('비활동 부원(INACTIVE)', () => {
+  it('getMe가 INACTIVE를 주면 이용 가능한 세션으로 세운다', async () => {
+    auth.me.mockResolvedValueOnce(INACTIVE)
+
+    await renderProbe()
+
+    // 로그인 화면으로 보내면 공지도 마이페이지도 못 본다.
+    await waitFor(() =>
+      expect(screen.getByTestId('kind')).toHaveTextContent('active'),
+    )
+    expect(screen.getByTestId('status')).toHaveTextContent('INACTIVE')
+  })
+
+  /*
+   * 회귀 — `SUSPENDED`와 같은 자리에 두면 자료 한 번 눌렀다고 로그인 화면으로 튕긴다.
+   * 세션은 **정리하되 내보내지 않는다** (spec 3-1 §3-1-5 표).
+   */
+  it('403 INACTIVE를 보고해도 내보내지 않고 비활동으로 표시한다', async () => {
+    const kind = await startActive()
+    expect(screen.getByTestId('status')).toHaveTextContent('ACTIVE')
+
+    reported.error = RESPONSES.inactive
+    fireEvent.click(screen.getByRole('button', { name: '오류 보고' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('status')).toHaveTextContent('INACTIVE'),
+    )
+    expect(kind).toHaveTextContent('active')
+  })
+
+  it('refresh()가 403 INACTIVE를 받아도 세션을 유지한다', async () => {
+    const kind = await startActive()
+
+    auth.me.mockRejectedValueOnce(RESPONSES.inactive)
+    fireEvent.click(screen.getByRole('button', { name: '새로고침' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('status')).toHaveTextContent('INACTIVE'),
+    )
+    expect(kind).toHaveTextContent('active')
+    // 상태를 알려준 실패이므로 호출부로 던지지 않는다 — 화면이 "다시 시도"를 띄울 일이 아니다.
+    expect(screen.getByTestId('refresh-error')).toHaveTextContent('')
+  })
+
+  /*
+   * 이 코드는 자료 경로에서만 나오므로(spec 3-2 §3-2-7) 최초 확인에는 오지 않는다.
+   * 그래도 왔을 때 **`loading`에 갇히지 않는 것**이 여기서 지키는 것이다 — 갈아끼울 세션이
+   * 없으면 비로그인이고, 사용자는 로그인 화면에서 다시 시도할 수 있다.
+   */
+  it('최초 확인에서 받으면 비로그인으로 시작한다 — loading에 갇히지 않는다', async () => {
+    auth.me.mockRejectedValueOnce(RESPONSES.inactive)
+
+    await renderProbe()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('kind')).toHaveTextContent('guest'),
+    )
   })
 })

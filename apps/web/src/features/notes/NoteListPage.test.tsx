@@ -8,6 +8,7 @@ import {
 } from '@testing-library/react'
 import { MemoryRouter, useSearchParams } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '@/api/client'
 import type { NoteQuery, NoteSummary } from '@/api/notes'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
@@ -28,6 +29,10 @@ const api = vi.hoisted(() => ({
   bookmarkCalls: [] as { page?: number; size?: number }[],
   bookmarked: [] as { id: number; next: boolean }[],
   fail: false,
+  /** `fail`일 때 던질 오류. 비우면 평범한 서버 오류다. */
+  failWith: null as unknown,
+  /** 세션 사용자. 비활동 부원으로 갈아끼워 안내 문구가 갈리는지 본다. */
+  status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
   /** 켜면 `list()`가 응답을 붙들고 있는다. 늦게 도착하는 응답을 만들 때 쓴다. */
   hold: false,
   /** 붙들린 응답의 resolver. 부르는 쪽이 원하는 순간에 완료시킨다. */
@@ -52,7 +57,7 @@ const NOTE: NoteSummary = {
 vi.mock('@/api/notes', () => ({
   list: (query: NoteQuery) => {
     api.queries.push(query)
-    if (api.fail) return Promise.reject(new Error('서버 오류'))
+    if (api.fail) return Promise.reject(api.failWith ?? new Error('서버 오류'))
     if (api.hold) {
       return new Promise((resolve) => api.held.push(resolve))
     }
@@ -94,7 +99,7 @@ const BASE: User = {
 }
 
 vi.mock('@/api/auth', () => ({
-  getMe: () => Promise.resolve(BASE),
+  getMe: () => Promise.resolve({ ...BASE, status: api.status }),
   logout: () => Promise.resolve(),
 }))
 
@@ -126,6 +131,8 @@ beforeEach(() => {
   api.bookmarkCalls = []
   api.bookmarked = []
   api.fail = false
+  api.failWith = null
+  api.status = 'ACTIVE'
   api.hold = false
   api.held = []
 })
@@ -471,5 +478,31 @@ describe('자료 목록', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '자료를 불러오지 못했습니다',
     )
+  })
+
+  /*
+   * #231 — 비활동 부원에게 **"잠시 후 다시 시도해 주세요"는 거짓말이다.** 그 사람은 이번
+   * 학기 내내 같은 `403 INACTIVE`를 받는다. 로그인 화면으로 튕기지 않는 대신 왜 막혔는지가
+   * 화면에 있어야 한다 (spec §3-1-5 — "세션을 INACTIVE로 정리하되 내보내지 않는다").
+   *
+   * 자료 화면 전체를 이 사람에게 어떻게 보여줄지는 #59가 맡는다. 여기는 그 화면이 없는
+   * 동안 영문을 모르지 않게 하는 최소한이다.
+   */
+  it('403 INACTIVE면 다시 시도하라는 대신 사유를 알려준다', async () => {
+    api.fail = true
+    api.failWith = new ApiError(
+      'INACTIVE',
+      403,
+      '이번 학기 활동 부원이 아닙니다.',
+    )
+    api.status = 'INACTIVE'
+
+    renderList()
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(
+      '이번 학기 비활동 부원은 자료를 이용할 수 없습니다',
+    )
+    expect(alert).not.toHaveTextContent('잠시 후 다시 시도')
   })
 })

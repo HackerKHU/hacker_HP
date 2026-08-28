@@ -13,7 +13,7 @@ import {
   setBookmark,
 } from '@/api/notes'
 import type { Page } from '@/api/types'
-import { useSession } from '@/auth/session'
+import { isInactive, useSession } from '@/auth/session'
 import { clampedOutOfRange } from '@/components/clampPage'
 import { SELECT_CLASS, SelectArrow } from '@/components/native-select'
 import { Pager, parsePage, writePage } from '@/components/Pager'
@@ -26,6 +26,7 @@ import {
   categoryFromParam,
   categoryPath,
   EXAM_TYPE_LABEL,
+  noteErrorText,
   SEMESTER_LABEL,
 } from './labels'
 import { NoteTable } from './NoteTable'
@@ -55,7 +56,8 @@ const SORTS = [
 export function NoteListPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { pathname } = useLocation()
-  const { state, reportApiError } = useSession()
+  const session = useSession()
+  const { state, reportApiError } = session
 
   const category = categoryFromParam(searchParams.get('category'))
   /**
@@ -475,7 +477,7 @@ export function NoteListPage() {
 
       {failed && (
         <p role="alert" className="mt-8 text-sm text-muted-foreground">
-          자료를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+          {noteErrorText(isInactive(session))}
         </p>
       )}
 

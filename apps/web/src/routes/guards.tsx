@@ -51,11 +51,17 @@ export function PendingOnly() {
 }
 
 /**
- * ACTIVE 전용. `role`을 주면 그 역할까지 요구한다.
+ * 로그인해 이용 중인 세션 전용. `role`을 주면 그 역할까지 요구한다.
  *
  * SUSPENDED용 라우트도 분기도 두지 않는다 (spec §3-1-2 — 접근 가능 범위 "없음").
  * 정지 계정은 세션 유니온의 `suspended`로 남아 `GuestOnly`가 따로 분기하지만, 이 가드
  * 입장에서는 `active`가 아니라는 점만 중요해 로그인 화면으로 보낸다.
+ *
+ * **`INACTIVE`는 통과한다** (#231, spec §3-1-3 매트릭스의 `USER (INACTIVE)` 열 — 자료 네 행만
+ * `ACTIVE`와 다르고 나머지 열여덟은 같다). 그래서 여기에 비활동 분기를 두지 않는다: 이
+ * 가드가 지키는 화면 중 비활동 부원에게 닫힌 것이 하나도 없다. **자료는 서버가 `403
+ * INACTIVE`로 막고** 화면은 그 사유를 보여준다 (§3-1-5) — 가드로 앞질러 막으면 그 안내가
+ * 뜰 자리가 사라지고, 여기 조건을 하나 더 얹는 만큼 매트릭스와 어긋날 자리도 늘어난다.
  */
 export function RequireActive({ requiredRole }: { requiredRole?: Role }) {
   const session = useSession()

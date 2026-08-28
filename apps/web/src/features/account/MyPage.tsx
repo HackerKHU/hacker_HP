@@ -1,17 +1,25 @@
-import type { ActiveUser } from '@/auth/session'
+import type { SessionUser } from '@/auth/session'
 import { useSession } from '@/auth/session'
 import { WithdrawButton } from './WithdrawButton'
 
 /**
- * 상태 표시. **한 칸짜리 표인 것이 의도다.**
+ * 상태 표시. **세션에 들어올 수 있는 상태를 빠짐없이 적는다.**
  *
- * 이 화면은 `ACTIVE` 전용이라(spec [§3-1-3](../../../../spec/3-1-DESIGN-ARCHITECTURE.md)
- * 권한 매트릭스) 세션 타입이 다른 상태를 애초에 담지 못한다. 나중에 `INACTIVE`가
- * 세션 유니온에 들어오면(#229) **이 표가 타입 오류로 먼저 걸린다** — 새 상태가 "활동중"으로
- * 조용히 표시되는 것보다 낫다.
+ * 이 표는 걸리라고 만든 것이고 실제로 걸렸다 (#231). `INACTIVE`가 세션 유니온에 들어온
+ * 순간 타입 오류가 났다 — 새 상태가 "활동중"으로 **조용히 표시되는 것보다 낫다**는 것이
+ * 이 `Record`를 유니온에 묶어 둔 이유다.
+ *
+ * **비활동 부원이 자기 상태를 확인하는 자리가 여기다** (spec
+ * [§3-1-3](../../../../spec/3-1-DESIGN-ARCHITECTURE.md) 매트릭스 — 마이페이지는
+ * `INACTIVE`에게 열려 있다). 헤더에 상시 배지를 두지 않기로 했으므로(2026-08-29 결정),
+ * 상태를 궁금해하는 사람이 **찾아와서 보는 곳**이 이 칸이다.
+ *
+ * **낱말은 회원 관리 목록과 같다** — 거기서 "비활동"이 "정지"와 갈라져 있으므로(5-TESTING
+ * T-362) 여기만 다른 낱말을 쓰면 같은 상태가 화면마다 다른 이름으로 보인다.
  */
-const STATUS_LABEL: Record<ActiveUser['status'], string> = {
+const STATUS_LABEL: Record<SessionUser['status'], string> = {
   ACTIVE: '활동중',
+  INACTIVE: '비활동',
 }
 
 /**
