@@ -1,5 +1,6 @@
 package org.hackerkhu.testsupport.user;
 
+import java.time.Instant;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 
 /**
@@ -88,7 +89,7 @@ public final class Accounts {
    */
   public static User inactive(String googleSub, String email, String studentNo) {
     User user = approved(googleSub, email, studentNo);
-    user.deactivate();
+    user.deactivate(Instant.now());
     return user;
   }
 

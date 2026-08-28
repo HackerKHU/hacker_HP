@@ -169,7 +169,7 @@ class AdminBootstrapIntegrationTest extends AbstractIntegrationTest {
     userRepository.deleteAll();
     User member = Accounts.applied("sub-in", "founder@khu.ac.kr", "20200007");
     member.approve();
-    member.deactivate();
+    member.deactivate(Instant.now());
     User saved = userRepository.saveAndFlush(member);
     Instant approvedBefore = reload(saved).getApprovedAt();
 

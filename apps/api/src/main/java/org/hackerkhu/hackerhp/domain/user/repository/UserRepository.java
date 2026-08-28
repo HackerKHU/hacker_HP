@@ -1,6 +1,7 @@
 package org.hackerkhu.hackerhp.domain.user.repository;
 
 import jakarta.persistence.LockModeType;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
@@ -60,6 +61,19 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
    */
   @Query("select u.id from User u where lower(u.email) = lower(:email)")
   List<Long> findIdsByEmailIgnoreCase(@Param("email") String email);
+
+  /**
+   * 세션을 다시 맞출 대상 — <b>{@code deactivated} 보다 넓다</b> (spec 2-2 §2-2-3 MUST).
+   *
+   * <p>비활성화는 차단이 강해지는 변경이라 세션에 닿아야 성공인데(§2-2-5), 그 규칙은 <b>"같은 요청을 다시 보내는 것이 복구 수단"</b>에 기댄다. 대상을
+   * {@code ACTIVE}로만 잡으면 <b>이미 {@code INACTIVE}가 된 사람은 재요청의 대상에서 빠져 세션이 영영 낡은 채 남는다.</b>
+   *
+   * <p>그래서 반영은 {@code ACTIVE}·{@code INACTIVE} 일반 부원 전원에게 하고, 상태를 실제로 바꾸는 것과 이력에 남기는 것만 {@code
+   * ACTIVE}였던 사람으로 한정한다.
+   */
+  @Query("select u.id from User u where u.role = :role and u.status in :statuses")
+  List<Long> findIdsByRoleAndStatusIn(
+      @Param("role") Role role, @Param("statuses") Collection<Status> statuses);
 
   /**
    * 활성 관리자 수.
