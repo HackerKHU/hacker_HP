@@ -39,6 +39,21 @@ export function pageWindow(page: number, totalPages: number): number[] {
 }
 
 /**
+ * `page`를 주소에 쓴다 — **0페이지는 파라미터를 지운다.**
+ *
+ * <p>{@link parsePage}의 반대편이다. 읽는 쪽이 없는 값을 0으로 보므로, 쓰는 쪽도 0을 없는 값으로
+ * 써야 같은 화면이 같은 주소를 갖는다.
+ *
+ * 규약이 갈리면 **어떻게 도착했느냐에 따라 주소가 달라진다** — 페이지 링크로 1페이지에 가면
+ * `?category=EXAM`인데 범위 초과 클램프를 타고 오면 `?category=EXAM&page=0`이 되고, 그 주소가
+ * 그대로 공유·북마크된다. 화면마다 손으로 적으면 한 곳만 어긋나므로 여기 하나만 둔다 (#283).
+ */
+export function writePage(params: URLSearchParams, next: number): void {
+  if (next <= 0) params.delete('page')
+  else params.set('page', String(next))
+}
+
+/**
  * `page`를 0 이상 정수로 수렴시킨다.
  *
  * `Math.max(0, Number(...))`만으로는 `?page=1.5`가 그대로 통과해 API의 정수 계약을 깨고,
