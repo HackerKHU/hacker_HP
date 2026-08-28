@@ -5,7 +5,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import type { ContentSummary } from '@/api/adminUsers'
@@ -68,12 +68,21 @@ const MEMBER: User = {
 
 function Address() {
   const { pathname } = useLocation()
-  return <div data-testid="pathname">{pathname}</div>
+  const navigate = useNavigate()
+  return (
+    <>
+      <div data-testid="pathname">{pathname}</div>
+      {/* 브라우저 뒤로 가기. `MemoryRouter`에는 버튼이 없으니 하나 만들어 둔다. */}
+      <button type="button" onClick={() => navigate(-1)}>
+        뒤로
+      </button>
+    </>
+  )
 }
 
-function renderAt(path = '/me') {
+function renderAt(path = '/me', history: string[] = [path]) {
   render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter initialEntries={history} initialIndex={history.length - 1}>
       <SessionProvider>
         <Address />
         <App />
@@ -180,6 +189,33 @@ describe('회원 탈퇴', () => {
      */
     expect(
       screen.queryByRole('heading', { name: '내 정보' }),
+    ).not.toBeInTheDocument()
+  })
+
+  /*
+   * **뒤로 가기로 보호 화면에 들어가지지 않는다** (#226 완료 조건).
+   *
+   * 탈퇴 화면 자체는 `replace`라 히스토리에 남지 않지만, **그 전에 보던 화면은 남아 있다.**
+   * 계정이 사라졌으므로 그쪽으로 돌아가도 가드가 로그인으로 보내야 한다 — 세션을 비우지
+   * 않고 이동만 했다면 여기서 공지 목록이 그대로 뜬다.
+   */
+  it('탈퇴한 뒤 뒤로 가기로 보호 화면에 들어갈 수 없다', async () => {
+    renderAt('/me', ['/notices', '/me'])
+    const dialog = await openDialog()
+
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole('button', { name: '탈퇴' }),
+      ).toBeEnabled(),
+    )
+    fireEvent.click(within(dialog).getByRole('button', { name: '탈퇴' }))
+    await waitFor(() => expect(pathname()).toBe('/'))
+
+    fireEvent.click(screen.getByRole('button', { name: '뒤로' }))
+
+    await waitFor(() => expect(pathname()).toBe('/login'))
+    expect(
+      screen.queryByRole('heading', { name: '공지사항' }),
     ).not.toBeInTheDocument()
   })
 

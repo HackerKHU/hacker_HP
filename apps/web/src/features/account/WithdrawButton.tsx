@@ -76,7 +76,16 @@ export function WithdrawButton({ className }: { className?: string }) {
       (next) => {
         if (generation.current === token) setSummary(next)
       },
-      () => {
+      (caught: unknown) => {
+        /*
+         * **오류를 버리지 않는다** (#291 검수). 여기서 삼키면 세션이 끊긴 채(`401`)로도
+         * 화면은 로그인 상태로 남아, 사용자가 "다시 시도"만 반복하게 된다. 정지당한
+         * 경우(`403 SUSPENDED`)도 같다 — 그때는 정지 안내로 넘어가야 한다.
+         *
+         * 세션을 바꾸지 않는 실패(네트워크·5xx)에서는 `reportApiError`가 아무것도 하지
+         * 않으므로, 아래 `'failed'`가 그대로 화면을 담당한다.
+         */
+        reportApiError(caught)
         if (generation.current === token) setSummary('failed')
       },
     )
