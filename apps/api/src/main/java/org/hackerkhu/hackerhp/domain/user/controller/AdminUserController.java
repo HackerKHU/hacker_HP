@@ -233,8 +233,16 @@ public class AdminUserController {
           """)
   @ApiResponse(responseCode = "200", description = "내려간 계정의 id")
   @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED`",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
       responseCode = "403",
-      description = "`FORBIDDEN` — 관리자가 아니거나 CSRF 토큰이 없다 · `SUSPENDED`",
+      description =
+          "`FORBIDDEN` — 관리자가 아니거나 CSRF 토큰이 없다 · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -269,6 +277,13 @@ public class AdminUserController {
           """)
   @ApiResponse(responseCode = "200", description = "복구 결과. 일부 실패해도 200이다")
   @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED`",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
       responseCode = "400",
       description = "`VALIDATION_ERROR` — 빈 배열이거나 100개를 넘었다",
       content =
@@ -277,7 +292,8 @@ public class AdminUserController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @ApiResponse(
       responseCode = "403",
-      description = "`FORBIDDEN` — 관리자가 아니거나 CSRF 토큰이 없다 · `SUSPENDED`",
+      description =
+          "`FORBIDDEN` — 관리자가 아니거나 CSRF 토큰이 없다 · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,

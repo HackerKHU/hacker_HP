@@ -1,7 +1,6 @@
 package org.hackerkhu.hackerhp.domain.user.repository;
 
 import jakarta.persistence.LockModeType;
-import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -11,7 +10,6 @@ import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -63,35 +61,6 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
    */
   @Query("select u.id from User u where lower(u.email) = lower(:email)")
   List<Long> findIdsByEmailIgnoreCase(@Param("email") String email);
-
-  /**
-   * 학기 전환 — <b>조건에 맞는 전원을 한 문장으로 내린다</b> (spec 3-2 §3-2-6 MUST, #230).
-   *
-   * <p><b>세는 것과 바꾸는 것이 한 연산이어야 한다.</b> 대상을 먼저 조회하고 나중에 갱신하면 동시에 도착한 두 요청이 <b>같은 {@code ACTIVE} 집합을
-   * 읽어</b> 양쪽 응답에 같은 id가 담기고 이력도 두 벌 쌓인다. 그러면 응답이 <i>"내가 바꾼 것"</i>이 아니게 되어 <b>되돌리기가 남이 방금 내린 사람까지
-   * 올린다.</b>
-   *
-   * <p><b>{@code RETURNING}이 실제로 바뀐 행만 준다.</b> 이미 {@code INACTIVE}였던 사람은 {@code WHERE}에 걸리지 않으므로
-   * 응답에 들어가지 않는다 — 멱등성과 "바뀐 id만 담는다"가 같은 문장에서 나온다.
-   *
-   * <p><b>{@code version}을 손으로 올린다.</b> JPA를 우회하므로 낙관적 잠금이 자동으로 걸리지 않는다. 빠뜨리면 그 사이 열려 있던 영속성 컨텍스트가
-   * 낡은 값을 그대로 덮어쓴다 (§3-1-4의 직렬화 요구).
-   *
-   * <p>{@code deactivated_at}에 <b>같은 시각을 전원에게</b> 쓴다. 행마다 따로 찍으면 한 배치가 시각으로 갈려 "직전 배치"를 고를 수 없다.
-   *
-   * @return 실제로 내려간 계정의 id
-   */
-  @Modifying(clearAutomatically = true, flushAutomatically = true)
-  @Query(
-      value =
-          """
-          UPDATE users
-             SET status = 'INACTIVE', deactivated_at = :at, version = version + 1
-           WHERE role = 'USER' AND status = 'ACTIVE'
-          RETURNING id
-          """,
-      nativeQuery = true)
-  List<Long> deactivateActiveMembers(@Param("at") Instant at);
 
   /**
    * 세션을 다시 맞출 대상 — <b>{@code deactivated} 보다 넓다</b> (spec 2-2 §2-2-3 MUST).

@@ -103,21 +103,50 @@ public class SemesterTransitionService {
   /** 바뀐 id와 그 시각. 시각은 잠근 채 잡아야 이력의 "언제"가 실제 순서를 따른다 (§2-2-7). */
   private record Applied(List<Long> changed, Instant occurredAt) {}
 
+  /**
+   * <b>세는 것과 바꾸는 것이 한 연산이어야 한다</b> (spec 3-2 §3-2-6 MUST).
+   *
+   * <p>후보를 <b>잠그지 않고</b> 훑어 id를 모으고, 요청자와 합쳐 <b>오름차순으로</b> 하나씩 잠근 뒤, <b>잠근 값으로 다시 판단한다.</b> 동시에 도착한
+   * 두 요청 중 뒤엣것은 앞엣것이 커밋될 때까지 기다렸다가 <b>이미 {@code INACTIVE}가 된 값</b>을 보므로, 양쪽 응답에 같은 id가 담기는 일이 없다.
+   *
+   * <p><b>잠금 순서가 저장소 전체에서 하나여야 한다</b> ({@code apps/api/AGENTS.md}). 범위째 바꾸는 한 문장은 스캔 순서대로 행을 잠그는데,
+   * 상태 변경·일괄 승인은 <b>id 오름차순</b>으로 잠근다 — 관리자 A가 전환을 도는 사이 다른 관리자가 A보다 id가 작은 회원을 정지시키면 <b>두 트랜잭션이
+   * 엇갈린 순서로 같은 행들을 원해 교착한다.</b>
+   *
+   * <p>엔티티를 거치므로 {@link User#deactivate(Instant)}가 {@code deactivated_at}까지 함께 세우고, 낙관적 잠금({@code
+   * version})도 그대로 걸린다 — 네이티브 갱신은 그 둘을 손으로 재현해야 했다.
+   */
   private Applied applyDeactivation(Long requesterId) {
+    List<Long> candidates = userRepository.findIdsByRoleAndStatus(Role.USER, Status.ACTIVE);
+    SortedSet<Long> toLock =
+        new TreeSet<>(Stream.concat(Stream.of(requesterId), candidates.stream()).toList());
+
+    Map<Long, User> locked = new LinkedHashMap<>();
+    toLock.forEach(
+        id -> userRepository.findByIdForUpdate(id).ifPresent(user -> locked.put(id, user)));
+
     /*
      * 요청자의 권한을 잠근 뒤 다시 확인한다 (MUST). 인가는 세션 값으로 이루어지므로, 여기까지
      * 오는 사이에 다른 관리자가 요청자를 정지시켰을 수 있다.
      */
-    RequesterCheck.requireActiveAdmin(
-        userRepository.findByIdForUpdate(requesterId).orElse(null), requesterId);
+    RequesterCheck.requireActiveAdmin(locked.get(requesterId), requesterId);
 
+    // 잠근 채로 잡는다. 한 배치가 같은 값을 가져야 "직전 배치"를 고를 수 있다.
     Instant occurredAt = Instant.now();
-    /*
-     * 세는 것과 바꾸는 것이 한 문장이다. 조회 후 갱신하면 동시에 도착한 둘이 같은 ACTIVE
-     * 집합을 읽어 양쪽 응답에 같은 id가 담긴다 (UserRepository 참고).
-     */
-    List<Long> changed = userRepository.deactivateActiveMembers(occurredAt);
-    return new Applied(changed.stream().sorted().toList(), occurredAt);
+    List<Long> changed = new ArrayList<>();
+    for (Long candidateId : candidates.stream().sorted().toList()) {
+      User target = locked.get(candidateId);
+      /*
+       * 훑은 뒤 잠그기 전에 바뀌었을 수 있다 — 그 사이 정지됐거나, 다른 관리자의 전환이
+       * 먼저 커밋돼 이미 INACTIVE일 수 있다. 잠근 값으로 다시 본다.
+       */
+      if (target == null || target.getRole() != Role.USER || target.getStatus() != Status.ACTIVE) {
+        continue;
+      }
+      target.deactivate(occurredAt);
+      changed.add(candidateId);
+    }
+    return new Applied(changed, occurredAt);
   }
 
   /**
