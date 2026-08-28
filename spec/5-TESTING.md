@@ -557,7 +557,7 @@ T-323은 **서버가 문자열을 건드리지 않는지**만 본다 — 화면�
 | T-375 | 활성 관리자가 둘일 때 한 명이 탈퇴 | `204` |
 | T-376 | **`PENDING`(신청 전, `applied_at IS NULL`)이 탈퇴** | `204` — **본인이 직접 지울 수 있는 유일한 경로다** (MUST). 관리자 제거는 그대로 된다 |
 | T-377 | `PENDING`(신청 후)이 탈퇴 | `204` |
-| T-378 | `INACTIVE`가 탈퇴 | `204` — 자료 차단과 무관하다 |
+| T-378 | `INACTIVE`가 탈퇴 | `204` — 자료 차단과 무관하다. **`INACTIVE` 상태가 생기는 [#229](https://github.com/HackerKHU/hacker_HP/issues/229)부터 적용한다** |
 | T-379 | `SUSPENDED` 세션으로 탈퇴 시도 | `403 SUSPENDED` — **탈퇴를 위한 예외를 뚫지 않는다** (MUST) |
 | T-380 | 비로그인이 탈퇴 시도 | `401 UNAUTHENTICATED` |
 | T-381 | 탈퇴 뒤 **같은 구글 계정으로 다시 로그인** | 새 계정이 `PENDING`으로 만들어진다 — `google_sub`·`email` UNIQUE에 걸리지 않는다 (MUST) |

@@ -9,7 +9,7 @@ import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
-import org.hackerkhu.hackerhp.domain.user.service.AdminUserRemovalService;
+import org.hackerkhu.hackerhp.domain.user.service.UserRemovalService;
 import org.hackerkhu.hackerhp.global.auth.SessionSynchronizer;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
@@ -36,7 +36,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 @SpringBootTest
 class AdminUserRemovalRaceIntegrationTest extends AbstractIntegrationTest {
 
-  @Autowired private AdminUserRemovalService removalService;
+  @Autowired private UserRemovalService removalService;
   @Autowired private UserRepository userRepository;
   @Autowired private JdbcTemplate jdbcTemplate;
 

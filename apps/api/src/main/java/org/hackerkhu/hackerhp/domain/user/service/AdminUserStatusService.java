@@ -54,7 +54,38 @@ public class AdminUserStatusService {
    * @param requesterId 요청한 관리자. <b>잠근 뒤 다시 확인한다</b> — 인가는 세션 값으로 이루어지므로 그 사이에 이 사람이 정지됐을 수 있다
    */
   public AdminUserResponse change(Long requesterId, Long targetId, Target target) {
-    Applied applied = transaction.execute(ignored -> apply(requesterId, targetId, target));
+    return run(requesterId, targetId, target, Authority.ADMIN);
+  }
+
+  /**
+   * 본인 탈퇴가 지우기 전에 밟는 정지 (spec 3-2 {@code DELETE /auth/me}, #223).
+   *
+   * <p><b>관리자 자격을 요구하지 않는다.</b> {@link #change}를 그대로 쓰면 {@link RequesterCheck#requireActiveAdmin}에
+   * 걸려 <b>일반 부원의 탈퇴가 첫 단계에서 {@code 403}이 된다.</b> 여기서 인가의 근거는 관리자 자격이 아니라 <b>요청자와 대상이 같다는 것</b>이다.
+   *
+   * <p><b>나머지는 전부 같다</b> — 행 잠금, 마지막 활성 관리자 검사, 세션 반영 확인, {@code SUSPEND} 이력. 그 규칙들은 "누가 눌렀나"와 무관하게
+   * 성립한다.
+   */
+  public void suspendSelf(Long userId) {
+    run(userId, userId, Target.SUSPENDED, Authority.SELF);
+  }
+
+  /**
+   * 요청자를 무엇으로 확인하는가.
+   *
+   * <p>이 값이 가르는 것은 <b>그 한 줄뿐이다.</b> 나머지 절차를 갈라놓으면 두 벌이 되고, 계정을 지우는 경로에서 한쪽만 고쳐진다.
+   */
+  private enum Authority {
+    /** 관리자가 남(또는 자기)에게 하는 조작. */
+    ADMIN,
+    /** 본인이 자기에게 하는 조작 — 탈퇴의 선행 정지. */
+    SELF
+  }
+
+  private AdminUserResponse run(
+      Long requesterId, Long targetId, Target target, Authority authority) {
+    Applied applied =
+        transaction.execute(ignored -> apply(requesterId, targetId, target, authority));
     AdminUserResponse changed = applied.response();
 
     /*
@@ -110,11 +141,16 @@ public class AdminUserStatusService {
    */
   private record Applied(AdminUserResponse response, boolean changed, Instant occurredAt) {}
 
-  private Applied apply(Long requesterId, Long targetId, Target target) {
+  private Applied apply(Long requesterId, Long targetId, Target target, Authority authority) {
     Status desired = target == Target.SUSPENDED ? Status.SUSPENDED : Status.ACTIVE;
     Map<Long, User> locked = lockRowsInIdOrder(requesterId, targetId, desired);
 
-    RequesterCheck.requireActiveAdmin(locked.get(requesterId), requesterId);
+    if (authority == Authority.ADMIN) {
+      RequesterCheck.requireActiveAdmin(locked.get(requesterId), requesterId);
+    } else {
+      // 본인 탈퇴. 이용할 수 있는 계정인지만 본다 — 잠근 뒤 다시 보는 이유는 같다.
+      RequesterCheck.requireActive(locked.get(requesterId), requesterId);
+    }
 
     User user =
         locked.containsKey(targetId) ? locked.get(targetId) : orElseNotFound(); // 잠글 때 없던 행이다.
@@ -128,7 +164,7 @@ public class AdminUserStatusService {
     }
 
     if (desired == Status.SUSPENDED && isActiveAdmin(user)) {
-      guardLastActiveAdmin(requesterId, targetId);
+      guardLastActiveAdmin(requesterId, targetId, authority);
     }
 
     boolean changed = user.getStatus() != desired;
@@ -187,14 +223,27 @@ public class AdminUserStatusService {
    *
    * <p>세기 전에 그 행들을 이미 잠갔다. 동시에 들어온 다른 정지는 그 잠금을 기다렸다가 <b>줄어든 수</b>를 보게 된다 (T-15).
    */
-  private void guardLastActiveAdmin(Long requesterId, Long targetId) {
+  private void guardLastActiveAdmin(Long requesterId, Long targetId, Authority authority) {
     if (userRepository.countByRoleAndStatus(Role.ADMIN, Status.ACTIVE) > 1) {
       return;
     }
     throw new BusinessException(
-        ErrorCode.FORBIDDEN,
-        requesterId.equals(targetId)
-            ? "마지막 활성 관리자는 자기 자신을 정지할 수 없습니다."
-            : "마지막 활성 관리자는 정지할 수 없습니다. 다른 관리자를 먼저 활성화해 주세요.");
+        ErrorCode.FORBIDDEN, lastActiveAdminMessage(requesterId, targetId, authority));
+  }
+
+  /**
+   * 사유는 같아도 <b>사용자가 할 수 있는 일이 다르다.</b>
+   *
+   * <p>탈퇴하려는 사람에게 "정지할 수 없습니다"라고 답하면, 자기가 무엇을 눌렀는지와 응답이 어긋나 <b>다음에 무엇을 해야 하는지 알 수 없다.</b> 막는 조건은
+   * 하나이므로 검사도 하나로 두고, 문구만 들어온 문을 따른다.
+   */
+  private static String lastActiveAdminMessage(
+      Long requesterId, Long targetId, Authority authority) {
+    if (authority == Authority.SELF) {
+      return "마지막 활성 관리자는 탈퇴할 수 없습니다. 다른 관리자를 먼저 지정해 주세요.";
+    }
+    return requesterId.equals(targetId)
+        ? "마지막 활성 관리자는 자기 자신을 정지할 수 없습니다."
+        : "마지막 활성 관리자는 정지할 수 없습니다. 다른 관리자를 먼저 활성화해 주세요.";
   }
 }

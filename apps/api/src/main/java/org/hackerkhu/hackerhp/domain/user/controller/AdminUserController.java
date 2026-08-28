@@ -23,10 +23,11 @@ import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserApprovalService;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserRejectService;
-import org.hackerkhu.hackerhp.domain.user.service.AdminUserRemovalService;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserRoleService;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserService;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserStatusService;
+import org.hackerkhu.hackerhp.domain.user.service.UserContentSummaryService;
+import org.hackerkhu.hackerhp.domain.user.service.UserRemovalService;
 import org.hackerkhu.hackerhp.global.auth.AccessTokenCookie;
 import org.hackerkhu.hackerhp.global.error.ErrorResponse;
 import org.springdoc.core.annotations.ParameterObject;
@@ -67,27 +68,30 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminUserController {
 
   private final AdminUserService adminUserService;
+  private final UserContentSummaryService userContentSummaryService;
   private final AdminUserApprovalService adminUserApprovalService;
   private final AdminUserStatusService adminUserStatusService;
   private final AdminUserRejectService adminUserRejectService;
   private final AdminUserRoleService adminUserRoleService;
-  private final AdminUserRemovalService adminUserRemovalService;
+  private final UserRemovalService userRemovalService;
   private final AccessTokenCookie accessTokenCookie;
 
   public AdminUserController(
       AdminUserService adminUserService,
+      UserContentSummaryService userContentSummaryService,
       AdminUserApprovalService adminUserApprovalService,
       AdminUserStatusService adminUserStatusService,
       AdminUserRejectService adminUserRejectService,
       AdminUserRoleService adminUserRoleService,
-      AdminUserRemovalService adminUserRemovalService,
+      UserRemovalService userRemovalService,
       AccessTokenCookie accessTokenCookie) {
     this.adminUserService = adminUserService;
+    this.userContentSummaryService = userContentSummaryService;
     this.adminUserApprovalService = adminUserApprovalService;
     this.adminUserStatusService = adminUserStatusService;
     this.adminUserRejectService = adminUserRejectService;
     this.adminUserRoleService = adminUserRoleService;
-    this.adminUserRemovalService = adminUserRemovalService;
+    this.userRemovalService = userRemovalService;
     this.accessTokenCookie = accessTokenCookie;
   }
 
@@ -416,7 +420,7 @@ public class AdminUserController {
   @GetMapping("/{id}/content-summary")
   @PreAuthorize("hasRole('ADMIN')")
   public ContentSummaryResponse contentSummary(@PathVariable Long id) {
-    return adminUserService.contentSummary(id);
+    return userContentSummaryService.of(id);
   }
 
   /**
@@ -483,7 +487,7 @@ public class AdminUserController {
       @PathVariable Long id,
       HttpServletRequest httpRequest,
       HttpServletResponse httpResponse) {
-    if (!adminUserRemovalService.remove(requesterId, id)) {
+    if (!userRemovalService.remove(requesterId, id)) {
       return;
     }
     /*
