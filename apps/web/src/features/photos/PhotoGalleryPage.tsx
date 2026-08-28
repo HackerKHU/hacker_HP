@@ -5,7 +5,7 @@ import { ApiError } from '@/api/client'
 import { list, type Photo, remove } from '@/api/photos'
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
-import { Pager, parsePage } from '@/components/Pager'
+import { Pager, parsePage, writePage } from '@/components/Pager'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,6 +44,18 @@ function formatDate(iso: string): string {
  * 조회는 `ACTIVE`면 누구나, **삭제는 `ADMIN`만** 보인다 (spec §3-1-3 매트릭스). 노출
  * 제어일 뿐 권한 통제가 아니다 (§3-1-7) — 서버가 같은 조건으로 다시 막는다.
  */
+/**
+ * 이 화면의 주소에는 `page` 말고 다른 조회 조건이 없다. 그래서 매번 새로 만든다.
+ *
+ * <b>컴포넌트 밖에 둔다</b> — 안에 두면 렌더마다 새 함수가 되어, 이것을 쓰는 effect가 매 렌더
+ * 다시 돌거나 의존성에서 빠진 채 남는다.
+ */
+function pageParams(next: number): URLSearchParams {
+  const params = new URLSearchParams()
+  writePage(params, next)
+  return params
+}
+
 export function PhotoGalleryPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { pathname } = useLocation()
@@ -87,16 +99,12 @@ export function PhotoGalleryPage() {
     if (!data) return
     const { totalPages } = data.page
     if (totalPages >= 1 && page >= totalPages) {
-      setSearchParams({ page: String(totalPages - 1) }, { replace: true })
+      setSearchParams(pageParams(totalPages - 1), { replace: true })
     }
   }, [data, page, setSearchParams])
 
-  function pageParams(next: number): Record<string, string> {
-    return next === 0 ? {} : { page: String(next) }
-  }
-
   function pageHref(next: number): string {
-    const query = new URLSearchParams(pageParams(next)).toString()
+    const query = pageParams(next).toString()
     return query === '' ? pathname : `${pathname}?${query}`
   }
 

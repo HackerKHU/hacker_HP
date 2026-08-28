@@ -17,6 +17,7 @@ import { ApiError } from '@/api/client'
 import type { Page, Role, User, UserStatus } from '@/api/types'
 import { useSession } from '@/auth/session'
 import { ListSurface } from '@/components/ListSurface'
+import { parsePage, writePage } from '@/components/Pager'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -246,12 +247,6 @@ function formatDate(iso: string | null): string {
   })
 }
 
-function parsePage(raw: string | null): number {
-  const value = Number(raw ?? '0')
-  if (!Number.isFinite(value)) return 0
-  return Math.max(0, Math.floor(value))
-}
-
 export function MemberListPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { reportApiError } = useSession()
@@ -429,7 +424,7 @@ export function MemberListPage() {
     const { totalPages } = data.page
     if (totalPages >= 1 && page >= totalPages) {
       const next = new URLSearchParams(searchParams)
-      next.set('page', String(totalPages - 1))
+      writePage(next, totalPages - 1)
       setSearchParams(next, { replace: true })
     }
   }, [data, page, searchParams, setSearchParams])
@@ -439,7 +434,7 @@ export function MemberListPage() {
     const next = new URLSearchParams(searchParams)
     if (value === '') next.delete(key)
     else next.set(key, value)
-    next.delete('page')
+    writePage(next, 0)
     setSearchParams(next)
   }
 
@@ -456,7 +451,7 @@ export function MemberListPage() {
     else next.set('status', filter.status)
     if (filter?.applied === undefined) next.delete('applied')
     else next.set('applied', String(filter.applied))
-    next.delete('page')
+    writePage(next, 0)
     setSearchParams(next)
   }
 
@@ -1159,7 +1154,6 @@ export function MemberListPage() {
 /** 페이지만 바꾸고 검색·필터는 유지한다. */
 function pageParams(current: URLSearchParams, next: number): URLSearchParams {
   const params = new URLSearchParams(current)
-  if (next <= 0) params.delete('page')
-  else params.set('page', String(next))
+  writePage(params, next)
   return params
 }

@@ -15,7 +15,7 @@ import {
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
 import { SELECT_CLASS, SelectArrow } from '@/components/native-select'
-import { Pager, parsePage } from '@/components/Pager'
+import { Pager, parsePage, writePage } from '@/components/Pager'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -172,7 +172,7 @@ export function NoteListPage() {
     const { totalPages } = data.page
     if (totalPages >= 1 && page >= totalPages) {
       const next = new URLSearchParams(searchParams)
-      next.set('page', String(totalPages - 1))
+      writePage(next, totalPages - 1)
       setSearchParams(next, { replace: true })
     }
   }, [data, page, searchParams, setSearchParams])
@@ -190,7 +190,7 @@ export function NoteListPage() {
       const next = new URLSearchParams(searchParams)
       if (value === '') next.delete(key)
       else next.set(key, value)
-      next.delete('page')
+      writePage(next, 0)
       setSearchParams(next)
     },
     [searchParams, setSearchParams],
@@ -203,16 +203,14 @@ export function NoteListPage() {
 
   function pageHref(next: number): string {
     const params = new URLSearchParams(searchParams)
-    if (next === 0) params.delete('page')
-    else params.set('page', String(next))
+    writePage(params, next)
     const query = params.toString()
     return query === '' ? pathname : `${pathname}?${query}`
   }
 
   function goToPage(next: number) {
     const params = new URLSearchParams(searchParams)
-    if (next === 0) params.delete('page')
-    else params.set('page', String(next))
+    writePage(params, next)
     setSearchParams(params)
   }
 
