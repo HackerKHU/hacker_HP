@@ -203,14 +203,16 @@ erDiagram
 | `id` | bigint | PK, auto | |
 | `actor_id` | bigint | NOT NULL, **FK 없음** | 조작한 관리자 |
 | `target_id` | bigint | NOT NULL, **FK 없음** | 대상 |
-| `action` | enum | NOT NULL | `APPROVE`, `SUSPEND`, `ACTIVATE`, `DEACTIVATE`, `REACTIVATE`, `REJECT`, `REMOVE`, `GRANT_ADMIN`, `REVOKE_ADMIN`, `PROMOTE_ADMIN` — **열 개가 전부다** |
+| `action` | enum | NOT NULL | `APPROVE`, `SUSPEND`, `ACTIVATE`, `DEACTIVATE`, `REACTIVATE`, `REJECT`, `REMOVE`, `WITHDRAW`, `GRANT_ADMIN`, `REVOKE_ADMIN`, `PROMOTE_ADMIN` — **열한 개가 전부다** |
 | `created_at` | datetime | NOT NULL | |
 
 - 인덱스: `(target_id, created_at DESC)`, `(actor_id, created_at DESC)`
 
 **`ACTIVATE`와 `REACTIVATE`는 다른 조작이다** (2026-08-26, #228). `ACTIVATE`는 **정지 해제**(`SUSPENDED` → `ACTIVE`), `REACTIVATE`는 **학기 복구**(`INACTIVE` → `ACTIVE`)다. 도착지가 같아 뭉치고 싶어지지만, 그러면 이력을 읽는 사람이 *"저는 정지당한 적이 없는데요"* 를 확인할 수 없다 — 출발지가 곧 그 조작의 의미다. 같은 이유로 `SUSPEND`와 `DEACTIVATE`도 가른다.
 
-**값을 더할 때는 기존 값을 전부 다시 적는다** (MUST, 2026-08-28 리뷰). 마이그레이션이 `CHECK` 제약을 **교체**하므로(`DROP CONSTRAINT` → `ADD CONSTRAINT`), 새 값 둘만 적은 제약으로 갈아끼우면 `REJECT`·`REMOVE`·`GRANT_ADMIN`·`REVOKE_ADMIN`의 이력 INSERT가 전부 거절되어 **성공한 관리 작업의 기록이 조용히 사라진다.** 이력은 실패를 삼키는 경로라([2-2 §2-2-7](2-2-OPERATOR-REQUIREMENTS.md#2-2-7-안전장치)) 화면에는 아무 일도 없어 보인다. 위 열 개가 목록의 전부이고, `AdminAction` enum과 제약이 같아야 한다.
+**값을 더할 때는 기존 값을 전부 다시 적는다** (MUST, 2026-08-28 리뷰). 마이그레이션이 `CHECK` 제약을 **교체**하므로(`DROP CONSTRAINT` → `ADD CONSTRAINT`), 새 값 둘만 적은 제약으로 갈아끼우면 `REJECT`·`REMOVE`·`GRANT_ADMIN`·`REVOKE_ADMIN`의 이력 INSERT가 전부 거절되어 **성공한 관리 작업의 기록이 조용히 사라진다.** 이력은 실패를 삼키는 경로라([2-2 §2-2-7](2-2-OPERATOR-REQUIREMENTS.md#2-2-7-안전장치)) 화면에는 아무 일도 없어 보인다. 위 열한 개가 목록의 전부이고, `AdminAction` enum과 제약이 같아야 한다.
+
+**`REMOVE`와 `WITHDRAW`를 가른다** (MUST, 2026-08-28, #223). 계정이 사라진 뒤 남는 것은 숫자 id뿐이라, 뭉치면 *"관리자가 지웠다"* 와 *"본인이 나갔다"* 를 영영 가를 수 없다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#본인-탈퇴--같은-처리-다른-문)). `WITHDRAW`는 `actor_id`와 `target_id`가 같다 — 그 조합은 `PROMOTE_ADMIN`에 이미 있다.
 
 **여기만 `users`를 가리키는 FK가 없다** (MUST). 다른 테이블처럼 `ON DELETE SET NULL`을 걸면 **회원을 지우는 순간 "누구를 정지했는지"가 사라져** 이력의 존재 이유가 무너진다. 자료·공지와 성격이 다르다 — 그쪽은 보여줄 콘텐츠라 작성자 표시가 필요하지만, **이력은 일어난 일의 기록이라 현재 상태에 종속되면 안 된다.**
 
@@ -279,7 +281,9 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 | GET | `/departments` | **비로그인 포함 전체** | 학과 고정 목록 (#166). 신청 폼이 그린다 |
 | POST | `/auth/application` | PENDING | 신청서 제출·수정. body: `{ "studentNo": "...", "department": "..." }` |
 | POST | `/auth/logout` | 로그인 | 로그아웃 |
-| GET | `/auth/me` | **비로그인 포함 전체** | 로그인이면 내 정보, 아니면 `204` |
+| GET | `/auth/me` | **비로그인 포함 전체** | 로그인이면 내 정보, 아니면 `204`. **마이페이지도 이것으로 그린다** ([2-1 §2-1-9](2-1-USER-STORIES.md#2-1-9-마이페이지)) |
+| GET | `/auth/me/content-summary` | 로그인 (**`PENDING` 포함**) | 탈퇴 확인 창이 쓰는 건수 — 내가 남길 자료·공지·활동사진·게시글 |
+| DELETE | `/auth/me` | 로그인 (**`PENDING` 포함**) | **회원 탈퇴.** 마지막 활성 관리자면 차단 |
 | POST | `/auth/bootstrap-admin` | 로그인 + **신청서 제출 완료** | 최초 관리자 승격/마지막 관리자 복구. body: `{ "token": "..." }` — [3-3 결정 11](3-3-DESIGN-DECISIONS.md) |
 
 **`POST /auth/signup`과 `POST /auth/login`은 없다.** 자체 비밀번호를 쓰지 않으므로 두 엔드포인트가 사라졌다 ([3-3 결정 13](3-3-DESIGN-DECISIONS.md#3-3-14-결정-13--가입로그인을-구글-oauth로-한다)).
@@ -357,6 +361,43 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 `GET /auth/me`는 신청서 제출 여부를 함께 반환한다. 프론트엔드가 `PENDING` 사용자에게 신청 폼을 보일지 대기 안내를 보일지 이 값으로 가른다 ([3-1 §3-1-6](3-1-DESIGN-ARCHITECTURE.md)).
 
 **신청 여부는 `appliedAt`(스키마의 `applied_at`)으로 판단한다** (MUST). 값이 있으면 제출한 것이다. 같은 사실을 알려주는 별도 boolean 필드를 두지 않는다 — 두 값이 어긋나는 자리가 생기고, 어긋나면 화면이 폼과 안내 중 틀린 쪽을 고른다.
+
+### 마이페이지와 회원 탈퇴 (2026-08-28 확정, #223)
+
+운영 규칙은 [2-1 §2-1-9](2-1-USER-STORIES.md#2-1-9-마이페이지)와 [2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#본인-탈퇴--같은-처리-다른-문)에 있다. 여기는 계약만 적는다.
+
+**마이페이지 조회에 새 경로를 두지 않는다** (MUST). `GET /auth/me`가 이름·이메일·학번·학과·`role`·`status`·`createdAt`·`appliedAt`·`approvedAt`을 이미 전부 내려준다. 같은 값을 두 경로에서 만들면 어긋나는 자리가 생긴다 — 신원 조회 경로를 하나로 유지하는 것은 콜백에도 적용한 규칙이다 (아래).
+
+#### `GET /auth/me/content-summary` — 내가 남길 것
+
+```json
+응답  200 { "notes": 12, "notices": 0, "photos": 0, "posts": 5 }
+```
+
+**모양은 `GET /admin/users/{id}/content-summary`와 같고, 네 값을 항상 담는다** (MUST). `0`을 빼면 화면이 "없음"과 "모름"을 가르지 못한다.
+
+**관리자용 경로를 일반 부원에게 열지 않는다** (MUST). 그쪽은 `{id}`를 받으므로 열면 **남의 콘텐츠 건수를 세어 볼 수 있다.** 이 경로는 대상이 언제나 요청자 자신이라 id를 받지 않는다.
+
+**`PENDING`도 부를 수 있다.** 건수는 전부 `0`이겠지만 **화면이 그 사실을 확인하고 창을 그린다** — 상태에 따라 확인 창의 모양이 갈리면 그 분기가 두 벌이 된다.
+
+#### `DELETE /auth/me` — 회원 탈퇴
+
+성공하면 `204`다. 본문은 없다.
+
+| 요청 | |
+|---|---|
+| 로그인 (`PENDING`·`ACTIVE`·`INACTIVE`) | `204` |
+| **탈퇴 뒤 활성 관리자가 0명** | `403 FORBIDDEN` ([2-2 §2-2-7](2-2-OPERATOR-REQUIREMENTS.md#2-2-7-안전장치) MUST) |
+| 비로그인 | `401 UNAUTHENTICATED` |
+| `SUSPENDED` | `403 SUSPENDED` — 상태 필터가 먼저 막는다. **탈퇴를 위한 예외를 만들지 않는다** |
+
+**응답이 세션과 신원 토큰 쿠키를 함께 버린다** (MUST). 저장소에서 세션 행을 지우는 것만으로는 부족하다 — **지금 요청에 붙어 있는 세션은 응답을 내보낼 때 다시 저장되어** 방금 지운 세션이 되살아난다. 관리자가 자기 자신을 제거할 때와 같은 규칙이다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#본인을-지우면-지금-요청의-세션도-함께-끝낸다)).
+
+**처리 순서도 회원 제거와 같다** (MUST) — `SUSPENDED`를 먼저 확정하고 그 반영을 확인한 뒤 지운다. 요청자와 대상이 같으므로 **정지 뒤에 요청자의 권한을 다시 확인하지 않는다**: 방금 자기 손으로 만든 상태에 걸려 **본인 탈퇴가 영영 실패한다** ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#제거는-정지를-먼저-확정한다)).
+
+**지우기 직전의 재확인은 `409 CONCURRENT_CHANGE`가 아니다.** 관리자 경로는 *"다른 관리자가 되살렸다"* 를 만나면 멈추지만, 여기서 대상을 `ACTIVE`로 되돌릴 수 있는 사람은 **요청자 자신이 아니라 관리자뿐이고** 그것은 탈퇴를 막을 근거가 아니다. 그래도 마지막 활성 관리자 검사는 이 시점에 다시 통과해야 한다.
+
+**이력에 `WITHDRAW`를 남긴다** (MUST) — `actor_id = target_id`. `REMOVE`와 가르는 이유는 §3-2-2에 있다.
 
 ### 콜백은 항상 SPA로 되돌린다
 
