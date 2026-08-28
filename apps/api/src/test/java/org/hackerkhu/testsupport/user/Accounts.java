@@ -80,6 +80,18 @@ public final class Accounts {
     return user;
   }
 
+  /**
+   * 이번 학기에 활동하지 않는 부원 — {@code INACTIVE} (#228).
+   *
+   * <p>승인까지 받았다가 학기 전환으로 내려간 상태다. 손으로 조립하지 않고 {@link User#deactivate()}를 밟는다 — 실제로 만들어질 수 없는 상태를
+   * 테스트가 만들면 없는 문제를 잡거나 있는 문제를 놓친다.
+   */
+  public static User inactive(String googleSub, String email, String studentNo) {
+    User user = approved(googleSub, email, studentNo);
+    user.deactivate();
+    return user;
+  }
+
   /** 이용 중 정지된 회원 — 승인까지 받았다가 막힌 상태다. */
   public static User suspended(String googleSub, String email, String studentNo) {
     User user = approved(googleSub, email, studentNo);

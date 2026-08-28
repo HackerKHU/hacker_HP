@@ -163,6 +163,19 @@ public class AdminUserStatusService {
       throw new BusinessException(ErrorCode.VALIDATION_ERROR, "승인 대기 중인 계정의 상태는 바꿀 수 없습니다.");
     }
 
+    /*
+     * 비활동 계정을 이 경로로 되살리지 않는다 (2-2 §2-2-3 MUST, #228). 정지는 허용한다 —
+     * 비활동 부원도 곧바로 정지할 수 있어야 하고, 안전 조치가 두 단계가 되면 안 된다.
+     *
+     * 복구만 막는 이유는 경로가 하나여야 하기 때문이다. 여기서 받으면 이력이 ACTIVATE(정지
+     * 해제)로 남아 REACTIVATE(학기 복구)와 섞이고, 학기 전환 규칙을 거치지 않은 개별 복구가
+     * 생긴다. 한 명만 올려야 하면 복구 API에 그 한 명을 넣는다.
+     */
+    if (user.getStatus() == Status.INACTIVE && desired == Status.ACTIVE) {
+      throw new BusinessException(
+          ErrorCode.VALIDATION_ERROR, "비활동 계정은 이 경로로 되살릴 수 없습니다. 학기 복구를 써 주세요.");
+    }
+
     if (desired == Status.SUSPENDED && isActiveAdmin(user)) {
       guardLastActiveAdmin(requesterId, targetId, authority);
     }

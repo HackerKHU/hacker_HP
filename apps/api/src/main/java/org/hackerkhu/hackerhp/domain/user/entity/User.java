@@ -167,6 +167,32 @@ public class User {
     this.status = Status.ACTIVE;
   }
 
+  /**
+   * 학기 전환 — 비활성화 (#228). {@code ACTIVE}에서만 내려간다.
+   *
+   * <p>{@code PENDING}은 승인 절차를 건너뛰게 되고, {@code SUSPENDED}는 <b>정지가 풀린다</b> — 비활동은 자료 말고 다 되기 때문이다
+   * (2-2 §2-2-3 MUST).
+   */
+  public void deactivate() {
+    if (this.status != Status.ACTIVE) {
+      throw new IllegalStateException("ACTIVE 상태에서만 비활성화할 수 있습니다: " + this.status);
+    }
+    this.status = Status.INACTIVE;
+  }
+
+  /**
+   * 학기 전환 — 복구 (#228). {@code INACTIVE}에서만 올라온다.
+   *
+   * <p>{@link #reactivate()}(정지 해제)와 가른다. 도착지는 같지만 <b>이력에 남는 값이 다르고</b>({@code ACTIVATE} vs {@code
+   * REACTIVATE}), 뭉치면 이력을 읽어도 무엇이 있었는지 알 수 없다.
+   */
+  public void restore() {
+    if (this.status != Status.INACTIVE) {
+      throw new IllegalStateException("INACTIVE 상태에서만 복구할 수 있습니다: " + this.status);
+    }
+    this.status = Status.ACTIVE;
+  }
+
   /** ADM-05 권한 부여. */
   public void promoteToAdmin() {
     this.role = Role.ADMIN;
