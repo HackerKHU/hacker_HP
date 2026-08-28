@@ -261,6 +261,25 @@ describe('자료 목록', () => {
   })
 
   /*
+   * 범위를 넘은 주소로 들어오면 마지막 유효 페이지로 되돌린다 — **그 자리가 0페이지여도
+   * `page=`를 붙이지 않는다** (#283).
+   *
+   * 0페이지는 파라미터가 없는 상태로 표현하기로 했고 페이지 링크·필터 초기화가 그렇게 한다.
+   * 클램프만 `page=0`을 쓰면 **어떻게 도착했느냐에 따라 주소가 달라져** 그 주소가 그대로
+   * 공유·북마크된다. 기존 클램프 사례들이 되돌아갈 곳을 1페이지 이상으로 잡아 이 자리를
+   * 한 번도 밟지 않았다.
+   */
+  it('범위를 넘어 0페이지로 되돌아가도 page 파라미터가 붙지 않는다', async () => {
+    renderList('/notes?category=EXAM&page=5')
+    await screen.findByText('운영체제 중간고사 정리본')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('query')).not.toHaveTextContent('page=')
+    })
+    expect(screen.getByTestId('query')).toHaveTextContent('category=EXAM')
+  })
+
+  /*
    * **시험 구분은 `EXAM`에만 있다** (spec §2-1-1 필터 표). 과목 정리본에 걸면 서버는
    * `400`이 아니라 0건을 주므로(계약 §3-2-4), 화면이 실수해도 조용히 빈 목록만 뜬다 —
    * 그래서 화면 쪽에서 잡아야 한다.
