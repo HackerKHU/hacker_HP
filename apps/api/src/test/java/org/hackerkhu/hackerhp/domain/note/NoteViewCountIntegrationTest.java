@@ -4,9 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -21,8 +24,10 @@ import org.hackerkhu.hackerhp.domain.note.repository.NoteRepository;
 import org.hackerkhu.hackerhp.domain.note.service.NoteViewService;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.testsupport.storage.FakeFileStorage;
 import org.hackerkhu.testsupport.storage.FakeStorageConfig;
 import org.hackerkhu.testsupport.user.Accounts;
+import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +36,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -53,6 +59,8 @@ class NoteViewCountIntegrationTest extends AbstractIntegrationTest {
   @Autowired private UserRepository userRepository;
   @Autowired private JdbcTemplate jdbcTemplate;
   @Autowired private NoteViewService noteViewService;
+  @Autowired private ObjectMapper objectMapper;
+  @Autowired private FakeFileStorage storage;
 
   /**
    * <b>{@code @MockitoBean}이 아니라 spy다.</b> 통째로 갈아끼우면 자료를 읽는 것부터 막혀 <i>"증가만 실패했을 때"</i>를 만들 수 없다 —
@@ -81,6 +89,7 @@ class NoteViewCountIntegrationTest extends AbstractIntegrationTest {
     jdbcTemplate.update("DELETE FROM note_files");
     jdbcTemplate.update("DELETE FROM notes");
     userRepository.deleteAll();
+    storage.clear();
   }
 
   /* ------------------------------------------------------------------ 도구 */
@@ -121,6 +130,11 @@ class NoteViewCountIntegrationTest extends AbstractIntegrationTest {
 
   private void openDetail(Long noteId) throws Exception {
     mockMvc.perform(asMember(get(PATH + "/" + noteId))).andExpect(status().isOk());
+  }
+
+  /** 쓰기 요청. CSRF 토큰과 세션을 함께 실어야 한다. */
+  private MockHttpServletRequestBuilder json(User caller, MockHttpServletRequestBuilder request) {
+    return Csrf.with(sessions.as(caller, request)).contentType(MediaType.APPLICATION_JSON);
   }
 
   /* ------------------------------------------------------------------ 세는 자리 */
@@ -378,6 +392,88 @@ class NoteViewCountIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.code").value("INACTIVE"));
 
     assertThat(viewCountOf(id)).isZero();
+  }
+
+  /* ------------------------------------------------------- 등록·수정도 조회가 아니다 */
+
+  /**
+   * <b>등록 응답의 조회수는 {@code 0}이다.</b>
+   *
+   * <p>{@code POST /notes}도 같은 {@link org.hackerkhu.hackerhp.domain.note.dto.NoteDetailResponse}를
+   * 돌려주므로, 상세 조회에 증가를 얹으면서 <b>이쪽까지 세게 만들기 쉽다</b> — 그러면 자료를 올리는 것만으로 자기 자료를 한 번 본 것이 된다.
+   */
+  @Test
+  void creatingANoteDoesNotCount() throws Exception {
+    String key =
+        objectMapper
+            .readTree(
+                mockMvc
+                    .perform(
+                        json(uploader, post(PATH + "/upload-url"))
+                            .content(
+                                "{\"files\":[{\"originalName\":\"정리본.pdf\",\"sizeBytes\":1024}]}"))
+                    .andExpect(status().isOk())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString())
+            .path("uploads")
+            .get(0)
+            .path("key")
+            .asText();
+    storage.put(key, 1024);
+
+    String created =
+        mockMvc
+            .perform(
+                json(uploader, post(PATH))
+                    .content(
+                        """
+                        {"category":"SUBJECT","title":"갓 올린 자료","subjectName":"운영체제",
+                         "professor":null,"year":2025,"semester":"SPRING",
+                         "files":[{"key":"%s","originalName":"정리본.pdf"}]}
+                        """
+                            .formatted(key)))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.viewCount").value(0))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    assertThat(viewCountOf(objectMapper.readTree(created).path("id").asLong())).isZero();
+  }
+
+  /**
+   * <b>수정 응답은 쌓인 조회수를 그대로 보존한다.</b>
+   *
+   * <p>여기서 세면 <b>고칠 때마다 숫자가 오르고</b>, 0으로 되돌리면 그동안의 조회가 사라진다. 둘 다 조용히 어긋나는 종류라 사례로 못 박는다.
+   */
+  @Test
+  void editingANoteKeepsTheCount() throws Exception {
+    Long id = note("고쳐도 그대로");
+    jdbcTemplate.update(
+        "INSERT INTO note_files (note_id, original_name, stored_path, size_bytes) VALUES (?, ?, ?, ?)",
+        id,
+        "정리본.pdf",
+        "notes/edit-keeps-count.pdf",
+        1024L);
+    Long fileId =
+        jdbcTemplate.queryForObject("SELECT id FROM note_files WHERE note_id = ?", Long.class, id);
+    openDetail(id);
+    openDetail(id);
+
+    mockMvc
+        .perform(
+            json(uploader, patch(PATH + "/" + id))
+                .content(
+                    """
+                    {"category":"SUBJECT","title":"고친 제목","subjectName":"네트워크",
+                     "year":2024,"semester":"FALL","files":[{"fileId":%d}]}
+                    """
+                        .formatted(fileId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.viewCount").value(2));
+
+    assertThat(viewCountOf(id)).isEqualTo(2);
   }
 
   /**
