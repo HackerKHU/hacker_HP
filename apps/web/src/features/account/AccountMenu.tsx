@@ -36,10 +36,25 @@ const CONTENT_WIDTH = 'w-[min(10rem,calc(100vw-2rem))]'
  * [§3-1-3](../../../../spec/3-1-DESIGN-ARCHITECTURE.md)). 통째로 감추면 승인을 기다리는
  * 사람이 로그아웃할 자리를 잃는다. 마이페이지 항목은 `ACTIVE`에게만 보인다 — 띄워봤자
  * 눌러도 가드가 되돌린다.
+ *
+ * **두 헤더가 이 하나를 같이 쓴다** — 앱(`AppHeader`)과 랜딩(`PublicHeader`). 복사해 두면
+ * 둘 중 하나가 반드시 어긋나고, 로그인한 사람이 랜딩에 들렀을 때만 다른 계정 UI를 보게
+ * 된다. 로고 정렬을 두 번 맞춰야 했던 이유(#247·#258·#264)와 같은 종류의 어긋남이다.
+ *
+ * @param redirectTo 로그아웃 뒤 옮길 곳. **주지 않으면 옮기지 않는다** — 지금 화면이
+ *   비로그인에게도 열려 있으면(랜딩) 보던 자리에 남는 편이 덜 놀랍고, 세션이 비면 헤더가
+ *   비로그인 모습으로 다시 그려져 로그아웃된 것이 화면에 드러난다. 보호 화면(앱 헤더)에서는
+ *   남을 수 없으므로 `/login`을 준다.
  */
-export function AccountMenu({ showMyPage }: { showMyPage: boolean }) {
-  // 로그아웃 로직은 랜딩 헤더와 함께 쓴다. 복사하지 않는다.
-  const { logout, failed } = useLogout('/login')
+export function AccountMenu({
+  showMyPage,
+  redirectTo,
+}: {
+  showMyPage: boolean
+  redirectTo?: string
+}) {
+  // 로그아웃 로직은 두 헤더가 함께 쓴다. 복사하지 않는다.
+  const { logout, failed } = useLogout(redirectTo)
 
   return (
     <>

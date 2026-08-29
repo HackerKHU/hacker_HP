@@ -115,7 +115,10 @@ export function AppHeader() {
          * 마이페이지 항목만 `ACTIVE`에게 준다 — 띄워봤자 눌러도 가드가 되돌린다.
          */}
         <div className="ml-auto flex items-center gap-3">
-          <AccountMenu showMyPage={state.kind === 'active'} />
+          <AccountMenu
+            showMyPage={state.kind === 'active'}
+            redirectTo="/login"
+          />
         </div>
       </div>
     </header>
