@@ -8,7 +8,12 @@ import {
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
-import type { AdminUserQuery, ApproveResult } from '@/api/adminUsers'
+import type {
+  AdminUserQuery,
+  ApproveResult,
+  DeactivateResult,
+  ReactivateResult,
+} from '@/api/adminUsers'
 import { ApiError } from '@/api/client'
 import type { Page, User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
@@ -40,6 +45,26 @@ const api = vi.hoisted(() => ({
   approveError: null as ApiError | null,
   statusError: null as ApiError | null,
   listError: null as ApiError | null,
+  /** 일괄 비활성화 호출 횟수. 본문이 없으므로 셀 것이 이것뿐이다 (계약 §3-2-6). */
+  deactivateCalls: 0,
+  deactivateResult: null as DeactivateResult | null,
+  deactivateError: null as ApiError | null,
+  reactivated: [] as number[][],
+  reactivateResult: null as ReactivateResult | null,
+  reactivateError: null as ApiError | null,
+  /**
+   * 학기 전환 확인 창이 세는 대상 인원수 (`status=ACTIVE&role=USER&size=1`).
+   *
+   * **목록의 `totalElements`(42)와도, 이 페이지의 행 수와도 다른 값이다.** 같게 두면
+   * 화면이 엉뚱한 숫자를 보여줘도 문구가 그대로라 T-356이 아무것도 재지 않는다.
+   */
+  activeUserCount: 37,
+  /** 그 건수 조회만 실패시킨다. `listError`는 목록까지 함께 죽여 화면이 아예 안 뜬다. */
+  countError: null as ApiError | null,
+  /** 켜면 건수 조회가 응답을 붙들고 있는다 — "세는 중"인 창을 만들 때 쓴다. */
+  holdCount: false,
+  /** 붙들린 건수 응답을 놓아주는 함수. 테스트가 원하는 순간에 완료시킨다. */
+  releaseCount: null as (() => void) | null,
 }))
 
 function member(overrides: Partial<User> & { id: number; name: string }): User {
@@ -78,6 +103,11 @@ const MEMBERS: User[] = [
   member({ id: 7, name: '이전승인', status: 'ACTIVE', department: null }),
   member({ id: 5, name: '정지회원', status: 'SUSPENDED' }),
   /*
+   * 지난 학기 부원 (#228). **없으면 "비활동"이 "정지"와 갈리는지, 복구로 고를 수 있는지를
+   * 확인할 수 없다** — 화면에 그 상태가 한 번도 나오지 않는다.
+   */
+  member({ id: 6, name: '비활동회원', status: 'INACTIVE' }),
+  /*
    * **로그인한 관리자 본인.** 자기 정지(2-2 §2-2-7)를 확인하려면 명단에 본인이 있어야
    * 하고 테스트가 **그 행**을 눌러야 한다. 다른 사람 행을 누르고 403을 주입하면
    * "서버가 거부하면 보여준다"만 확인될 뿐 자기 정지 경로는 밟지 않는다.
@@ -94,6 +124,32 @@ vi.mock('@/api/adminUsers', () => ({
   list: async (query: AdminUserQuery): Promise<Page<User>> => {
     api.queries.push(query)
     if (api.listError) return Promise.reject(api.listError)
+    /*
+     * **학기 전환 확인 창의 건수 조회다** (2-2 §2-2-3 — 미리보기 전용 API를 두지 않는다).
+     * 목록과 다른 `totalElements`를 준다 — 같으면 화면이 어느 값을 쓰는지 구분되지 않는다.
+     */
+    if (
+      query.status === 'ACTIVE' &&
+      query.role === 'USER' &&
+      query.size === 1
+    ) {
+      if (api.countError) return Promise.reject(api.countError)
+      if (api.holdCount) {
+        await new Promise<void>((resolve) => {
+          api.releaseCount = resolve
+        })
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      return {
+        content: [],
+        page: {
+          size: 1,
+          number: 0,
+          totalElements: api.activeUserCount,
+          totalPages: api.activeUserCount,
+        },
+      }
+    }
     await new Promise((resolve) => setTimeout(resolve, 0))
     return Promise.resolve({
       /*
@@ -122,6 +178,27 @@ vi.mock('@/api/adminUsers', () => ({
       }
     }
     return Promise.resolve(result)
+  },
+  deactivateAll: async (): Promise<DeactivateResult> => {
+    api.deactivateCalls += 1
+    if (api.deactivateError) throw api.deactivateError
+    const result = api.deactivateResult ?? { deactivated: [4, 7] }
+    // 서버처럼 명단을 고친다 — 재조회 뒤 화면이 실제로 달라져야 기다릴 대상이 생긴다.
+    for (const id of result.deactivated) {
+      const found = MEMBERS.find((user) => user.id === id)
+      if (found) found.status = 'INACTIVE'
+    }
+    return result
+  },
+  reactivate: async (userIds: number[]): Promise<ReactivateResult> => {
+    api.reactivated.push(userIds)
+    if (api.reactivateError) throw api.reactivateError
+    const result = api.reactivateResult ?? { reactivated: userIds, failed: [] }
+    for (const id of result.reactivated) {
+      const found = MEMBERS.find((user) => user.id === id)
+      if (found) found.status = 'ACTIVE'
+    }
+    return result
   },
   reject: async (userIds: number[]) => {
     api.rejected.push(userIds)
@@ -279,13 +356,25 @@ beforeEach(() => {
   api.approveError = null
   api.statusError = null
   api.listError = null
+  api.deactivateCalls = 0
+  api.deactivateResult = null
+  api.deactivateError = null
+  api.reactivated = []
+  api.reactivateResult = null
+  api.reactivateError = null
+  api.activeUserCount = 37
+  api.countError = null
+  api.holdCount = false
+  api.releaseCount = null
   auth.role = 'ADMIN'
-  // approve mock이 명단을 실제로 고치므로 매 테스트마다 처음 상태로 되돌린다.
+  // approve·학기 전환 mock이 명단을 실제로 고치므로 매 테스트마다 처음 상태로 되돌린다.
   for (const user of MEMBERS) {
     if (user.id <= 3) {
       user.status = 'PENDING'
       user.approvedAt = null
     }
+    if (user.id === 4 || user.id === 7) user.status = 'ACTIVE'
+    if (user.id === 6) user.status = 'INACTIVE'
   }
 })
 
@@ -590,21 +679,28 @@ describe('승인 대상', () => {
 
 describe('전체 선택', () => {
   /*
-   * **범위는 이 페이지의 승인 대상뿐이다.** 검색 결과 전부를 뜻하면 관리자가 보지 못한
+   * **범위는 이 페이지의 일괄 처리 대상뿐이다.** 검색 결과 전부를 뜻하면 관리자가 보지 못한
    * 사람까지 승인하게 된다 — 되돌릴 수 없는 조작이다.
+   *
+   * **승인 대상과 복구 대상을 함께 고른다** (#232). 한쪽만 고르게 하면 "전체" 필터에서
+   * 비활동 회원은 **필터를 먼저 걸 줄 아는 사람에게만** 보인다.
    */
-  it('전체 선택은 이 페이지의 승인 대상만 고른다', async () => {
+  it('전체 선택은 이 페이지의 승인·복구 대상만 고른다', async () => {
     renderAt()
     await loaded()
 
     fireEvent.click(
-      screen.getByRole('checkbox', { name: '이 페이지의 승인 대상 전체 선택' }),
+      screen.getByRole('checkbox', {
+        name: '이 페이지의 일괄 처리 대상 전체 선택',
+      }),
     )
 
     expect(within(row('신청한하나')).getByRole('checkbox')).toBeChecked()
     expect(within(row('신청한둘')).getByRole('checkbox')).toBeChecked()
+    expect(within(row('비활동회원')).getByRole('checkbox')).toBeChecked()
     expect(within(row('미신청')).getByRole('checkbox')).not.toBeChecked()
     expect(within(row('활동회원')).getByRole('checkbox')).not.toBeChecked()
+    expect(within(row('정지회원')).getByRole('checkbox')).not.toBeChecked()
   })
 
   // 선택 범위를 화면이 말하지 않으면 그것대로 관리자를 속이는 것이다.
@@ -613,10 +709,12 @@ describe('전체 선택', () => {
     await loaded()
 
     fireEvent.click(
-      screen.getByRole('checkbox', { name: '이 페이지의 승인 대상 전체 선택' }),
+      screen.getByRole('checkbox', {
+        name: '이 페이지의 일괄 처리 대상 전체 선택',
+      }),
     )
 
-    expect(screen.getByText(/이 페이지에서 2명 선택됨/)).toBeInTheDocument()
+    expect(screen.getByText(/이 페이지에서 3명 선택됨/)).toBeInTheDocument()
     // 전체 인원도 함께 보여 페이지가 전부가 아님이 드러난다.
     expect(screen.getByText(/전체 42명/)).toBeInTheDocument()
   })
@@ -626,7 +724,7 @@ describe('전체 선택', () => {
     await loaded()
 
     const all = screen.getByRole('checkbox', {
-      name: '이 페이지의 승인 대상 전체 선택',
+      name: '이 페이지의 일괄 처리 대상 전체 선택',
     })
     fireEvent.click(all)
     fireEvent.click(all)
@@ -1195,5 +1293,336 @@ describe('검색·필터·정렬', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '회원 목록을 불러오지 못했습니다',
     )
+  })
+})
+
+/**
+ * 학기 전환 — 일괄 비활성화 (#232, 2-2 §2-2-3).
+ *
+ * **수십 명의 상태를 한 번에 바꾸는 조작이다.** 되돌릴 수 없는 것은 아니지만 되돌리는
+ * 길이 복구 하나뿐이라, 관리자가 **무엇이 바뀌는지 모른 채 누르지 않게** 하는 것이
+ * 이 묶음이 지키는 전부다.
+ */
+describe('일괄 비활성화', () => {
+  /** 확인 창을 열고 대상 건수가 도착하기를 기다린다. */
+  async function openDeactivate() {
+    fireEvent.click(screen.getByRole('button', { name: '일괄 비활동 전환' }))
+    return screen.findByText(/일반 부원 37명이 비활동이 됩니다/)
+  }
+
+  // 완료 조건 — 확인 창을 거치지 않고는 일괄 전환되지 않는다.
+  it('버튼만 눌러서는 전환되지 않고, 취소하면 호출도 없다', async () => {
+    renderAt()
+    await loaded()
+
+    await openDeactivate()
+    expect(api.deactivateCalls).toBe(0)
+
+    fireEvent.click(screen.getByRole('button', { name: '취소' }))
+
+    expect(api.deactivateCalls).toBe(0)
+  })
+
+  /*
+   * **건수는 목록을 같은 조건으로 조회해 얻는다** (2-2 §2-2-3 — 미리보기 API를 두지 않는다).
+   * **현재 페이지의 행 수가 아니다** (T-356 MUST) — 그러면 관리자가 100명을 내리면서
+   * 20명으로 안다. 여기 화면에는 7행이 있고 목록의 전체는 42명인데, 대상은 37명이다.
+   */
+  it('확인 창이 대상 인원수를 status=ACTIVE&role=USER로 세어 보여준다', async () => {
+    renderAt()
+    await loaded()
+
+    await openDeactivate()
+
+    const count = api.queries.at(-1)
+    expect(count?.status).toBe('ACTIVE')
+    expect(count?.role).toBe('USER')
+    expect(count?.size).toBe(1)
+  })
+
+  /*
+   * 완료 조건 — **무엇이 대상이 아닌지도 보여준다** (#228 D4). 셋을 적지 않으면 관리자는
+   * "전원"을 글자 그대로 믿고, 자기 관리자 계정까지 내려가는 줄 안다.
+   */
+  it('확인 창이 제외되는 대상 셋을 말한다', async () => {
+    renderAt()
+    await loaded()
+
+    const body = await openDeactivate()
+
+    expect(body).toHaveTextContent('관리자')
+    expect(body).toHaveTextContent('정지된 회원')
+    expect(body).toHaveTextContent('승인 대기')
+  })
+
+  /*
+   * **누르기 전에 대상 건수를 보여준다** (2-2 §2-2-3 MUST). 세는 동안 실행 버튼이 살아
+   * 있으면 건수가 도착하기 전에 수십 명이 바뀌는데, **그것을 막는 것이 이 창의 존재
+   * 이유다.** 아래(못 셌을 때는 누를 수 있다)와 한 벌로 봐야 한다 — 세는 중과 못 셈을
+   * 가르지 않으면 둘 중 하나가 반드시 어긋난다.
+   */
+  it('대상 인원수를 세는 동안에는 전환 버튼이 잠겨 있다', async () => {
+    api.holdCount = true
+
+    renderAt()
+    await loaded()
+
+    fireEvent.click(screen.getByRole('button', { name: '일괄 비활동 전환' }))
+    await screen.findByText(/대상 인원수를 확인하는 중입니다/)
+
+    expect(screen.getByRole('button', { name: '비활동 전환' })).toBeDisabled()
+
+    // 건수가 도착하면 풀린다 — 잠근 채로 두면 창이 영영 아무것도 못 한다.
+    api.releaseCount?.()
+    await screen.findByText(/일반 부원 37명이 비활동이 됩니다/)
+    expect(screen.getByRole('button', { name: '비활동 전환' })).toBeEnabled()
+    expect(api.deactivateCalls).toBe(0)
+  })
+
+  /*
+   * **건수는 참고치이지 실행의 조건이 아니다** (2-2 §2-2-3). 제거 확인 창과 다른 점이다 —
+   * 거기서는 남을 콘텐츠를 못 보면 누를 수 없지만, 여기서 막으면 건수 조회가 실패할 때
+   * 학기 전환이 통째로 멈춘다. 대상을 정하는 것은 어차피 서버다.
+   */
+  it('대상 인원수를 못 세도 전환은 진행할 수 있다', async () => {
+    api.countError = new ApiError('NETWORK_ERROR', 0, '연결하지 못했습니다.')
+
+    renderAt()
+    await loaded()
+
+    fireEvent.click(screen.getByRole('button', { name: '일괄 비활동 전환' }))
+    await screen.findByText(/대상 인원수를 불러오지 못했습니다/)
+
+    const confirm = screen.getByRole('button', { name: '비활동 전환' })
+    expect(confirm).toBeEnabled()
+    fireEvent.click(confirm)
+
+    await waitFor(() => expect(api.deactivateCalls).toBe(1))
+  })
+
+  it('확인하면 전환하고 바뀐 건수와 되돌리는 길을 안내한다', async () => {
+    renderAt()
+    await loaded()
+
+    await openDeactivate()
+    fireEvent.click(screen.getByRole('button', { name: '비활동 전환' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '2명을 비활동으로 바꿨습니다.',
+    )
+    // 되돌리는 길은 복구 하나뿐이라(§2-2-3 MUST) 어디서 되돌리는지를 말해야 한다.
+    expect(screen.getByRole('status')).toHaveTextContent('비활동')
+    expect(api.deactivateCalls).toBe(1)
+  })
+
+  /*
+   * **멱등하다** (계약 §3-2-6). 두 번째 호출은 빈 배열인데, 그것을 "0명 전환됨"으로만
+   * 말하면 실패한 것처럼 읽힌다 — 아무도 대상이 아니었다는 뜻이다.
+   */
+  it('바뀐 사람이 없으면 그렇게 말한다', async () => {
+    api.deactivateResult = { deactivated: [] }
+
+    renderAt()
+    await loaded()
+
+    await openDeactivate()
+    fireEvent.click(screen.getByRole('button', { name: '비활동 전환' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '비활동으로 바뀐 회원이 없습니다',
+    )
+  })
+
+  /*
+   * **세션 반영에 실패하면 `500`이지만 상태는 이미 바뀌었을 수 있다** (2-2 §2-2-5 MUST).
+   * "아무 일도 없었다"고 안내하면 관리자가 그렇게 믿는다.
+   */
+  it('실패하면 목록에서 상태를 확인하라고 안내한다', async () => {
+    /*
+     * 서버는 `500 INTERNAL_ERROR`를 주지만 그 코드는 계약 §3-2-7의 열한 개에 없어
+     * `client.ts`가 `INVALID_RESPONSE`로 격리한다 — 화면이 실제로 받는 모양이 이것이다.
+     */
+    api.deactivateError = new ApiError(
+      'INVALID_RESPONSE',
+      500,
+      '서버 오류입니다.',
+    )
+
+    renderAt()
+    await loaded()
+
+    await openDeactivate()
+    fireEvent.click(screen.getByRole('button', { name: '비활동 전환' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '목록에서 상태를 확인해 주세요',
+    )
+  })
+})
+
+/**
+ * 학기 전환 — 일괄 복구 (#232).
+ *
+ * **가입 일괄 승인과 같은 조작감이어야 한다** — 체크박스로 고르고, 확인 창을 거치고,
+ * 성공·실패 건수를 안내받고, 보낸 사람만 선택에서 빠진다.
+ */
+describe('일괄 복구', () => {
+  /** 비활동 회원을 골라 복구 확인 창까지 연다. */
+  async function selectAndConfirm() {
+    fireEvent.click(within(row('비활동회원')).getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: '선택한 1명 복구' }))
+    return screen.findByText(/1명을 이번 학기 활동 부원으로 되돌립니다/)
+  }
+
+  it('확인 전에는 복구되지 않고 누구를 복구하는지 보여준다', async () => {
+    renderAt()
+    await loaded()
+
+    const body = await selectAndConfirm()
+
+    expect(body).toHaveTextContent('비활동회원')
+    expect(api.reactivated).toEqual([])
+  })
+
+  // T-364 — 고른 id만 실린다. 전원을 올리면 비활성화가 무의미해진다.
+  it('확인하면 고른 id만 보낸다', async () => {
+    renderAt()
+    await loaded()
+
+    await selectAndConfirm()
+    fireEvent.click(screen.getByRole('button', { name: '복구' }))
+
+    await waitFor(() => expect(api.reactivated).toEqual([[6]]))
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '1명을 복구했습니다.',
+    )
+  })
+
+  /*
+   * T-365 — **부분 실패를 안내한다.** 전부 성공한 것처럼 보이면 안 된다. 특히
+   * `NOT_INACTIVE`에는 정지된 계정이 섞여 있어, 뭉뚱그리면 관리자는 정지된 사람이
+   * 올라온 줄 알고 자리를 뜬다.
+   */
+  it('일부가 실패하면 누가 왜 실패했는지 말한다', async () => {
+    api.reactivateResult = {
+      reactivated: [],
+      failed: [{ userId: 6, reason: 'NOT_INACTIVE' }],
+    }
+
+    renderAt()
+    await loaded()
+
+    await selectAndConfirm()
+    fireEvent.click(screen.getByRole('button', { name: '복구' }))
+
+    const notice = await screen.findByRole('status')
+    expect(notice).toHaveTextContent('1명은 복구하지 못했습니다')
+    expect(notice).toHaveTextContent('비활동이 아닌 계정')
+    expect(notice).toHaveTextContent('비활동회원')
+  })
+
+  /*
+   * 승인·거부와 같은 규칙이다 (T-161) — **보낸 사람만 뺀다.** 통째로 비우면 응답을
+   * 기다리는 사이 새로 고른 사람까지 풀린다.
+   */
+  it('복구한 사람만 선택에서 빠진다', async () => {
+    renderAt()
+    await loaded()
+
+    fireEvent.click(within(row('신청한하나')).getByRole('checkbox'))
+    await selectAndConfirm()
+    fireEvent.click(screen.getByRole('button', { name: '복구' }))
+
+    await screen.findByText(/1명을 복구했습니다/)
+    expect(screen.getByText(/이 페이지에서 1명 선택됨/)).toBeInTheDocument()
+    expect(within(row('신청한하나')).getByRole('checkbox')).toBeChecked()
+  })
+
+  /*
+   * **요청 자체가 실패하면 선택을 지킨다** (검수 권고). 그 사람들은 여전히 `INACTIVE`이고
+   * 여전히 복구 대상이다 — 선택까지 풀면 *"다시 시도하라"* 고 해 놓고 **다시 시도할 수단을
+   * 치우는 셈**이라 관리자가 명단을 처음부터 다시 골라야 한다. 응답을 받은 경우(부분 실패
+   * 포함)와 갈리는 지점이다.
+   */
+  it('요청이 실패하면 선택이 그대로 남는다', async () => {
+    api.reactivateError = new ApiError(
+      'NETWORK_ERROR',
+      0,
+      '연결하지 못했습니다.',
+    )
+
+    renderAt()
+    await loaded()
+
+    await selectAndConfirm()
+    fireEvent.click(screen.getByRole('button', { name: '복구' }))
+
+    await screen.findByText(/복구하지 못했습니다/)
+    expect(screen.getByText(/이 페이지에서 1명 선택됨/)).toBeInTheDocument()
+    expect(within(row('비활동회원')).getByRole('checkbox')).toBeChecked()
+  })
+
+  /*
+   * **한 선택 안에서 조작이 갈린다.** 승인 버튼이 복구 대상까지 들고 가면 서버가
+   * `NOT_PENDING`으로 되돌려 보내고, 관리자는 자기가 고른 사람이 왜 실패했는지 모른다.
+   */
+  it('승인 대상과 복구 대상이 섞여 있으면 각 버튼이 자기 몫만 가져간다', async () => {
+    renderAt()
+    await loaded()
+
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: '이 페이지의 일괄 처리 대상 전체 선택',
+      }),
+    )
+
+    expect(
+      screen.getByRole('button', { name: '선택한 2명 승인' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: '선택한 1명 복구' }),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '선택한 1명 복구' }))
+    await screen.findByText(/1명을 이번 학기 활동 부원으로 되돌립니다/)
+    fireEvent.click(screen.getByRole('button', { name: '복구' }))
+
+    await waitFor(() => expect(api.reactivated).toEqual([[6]]))
+  })
+})
+
+/**
+ * 비활동 회원을 화면에서 찾을 수 있는가 (T-362·T-363).
+ *
+ * **복구가 여기에 매달려 있다.** 복구는 id 목록을 받으므로, 비활동 회원을 찾을 수도
+ * 고를 수도 없으면 전원을 내린 뒤 아무도 다시 올릴 수 없다 — API만 있고 누를 곳이 없다.
+ */
+describe('비활동 표시와 필터', () => {
+  // T-362 MUST — "정지"와 같은 낱말이면 관리자가 정지된 사람을 복구하려다 실패한다.
+  it('상태 칸이 정지와 다른 낱말로 비활동을 보여준다', async () => {
+    renderAt()
+    await loaded()
+
+    expect(within(row('비활동회원')).getByText('비활동')).toBeInTheDocument()
+    expect(within(row('정지회원')).getByText('정지')).toBeInTheDocument()
+    expect(within(row('비활동회원')).queryByText('정지')).toBeNull()
+  })
+
+  // T-363 — 필터로 추리고 주소에 남는다 (뒤로가기·새로고침·링크 공유).
+  it('비활동을 고르면 status=INACTIVE로 조회하고 주소에 남는다', async () => {
+    renderAt()
+    await loaded()
+
+    fireEvent.change(screen.getByLabelText('상태'), {
+      target: { value: 'INACTIVE' },
+    })
+
+    await waitFor(() => {
+      expect(api.queries.at(-1)?.status).toBe('INACTIVE')
+      // 승인 대기와 달리 applied는 실리지 않는다 — 그 조건은 PENDING의 것이다.
+      expect(api.queries.at(-1)?.applied).toBeUndefined()
+    })
+    expect(pathname()).toBe('/admin/members')
+    expect(screen.getByLabelText('상태')).toHaveValue('INACTIVE')
   })
 })
