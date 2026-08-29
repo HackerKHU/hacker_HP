@@ -331,20 +331,16 @@ export function PendingPage() {
             승인 심사에 필요한 정보입니다. 승인 전까지 언제든 고칠 수 있습니다.
           </p>
 
+          {/*
+           * **순서는 "확인하는 것 → 적는 것"이다** (#293). 앞의 둘(이름·이메일)은 구글
+           * 계정에서 온 값이라 고칠 수 없고, 뒤의 둘(학번·학과)은 여기서 채운다. 섞어 두면
+           * 칸을 채우다 막히고 다시 채우기를 반복하게 되고, 어디부터 손대야 하는지가
+           * 순서만으로는 드러나지 않는다.
+           *
+           * **마이페이지와 같은 순서다** (#178 — 이름·이메일·학번·학과). 신청 화면만 다르면
+           * 승인 전후로 같은 정보가 다른 자리에 있어, 확인하러 온 사람이 매번 다시 훑는다.
+           */}
           <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="application-student-no">학번</Label>
-              <Input
-                id="application-student-no"
-                value={values.studentNo}
-                placeholder={STUDENT_NO_PLACEHOLDER}
-                maxLength={STUDENT_NO_MAX}
-                onChange={(event) =>
-                  setDraft({ ...values, studentNo: event.target.value })
-                }
-              />
-            </div>
-
             {/*
              * **이름·이메일은 구글 계정의 값이고 고칠 수 없다** (#224).
              *
@@ -374,6 +370,19 @@ export function PendingPage() {
                 value={user?.email ?? ''}
                 readOnly
                 className={READONLY_CLASS}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="application-student-no">학번</Label>
+              <Input
+                id="application-student-no"
+                value={values.studentNo}
+                placeholder={STUDENT_NO_PLACEHOLDER}
+                maxLength={STUDENT_NO_MAX}
+                onChange={(event) =>
+                  setDraft({ ...values, studentNo: event.target.value })
+                }
               />
             </div>
 
@@ -469,15 +478,16 @@ export function PendingPage() {
             신청서를 받았습니다. 운영진이 확인한 뒤 승인합니다.
           </p>
 
+          {/* 폼과 같은 순서다 (#293). 제출 전후로 값이 자리를 옮기면 무엇이 저장됐는지 다시 훑게 된다. */}
           {user && (
             <dl className="mt-8 space-y-3 border-t border-border pt-6 text-sm">
               <div className="flex gap-4">
-                <dt className="w-16 shrink-0 text-muted-foreground">학번</dt>
-                <dd>{user.studentNo ?? '—'}</dd>
-              </div>
-              <div className="flex gap-4">
                 <dt className="w-16 shrink-0 text-muted-foreground">이름</dt>
                 <dd>{user.name}</dd>
+              </div>
+              <div className="flex gap-4">
+                <dt className="w-16 shrink-0 text-muted-foreground">학번</dt>
+                <dd>{user.studentNo ?? '—'}</dd>
               </div>
               {/*
                 이 필드가 생기기 전에 신청한 계정은 값이 없다 (§3-2-2). 학번과 같은

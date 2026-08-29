@@ -268,6 +268,44 @@ describe('한 화면 두 모습', () => {
   })
 })
 
+describe('필드 순서', () => {
+  /*
+   * **"확인하는 것 → 적는 것" 순서를 고정한다** (#293).
+   *
+   * 이름·이메일은 구글 계정에서 온 값이라 고칠 수 없고(#224), 학번·학과는 여기서 채운다.
+   * 섞이면 칸을 채우다 막히고 다시 채우기를 반복하게 된다 — 실제로 학번이 맨 앞이라
+   * 그랬다.
+   *
+   * **마이페이지와 같은 순서다** (#178 — 이름·이메일·학번·학과). 어느 한쪽만 손대면
+   * 승인 전후로 같은 정보가 다른 자리에 놓이므로, 두 화면을 각자의 파일에서 함께 고정한다.
+   *
+   * 라벨 텍스트가 아니라 **DOM 순서**를 본다. 이름만 보면 자리를 바꿔도 통과한다.
+   */
+  it('신청 폼은 이름·이메일·학번·학과 순이다', async () => {
+    renderAt()
+
+    await screen.findByLabelText('학번')
+    const form = document.querySelector('form') as HTMLFormElement
+    expect(
+      Array.from(form.querySelectorAll('label')).map(
+        (label) => label.textContent,
+      ),
+    ).toEqual(['이름', '이메일', '학번', '학과'])
+  })
+
+  /* 제출 전후로 값이 자리를 옮기면 무엇이 저장됐는지 다시 훑게 된다. */
+  it('대기 안내도 같은 순서다', async () => {
+    api.me = APPLIED
+    renderAt()
+
+    await screen.findByRole('heading', { name: '승인 대기 중' })
+    const list = document.querySelector('dl') as HTMLElement
+    expect(
+      Array.from(list.querySelectorAll('dt')).map((term) => term.textContent),
+    ).toEqual(['이름', '학번', '학과'])
+  })
+})
+
 describe('신청서 제출', () => {
   // T-107
   it('제출하면 서버에서 다시 읽어 대기 안내로 바뀐다', async () => {
