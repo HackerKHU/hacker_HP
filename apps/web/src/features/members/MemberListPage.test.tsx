@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -29,7 +30,9 @@ const api = vi.hoisted(() => ({
   deactivateCalls: [] as number[][],
   statusCalls: [] as { id: number; status: string }[],
   roleCalls: [] as { id: number; role: Role }[],
+  roleError: null as ApiError | null,
   summaryCalls: [] as number[],
+  summaryError: null as ApiError | null,
   removed: [] as number[],
   approveResult: null as ApproveResult | null,
   rejectResult: null as RejectResult | null,
@@ -129,6 +132,7 @@ vi.mock('@/api/adminUsers', () => ({
   },
   contentSummary: async (id: number): Promise<ContentSummary> => {
     api.summaryCalls.push(id)
+    if (api.summaryError) throw api.summaryError
     return { notes: 3, notices: 1, photos: 5, posts: 7 }
   },
   remove: async (id: number) => {
@@ -136,6 +140,7 @@ vi.mock('@/api/adminUsers', () => ({
   },
   updateRole: async (id: number, role: Role): Promise<User> => {
     api.roleCalls.push({ id, role })
+    if (api.roleError) throw api.roleError
     return { ...members[0], role }
   },
   updateStatus: async (id: number, status: string): Promise<User> => {
@@ -166,11 +171,12 @@ vi.mock('@/api/notices', () => ({
 }))
 
 function Address() {
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
   const navigate = useNavigate()
   return (
     <>
       <div data-testid="pathname">{pathname}</div>
+      <div data-testid="search">{search}</div>
       <button type="button" onClick={() => navigate(-1)}>
         뒤로가기
       </button>
@@ -209,6 +215,11 @@ function openRowMenu(name: string) {
   )
 }
 
+async function rowAction(name: string, label: string | RegExp) {
+  openRowMenu(name)
+  fireEvent.click(await screen.findByRole('menuitem', { name: label }))
+}
+
 async function confirmBulk(button: string, confirm: string) {
   fireEvent.click(screen.getByRole('button', { name: button }))
   const dialog = await screen.findByRole('alertdialog')
@@ -230,7 +241,9 @@ beforeEach(() => {
   api.deactivateCalls = []
   api.statusCalls = []
   api.roleCalls = []
+  api.roleError = null
   api.summaryCalls = []
+  api.summaryError = null
   api.removed = []
   api.approveResult = null
   api.rejectResult = null
@@ -431,6 +444,35 @@ describe('선택 상태 일괄 조작', () => {
     )
   })
 
+  it('확인 실행을 빠르게 연속 클릭해도 같은 bulk API를 한 번만 호출한다', async () => {
+    api.holdBulk = true
+    renderAt()
+    await loaded()
+    fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: '선택 항목 정지' }))
+    const dialog = await screen.findByRole('alertdialog')
+    const action = within(dialog).getByRole('button', { name: '정지' })
+
+    // 한 act 안에서 두 native event를 보내 React의 disabled 재렌더보다 빠른 입력을 재현한다.
+    act(() => {
+      action.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      action.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    await waitFor(() => expect(api.bulkCalls).toHaveLength(1))
+    expect(action).toBeDisabled()
+    for (const label of BULK_LABELS) {
+      expect(
+        screen.getByRole('button', { name: label, hidden: true }),
+      ).toBeDisabled()
+    }
+
+    api.releaseBulk?.()
+    await waitFor(() =>
+      expect(screen.getByText(/1명을 정지 처리했습니다/)).toBeInTheDocument(),
+    )
+  })
+
   it('processed의 멱등 결과와 부분 실패 사유를 성공으로 뭉개지 않는다', async () => {
     api.bulkResult = {
       targetStatus: 'ACTIVE',
@@ -613,6 +655,89 @@ describe('조회 조건 변경', () => {
       '진행 중이던 확인을 닫고 선택한 1명이 해제되었습니다.',
     )
   })
+
+  it('검색·status·role·sort를 URL과 목록 API 조회에 함께 보존한다', async () => {
+    renderAt()
+    await loaded()
+
+    fireEvent.change(screen.getByLabelText('검색'), {
+      target: { value: '활동 회원' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '검색' }))
+    await waitFor(() => expect(api.queries.at(-1)?.q).toBe('활동 회원'))
+
+    fireEvent.change(screen.getByLabelText('상태'), {
+      target: { value: 'ACTIVE' },
+    })
+    await waitFor(() => expect(api.queries.at(-1)?.status).toBe('ACTIVE'))
+
+    fireEvent.change(screen.getByLabelText('권한'), {
+      target: { value: 'ADMIN' },
+    })
+    await waitFor(() => expect(api.queries.at(-1)?.role).toBe('ADMIN'))
+
+    fireEvent.change(screen.getByLabelText('정렬'), {
+      target: { value: 'name' },
+    })
+    await waitFor(() => expect(api.queries.at(-1)?.sort).toBe('name'))
+
+    const params = new URLSearchParams(
+      screen.getByTestId('search').textContent ?? '',
+    )
+    expect(params.get('q')).toBe('활동 회원')
+    expect(params.get('status')).toBe('ACTIVE')
+    expect(params.get('role')).toBe('ADMIN')
+    expect(params.get('sort')).toBe('name')
+    expect(api.queries.at(-1)?.applied).toBeUndefined()
+  })
+
+  it('옛 status=PENDING 주소를 승인 대기 URL과 applied=true 조회로 보정한다', async () => {
+    renderAt('/admin/members?status=PENDING')
+    await loaded()
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '이전 주소의 조건을 "승인 대기"로 맞췄습니다',
+    )
+    await waitFor(() => {
+      expect(screen.getByLabelText('상태')).toHaveValue('PENDING:applied')
+      expect(api.queries.at(-1)).toMatchObject({
+        status: 'PENDING',
+        applied: true,
+      })
+    })
+    const params = new URLSearchParams(
+      screen.getByTestId('search').textContent ?? '',
+    )
+    expect(params.get('status')).toBe('PENDING')
+    expect(params.get('applied')).toBe('true')
+  })
+
+  it('범위를 넘은 page를 마지막 유효 페이지로 보정한다', async () => {
+    renderAt('/admin/members?page=999')
+
+    await waitFor(() => expect(api.queries.at(-1)?.page).toBe(2))
+    expect(await screen.findByText('3 / 3')).toBeInTheDocument()
+    expect(screen.getByTestId('search')).toHaveTextContent('?page=2')
+  })
+
+  it('INACTIVE를 정지와 다른 비활동으로 표시하고 필터 URL/API에 보존한다', async () => {
+    renderAt()
+    await loaded()
+
+    expect(within(row('비활동회원')).getByText('비활동')).toBeInTheDocument()
+    expect(within(row('비활동회원')).queryByText('정지')).toBeNull()
+    expect(within(row('정지회원')).getByText('정지')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('상태'), {
+      target: { value: 'INACTIVE' },
+    })
+    await waitFor(() => {
+      expect(api.queries.at(-1)?.status).toBe('INACTIVE')
+      expect(api.queries.at(-1)?.applied).toBeUndefined()
+    })
+    expect(screen.getByLabelText('상태')).toHaveValue('INACTIVE')
+    expect(screen.getByTestId('search')).toHaveTextContent('?status=INACTIVE')
+  })
 })
 
 describe('행 조작과 목록 회귀', () => {
@@ -676,6 +801,60 @@ describe('행 조작과 목록 회귀', () => {
     await waitFor(() =>
       expect(api.roleCalls).toEqual([{ id: 3, role: 'ADMIN' }]),
     )
+  })
+
+  it('제거 확인 창이 남을 콘텐츠 건수를 항목별로 보여준 뒤에만 실행한다', async () => {
+    renderAt()
+    await loaded()
+
+    await rowAction('활동회원', '제거')
+    const dialog = await screen.findByRole('alertdialog')
+    expect(api.summaryCalls).toEqual([3])
+    await waitFor(() => {
+      expect(dialog).toHaveTextContent('자료 3건')
+      expect(dialog).toHaveTextContent('공지 1건')
+      expect(dialog).toHaveTextContent('활동사진 5건')
+      expect(dialog).toHaveTextContent('게시글 7건')
+    })
+    expect(api.removed).toEqual([])
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '제거' }))
+    await waitFor(() => expect(api.removed).toEqual([3]))
+  })
+
+  it('제거 content summary 조회 실패 시 실행을 차단한다', async () => {
+    api.summaryError = new ApiError(
+      'NOT_FOUND',
+      404,
+      '회원을 찾을 수 없습니다.',
+    )
+    renderAt()
+    await loaded()
+
+    await rowAction('활동회원', '제거')
+    const dialog = await screen.findByRole('alertdialog')
+    await waitFor(() => expect(dialog).toHaveTextContent('불러오지 못했습니다'))
+    expect(within(dialog).getByRole('button', { name: '제거' })).toBeDisabled()
+    expect(api.removed).toEqual([])
+  })
+
+  it('마지막 활성 관리자 권한 회수 403 사유를 그대로 보여준다', async () => {
+    api.roleError = new ApiError(
+      'FORBIDDEN',
+      403,
+      '활성 관리자가 없어집니다. 다른 관리자를 먼저 지정해 주세요.',
+    )
+    renderAt()
+    await loaded()
+
+    await rowAction('김관리', '권한 회수')
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '권한 회수' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '활성 관리자가 없어집니다. 다른 관리자를 먼저 지정해 주세요.',
+    )
+    expect(api.roleCalls).toEqual([{ id: 99, role: 'USER' }])
   })
 
   it('목록 조회 실패는 list surface 안에서 한 번 알리고 재시도한다', async () => {

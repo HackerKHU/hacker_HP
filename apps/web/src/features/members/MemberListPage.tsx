@@ -368,6 +368,23 @@ export function MemberListPage() {
     setConfirm(next)
   }
   const [working, setWorking] = useState(false)
+  /**
+   * React state가 다시 그려지기 전 같은 확인 버튼이 연속 실행되는 틈을 막는다.
+   * `working`은 화면 disabled용이고, 이 ref가 이벤트 핸들러의 동기 잠금이다.
+   */
+  const bulkWorkingRef = useRef(false)
+
+  function startBulk(): boolean {
+    if (bulkWorkingRef.current) return false
+    bulkWorkingRef.current = true
+    setWorking(true)
+    return true
+  }
+
+  function finishBulk() {
+    bulkWorkingRef.current = false
+    setWorking(false)
+  }
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey는 본문에서 읽지 않고 재조회 트리거로만 쓴다.
   useEffect(() => {
@@ -712,7 +729,7 @@ export function MemberListPage() {
   }
 
   async function runBulkStatus(ids: number[], target: BulkStatusTarget) {
-    setWorking(true)
+    if (!startBulk()) return
     const action = target === 'ACTIVE' ? '활성화' : '정지'
     try {
       const result = await bulkUpdateStatus(ids, target)
@@ -741,13 +758,13 @@ export function MemberListPage() {
       )
     } finally {
       setReloadKey((key) => key + 1)
-      setWorking(false)
+      finishBulk()
       setConfirm(null)
     }
   }
 
   async function runBulkDeactivate(ids: number[]) {
-    setWorking(true)
+    if (!startBulk()) return
     try {
       const result = await deactivate(ids)
       const failures = result.failed
@@ -775,7 +792,7 @@ export function MemberListPage() {
       )
     } finally {
       setReloadKey((key) => key + 1)
-      setWorking(false)
+      finishBulk()
       setConfirm(null)
     }
   }
@@ -1316,8 +1333,9 @@ export function MemberListPage() {
             */}
             <AlertDialogAction
               disabled={
-                pending?.kind === 'remove' &&
-                (pending.summary === null || pending.summary === 'failed')
+                working ||
+                (pending?.kind === 'remove' &&
+                  (pending.summary === null || pending.summary === 'failed'))
               }
               onClick={() => {
                 if (pending) run(pending)
