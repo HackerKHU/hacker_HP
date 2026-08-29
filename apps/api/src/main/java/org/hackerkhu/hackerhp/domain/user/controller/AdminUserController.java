@@ -15,6 +15,7 @@ import org.hackerkhu.hackerhp.domain.user.dto.AdminUserSearch;
 import org.hackerkhu.hackerhp.domain.user.dto.ApproveRequest;
 import org.hackerkhu.hackerhp.domain.user.dto.ApproveResponse;
 import org.hackerkhu.hackerhp.domain.user.dto.ContentSummaryResponse;
+import org.hackerkhu.hackerhp.domain.user.dto.DeactivateRequest;
 import org.hackerkhu.hackerhp.domain.user.dto.DeactivateResponse;
 import org.hackerkhu.hackerhp.domain.user.dto.ReactivateRequest;
 import org.hackerkhu.hackerhp.domain.user.dto.ReactivateResponse;
@@ -208,30 +209,36 @@ public class AdminUserController {
   /**
    * 학기 전환 — 일괄 비활성화 (spec 2-2 §2-2-3, #230).
    *
-   * <p><b>본문을 받지 않는다</b> (MUST). 대상은 {@code role = 'USER' AND status = 'ACTIVE'}인 전원으로 서버가 정한다 —
-   * id를 받으면 100개 상한에 걸려 학기 전환이 페이지 수만큼 쪼개지고, <b>한 페이지를 빠뜨려도 아무도 모른다.</b>
+   * <p>본문이 없거나 {@code userIds}가 비어 있으면 기존처럼 전원을, 값이 있으면 고른 회원만 처리한다.
    *
-   * <p><b>누르기 전에 대상 건수를 보여준다</b> (MUST). 조건으로 고르므로 관리자는 목록에서 누가 바뀌는지 볼 수 없다. 건수는 {@code GET
+   * <p>전원 경로는 <b>누르기 전에 대상 건수를 보여준다</b> (MUST). 조건으로 고르므로 관리자는 목록에서 누가 바뀌는지 볼 수 없다. 건수는 {@code GET
    * /admin/users?status=ACTIVE&role=USER&size=1}의 {@code page.totalElements}로 얻는다 — 미리보기 전용 API를 두지
-   * 않는다.
+   * 않는다. 선택 경로는 목록에서 대상을 직접 확인한다.
    */
   @Operation(
       summary = "학기 전환 — 일괄 비활성화",
       description =
           """
-          `ACTIVE`인 일반 부원 **전원**을 `INACTIVE`로 내린다. **본문을 받지 않는다** — 대상을
-          서버가 정한다.
+          본문이 없거나 `userIds`가 누락·`null`·빈 배열이면 `ACTIVE`인 일반 부원 **전원**을
+          `INACTIVE`로 내린다. 값이 있으면 고른 계정만 처리하며 최대 100개다.
 
           `ADMIN`·`SUSPENDED`·`PENDING`은 휩쓸리지 않는다. 정지된 계정을 `INACTIVE`로 바꾸면
           **정지가 풀리기** 때문이다.
 
-          **응답은 실제로 바뀐 id다.** 이미 비활동이던 사람은 들어가지 않는다. 잘못 눌렀으면
-          이 배열을 그대로 복구에 넣는다 — 응답을 잃어도 `deactivatedAt`으로 직전 배치를
-          고를 수 있다.
+          **응답은 실제로 바뀐 id다.** 선택 경로는 실패한 id와 `NOT_FOUND` 또는
+          `NOT_ACTIVE_USER` reason도 돌려준다. 전원 경로는 하위 호환을 위해 기존처럼
+          `deactivated` 필드만 돌려준다.
 
           **멱등하다.** 두 번째는 빈 배열이다.
           """)
   @ApiResponse(responseCode = "200", description = "내려간 계정의 id")
+  @ApiResponse(
+      responseCode = "400",
+      description = "`VALIDATION_ERROR` — 선택 id가 양수가 아니거나 100개를 넘었다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
   @ApiResponse(
       responseCode = "401",
       description = "`UNAUTHENTICATED`",
@@ -256,8 +263,16 @@ public class AdminUserController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @PostMapping("/deactivate")
   @PreAuthorize("hasRole('ADMIN')")
-  public DeactivateResponse deactivate(@AuthenticationPrincipal Long requesterId) {
-    return semesterTransitionService.deactivate(requesterId);
+  public DeactivateResponse deactivate(
+      @AuthenticationPrincipal Long requesterId,
+      @io.swagger.v3.oas.annotations.parameters.RequestBody(
+              required = false,
+              description = "선택 회원 id. 본문 없음·누락·null·빈 배열이면 기존처럼 전원")
+          @Valid
+          @RequestBody(required = false)
+          DeactivateRequest request) {
+    return semesterTransitionService.deactivate(
+        requesterId, request == null ? null : request.userIds());
   }
 
   /**

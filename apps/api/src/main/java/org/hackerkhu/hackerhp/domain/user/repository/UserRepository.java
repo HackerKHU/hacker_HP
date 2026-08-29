@@ -76,6 +76,18 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
       @Param("role") Role role, @Param("statuses") Collection<Status> statuses);
 
   /**
+   * 선택 비활성화의 세션 재반영 대상 (spec 2-2 §2-2-3, #295).
+   *
+   * <p>전원 경로와 같은 재시도 규칙을 선택 범위에만 적용한다. 이미 {@code INACTIVE}인 선택 회원도 다시 포함해야 첫 시도의 세션 반영 실패를 같은 요청으로
+   * 복구할 수 있지만, 선택하지 않은 회원까지 건드리면 선택 경로의 경계가 사라진다.
+   */
+  @Query("select u.id from User u where u.id in :ids and u.role = :role and u.status in :statuses")
+  List<Long> findIdsByIdInAndRoleAndStatusIn(
+      @Param("ids") Collection<Long> ids,
+      @Param("role") Role role,
+      @Param("statuses") Collection<Status> statuses);
+
+  /**
    * 활성 관리자 수.
    *
    * <p><b>세는 것과 바꾸는 것이 한 연산이어야 한다</b> (spec 2-2 §2-2-7 MUST). 잠그지 않고 세면 두 정지 요청이 둘 다 "활성 관리자 2명"을

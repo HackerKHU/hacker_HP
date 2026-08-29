@@ -26,8 +26,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * 학기 전환 — 일괄 비활성화와 복구 (spec 2-2 §2-2-3, 3-2 §3-2-6, #228 #230).
  *
- * <p><b>두 방향의 모양이 다르다.</b> 내리는 것은 <b>조건</b>이고 올리는 것은 <b>id 목록</b>이다 — 매 학기 전원이 대상이라 고를 것이 없지만, 올라올
- * 사람은 매번 다르다. 조건으로 전원을 올리면 비활성화가 무의미해진다.
+ * <p>내리는 쪽은 본문이 없으면 기존대로 조건 전원, id가 있으면 선택 회원만 처리한다. 올리는 쪽은 언제나 id 목록이다.
  *
  * <p><b>대상에서 빼는 것</b> (MUST): {@code ADMIN}(운영자가 자기 손으로 자기 자료 접근을 끊는다), {@code SUSPENDED}(정지가 풀린다 —
  * 비활동은 자료 말고 다 되기 때문이다), {@code PENDING}(승인 절차를 건너뛴다).
@@ -68,7 +67,24 @@ public class SemesterTransitionService {
    * 다시 보내는 것이 복구 수단이다.
    */
   public DeactivateResponse deactivate(Long requesterId) {
-    Applied applied = transaction.execute(ignored -> applyDeactivation(requesterId));
+    return deactivate(requesterId, null);
+  }
+
+  /**
+   * {@code userIds}가 비어 있으면 전원, 값이 있으면 고른 회원만 내린다.
+   *
+   * <p><b>차단이 강해지는 변경이다</b> (2-2 §2-2-5 MUST). 세션에 닿지 않으면 성공으로 답하지 않고, <b>변경은 되돌리지 않는다</b> — 같은 요청을
+   * 다시 보내는 것이 복구 수단이다.
+   */
+  public DeactivateResponse deactivate(Long requesterId, List<Long> userIds) {
+    boolean selected = userIds != null && !userIds.isEmpty();
+    List<Long> targets = selected ? userIds.stream().distinct().sorted().toList() : List.of();
+    Applied applied =
+        transaction.execute(
+            ignored ->
+                selected
+                    ? applySelectedDeactivation(requesterId, targets)
+                    : applyDeactivation(requesterId));
 
     /*
      * 세션 반영은 커밋 뒤다 (3-1 §3-1-5). 대상이 바뀐 사람보다 넓은 이유는 REFRESH_TARGETS에
@@ -77,8 +93,11 @@ public class SemesterTransitionService {
      * 반영 대상을 커밋 뒤에 다시 읽는다. 방금 바뀐 사람들이 INACTIVE로 보여야 하기 때문이다.
      */
     List<Long> toRefresh =
-        userRepository.findIdsByRoleAndStatusIn(
-            Role.USER, SemesterTransitionService.REFRESH_TARGETS);
+        selected
+            ? userRepository.findIdsByIdInAndRoleAndStatusIn(
+                targets, Role.USER, SemesterTransitionService.REFRESH_TARGETS)
+            : userRepository.findIdsByRoleAndStatusIn(
+                Role.USER, SemesterTransitionService.REFRESH_TARGETS);
     boolean reflected = sessionSynchronizer.refreshReporting(toRefresh);
 
     /*
@@ -93,9 +112,11 @@ public class SemesterTransitionService {
      * 바로 누가 아직 옛 권한으로 자료를 받아 가는지 찾아야 하는 순간이다.
      */
     log.warn(
-        "학기 전환 — 비활성화: requesterId={} 내려간 {}명 / 세션 반영 대상 {}명 / 전원 반영 {}",
+        "학기 전환 — 비활성화: requesterId={} 선택 경로 {} / 내려간 {}명 / 실패 {}건 / 세션 반영 대상 {}명 / 전원 반영 {}",
         requesterId,
+        selected,
         applied.changed().size(),
+        applied.failed().size(),
         toRefresh.size(),
         reflected);
 
@@ -103,11 +124,14 @@ public class SemesterTransitionService {
     if (!reflected) {
       throw SessionSynchronizer.notReflected("비활성화", requesterId);
     }
-    return new DeactivateResponse(applied.changed());
+    return selected
+        ? new DeactivateResponse(applied.changed(), applied.failed())
+        : new DeactivateResponse(applied.changed());
   }
 
   /** 바뀐 id와 그 시각. 시각은 잠근 채 잡아야 이력의 "언제"가 실제 순서를 따른다 (§2-2-7). */
-  private record Applied(List<Long> changed, Instant occurredAt) {}
+  private record Applied(
+      List<Long> changed, List<DeactivateResponse.Failure> failed, Instant occurredAt) {}
 
   /**
    * <b>세는 것과 바꾸는 것이 한 연산이어야 한다</b> (spec 3-2 §3-2-6 MUST).
@@ -152,7 +176,37 @@ public class SemesterTransitionService {
       target.deactivate(occurredAt);
       changed.add(candidateId);
     }
-    return new Applied(changed, occurredAt);
+    return new Applied(changed, List.of(), occurredAt);
+  }
+
+  /** 선택 id와 요청자를 오름차순으로 잠근 뒤, 잠긴 최신 값으로 성공과 부분 실패를 가른다. */
+  private Applied applySelectedDeactivation(Long requesterId, List<Long> targets) {
+    SortedSet<Long> toLock =
+        new TreeSet<>(Stream.concat(Stream.of(requesterId), targets.stream()).toList());
+    Map<Long, User> locked = new LinkedHashMap<>();
+    toLock.forEach(
+        id -> userRepository.findByIdForUpdate(id).ifPresent(user -> locked.put(id, user)));
+
+    RequesterCheck.requireActiveAdmin(locked.get(requesterId), requesterId);
+
+    Instant occurredAt = Instant.now();
+    List<Long> changed = new ArrayList<>();
+    List<DeactivateResponse.Failure> failed = new ArrayList<>();
+    for (Long targetId : targets) {
+      User target = locked.get(targetId);
+      if (target == null) {
+        failed.add(new DeactivateResponse.Failure(targetId, DeactivateResponse.Reason.NOT_FOUND));
+        continue;
+      }
+      if (target.getRole() != Role.USER || target.getStatus() != Status.ACTIVE) {
+        failed.add(
+            new DeactivateResponse.Failure(targetId, DeactivateResponse.Reason.NOT_ACTIVE_USER));
+        continue;
+      }
+      target.deactivate(occurredAt);
+      changed.add(targetId);
+    }
+    return new Applied(changed, failed, occurredAt);
   }
 
   /**

@@ -220,4 +220,26 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.components.schemas.ErrorResponse.properties.code").exists())
         .andExpect(jsonPath("$.components.schemas.ErrorResponse.properties.message").exists());
   }
+
+  /** #295. 선택 비활성화의 optional 본문·상한·부분 실패 reason이 생성된 계약에 드러난다. */
+  @Test
+  void selectedDeactivationContractAppearsInOpenApi() throws Exception {
+    String operation = "$.paths['/api/v1/admin/users/deactivate'].post";
+
+    mockMvc
+        .perform(signedIn(get(API_DOCS)))
+        .andExpect(jsonPath(operation + ".requestBody.required").doesNotExist())
+        .andExpect(
+            jsonPath(operation + ".requestBody.content['application/json'].schema.$ref")
+                .value("#/components/schemas/DeactivateRequest"))
+        .andExpect(
+            jsonPath("$.components.schemas.DeactivateRequest.properties.userIds.maxItems")
+                .value(100))
+        .andExpect(
+            jsonPath("$.components.schemas.DeactivateResponse.properties.failed.items.$ref")
+                .value("#/components/schemas/DeactivateFailure"))
+        .andExpect(
+            jsonPath("$.components.schemas.DeactivateFailure.properties.reason.enum")
+                .value(org.hamcrest.Matchers.hasItems("NOT_FOUND", "NOT_ACTIVE_USER")));
+  }
 }
