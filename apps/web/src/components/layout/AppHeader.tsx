@@ -1,6 +1,11 @@
+import { Fragment } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { useSession } from '@/auth/session'
-import { HEADER_NAV_ITEM, headerMenus } from '@/components/header-nav'
+import {
+  HEADER_NAV_DIVIDER,
+  HEADER_NAV_ITEM,
+  headerMenus,
+} from '@/components/header-nav'
 import { AccountMenu } from '@/features/account/AccountMenu'
 import { CLUB } from '@/features/landing/content'
 import { cn } from '@/lib/utils'
@@ -54,24 +59,34 @@ export function AppHeader() {
 
         <nav className="flex items-center gap-1" aria-label="주요 메뉴">
           {menus.map((menu) => (
-            <NavLink
-              key={menu.to}
-              to={menu.to}
-              end
-              className={({ isActive }) =>
-                /*
-                 * 모양은 `PublicHeader`와 **같은 상수에서 온다** (#261 검수) — 화면을
-                 * 오갈 때 메뉴 크기가 달라지지 않아야 한다. 여기만 현재 위치를 색으로
-                 * 드러낸다.
-                 */
-                cn(
-                  HEADER_NAV_ITEM,
-                  isActive ? 'text-foreground' : 'text-muted-foreground',
-                )
-              }
-            >
-              {menu.label}
-            </NavLink>
+            /*
+              **`Fragment`가 필요하다.** 구분선과 링크가 한 항목에서 나오므로 감싸야 하고,
+              `key`는 그 바깥에 있어야 한다.
+            */
+            <Fragment key={menu.to}>
+              {/* 관리자 전용 화면 앞에서 끊는다 (#307). 선은 눈으로만 읽는다. */}
+              {menu.apart && (
+                <span aria-hidden="true" className={HEADER_NAV_DIVIDER} />
+              )}
+              <NavLink
+                key={menu.to}
+                to={menu.to}
+                end
+                className={({ isActive }) =>
+                  /*
+                   * 모양은 `PublicHeader`와 **같은 상수에서 온다** (#261 검수) — 화면을
+                   * 오갈 때 메뉴 크기가 달라지지 않아야 한다. 여기만 현재 위치를 색으로
+                   * 드러낸다.
+                   */
+                  cn(
+                    HEADER_NAV_ITEM,
+                    isActive ? 'text-foreground' : 'text-muted-foreground',
+                  )
+                }
+              >
+                {menu.label}
+              </NavLink>
+            </Fragment>
           ))}
         </nav>
 

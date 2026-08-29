@@ -40,10 +40,16 @@ export const HEADER_NAV_ITEM =
  */
 export const HEADER_ACTION = 'text-base'
 
-/** 헤더 메뉴 한 칸. */
+/**
+ * 헤더 메뉴 한 칸.
+ *
+ * `apart`는 **앞에 구분선을 둔다**는 뜻이다 (#307). 지금 붙는 것은 회원 관리 하나뿐이지만,
+ * 어느 칸 앞이라고 자리를 박아 두면 항목이 늘 때 렌더 쪽을 다시 고쳐야 한다.
+ */
 export interface HeaderMenu {
   to: string
   label: string
+  apart?: boolean
 }
 
 /**
@@ -74,7 +80,16 @@ const MEMBER_MENUS: HeaderMenu[] = [
 
 const MENUS = {
   USER: MEMBER_MENUS,
-  ADMIN: [...MEMBER_MENUS, { to: '/admin/members', label: '회원 관리' }],
+  ADMIN: [
+    ...MEMBER_MENUS,
+    /*
+     * **관리자에게만 뜨는 화면이라 앞에서 끊는다** (#307, spec §3-1-3 매트릭스). 나머지
+     * 넷은 부원이면 누구나 보는 곳이고 이것만 성격이 다른데, 같은 간격으로 붙어 있으면
+     * 모양으로는 구별되지 않는다 — 관리자가 부원에게 화면을 보여주며 "그건 네 화면에는
+     * 없다"를 말로만 해야 한다.
+     */
+    { to: '/admin/members', label: '회원 관리', apart: true },
+  ],
 } satisfies Record<Role, HeaderMenu[]>
 
 /*
@@ -94,3 +109,21 @@ export function headerMenus(role: Role | null): HeaderMenu[] {
   if (role === null) return []
   return lookup(MENUS, role) ?? []
 }
+
+/**
+ * 성격이 다른 메뉴를 가르는 선. **가로로 늘어선 헤더에서 쓴다.**
+ *
+ * 랜딩이 섹션 앵커와 부원 화면 링크를 가르는 데 쓰던 모양 그대로다 — 새 모양을 만들지
+ * 않고 한 곳에 두어 두 헤더가 같이 쓴다. 색이나 아이콘을 더하지 않는 것도 의도다: 이
+ * 화면에서 관리자가 주로 하는 일은 공지·자료를 보는 것이지 회원 관리가 아니다.
+ *
+ * **`aria-hidden`으로 그린다.** 선은 눈으로 읽는 것이고, 스크린리더에는 메뉴 사이에
+ * 빈 항목이 하나 끼는 것으로만 들린다.
+ */
+export const HEADER_NAV_DIVIDER = 'mx-2 h-4 w-px bg-border'
+
+/**
+ * 같은 구분선의 세로 목록판. **모바일 메뉴는 세로로 쌓이므로 가로선이어야 한다** —
+ * 세로선을 그으면 아무것도 가르지 못한다.
+ */
+export const HEADER_NAV_DIVIDER_STACKED = 'my-2 h-px bg-border'
