@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { SiteFooter } from '@/components/layout/SiteFooter'
 import {
   Accordion,
   AccordionContent,
@@ -312,52 +312,6 @@ function Support() {
   )
 }
 
-function Footer() {
-  return (
-    <footer className="border-t border-border">
-      {/* 모바일은 세로로 쌓는다. 가로 고정이면 주소와 링크 일곱 개가 찌그러진다 (#174). */}
-      <div className="mx-auto flex w-full max-w-[1152px] flex-col gap-8 px-6 py-10 text-sm text-muted-foreground sm:flex-row sm:items-start sm:justify-between">
-        <address className="not-italic">
-          <span className="block text-foreground">{CLUB.fullName}</span>
-          <span className="mt-2 block">
-            ({CLUB.address.postalCode}) {CLUB.address.road}
-          </span>
-          <span className="block">{CLUB.address.detail}</span>
-        </address>
-        {/*
-         * **법적 문서와 인스타그램만 남긴다** (#304).
-         *
-         * 섹션 앵커 다섯 개가 있었는데 **헤더가 이미 같은 다섯을 그린다** — 한 페이지 안에
-         * 같은 앵커가 위아래로 두 벌이었다. 푸터까지 내려온 사람은 그 섹션들을 지나온
-         * 사람이라, 되돌아갈 길을 여기서 다시 줄 이유가 적다.
-         *
-         * **이름이 `섹션 바로가기`가 아니다.** 항목이 사라졌으므로 그 이름만 남으면
-         * 스크린리더에게 거짓말이 된다.
-         */}
-        <nav className="flex flex-wrap gap-x-4 gap-y-2" aria-label="푸터 링크">
-          <a
-            href={CLUB.instagram}
-            target="_blank"
-            rel="noreferrer"
-            className="transition-colors hover:text-foreground"
-          >
-            인스타그램
-          </a>
-          <Link
-            to="/privacy"
-            className="transition-colors hover:text-foreground"
-          >
-            개인정보처리방침
-          </Link>
-          <Link to="/terms" className="transition-colors hover:text-foreground">
-            이용약관
-          </Link>
-        </nav>
-      </div>
-    </footer>
-  )
-}
-
 /**
  * 공개 랜딩. **가드를 붙이지 않는다** — 비로그인·PENDING·ACTIVE·SUSPENDED 어느
  * 상태에서도 그대로 열려야 한다 (spec 5-TESTING T-57~T-61).
@@ -384,7 +338,7 @@ export function LandingPage() {
         <Faq />
         <Support />
       </main>
-      <Footer />
+      <SiteFooter />
     </div>
   )
 }

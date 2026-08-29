@@ -138,7 +138,7 @@ describe('공개 랜딩', () => {
    *
    * 주소·인스타그램·법적 문서는 남는다 — 어느 화면에서든 있어야 하는 것들이다.
    */
-  it('푸터에는 인스타그램과 법적 문서만 남는다', async () => {
+  it('푸터가 내부 화면과 같은 링크 셋을 그린다', async () => {
     renderLanding()
 
     await screen.findByRole('heading', { name: '소개' })

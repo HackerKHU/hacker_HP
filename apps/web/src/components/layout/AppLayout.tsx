@@ -1,5 +1,6 @@
-import { Link, Outlet } from 'react-router-dom'
+import { Outlet } from 'react-router-dom'
 import { AppHeader } from './AppHeader'
+import { SiteFooter } from './SiteFooter'
 
 /**
  * 로그인 이후 화면이 공유하는 레이아웃. 상단 헤더 + 본문이고 사이드바는 없다.
@@ -17,6 +18,9 @@ import { AppHeader } from './AppHeader'
  * 위쪽 여백을 줘서 가렸는데 그건 붙인 것이 아니라 **덜 어색해 보이게 한 것**이라
  * 함께 걷었다 — 역할이 겹치는 것을 남기면 다음 사람이 어느 쪽이 진짜인지 모른다.
  * 내용과 푸터 사이 간격은 `<main>`의 `py-8`이 그대로 준다.
+ *
+ * **푸터는 랜딩과 같은 것을 그린다** (`SiteFooter`, #304). markup을 각자 들고 있던 동안
+ * 담긴 것까지 갈렸다 — 한쪽만 고쳐지는 자리라 컴포넌트를 하나로 뒀다.
  *
  * **`<main>`을 세로 flex로 둔다.** 화면이 세로 가운데 정렬을 원하면 자기 컨테이너에
  * `my-auto`를 붙이면 된다 (`PendingPage`가 그렇게 한다). 여기서 `items-center`나
@@ -37,26 +41,7 @@ export function AppLayout() {
         <Outlet />
       </main>
 
-      {/*
-        **법적 문서 줄이다** (#304). 랜딩 푸터와 같은 것만 남긴다.
-
-        `동아리 소개` 링크가 있었는데 **헤더 로고가 이미 `/`로 간다** — 같은 곳으로 가는
-        길이 둘이었다. 링크를 지우면서 그것을 설명하던 주석도 함께 지웠다: 없는 링크를
-        설명하는 주석을 남기면 다음 사람이 읽고 되살린다.
-      */}
-      <footer className="border-t border-border">
-        <div className="mx-auto flex w-full max-w-[1152px] gap-4 px-6 py-6 text-sm text-muted-foreground">
-          <Link
-            to="/privacy"
-            className="transition-colors hover:text-foreground"
-          >
-            개인정보처리방침
-          </Link>
-          <Link to="/terms" className="transition-colors hover:text-foreground">
-            이용약관
-          </Link>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   )
 }
