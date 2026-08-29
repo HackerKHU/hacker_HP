@@ -258,4 +258,50 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
             jsonPath("$.components.schemas.DeactivateFailure.properties.reason.enum")
                 .value(org.hamcrest.Matchers.hasItems("NOT_FOUND", "NOT_ACTIVE_USER")));
   }
+
+  /** #313. 일괄 활성화·정지의 required 본문·상한·응답·실패 reason을 생성 명세에서 검증한다. */
+  @Test
+  void bulkStatusChangeContractAppearsInOpenApi() throws Exception {
+    String operation = "$.paths['/api/v1/admin/users/status'].patch";
+
+    mockMvc
+        .perform(signedIn(get(API_DOCS)))
+        .andExpect(jsonPath(operation + ".requestBody.required").value(true))
+        .andExpect(
+            jsonPath(operation + ".requestBody.content['application/json'].schema.$ref")
+                .value("#/components/schemas/BulkStatusChangeRequest"))
+        .andExpect(
+            jsonPath("$.components.schemas.BulkStatusChangeRequest.required")
+                .value(org.hamcrest.Matchers.hasItems("userIds", "status")))
+        .andExpect(
+            jsonPath("$.components.schemas.BulkStatusChangeRequest.properties.userIds.minItems")
+                .value(1))
+        .andExpect(
+            jsonPath("$.components.schemas.BulkStatusChangeRequest.properties.userIds.maxItems")
+                .value(100))
+        .andExpect(
+            jsonPath(
+                    "$.components.schemas.BulkStatusChangeRequest.properties.userIds.items.minimum")
+                .value(1))
+        .andExpect(
+            jsonPath("$.components.schemas.BulkStatusChangeRequest.properties.status.enum")
+                .value(org.hamcrest.Matchers.contains("ACTIVE", "SUSPENDED")))
+        .andExpect(
+            jsonPath(operation + ".responses['200'].content['application/json'].schema.$ref")
+                .value("#/components/schemas/BulkStatusChangeResponse"))
+        .andExpect(
+            jsonPath("$.components.schemas.BulkStatusChangeResponse.required")
+                .value(org.hamcrest.Matchers.hasItems("targetStatus", "processed", "failed")))
+        .andExpect(
+            jsonPath("$.components.schemas.BulkStatusChangeFailure.properties.reason.enum")
+                .value(
+                    org.hamcrest.Matchers.hasItems(
+                        "NOT_FOUND",
+                        "NOT_APPLIED",
+                        "PENDING_NOT_ALLOWED",
+                        "ADMIN_SUSPEND_REQUIRES_ROLE_REVOCATION")))
+        .andExpect(
+            jsonPath(operation + ".responses['500'].description")
+                .value(org.hamcrest.Matchers.containsString("커밋")));
+  }
 }

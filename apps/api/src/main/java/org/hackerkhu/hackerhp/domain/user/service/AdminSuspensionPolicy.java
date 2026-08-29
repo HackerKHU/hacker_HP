@@ -23,8 +23,13 @@ public class AdminSuspensionPolicy {
    * 제약으로 이 규칙을 내리지 않는다.
    */
   public void requireDirectSuspensionAllowed(User target, Status desired) {
-    if (desired == Status.SUSPENDED && target.getRole() == Role.ADMIN) {
+    if (blocksDirectSuspension(target, desired)) {
       throw new BusinessException(ErrorCode.FORBIDDEN, MESSAGE);
     }
+  }
+
+  /** 일괄 처리가 같은 정책을 항목별 실패로 바꿀 수 있게 판정만 노출한다. */
+  public boolean blocksDirectSuspension(User target, Status desired) {
+    return desired == Status.SUSPENDED && target.getRole() == Role.ADMIN;
   }
 }
