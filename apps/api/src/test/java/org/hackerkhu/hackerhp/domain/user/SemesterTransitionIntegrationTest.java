@@ -36,6 +36,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -174,6 +175,18 @@ class SemesterTransitionIntegrationTest extends AbstractIntegrationTest {
     assertThat(reload(member).getStatus()).isEqualTo(Status.INACTIVE);
   }
 
+  /** #295. JSON 최상위 {@code null}도 본문 없음과 같은 기존 전원 경로이며 응답 모양을 바꾸지 않는다. */
+  @Test
+  void literalJsonNullKeepsTheLegacyAllMembersPath() throws Exception {
+    mockMvc
+        .perform(deactivate("null"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.deactivated[0]").value(member.getId()))
+        .andExpect(jsonPath("$.failed").doesNotExist());
+
+    assertThat(reload(member).getStatus()).isEqualTo(Status.INACTIVE);
+  }
+
   /** #295. 선택 경로는 고른 활성 일반 부원만 내리고 다른 활성 부원은 그대로 둔다. */
   @Test
   void selectedDeactivationFollowsTheChosenMembers() throws Exception {
@@ -251,6 +264,45 @@ class SemesterTransitionIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.failed.length()").value(1));
 
     assertThat(historyOf(member.getId())).hasSize(1);
+  }
+
+  /** #295. 역순·중복 선택은 첫 등장 순서로 처리·응답·실패에 남고, 잠금 순서와 섞이지 않는다. */
+  @Test
+  void reverseAndDuplicateSelectedIdsKeepFirstAppearanceOrder() throws Exception {
+    User later = save(Accounts.approved("sub-later", "later@khu.ac.kr", "20250007"));
+    long missingId = 999_999L;
+
+    mockMvc
+        .perform(
+            deactivate(
+                "{\"userIds\":["
+                    + later.getId()
+                    + ","
+                    + missingId
+                    + ","
+                    + member.getId()
+                    + ","
+                    + admin.getId()
+                    + ","
+                    + later.getId()
+                    + ","
+                    + missingId
+                    + "]}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.deactivated[0]").value(later.getId()))
+        .andExpect(jsonPath("$.deactivated[1]").value(member.getId()))
+        .andExpect(jsonPath("$.failed[0].userId").value(missingId))
+        .andExpect(jsonPath("$.failed[0].reason").value("NOT_FOUND"))
+        .andExpect(jsonPath("$.failed[1].userId").value(admin.getId()))
+        .andExpect(jsonPath("$.failed[1].reason").value("NOT_ACTIVE_USER"));
+
+    assertThat(actions.findAll(Sort.by("id")))
+        .filteredOn(action -> action.getAction() == AdminAction.DEACTIVATE)
+        .satisfiesExactlyInAnyOrder(
+            action -> assertThat(action.getTargetId()).isEqualTo(later.getId()),
+            action -> assertThat(action.getTargetId()).isEqualTo(member.getId()))
+        .extracting(AdminActionLog::getCreatedAt)
+        .containsOnly(reload(member).getDeactivatedAt());
   }
 
   /** #295. 선택 경로의 원본 배열은 100개까지 허용한다. */

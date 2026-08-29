@@ -789,7 +789,7 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 | GET | `/admin/users` | ADMIN | 목록 — `status`, `role`, `q`, `applied`, `sort`, `page`, `size` |
 | POST | `/admin/users/approve` | ADMIN | 일괄 승인 — body: `{ "userIds": [1,2,3] }` |
 | POST | `/admin/users/reject` | ADMIN | 일괄 거부 — body: `{ "userIds": [1,2,3] }` |
-| POST | `/admin/users/deactivate` | ADMIN | **학기 전환 일괄 비활성화 — 조건이다. body 없음** |
+| POST | `/admin/users/deactivate` | ADMIN | **학기 전환 일괄 비활성화 — 조건 전원 또는 `userIds` 선택** |
 | POST | `/admin/users/reactivate` | ADMIN | 학기 복구 — body: `{ "userIds": [1,2,3] }` |
 | PATCH | `/admin/users/{id}/status` | ADMIN | `ACTIVE` ↔ `SUSPENDED`, `INACTIVE` → `SUSPENDED` (본인을 `SUSPENDED`로: 마지막 활성 관리자면 차단) |
 | PATCH | `/admin/users/{id}/role` | ADMIN | 권한 부여/회수 (본인 대상: 마지막 활성 관리자면 차단) |
@@ -902,9 +902,9 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 응답  200 { "deactivated": [1], "failed": [{ "userId": 2, "reason": "NOT_ACTIVE_USER" }, { "userId": 999, "reason": "NOT_FOUND" }] }
 ```
 
-본문 없음·`userIds` 누락·`null`·빈 배열은 기존처럼 `role = 'USER' AND status = 'ACTIVE'`인 전원을 서버가 정한다 (MUST). **전원 경로는 100개 상한이 없다.** 전원 비활성화를 페이지마다 선택하게 하면 한 페이지를 빠뜨려도 아무도 모르므로 이 경로가 기본으로 남는다.
+본문 없음·JSON 최상위 `null`·`userIds` 누락·`null`·빈 배열은 기존처럼 `role = 'USER' AND status = 'ACTIVE'`인 전원을 서버가 정한다 (MUST). **전원 경로는 100개 상한이 없다.** 전원 비활성화를 페이지마다 선택하게 하면 한 페이지를 빠뜨려도 아무도 모르므로 이 경로가 기본으로 남는다.
 
-`userIds`가 하나 이상이면 선택 경로다. 최대 100개이며 각 id는 양수여야 한다. 원본 배열이 101개면 중복 여부와 무관하게 `400 VALIDATION_ERROR`다. 같은 id가 여러 번 와도 `deactivated`·`failed`·이력에는 한 번만 나타난다.
+`userIds`가 하나 이상이면 선택 경로다. 최대 100개이며 각 id는 양수여야 한다. 원본 배열이 101개면 중복 여부와 무관하게 `400 VALIDATION_ERROR`다. 같은 id가 여러 번 오면 **첫 등장만 남기며**, 처리와 `deactivated`·`failed`는 이 순서를 유지한다. 교착 방지를 위한 요청자·대상 행 잠금만 id 오름차순이다. `DEACTIVATE` 이력은 기존 규칙대로 id순으로 결정적으로 기록하되 변경 대상마다 한 행만 남긴다.
 
 **`deactivated`는 실제로 바뀐 id다** (MUST). 조건으로 실행했으므로 관리자는 목록에서 누가 바뀌는지 볼 수 없다 — 이 배열이 **그 자리에서 결과를 보여주는 수단**이다. 잘못 눌렀으면 그대로 복구 요청에 넣는다. 이미 `INACTIVE`였던 사람은 여기 들어가지 않는다. **응답을 잃어도 되돌릴 수 있어야 하므로 근거는 따로 남긴다** — `deactivated_at`이 그것이다 (아래).
 
