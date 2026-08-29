@@ -99,6 +99,32 @@ class SemesterTransitionSessionIntegrationTest extends AbstractIntegrationTest {
     mockMvc.perform(signedIn.on(get("/api/v1/notices"))).andExpect(status().isOk());
   }
 
+  /** #295. 선택 경로는 고른 회원의 세션만 즉시 갱신하고, 고르지 않은 활성 회원은 그대로 둔다. */
+  @Test
+  void selectedDeactivationRefreshesOnlyTheSelectedMember() throws Exception {
+    User unselected =
+        userRepository.saveAndFlush(Accounts.approved("sub-u", "u@khu.ac.kr", "20250002"));
+    SignedIn selectedSession = sessions.signIn(member);
+    SignedIn unselectedSession = sessions.signIn(unselected);
+
+    mockMvc
+        .perform(
+            Csrf.with(
+                sessions
+                    .signIn(admin)
+                    .on(
+                        post(BASE + "/deactivate")
+                            .contentType("application/json")
+                            .content("{\"userIds\":[" + member.getId() + "]}"))))
+        .andExpect(status().isOk());
+
+    mockMvc
+        .perform(selectedSession.on(get("/api/v1/notes")))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("INACTIVE"));
+    mockMvc.perform(unselectedSession.on(get("/api/v1/notes"))).andExpect(status().isOk());
+  }
+
   /* ------------------------------------------------- 반영이 실패하면 (T-343·T-344) */
 
   /**
@@ -172,6 +198,45 @@ class SemesterTransitionSessionIntegrationTest extends AbstractIntegrationTest {
     assertThat(refreshed)
         .singleElement()
         .satisfies(ids -> assertThat(ids).contains(member.getId(), alreadyInactive.getId()));
+  }
+
+  /** #295. 선택 경로 재시도는 이미 내려간 선택 회원을 다시 반영하되, 선택하지 않은 비활동 회원은 건드리지 않는다. */
+  @Test
+  void selectedRetryRefreshesTheSelectedInactiveMemberOnly() {
+    User unselectedInactive =
+        userRepository.saveAndFlush(Accounts.inactive("sub-i", "i@khu.ac.kr", "20250002"));
+    List<Collection<Long>> refreshed = new ArrayList<>();
+    SessionSynchronizer recording = Mockito.mock(SessionSynchronizer.class);
+    Mockito.when(recording.refreshReporting(anyCollection()))
+        .thenAnswer(
+            invocation -> {
+              refreshed.add(List.copyOf(invocation.getArgument(0)));
+              return true;
+            });
+    SemesterTransitionService recorded = serviceWith(recording);
+
+    recorded.deactivate(admin.getId(), List.of(member.getId()));
+    recorded.deactivate(admin.getId(), List.of(member.getId()));
+
+    assertThat(refreshed).hasSize(2);
+    assertThat(refreshed.get(1))
+        .containsExactly(member.getId())
+        .doesNotContain(unselectedInactive.getId());
+  }
+
+  /** #295. 선택 경로도 세션 반영 실패 시 변경·시각은 커밋한 채 실패로 보고한다. */
+  @Test
+  void selectedRefreshFailureStillLeavesTheChangeAndTimestampCommitted() {
+    SessionSynchronizer failing = Mockito.mock(SessionSynchronizer.class);
+    Mockito.when(failing.refreshReporting(anyCollection())).thenReturn(false);
+
+    assertThatThrownBy(
+            () -> serviceWith(failing).deactivate(admin.getId(), List.of(member.getId())))
+        .isInstanceOf(IllegalStateException.class);
+
+    User after = userRepository.findById(member.getId()).orElseThrow();
+    assertThat(after.getStatus()).isEqualTo(Status.INACTIVE);
+    assertThat(after.getDeactivatedAt()).isNotNull();
   }
 
   /** 동기화기만 갈아끼운 서비스. 다른 사례가 진짜 동기화기를 그대로 쓰게 둔다. */

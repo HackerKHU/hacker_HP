@@ -16,6 +16,8 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.audit.entity.AdminAction;
 import org.hackerkhu.hackerhp.domain.audit.entity.AdminActionLog;
@@ -29,6 +31,8 @@ import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -84,6 +88,19 @@ class SemesterTransitionIntegrationTest extends AbstractIntegrationTest {
     return Csrf.with(sessions.signIn(admin).on(post(BASE + "/deactivate")));
   }
 
+  private MockHttpServletRequestBuilder deactivate(String body) {
+    return Csrf.with(
+        sessions
+            .signIn(admin)
+            .on(post(BASE + "/deactivate").contentType("application/json").content(body)));
+  }
+
+  private String ids(int count) {
+    return IntStream.range(0, count)
+        .mapToObj(index -> String.valueOf(900_000 + index))
+        .collect(Collectors.joining(",", "{\"userIds\":[", "]}"));
+  }
+
   private MockHttpServletRequestBuilder reactivate(String body) {
     return Csrf.with(
         sessions
@@ -127,7 +144,8 @@ class SemesterTransitionIntegrationTest extends AbstractIntegrationTest {
         .perform(deactivate())
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.deactivated.length()").value(1))
-        .andExpect(jsonPath("$.deactivated[0]").value(member.getId()));
+        .andExpect(jsonPath("$.deactivated[0]").value(member.getId()))
+        .andExpect(jsonPath("$.failed").doesNotExist());
 
     assertThat(reload(alreadyInactive).getStatus()).isEqualTo(Status.INACTIVE);
   }
@@ -141,6 +159,127 @@ class SemesterTransitionIntegrationTest extends AbstractIntegrationTest {
         .perform(deactivate())
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.deactivated.length()").value(0));
+  }
+
+  /** #295. 본문 없음뿐 아니라 optional 필드의 모든 빈 모양이 기존 전원 경로다. */
+  @ParameterizedTest
+  @ValueSource(strings = {"{}", "{\"userIds\":null}", "{\"userIds\":[]}"})
+  void everyEmptyRequestShapeKeepsTheLegacyAllMembersPath(String body) throws Exception {
+    mockMvc
+        .perform(deactivate(body))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.deactivated[0]").value(member.getId()))
+        .andExpect(jsonPath("$.failed").doesNotExist());
+
+    assertThat(reload(member).getStatus()).isEqualTo(Status.INACTIVE);
+  }
+
+  /** #295. 선택 경로는 고른 활성 일반 부원만 내리고 다른 활성 부원은 그대로 둔다. */
+  @Test
+  void selectedDeactivationFollowsTheChosenMembers() throws Exception {
+    User alsoSelected = save(Accounts.approved("sub-sel", "sel@khu.ac.kr", "20250005"));
+    User unselected = save(Accounts.approved("sub-u", "u@khu.ac.kr", "20250006"));
+
+    mockMvc
+        .perform(deactivate("{\"userIds\":[" + member.getId() + "," + alsoSelected.getId() + "]}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.deactivated.length()").value(2))
+        .andExpect(jsonPath("$.failed").isEmpty());
+
+    User changed = reload(member);
+    User secondChanged = reload(alsoSelected);
+    assertThat(changed.getStatus()).isEqualTo(Status.INACTIVE);
+    assertThat(secondChanged.getStatus()).isEqualTo(Status.INACTIVE);
+    assertThat(changed.getDeactivatedAt()).isNotNull().isEqualTo(secondChanged.getDeactivatedAt());
+    assertThat(reload(unselected).getStatus()).isEqualTo(Status.ACTIVE);
+    for (User selected : List.of(member, alsoSelected)) {
+      assertThat(historyOf(selected.getId()))
+          .extracting(AdminActionLog::getAction)
+          .containsExactly(AdminAction.DEACTIVATE);
+    }
+    assertThat(historyOf(unselected.getId())).isEmpty();
+  }
+
+  /** #295. 없는 id와 활성 일반 부원이 아닌 모든 상태·역할은 안정된 reason으로 부분 실패한다. */
+  @Test
+  void selectedMixedFailuresProtectEveryIneligibleAccount() throws Exception {
+    User suspended = save(Accounts.suspended("sub-s", "s@khu.ac.kr", "20250002"));
+    User pending = save(Accounts.applied("sub-p", "p@khu.ac.kr", "20250003"));
+    User inactive = save(Accounts.inactive("sub-i", "i@khu.ac.kr", "20250004"));
+
+    String body =
+        "{\"userIds\":["
+            + member.getId()
+            + ","
+            + admin.getId()
+            + ","
+            + suspended.getId()
+            + ","
+            + pending.getId()
+            + ","
+            + inactive.getId()
+            + ",999999]}";
+
+    var result =
+        mockMvc
+            .perform(deactivate(body))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.deactivated[0]").value(member.getId()))
+            .andExpect(jsonPath("$.failed.length()").value(5))
+            .andExpect(jsonPath("$.failed[?(@.userId == 999999)].reason").value("NOT_FOUND"));
+
+    for (User protectedUser : List.of(admin, suspended, pending, inactive)) {
+      result.andExpect(
+          jsonPath("$.failed[?(@.userId == " + protectedUser.getId() + ")].reason")
+              .value("NOT_ACTIVE_USER"));
+    }
+    assertThat(reload(admin).getStatus()).isEqualTo(Status.ACTIVE);
+    assertThat(reload(suspended).getStatus()).isEqualTo(Status.SUSPENDED);
+    assertThat(reload(pending).getStatus()).isEqualTo(Status.PENDING);
+    assertThat(reload(inactive).getStatus()).isEqualTo(Status.INACTIVE);
+  }
+
+  /** #295. 중복 id는 성공·실패 응답과 이력 어디에도 두 번 나타나지 않는다. */
+  @Test
+  void duplicateSelectedIdsAreHandledOnce() throws Exception {
+    mockMvc
+        .perform(
+            deactivate(
+                "{\"userIds\":[" + member.getId() + "," + member.getId() + ",999999,999999]}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.deactivated.length()").value(1))
+        .andExpect(jsonPath("$.failed.length()").value(1));
+
+    assertThat(historyOf(member.getId())).hasSize(1);
+  }
+
+  /** #295. 선택 경로의 원본 배열은 100개까지 허용한다. */
+  @Test
+  void oneHundredSelectedIdsAreAccepted() throws Exception {
+    mockMvc
+        .perform(deactivate(ids(100)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.deactivated").isEmpty())
+        .andExpect(jsonPath("$.failed.length()").value(100));
+  }
+
+  /** #295. 선택 경로의 원본 배열이 101개면 요청 자체를 거절한다. */
+  @Test
+  void oneHundredAndOneSelectedIdsAreRejected() throws Exception {
+    mockMvc
+        .perform(deactivate(ids(101)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+  }
+
+  /** #295. 선택 id는 null·0·음수를 허용하지 않는다. */
+  @ParameterizedTest
+  @ValueSource(strings = {"{\"userIds\":[null]}", "{\"userIds\":[0]}", "{\"userIds\":[-1]}"})
+  void selectedIdsMustBePositive(String body) throws Exception {
+    mockMvc
+        .perform(deactivate(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
   }
 
   /* --------------------------------------------------------- 되돌릴 수 있는가 */
@@ -296,10 +435,40 @@ class SemesterTransitionIntegrationTest extends AbstractIntegrationTest {
     assertThat(actions.findAll()).as("이력도 대상마다 한 행이다").hasSize(2);
   }
 
+  /** #295. 같은 선택을 동시에 보내도 한 응답과 한 이력만 변경을 주장한다. */
+  @Test
+  void twoSelectedTransitionsAtOnceNeverClaimTheSameMember() throws Exception {
+    CyclicBarrier ready = new CyclicBarrier(2);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    List<Long> claimed = Collections.synchronizedList(new ArrayList<>());
+    try {
+      pool.invokeAll(
+          List.of(
+              runningSelected(ready, claimed, member.getId()),
+              runningSelected(ready, claimed, member.getId())));
+    } finally {
+      pool.shutdownNow();
+      pool.awaitTermination(10, TimeUnit.SECONDS);
+    }
+
+    assertThat(claimed).containsExactly(member.getId());
+    assertThat(actions.findAll()).hasSize(1);
+  }
+
   private Callable<Boolean> running(CyclicBarrier ready, List<Long> claimed) {
     return () -> {
       ready.await(10, TimeUnit.SECONDS);
       claimed.addAll(transitionService.deactivate(admin.getId()).deactivated());
+      return true;
+    };
+  }
+
+  private Callable<Boolean> runningSelected(
+      CyclicBarrier ready, List<Long> claimed, Long selectedId) {
+    return () -> {
+      ready.await(10, TimeUnit.SECONDS);
+      claimed.addAll(
+          transitionService.deactivate(admin.getId(), List.of(selectedId)).deactivated());
       return true;
     };
   }
