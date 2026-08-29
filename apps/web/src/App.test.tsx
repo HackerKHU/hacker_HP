@@ -88,6 +88,22 @@ function menuLabels() {
     .map((link) => link.textContent)
 }
 
+/**
+ * 계정 메뉴를 연다. **마이페이지와 로그아웃은 이제 그 안에 있다** (#178).
+ *
+ * Radix 메뉴는 `pointerdown`으로 열린다 — `click`만 쏘면 안 열린다. `user-event`를 들이면
+ * 한 줄이지만 이 검사 때문에 의존성을 늘리지 않는다. jsdom에 `PointerEvent`가 없어
+ * `MouseEvent`로 대신 만든다 (`MemberListPage.test.tsx`가 같은 방식을 쓴다).
+ */
+async function openAccountMenu() {
+  const trigger = await screen.findByRole('button', { name: '계정 메뉴' })
+  fireEvent.pointerDown(
+    trigger,
+    new MouseEvent('pointerdown', { bubbles: true, button: 0 }),
+  )
+  await screen.findByRole('menu')
+}
+
 describe('라우트 가드', () => {
   it('PENDING 사용자가 보호 라우트에 가면 대기중 안내로 되돌린다', async () => {
     auth.me = () =>
@@ -283,7 +299,7 @@ describe('헤더 메뉴 노출', () => {
     expect(menuLabels()).not.toContain('회원 관리')
   })
 
-  it('PENDING에게는 메뉴가 없고 로그아웃만 있다', async () => {
+  it('PENDING에게는 메뉴가 없고 계정 메뉴에 로그아웃만 있다', async () => {
     auth.me = () =>
       Promise.resolve({ ...BASE, status: 'PENDING', approvedAt: null })
 
@@ -291,7 +307,17 @@ describe('헤더 메뉴 노출', () => {
     await screen.findByRole('heading', { name: '승인 대기 중' })
 
     expect(menuLabels()).toEqual([])
-    expect(screen.getByRole('button', { name: '로그아웃' })).toBeInTheDocument()
+    /*
+     * 계정 메뉴는 `PENDING`에게도 있다 — 로그아웃이 그 안에 있고, 매트릭스에서 로그아웃은
+     * `PENDING`도 `O`다. 마이페이지 항목만 빠진다: 띄워봤자 눌러도 가드가 되돌린다.
+     */
+    await openAccountMenu()
+    expect(
+      screen.getByRole('menuitem', { name: '로그아웃' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('menuitem', { name: '마이페이지' }),
+    ).not.toBeInTheDocument()
   })
 })
 
@@ -300,7 +326,8 @@ describe('로그아웃', () => {
     auth.me = () => Promise.resolve(BASE)
 
     renderAt('/notices')
-    fireEvent.click(await screen.findByRole('button', { name: '로그아웃' }))
+    await openAccountMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: '로그아웃' }))
 
     expect(
       await screen.findByRole('heading', { name: '로그인' }),
@@ -317,8 +344,13 @@ describe('로그아웃', () => {
       )
 
     renderAt('/notices')
-    fireEvent.click(await screen.findByRole('button', { name: '로그아웃' }))
+    await openAccountMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: '로그아웃' }))
 
+    /*
+     * **실패 문구는 메뉴 밖에 그린다.** 항목을 고르면 메뉴가 닫히므로 안에 두면 사유가
+     * 함께 사라지고, 사용자는 로그아웃된 줄 안다.
+     */
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '로그아웃하지 못했습니다',
     )

@@ -49,6 +49,7 @@ async function classesOf(header: React.ReactNode): Promise<{
   logo: string
   src: string
   navItem: string | null
+  accountTrigger: string | null
 }> {
   const { unmount } = render(
     <MemoryRouter>
@@ -76,11 +77,18 @@ async function classesOf(header: React.ReactNode): Promise<{
           .sort()
           .join(' ')
 
+  /*
+   * 계정 메뉴를 여는 아이콘 버튼. 두 헤더가 **같은 컴포넌트**를 쓰므로 모양도 같아야
+   * 한다 — 한쪽만 크기나 여백을 덧붙이면 랜딩에서 앱으로 넘어갈 때 아이콘이 움직인다.
+   */
+  const trigger = screen.queryByRole('button', { name: '계정 메뉴' })
+
   const found = {
     container: container.className,
     logo: logo.className,
     src: logo.getAttribute('src') ?? '',
     navItem,
+    accountTrigger: trigger?.className ?? null,
   }
   unmount()
   return found
@@ -96,6 +104,21 @@ describe('두 헤더의 로고 정렬', () => {
     const app = await classesOf(<AppHeader />)
 
     expect(app.container).toBe(landing.container)
+  })
+
+  /*
+   * **계정 메뉴는 두 헤더가 같은 컴포넌트를 쓴다** (#178).
+   *
+   * 랜딩 헤더는 오래 `AppHeader`와 별개로 로그아웃 버튼을 들고 있었고, 로고 정렬이 세 번
+   * 어긋났던 것(#247·#258·#264)과 같은 종류의 어긋남이 계정 UI에서도 생길 자리였다.
+   * 복사본이 다시 생기면 여기서 잡힌다 — 모양이 달라지는 순간 클래스가 갈린다.
+   */
+  it('계정 메뉴 아이콘이 두 헤더에서 같은 모양이다', async () => {
+    const landing = await classesOf(<PublicHeader />)
+    const app = await classesOf(<AppHeader />)
+
+    expect(landing.accountTrigger).not.toBeNull()
+    expect(app.accountTrigger).toBe(landing.accountTrigger)
   })
 
   /* #222가 맞춘 값. 되돌아가면 여기서 잡힌다. */
