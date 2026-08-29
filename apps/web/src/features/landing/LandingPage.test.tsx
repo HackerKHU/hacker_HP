@@ -492,6 +492,21 @@ describe('랜딩 헤더 상태별 진입점', () => {
     ).toEqual(MEMBER_LINKS.map(([label]) => label))
   })
 
+  /*
+   * **구분선이 랜딩에도 따라온다** (#307). 두 헤더가 같은 목록을 쓰므로(#306) 관리자가
+   * 랜딩에서 보는 메뉴도 같고, 구분선을 목록에 얹었으니 여기서도 그려져야 한다 —
+   * 랜딩 쪽에 따로 넣었다면 그 둘은 한쪽만 고쳐진다.
+   */
+  it('관리자에게는 랜딩에서도 회원 관리 앞에 구분선이 있다', async () => {
+    auth.me = () => Promise.resolve({ ...BASE, role: 'ADMIN' as const })
+
+    renderLanding()
+
+    const admin = await screen.findByRole('link', { name: '회원 관리' })
+    const divider = admin.previousElementSibling
+    expect(divider).toHaveAttribute('aria-hidden', 'true')
+  })
+
   it('ACTIVE에게는 부원 화면 링크와 계정 메뉴가 보인다', async () => {
     auth.me = () => Promise.resolve(BASE)
 

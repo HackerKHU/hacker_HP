@@ -1,9 +1,11 @@
 import { MenuIcon, XIcon } from 'lucide-react'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { hasApplied, homePath, useSession } from '@/auth/session'
 import {
   HEADER_ACTION,
+  HEADER_NAV_DIVIDER,
+  HEADER_NAV_DIVIDER_STACKED,
   HEADER_NAV_ITEM,
   headerMenus,
 } from '@/components/header-nav'
@@ -107,9 +109,15 @@ export function PublicHeader() {
              */
             <nav className="flex items-center gap-1" aria-label="주요 메뉴">
               {menus.map((menu) => (
-                <Link key={menu.to} to={menu.to} className={NAV_ITEM}>
-                  {menu.label}
-                </Link>
+                <Fragment key={menu.to}>
+                  {/* 관리자 전용 화면 앞에서 끊는다 (#307) — 내부 헤더와 같은 규칙이다. */}
+                  {menu.apart && (
+                    <span aria-hidden="true" className={HEADER_NAV_DIVIDER} />
+                  )}
+                  <Link to={menu.to} className={NAV_ITEM}>
+                    {menu.label}
+                  </Link>
+                </Fragment>
               ))}
             </nav>
           ) : (
@@ -256,14 +264,22 @@ export function PublicHeader() {
           {isActive ? (
             <nav className="flex flex-col" aria-label="주요 메뉴">
               {menus.map((menu) => (
-                <Link
-                  key={menu.to}
-                  to={menu.to}
-                  className={cn(NAV_ITEM, 'block')}
-                  onClick={() => setMenuOpen(false)}
-                >
-                  {menu.label}
-                </Link>
+                <Fragment key={menu.to}>
+                  {/* 세로로 쌓이므로 가로선이다 — 세로선은 여기서 아무것도 가르지 못한다. */}
+                  {menu.apart && (
+                    <div
+                      aria-hidden="true"
+                      className={HEADER_NAV_DIVIDER_STACKED}
+                    />
+                  )}
+                  <Link
+                    to={menu.to}
+                    className={cn(NAV_ITEM, 'block')}
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    {menu.label}
+                  </Link>
+                </Fragment>
               ))}
             </nav>
           ) : (
