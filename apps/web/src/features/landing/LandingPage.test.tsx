@@ -131,6 +131,28 @@ describe('공개 랜딩', () => {
     expect(footer?.className).toContain('sm:flex-row')
   })
 
+  /*
+   * **푸터에 섹션 앵커를 두지 않는다** (#304). 헤더가 이미 같은 다섯을 그려서, 한 페이지
+   * 안에 같은 앵커가 위아래로 두 벌이었다. 푸터까지 내려온 사람은 그 섹션들을 지나온
+   * 사람이라 되돌아갈 길을 여기서 다시 줄 이유가 적다.
+   *
+   * 주소·인스타그램·법적 문서는 남는다 — 어느 화면에서든 있어야 하는 것들이다.
+   */
+  it('푸터에는 인스타그램과 법적 문서만 남는다', async () => {
+    renderLanding()
+
+    await screen.findByRole('heading', { name: '소개' })
+    const footer = screen.getByRole('contentinfo')
+
+    expect(
+      within(footer)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual(['인스타그램', '개인정보처리방침', '이용약관'])
+    // 주소는 링크가 아니라 글이라 위 목록에 없다. 사라지지 않았는지는 따로 본다.
+    expect(footer).toHaveTextContent(CLUB.fullName)
+  })
+
   it('근사 표기를 켠 수치에만 +가 붙는다', async () => {
     renderLanding()
 

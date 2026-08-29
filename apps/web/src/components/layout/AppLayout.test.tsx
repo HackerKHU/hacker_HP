@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { AppLayout } from './AppLayout'
@@ -52,6 +52,24 @@ describe('AppLayout', () => {
     renderLayout()
 
     expect(screen.getByRole('link', { name })).toHaveAttribute('href', href)
+  })
+
+  /*
+   * **푸터는 법적 문서 줄이다** (#304). 랜딩 푸터와 같은 것만 남긴다.
+   *
+   * `동아리 소개` 링크가 있었는데 **헤더 로고가 이미 `/`로 간다** — 같은 곳으로 가는 길이
+   * 둘이었다. 링크 이름이 아니라 **개수와 목록**을 단정한다: 하나만 보면 다른 길이 다시
+   * 늘어나도 통과한다.
+   */
+  it('푸터에 개인정보처리방침·이용약관 둘만 있다', () => {
+    renderLayout()
+
+    const footer = screen.getByRole('contentinfo')
+    expect(
+      within(footer)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual(['개인정보처리방침', '이용약관'])
   })
 
   it('세로 가운데를 정렬 속성으로 잡지 않는다 — 넘치면 위쪽이 스크롤 밖으로 밀린다', () => {

@@ -38,15 +38,14 @@ export function AppLayout() {
       </main>
 
       {/*
-        헤더 로고가 랜딩으로 가므로 `동아리 소개`는 유일한 길이 아니라 **이름이 붙은 길**이다.
-        로고는 어디로 가는지 눌러 봐야 알지만 여기는 목적지가 글자로 적혀 있고,
-        법적 문서가 어차피 이 줄에 있어야 해서 나란히 둔다.
+        **법적 문서 줄이다** (#304). 랜딩 푸터와 같은 것만 남긴다.
+
+        `동아리 소개` 링크가 있었는데 **헤더 로고가 이미 `/`로 간다** — 같은 곳으로 가는
+        길이 둘이었다. 링크를 지우면서 그것을 설명하던 주석도 함께 지웠다: 없는 링크를
+        설명하는 주석을 남기면 다음 사람이 읽고 되살린다.
       */}
       <footer className="border-t border-border">
         <div className="mx-auto flex w-full max-w-[1152px] gap-4 px-6 py-6 text-sm text-muted-foreground">
-          <Link to="/" className="transition-colors hover:text-foreground">
-            동아리 소개
-          </Link>
           <Link
             to="/privacy"
             className="transition-colors hover:text-foreground"

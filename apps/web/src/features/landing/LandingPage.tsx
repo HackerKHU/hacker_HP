@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { useDarkChrome } from '@/lib/use-dark-chrome'
 import { cn } from '@/lib/utils'
-import { ACTIVITIES, CLUB, FAQS, SECTIONS, STATS, SUPPORT } from './content'
+import { ACTIVITIES, CLUB, FAQS, STATS, SUPPORT } from './content'
 import { PublicHeader } from './PublicHeader'
 
 /** 본문 컨테이너. 다른 섹션과 좌우 정렬을 맞추는 기준이다. */
@@ -324,19 +324,17 @@ function Footer() {
           </span>
           <span className="block">{CLUB.address.detail}</span>
         </address>
-        <nav
-          className="flex flex-wrap gap-x-4 gap-y-2"
-          aria-label="섹션 바로가기"
-        >
-          {SECTIONS.map((section) => (
-            <a
-              key={section.id}
-              href={`#${section.id}`}
-              className="transition-colors hover:text-foreground"
-            >
-              {section.label}
-            </a>
-          ))}
+        {/*
+         * **법적 문서와 인스타그램만 남긴다** (#304).
+         *
+         * 섹션 앵커 다섯 개가 있었는데 **헤더가 이미 같은 다섯을 그린다** — 한 페이지 안에
+         * 같은 앵커가 위아래로 두 벌이었다. 푸터까지 내려온 사람은 그 섹션들을 지나온
+         * 사람이라, 되돌아갈 길을 여기서 다시 줄 이유가 적다.
+         *
+         * **이름이 `섹션 바로가기`가 아니다.** 항목이 사라졌으므로 그 이름만 남으면
+         * 스크린리더에게 거짓말이 된다.
+         */}
+        <nav className="flex flex-wrap gap-x-4 gap-y-2" aria-label="푸터 링크">
           <a
             href={CLUB.instagram}
             target="_blank"
