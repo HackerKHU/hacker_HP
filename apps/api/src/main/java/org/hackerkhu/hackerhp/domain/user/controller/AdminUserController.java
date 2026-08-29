@@ -15,6 +15,9 @@ import org.hackerkhu.hackerhp.domain.user.dto.AdminUserSearch;
 import org.hackerkhu.hackerhp.domain.user.dto.ApproveRequest;
 import org.hackerkhu.hackerhp.domain.user.dto.ApproveResponse;
 import org.hackerkhu.hackerhp.domain.user.dto.ContentSummaryResponse;
+import org.hackerkhu.hackerhp.domain.user.dto.DeactivateResponse;
+import org.hackerkhu.hackerhp.domain.user.dto.ReactivateRequest;
+import org.hackerkhu.hackerhp.domain.user.dto.ReactivateResponse;
 import org.hackerkhu.hackerhp.domain.user.dto.RejectRequest;
 import org.hackerkhu.hackerhp.domain.user.dto.RejectResponse;
 import org.hackerkhu.hackerhp.domain.user.dto.RoleChangeRequest;
@@ -23,10 +26,12 @@ import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserApprovalService;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserRejectService;
-import org.hackerkhu.hackerhp.domain.user.service.AdminUserRemovalService;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserRoleService;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserService;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserStatusService;
+import org.hackerkhu.hackerhp.domain.user.service.SemesterTransitionService;
+import org.hackerkhu.hackerhp.domain.user.service.UserContentSummaryService;
+import org.hackerkhu.hackerhp.domain.user.service.UserRemovalService;
 import org.hackerkhu.hackerhp.global.auth.AccessTokenCookie;
 import org.hackerkhu.hackerhp.global.error.ErrorResponse;
 import org.springdoc.core.annotations.ParameterObject;
@@ -67,27 +72,33 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminUserController {
 
   private final AdminUserService adminUserService;
+  private final UserContentSummaryService userContentSummaryService;
+  private final SemesterTransitionService semesterTransitionService;
   private final AdminUserApprovalService adminUserApprovalService;
   private final AdminUserStatusService adminUserStatusService;
   private final AdminUserRejectService adminUserRejectService;
   private final AdminUserRoleService adminUserRoleService;
-  private final AdminUserRemovalService adminUserRemovalService;
+  private final UserRemovalService userRemovalService;
   private final AccessTokenCookie accessTokenCookie;
 
   public AdminUserController(
       AdminUserService adminUserService,
+      UserContentSummaryService userContentSummaryService,
+      SemesterTransitionService semesterTransitionService,
       AdminUserApprovalService adminUserApprovalService,
       AdminUserStatusService adminUserStatusService,
       AdminUserRejectService adminUserRejectService,
       AdminUserRoleService adminUserRoleService,
-      AdminUserRemovalService adminUserRemovalService,
+      UserRemovalService userRemovalService,
       AccessTokenCookie accessTokenCookie) {
     this.adminUserService = adminUserService;
+    this.userContentSummaryService = userContentSummaryService;
+    this.semesterTransitionService = semesterTransitionService;
     this.adminUserApprovalService = adminUserApprovalService;
     this.adminUserStatusService = adminUserStatusService;
     this.adminUserRejectService = adminUserRejectService;
     this.adminUserRoleService = adminUserRoleService;
-    this.adminUserRemovalService = adminUserRemovalService;
+    this.userRemovalService = userRemovalService;
     this.accessTokenCookie = accessTokenCookie;
   }
 
@@ -192,6 +203,106 @@ public class AdminUserController {
   public ApproveResponse approve(
       @AuthenticationPrincipal Long requesterId, @Valid @RequestBody ApproveRequest request) {
     return adminUserApprovalService.approve(requesterId, request.userIds());
+  }
+
+  /**
+   * 학기 전환 — 일괄 비활성화 (spec 2-2 §2-2-3, #230).
+   *
+   * <p><b>본문을 받지 않는다</b> (MUST). 대상은 {@code role = 'USER' AND status = 'ACTIVE'}인 전원으로 서버가 정한다 —
+   * id를 받으면 100개 상한에 걸려 학기 전환이 페이지 수만큼 쪼개지고, <b>한 페이지를 빠뜨려도 아무도 모른다.</b>
+   *
+   * <p><b>누르기 전에 대상 건수를 보여준다</b> (MUST). 조건으로 고르므로 관리자는 목록에서 누가 바뀌는지 볼 수 없다. 건수는 {@code GET
+   * /admin/users?status=ACTIVE&role=USER&size=1}의 {@code page.totalElements}로 얻는다 — 미리보기 전용 API를 두지
+   * 않는다.
+   */
+  @Operation(
+      summary = "학기 전환 — 일괄 비활성화",
+      description =
+          """
+          `ACTIVE`인 일반 부원 **전원**을 `INACTIVE`로 내린다. **본문을 받지 않는다** — 대상을
+          서버가 정한다.
+
+          `ADMIN`·`SUSPENDED`·`PENDING`은 휩쓸리지 않는다. 정지된 계정을 `INACTIVE`로 바꾸면
+          **정지가 풀리기** 때문이다.
+
+          **응답은 실제로 바뀐 id다.** 이미 비활동이던 사람은 들어가지 않는다. 잘못 눌렀으면
+          이 배열을 그대로 복구에 넣는다 — 응답을 잃어도 `deactivatedAt`으로 직전 배치를
+          고를 수 있다.
+
+          **멱등하다.** 두 번째는 빈 배열이다.
+          """)
+  @ApiResponse(responseCode = "200", description = "내려간 계정의 id")
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED`",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description =
+          "`FORBIDDEN` — 관리자가 아니거나 CSRF 토큰이 없다 · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "500",
+      description = "`INTERNAL_ERROR` — 비활성화가 세션에 반영되지 않았다. **변경은 되돌리지 않으므로 같은 요청을 다시 보내면 된다**",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @PostMapping("/deactivate")
+  @PreAuthorize("hasRole('ADMIN')")
+  public DeactivateResponse deactivate(@AuthenticationPrincipal Long requesterId) {
+    return semesterTransitionService.deactivate(requesterId);
+  }
+
+  /**
+   * 학기 전환 — 일괄 복구 (spec 2-2 §2-2-3, #230).
+   *
+   * <p><b>비활성화와 모양이 다르다.</b> 올라올 사람은 매번 다르므로 id 목록을 받는다 — 조건으로 전원을 올리면 비활성화가 무의미해진다.
+   */
+  @Operation(
+      summary = "학기 전환 — 일괄 복구",
+      description =
+          """
+          고른 `INACTIVE` 계정을 `ACTIVE`로 되돌린다. **되돌리는 길은 이것 하나뿐이다** —
+          비활성화에 별도의 취소를 두지 않는다.
+
+          일부가 실패해도 `200`이고 **실패가 성공을 되돌리지 않는다.** 정지된 계정은
+          `NOT_INACTIVE`로 집계된다 — 이 경로로 정지를 풀 수 없다.
+          """)
+  @ApiResponse(responseCode = "200", description = "복구 결과. 일부 실패해도 200이다")
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED`",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "400",
+      description = "`VALIDATION_ERROR` — 빈 배열이거나 100개를 넘었다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description =
+          "`FORBIDDEN` — 관리자가 아니거나 CSRF 토큰이 없다 · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @PostMapping("/reactivate")
+  @PreAuthorize("hasRole('ADMIN')")
+  public ReactivateResponse reactivate(
+      @AuthenticationPrincipal Long requesterId, @Valid @RequestBody ReactivateRequest request) {
+    return semesterTransitionService.reactivate(requesterId, request.userIds());
   }
 
   /**
@@ -416,7 +527,7 @@ public class AdminUserController {
   @GetMapping("/{id}/content-summary")
   @PreAuthorize("hasRole('ADMIN')")
   public ContentSummaryResponse contentSummary(@PathVariable Long id) {
-    return adminUserService.contentSummary(id);
+    return userContentSummaryService.of(id);
   }
 
   /**
@@ -483,7 +594,7 @@ public class AdminUserController {
       @PathVariable Long id,
       HttpServletRequest httpRequest,
       HttpServletResponse httpResponse) {
-    if (!adminUserRemovalService.remove(requesterId, id)) {
+    if (!userRemovalService.remove(requesterId, id)) {
       return;
     }
     /*

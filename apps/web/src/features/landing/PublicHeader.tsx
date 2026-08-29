@@ -2,9 +2,9 @@ import { MenuIcon, XIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { hasApplied, homePath, useSession } from '@/auth/session'
-import { useLogout } from '@/auth/useLogout'
 import { HEADER_ACTION, HEADER_NAV_ITEM } from '@/components/header-nav'
 import { Button } from '@/components/ui/button'
+import { AccountMenu } from '@/features/account/AccountMenu'
 import { cn } from '@/lib/utils'
 import { CLUB, SECTIONS } from './content'
 
@@ -39,12 +39,6 @@ const MEMBER_LINKS = [
  */
 export function PublicHeader() {
   const session = useSession()
-  /*
-   * 로그아웃 후 이동하지 않는다. 랜딩은 비로그인도 볼 수 있는 페이지라 굳이 옮길 이유가
-   * 없고, 보던 자리에 그대로 남는 편이 덜 놀랍다. 세션이 비면 헤더가 비로그인 상태로
-   * 다시 그려져 로그아웃된 것이 화면에 드러난다.
-   */
-  const { logout, failed } = useLogout()
   /*
    * 모바일 메뉴. 항목을 누르면 닫는다 — 앵커는 페이지를 안 바꾸므로 저절로 닫히지 않고,
    * 열린 채 두면 이동한 섹션을 메뉴가 가린다.
@@ -136,12 +130,6 @@ export function PublicHeader() {
          */}
         {session.state.kind !== 'loading' && (
           <div className="ml-auto flex items-center gap-2">
-            {failed && (
-              <p role="alert" className="text-sm text-muted-foreground">
-                로그아웃하지 못했습니다. 다시 시도해 주세요.
-              </p>
-            )}
-
             {session.state.kind === 'guest' ||
             session.state.kind === 'suspended' ? (
               <>
@@ -195,13 +183,18 @@ export function PublicHeader() {
                     </Link>
                   </Button>
                 )}
-                <Button
-                  variant="ghost"
-                  className={HEADER_ACTION}
-                  onClick={logout}
-                >
-                  로그아웃
-                </Button>
+                {/*
+                 * **앱 헤더와 같은 계정 메뉴다** (#178). 복사하지 않고 그 컴포넌트를 그대로
+                 * 쓴다 — 로그인한 사람이 랜딩에 들렀다가 부원 화면으로 넘어갈 때 같은 자리에
+                 * 같은 아이콘이 있어야 한다. 두 헤더가 각자 들고 있으면 한쪽만 고쳐진다
+                 * (로고 정렬을 #247·#258·#264에서 세 번 맞춘 것이 그 종류의 어긋남이다).
+                 *
+                 * **로그아웃 뒤 이동하지 않는다** — `redirectTo`를 주지 않았다. 랜딩은
+                 * 비로그인도 볼 수 있어 굳이 옮길 이유가 없고, 보던 자리에 남는 편이 덜
+                 * 놀랍다. 세션이 비면 이 헤더가 비로그인 모습으로 다시 그려져 로그아웃된
+                 * 것이 화면에 드러난다.
+                 */}
+                <AccountMenu showMyPage={isActive} />
               </>
             )}
           </div>

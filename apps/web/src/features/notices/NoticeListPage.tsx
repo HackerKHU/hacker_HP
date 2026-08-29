@@ -5,6 +5,7 @@ import { list, type Notice, togglePin } from '@/api/notices'
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
 import { ListSurface } from '@/components/ListSurface'
+import { parsePage, writePage } from '@/components/Pager'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -31,19 +32,6 @@ const DAY_MS = 24 * 60 * 60 * 1000
  */
 function isNew(createdAt: string): boolean {
   return Date.now() - new Date(createdAt).getTime() < NEW_WITHIN_DAYS * DAY_MS
-}
-
-/**
- * URL의 `page`를 0 이상 정수로 수렴시킨다.
- *
- * `Math.max(0, Number(...))`만으로는 `?page=1.5`가 그대로 통과해 API의 정수 계약을 깨고,
- * 어느 정수 페이지 링크에도 `aria-current`가 붙지 않는다. NaN·Infinity·음수·소수를
- * 모두 여기서 거른다.
- */
-function parsePage(raw: string | null): number {
-  const value = Number(raw ?? '0')
-  if (!Number.isFinite(value)) return 0
-  return Math.max(0, Math.floor(value))
 }
 
 /**
@@ -84,6 +72,18 @@ function formatDate(iso: string): string {
     month: '2-digit',
     day: '2-digit',
   })
+}
+
+/**
+ * 이 화면의 주소에는 `page` 말고 다른 조회 조건이 없다. 그래서 매번 새로 만든다.
+ *
+ * <b>컴포넌트 밖에 둔다</b> — 안에 두면 렌더마다 새 함수가 되어, 이것을 쓰는 effect가 매 렌더
+ * 다시 돌거나 의존성에서 빠진 채 남는다.
+ */
+function pageParams(next: number): URLSearchParams {
+  const params = new URLSearchParams()
+  writePage(params, next)
+  return params
 }
 
 export function NoticeListPage() {
@@ -148,7 +148,7 @@ export function NoticeListPage() {
     if (!data) return
     const { totalPages } = data.page
     if (totalPages >= 1 && page >= totalPages) {
-      setSearchParams({ page: String(totalPages - 1) }, { replace: true })
+      setSearchParams(pageParams(totalPages - 1), { replace: true })
     }
   }, [data, page, setSearchParams])
 
@@ -157,10 +157,6 @@ export function NoticeListPage() {
    * 이걸 같이 쓴다 — 두 곳이 다른 규칙을 쓰면 링크가 가리키는 곳과 클릭 결과가 갈린다.
    * 0페이지는 파라미터를 빼서 주소가 깨끗해진다.
    */
-  function pageParams(next: number): Record<string, string> {
-    return next === 0 ? {} : { page: String(next) }
-  }
-
   function goTo(next: number) {
     setSearchParams(pageParams(next))
   }
@@ -171,7 +167,7 @@ export function NoticeListPage() {
    * 클릭은 여전히 `preventDefault` 후 `setSearchParams`를 타므로 전체 새로고침이 나지 않는다.
    */
   function hrefFor(next: number): string {
-    const search = new URLSearchParams(pageParams(next)).toString()
+    const search = pageParams(next).toString()
     return search === '' ? pathname : `${pathname}?${search}`
   }
 

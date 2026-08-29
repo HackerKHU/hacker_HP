@@ -22,6 +22,7 @@ class ErrorCodeTest {
     table.put(ErrorCode.UNAUTHENTICATED, HttpStatus.UNAUTHORIZED);
     table.put(ErrorCode.PENDING_APPROVAL, HttpStatus.FORBIDDEN);
     table.put(ErrorCode.SUSPENDED, HttpStatus.FORBIDDEN);
+    table.put(ErrorCode.INACTIVE, HttpStatus.FORBIDDEN);
     table.put(ErrorCode.FORBIDDEN, HttpStatus.FORBIDDEN);
     table.put(ErrorCode.NOT_FOUND, HttpStatus.NOT_FOUND);
     table.put(ErrorCode.DUPLICATE_STUDENT_NO, HttpStatus.CONFLICT);
@@ -31,7 +32,7 @@ class ErrorCodeTest {
     return table;
   }
 
-  /* T-125 — 계약의 코드 10개가 전부 있고, 그 밖의 코드는 없다. */
+  /* T-125 — 계약의 코드 11개가 전부 있고, 그 밖의 코드는 없다. */
   @Test
   void enumMatchesContractExactly() {
     assertThat(ErrorCode.values()).containsExactlyElementsOf(contract().keySet());

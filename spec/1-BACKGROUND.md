@@ -102,6 +102,7 @@ Role과 Status의 정확한 정의는 [3-1](3-1-DESIGN-ARCHITECTURE.md)이 원�
 | **Post Launch** | 자료 CRUD, 검색·필터, 즐겨찾기, S3 업로드·다운로드 |
 | **Post Launch** | 활동사진 조회·업로드·리사이즈 |
 | **Post Launch** | 가입 거부, 회원 제거, 관리자 권한 부여·회수 |
+| **Post Launch** | 마이페이지, 회원 탈퇴 (2026-08-28, [#223](https://github.com/HackerKHU/hacker_HP/issues/223)) |
 | **Post Launch** | 랜딩 콘텐츠 관리자 편집 |
 | **Post Launch** | 자유 게시판 (글 쓰기·목록·상세) |
 

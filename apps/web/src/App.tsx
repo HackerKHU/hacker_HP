@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
+import { MyPage } from './features/account/MyPage'
 import { LoginPage } from './features/auth/LoginPage'
 import { PendingPage } from './features/auth/PendingPage'
 import { LandingPage } from './features/landing/LandingPage'
@@ -36,14 +37,14 @@ function App() {
 
       {/*
         비로그인 진입점은 /login 하나다. 가입도 같은 구글 버튼으로 하므로
-        별도 /signup은 없다 (2-1 §2-1-9, 3-3 결정 13).
+        별도 /signup은 없다 (2-1 §2-1-10, 3-3 결정 13).
       */}
       <Route element={<GuestOnly />}>
         <Route path="/login" element={<LoginPage />} />
       </Route>
 
       {/*
-        저장된 `/signup` 링크로 들어온 사람을 로그인으로 보낸다 (2-1 §2-1-9).
+        저장된 `/signup` 링크로 들어온 사람을 로그인으로 보낸다 (2-1 §2-1-10).
         아래 wildcard에 맡기면 랜딩으로 가는데, 가입하러 온 사람이 길을 다시 찾아야 한다.
       */}
       <Route path="/signup" element={<Navigate to="/login" replace />} />
@@ -58,6 +59,12 @@ function App() {
       {/* 부원 화면 — ACTIVE(USER·ADMIN) */}
       <Route element={<RequireActive />}>
         <Route element={<AppLayout />}>
+          {/*
+            마이페이지. **`PENDING`에게는 닫혀 있다** (spec §3-1-3 매트릭스) — 신청·대기
+            화면이 그쪽의 유일한 인증 화면이다. 탈퇴는 #226이 이 위에 얹는다.
+          */}
+          <Route path="/me" element={<MyPage />} />
+
           <Route path="/notices" element={<NoticeListPage />} />
           <Route path="/notices/:id" element={<NoticeDetailPage />} />
 
@@ -109,13 +116,13 @@ function App() {
         <Route element={<AppLayout />}>
           {/*
             공지 작성·수정은 한 화면이 맡는다. 목록형 "공지 관리" 화면은 두지 않는다 —
-            spec §2-1-9 화면 목록에도 없고, 고정 토글은 공지 목록의 관리 모드에 있다.
+            spec §2-1-10 화면 목록에도 없고, 고정 토글은 공지 목록의 관리 모드에 있다.
           */}
           <Route path="/admin/notices/new" element={<NoticeFormPage />} />
           <Route path="/admin/notices/:id/edit" element={<NoticeFormPage />} />
           <Route path="/admin/members" element={<MemberListPage />} />
           {/*
-            사진 업로드는 ADMIN 전용이다 (spec §2-1-9 화면 목록). 삭제는 별도 화면 없이
+            사진 업로드는 ADMIN 전용이다 (spec §2-1-10 화면 목록). 삭제는 별도 화면 없이
             갤러리 안에서 하되, 그 버튼도 ADMIN에게만 보인다.
           */}
           <Route path="/admin/photos/new" element={<PhotoUploadPage />} />

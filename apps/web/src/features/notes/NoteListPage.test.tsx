@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -27,6 +28,10 @@ const api = vi.hoisted(() => ({
   bookmarkCalls: [] as { page?: number; size?: number }[],
   bookmarked: [] as { id: number; next: boolean }[],
   fail: false,
+  /** 켜면 `list()`가 응답을 붙들고 있는다. 늦게 도착하는 응답을 만들 때 쓴다. */
+  hold: false,
+  /** 붙들린 응답의 resolver. 부르는 쪽이 원하는 순간에 완료시킨다. */
+  held: [] as ((value: unknown) => void)[],
 }))
 
 const NOTE: NoteSummary = {
@@ -48,6 +53,9 @@ vi.mock('@/api/notes', () => ({
   list: (query: NoteQuery) => {
     api.queries.push(query)
     if (api.fail) return Promise.reject(new Error('서버 오류'))
+    if (api.hold) {
+      return new Promise((resolve) => api.held.push(resolve))
+    }
     return Promise.resolve({
       content: [NOTE],
       page: { size: 20, number: 0, totalElements: 1, totalPages: 1 },
@@ -118,6 +126,8 @@ beforeEach(() => {
   api.bookmarkCalls = []
   api.bookmarked = []
   api.fail = false
+  api.hold = false
+  api.held = []
 })
 
 describe('자료 목록', () => {
@@ -258,6 +268,61 @@ describe('자료 목록', () => {
       expect(screen.getByTestId('query')).not.toHaveTextContent('page=')
     })
     expect(screen.getByTestId('query')).toHaveTextContent('semester=FALL')
+  })
+
+  /*
+   * 범위를 넘은 주소로 들어오면 마지막 유효 페이지로 되돌린다 — **그 자리가 0페이지여도
+   * `page=`를 붙이지 않는다** (#283).
+   *
+   * 0페이지는 파라미터가 없는 상태로 표현하기로 했고 페이지 링크·필터 초기화가 그렇게 한다.
+   * 클램프만 `page=0`을 쓰면 **어떻게 도착했느냐에 따라 주소가 달라져** 그 주소가 그대로
+   * 공유·북마크된다. 기존 클램프 사례들이 되돌아갈 곳을 1페이지 이상으로 잡아 이 자리를
+   * 한 번도 밟지 않았다.
+   */
+  it('범위를 넘어 0페이지로 되돌아가도 page 파라미터가 붙지 않는다', async () => {
+    renderList('/notes?category=EXAM&page=5')
+    await screen.findByText('운영체제 중간고사 정리본')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('query')).not.toHaveTextContent('page=')
+    })
+    expect(screen.getByTestId('query')).toHaveTextContent('category=EXAM')
+  })
+
+  /**
+   * **늦게 도착한 조회는 주소를 건드리지 않는다** (#283 후속).
+   *
+   * 범위를 넘은 페이지의 응답이 오는 사이에 사용자가 필터를 바꾸면, 그 응답으로 되돌리기를
+   * 하면 **방금 고른 필터가 사라진다** — 되돌리기의 기준이 그 조회를 낼 때의 낡은 주소이기
+   * 때문이다. `replace`라 히스토리에도 남지 않아 왜 풀렸는지 알 수 없다.
+   *
+   * 조회의 `alive` 가드가 그것을 막는다. 그 가드가 빠지면 이 사례가 깨진다.
+   */
+  it('늦게 도착한 조회가 방금 바꾼 필터를 덮어쓰지 않는다', async () => {
+    api.hold = true
+    renderList('/notes?category=EXAM&page=5')
+
+    // 아직 응답 전이지만 필터는 그려져 있다.
+    fireEvent.change(screen.getByLabelText('학기'), {
+      target: { value: 'FALL' },
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('query')).toHaveTextContent('semester=FALL')
+    })
+
+    // 이제 낡은 조회(page=5)의 응답을 완료시킨다.
+    const stale = api.held[0]
+    api.hold = false
+    await act(async () => {
+      stale({
+        content: [NOTE],
+        page: { size: 20, number: 0, totalElements: 1, totalPages: 1 },
+      })
+    })
+
+    expect(screen.getByTestId('query')).toHaveTextContent('semester=FALL')
+    expect(screen.getByTestId('query')).toHaveTextContent('category=EXAM')
+    expect(screen.getByTestId('query')).not.toHaveTextContent('page=')
   })
 
   /*

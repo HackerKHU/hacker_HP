@@ -14,7 +14,7 @@
 ## 현재 보일러플레이트 범위
 
 - Java 21, Spring Boot 3.5, Gradle Kotlin DSL을 사용한다.
-- 현재 허용된 HTTP 동작은 `/actuator/health`, 구글 OAuth 경로, `GET /auth/csrf`, `GET /auth/me`, `POST /auth/logout`, `POST /auth/application`, `POST /auth/bootstrap-admin`, `GET /admin/users`, `POST /admin/users/approve`, `PATCH /admin/users/{id}/status`, 그리고 API 문서(`/v3/api-docs`, Swagger UI)다.
+- 현재 허용된 HTTP 동작은 `/actuator/health`, 구글 OAuth 경로, `GET /auth/csrf`, `GET /auth/me`, `GET /auth/me/content-summary`, `DELETE /auth/me`, `POST /auth/logout`, `POST /auth/application`, `POST /auth/bootstrap-admin`, `GET /admin/users`, `POST /admin/users/approve`, `PATCH /admin/users/{id}/status`, 그리고 API 문서(`/v3/api-docs`, Swagger UI)다.
 - **API 문서는 로그인해야 볼 수 있다** (#23에서 정했다). `permitAll`에 문서 경로를 더하지 않는다 — 승인제 사이트라 명세가 공개되면 엔드포인트·필드·검증 규칙이 전부 드러난다.
 - **새 API에는 `@Operation`과 `@ApiResponse`를 붙인다.** 응답 코드 설명에는 계약의 에러 코드를 적는다 (`AuthController`가 본보기다).
 - **인증은 `ACCESS_TOKEN`(JWT)과 세션이 함께 있어야 성립한다.** 한쪽만으로 통과시키는 코드를 넣지 않는다 ([3-1 §3-1-5](../../spec/3-1-DESIGN-ARCHITECTURE.md) MUST).

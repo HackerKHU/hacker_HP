@@ -1,13 +1,17 @@
 package org.hackerkhu.hackerhp.domain.note.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteSummaryResponse;
 import org.hackerkhu.hackerhp.domain.note.service.NoteQueryService;
+import org.hackerkhu.hackerhp.global.error.ErrorResponse;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PagedModel;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,6 +47,21 @@ public class BookmarkController {
           검색·필터는 받지 않는다. 이미 본인이 추린 목록이다.
           """)
   @ApiResponse(responseCode = "200", description = "조회 성공")
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED`",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description =
+          "`SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정 · `INACTIVE` — **이번 학기 비활동 부원**",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
   @GetMapping
   @PreAuthorize("isAuthenticated()")
   public PagedModel<NoteSummaryResponse> list(

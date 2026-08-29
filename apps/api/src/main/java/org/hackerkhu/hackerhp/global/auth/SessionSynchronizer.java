@@ -80,6 +80,36 @@ public class SessionSynchronizer {
   }
 
   /**
+   * 여럿을 맞추고 <b>전부 해냈는지</b> 돌려준다 (#230).
+   *
+   * <p>학기 전환은 한 번에 수십~수백 명을 내리는데, 그것도 차단이 강해지는 변경이라 <b>세션에 닿아야 성공이다</b> (2-2 §2-2-5 MUST). 일괄 승인처럼
+   * 성공/실패를 결과로 돌려주지 않는다 — 승인은 완화되는 변경이라 늦게 닿아도 그 사람이 아직 못 쓰는 것뿐이지만, 여기서 한 명이라도 못 닿으면 <b>그 사람은 자료를
+   * 계속 받아 간다.</b>
+   *
+   * <p><b>첫 실패에서 멈추지 않는다.</b> 멈추면 뒤쪽 사람들은 시도조차 되지 않아, 재요청 없이는 아무도 닿지 못한 채로 남는다. 닿을 수 있는 데까지 닿고 나서
+   * 실패를 알린다.
+   *
+   * <p><b>왕복 횟수는 줄이지 않는다.</b> 한 사람씩 도는 것은 계정 행을 잠근 채 세션을 쓰기 때문이고({@link #refreshLocked}), 그 구조를 바꾸는
+   * 것은 커넥션 중첩을 없애는 <a href="https://github.com/HackerKHU/hacker_HP/issues/145">#145</a>의 몫이다. 여기서
+   * 손대면 그 이슈가 재려는 것을 미리 흐린다.
+   */
+  public boolean refreshReporting(Collection<Long> userIds) {
+    requireCommitted();
+    /*
+     * 오름차순으로 돈다. refresh(Collection)과 같은 순서다 — 계정 행을 잠그므로 순서가
+     * 갈리면 동시에 도는 두 갱신이 엇갈린 순서로 같은 행들을 원해 교착한다.
+     *
+     * reduce가 아니라 이렇게 쓰는 이유는 단축 평가를 피하기 위해서다. allMatch는 첫 false에서
+     * 멈춘다.
+     */
+    boolean all = true;
+    for (Long userId : userIds.stream().distinct().sorted().toList()) {
+      all &= refreshOne(userId);
+    }
+    return all;
+  }
+
+  /**
    * <b>차단이 강해지는 변경은 세션에 닿아야 성공이다</b> (#58, #197 리뷰 3차).
    *
    * <p>정지와 권한 회수는 "즉시 차단"을 약속한다 (2-2 §2-2-3 §2-2-5 MUST). 그런데 인가는 매 요청 세션 값으로 판단하고 필터는 {@code

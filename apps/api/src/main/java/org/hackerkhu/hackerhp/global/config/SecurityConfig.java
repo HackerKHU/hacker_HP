@@ -78,7 +78,12 @@ public class SecurityConfig {
            * 여는 것은 "세션이 있는가"라는 답뿐이다. 비로그인에게는 204가 나가고 계정 정보는
            * 한 줄도 실리지 않는다 (§3-2-3).
            */
-          PublicPath.of(HttpMethod.GET, "/api/v1/auth/me", "최초 진입의 세션 확인. 비로그인에게는 204만 나간다"));
+          PublicPath.of(HttpMethod.GET, "/api/v1/auth/me", "최초 진입의 세션 확인. 비로그인에게는 204만 나간다"),
+          /*
+           * 학과 목록 (#166). 신청 폼(PENDING)이 쓰는 값이지만 목록 자체가 민감하지 않아
+           * 굳이 로그인으로 가릴 이유가 없다.
+           */
+          PublicPath.of(HttpMethod.GET, "/api/v1/departments", "신청 폼이 쓰는 고정 목록. 민감한 정보가 아니다"));
 
   /**
    * 공개 경로 한 줄.
@@ -170,8 +175,13 @@ public class SecurityConfig {
                    */
                   .requestMatchers(HttpMethod.POST, "/api/v1/auth/application")
                   .hasAuthority("STATUS_PENDING")
+                  /*
+                   * API 문서는 로그인해야 본다 (#23). PENDING·SUSPENDED는 AccountStatusFilter가
+                   * 앞에서 막으므로 여기 남는 것은 ACTIVE와 INACTIVE다 — 문서는 자료가 아니라
+                   * 비활동 부원에게 막을 이유가 없다 (3-1 §3-1-3, #229).
+                   */
                   .requestMatchers(API_DOCS_PATHS)
-                  .hasAuthority("STATUS_ACTIVE")
+                  .authenticated()
                   /*
                    * 관리자 영역은 접두사로도 막는다. 컨트롤러의 @PreAuthorize와 겹쳐 보이지만
                    * 둘 다 필요하다 — MVC는 메서드를 부르기 전에 본문을 역직렬화하고 @Valid를

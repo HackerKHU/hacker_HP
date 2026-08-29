@@ -16,7 +16,9 @@ import {
 import { ApiError } from '@/api/client'
 import type { Page, Role, User, UserStatus } from '@/api/types'
 import { useSession } from '@/auth/session'
+import { clampedOutOfRange } from '@/components/clampPage'
 import { ListSurface } from '@/components/ListSurface'
+import { parsePage, writePage } from '@/components/Pager'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -246,12 +248,6 @@ function formatDate(iso: string | null): string {
   })
 }
 
-function parsePage(raw: string | null): number {
-  const value = Number(raw ?? '0')
-  if (!Number.isFinite(value)) return 0
-  return Math.max(0, Math.floor(value))
-}
-
 export function MemberListPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { reportApiError } = useSession()
@@ -343,7 +339,13 @@ export function MemberListPage() {
       sort: sort || undefined,
     })
       .then((result) => {
+        /*
+         * **이 조회가 아직 유효할 때만 손댄다.** 조건이 바뀌면 정리 함수가 `alive`를
+         * 내리므로 여기를 건너뛴다 — 그 가드가 아래 되돌리기의 안전장치다.
+         */
         if (!alive) return
+        if (clampedOutOfRange(result, page, searchParams, setSearchParams))
+          return
         setData(result)
       })
       .catch((error: unknown) => {
@@ -354,7 +356,18 @@ export function MemberListPage() {
     return () => {
       alive = false
     }
-  }, [page, keyword, status, applied, role, sort, reloadKey, reportApiError])
+  }, [
+    page,
+    keyword,
+    status,
+    applied,
+    role,
+    sort,
+    reloadKey,
+    reportApiError,
+    searchParams,
+    setSearchParams,
+  ])
 
   /**
    * <b>옛 주소를 새 조합으로 맞춘다.</b>
@@ -418,28 +431,12 @@ export function MemberListPage() {
     setDraft(keyword)
   }, [keyword])
 
-  /**
-   * 범위를 넘은 `page`로 들어오면 마지막 유효 페이지로 되돌린다 (`NoticeListPage`와 같은 규칙).
-   * 그냥 두면 `?page=999`가 "1000 / 3"으로 굳어 이전 버튼을 999번 눌러야 빠져나온다.
-   *
-   * `totalPages`가 0이면 되돌릴 유효 페이지가 없으므로 움직이지 않는다.
-   */
-  useEffect(() => {
-    if (!data) return
-    const { totalPages } = data.page
-    if (totalPages >= 1 && page >= totalPages) {
-      const next = new URLSearchParams(searchParams)
-      next.set('page', String(totalPages - 1))
-      setSearchParams(next, { replace: true })
-    }
-  }, [data, page, searchParams, setSearchParams])
-
   /** 파라미터를 바꾸면 언제나 첫 페이지로 돌아간다. 3페이지에서 조건을 바꾸면 빈 화면이 뜬다. */
   function setParam(key: string, value: string) {
     const next = new URLSearchParams(searchParams)
     if (value === '') next.delete(key)
     else next.set(key, value)
-    next.delete('page')
+    writePage(next, 0)
     setSearchParams(next)
   }
 
@@ -456,7 +453,7 @@ export function MemberListPage() {
     else next.set('status', filter.status)
     if (filter?.applied === undefined) next.delete('applied')
     else next.set('applied', String(filter.applied))
-    next.delete('page')
+    writePage(next, 0)
     setSearchParams(next)
   }
 
@@ -1159,7 +1156,6 @@ export function MemberListPage() {
 /** 페이지만 바꾸고 검색·필터는 유지한다. */
 function pageParams(current: URLSearchParams, next: number): URLSearchParams {
   const params = new URLSearchParams(current)
-  if (next <= 0) params.delete('page')
-  else params.set('page', String(next))
+  writePage(params, next)
   return params
 }

@@ -16,6 +16,7 @@ public enum ErrorCode {
   UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다."),
   PENDING_APPROVAL(HttpStatus.FORBIDDEN, "승인 대기 중인 계정입니다."),
   SUSPENDED(HttpStatus.FORBIDDEN, "정지된 계정입니다."),
+  INACTIVE(HttpStatus.FORBIDDEN, "이번 학기에 활동하지 않는 계정이라 자료를 볼 수 없습니다."),
   FORBIDDEN(HttpStatus.FORBIDDEN, "권한이 없습니다."),
   NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 리소스를 찾을 수 없습니다."),
   DUPLICATE_STUDENT_NO(HttpStatus.CONFLICT, "이미 등록된 학번입니다."),

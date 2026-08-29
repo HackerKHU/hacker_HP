@@ -3,6 +3,8 @@ package org.hackerkhu.hackerhp.domain.note.service;
 import java.time.Instant;
 import org.hackerkhu.hackerhp.domain.note.repository.BookmarkRepository;
 import org.hackerkhu.hackerhp.domain.note.repository.NoteRepository;
+import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.domain.user.service.RequesterCheck;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -25,10 +27,27 @@ public class BookmarkService {
 
   private final BookmarkRepository bookmarks;
   private final NoteRepository notes;
+  private final UserRepository users;
 
-  public BookmarkService(BookmarkRepository bookmarks, NoteRepository notes) {
+  public BookmarkService(BookmarkRepository bookmarks, NoteRepository notes, UserRepository users) {
     this.bookmarks = bookmarks;
     this.notes = notes;
+    this.users = users;
+  }
+
+  /**
+   * <b>저장 직전에 요청자를 다시 확인한다</b> (spec 3-1 §3-1-4 MUST, #229 리뷰).
+   *
+   * <p>필터는 세션 값을 본다. {@code ACTIVE}로 통과한 요청이 잠금을 기다리는 사이에 관리자가 학기 전환을 누르거나 그 사람을 정지시킬 수 있고, 그러면
+   * <b>대기 중이던 담기·빼기가 그대로 커밋된다.</b> 즐겨찾기도 자료 갈래라 같은 규칙을 받는다 (2-1 §2-1-5).
+   *
+   * <p>{@link RequesterCheck#requireNoteAccess}는 {@code SUSPENDED}·{@code PENDING}까지 함께 본다 — 이 경로에는
+   * 그 확인도 없었다.
+   *
+   * <p>잠그는 것은 요청자 자신뿐이라 잠금 순서를 고민할 자리가 아니다. 자료 행은 잠그지 않는다 — 담기는 자료를 바꾸지 않으므로 잠금은 삭제를 기다리게 할 뿐이다.
+   */
+  private void lockAndCheck(Long userId) {
+    RequesterCheck.requireNoteAccess(users.findByIdForUpdate(userId).orElse(null), userId);
   }
 
   /**
@@ -38,6 +57,7 @@ public class BookmarkService {
    */
   @Transactional
   public void add(Long userId, Long noteId) {
+    lockAndCheck(userId);
     if (!notes.existsById(noteId)) {
       throw new BusinessException(ErrorCode.NOT_FOUND, "자료를 찾을 수 없습니다.");
     }
@@ -68,6 +88,7 @@ public class BookmarkService {
    */
   @Transactional
   public void remove(Long userId, Long noteId) {
+    lockAndCheck(userId);
     // 읽지 않고 지운다. 읽고 지우면 겹친 두 요청 중 뒤의 것이 지울 것을 잃고 터진다.
     bookmarks.deleteBookmark(userId, noteId);
   }

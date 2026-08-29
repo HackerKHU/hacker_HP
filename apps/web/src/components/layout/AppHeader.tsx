@@ -1,9 +1,8 @@
 import { Link, NavLink } from 'react-router-dom'
 import type { Role } from '@/api/types'
 import { useSession } from '@/auth/session'
-import { useLogout } from '@/auth/useLogout'
-import { HEADER_ACTION, HEADER_NAV_ITEM } from '@/components/header-nav'
-import { Button } from '@/components/ui/button'
+import { HEADER_NAV_ITEM } from '@/components/header-nav'
+import { AccountMenu } from '@/features/account/AccountMenu'
 import { CLUB } from '@/features/landing/content'
 import { lookup } from '@/lib/lookup'
 import { cn } from '@/lib/utils'
@@ -46,8 +45,6 @@ const MENUS = {
 
 export function AppHeader() {
   const { state } = useSession()
-  // 로그아웃 로직은 랜딩 헤더와 함께 쓴다. 복사하지 않는다.
-  const { logout, failed } = useLogout('/login')
 
   // PENDING은 공지도 볼 수 없으므로 메뉴가 없다. 띄워봤자 눌러도 가드가 되돌린다.
   // 서버 응답도 신뢰 경계다. 계약에 없는 role이 오면 프로토타입 키에 걸려 죽지 않고
@@ -109,16 +106,19 @@ export function AppHeader() {
           ))}
         </nav>
 
+        {/*
+         * **계정은 아이콘 하나다** (#178). 마이페이지와 로그아웃이 그 안에 있다 — 글자
+         * 버튼 둘을 헤더 오른쪽에 늘어놓으면 주요 메뉴가 넷(관리자는 다섯)인 지금 한 줄이
+         * 빡빡하고, 좁은 화면에서 먼저 무너지는 자리가 여기다 (#249).
+         *
+         * **`PENDING`에게도 그린다.** 로그아웃은 그쪽도 쓰기 때문이다 (spec §3-1-3 매트릭스).
+         * 마이페이지 항목만 `ACTIVE`에게 준다 — 띄워봤자 눌러도 가드가 되돌린다.
+         */}
         <div className="ml-auto flex items-center gap-3">
-          {/* 토스트 같은 알림 수단이 아직 없다. 사용자가 실패를 알고 다시 누를 수 있으면 충분하다. */}
-          {failed && (
-            <p role="alert" className="text-sm text-muted-foreground">
-              로그아웃하지 못했습니다. 다시 시도해 주세요.
-            </p>
-          )}
-          <Button variant="ghost" className={HEADER_ACTION} onClick={logout}>
-            로그아웃
-          </Button>
+          <AccountMenu
+            showMyPage={state.kind === 'active'}
+            redirectTo="/login"
+          />
         </div>
       </div>
     </header>

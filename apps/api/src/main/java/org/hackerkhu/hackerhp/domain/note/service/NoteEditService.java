@@ -217,7 +217,7 @@ public class NoteEditService {
 
   private User lockRequester(Long requesterId) {
     User requester = users.findByIdForUpdate(requesterId).orElse(null);
-    RequesterCheck.requireActive(requester, requesterId);
+    RequesterCheck.requireNoteAccess(requester, requesterId);
     return requester;
   }
 
@@ -249,7 +249,7 @@ public class NoteEditService {
    * <p>업로더가 비어 있는 자료(탈퇴한 회원의 것)는 {@code ADMIN}만 손댈 수 있다 — 주인이 없으므로 "본인"이 성립하지 않는다.
    */
   private void requireOwnerOrAdmin(User requester, Note note, Long requesterId) {
-    RequesterCheck.requireActive(requester, requesterId);
+    RequesterCheck.requireNoteAccess(requester, requesterId);
     if (requester.getRole() == Role.ADMIN) {
       return;
     }

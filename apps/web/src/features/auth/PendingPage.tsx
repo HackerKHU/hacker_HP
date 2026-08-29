@@ -1,11 +1,12 @@
-import { type FormEvent, useEffect, useRef, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { submitApplication } from '@/api/auth'
 import { ApiError } from '@/api/client'
+import { getDepartments } from '@/api/departments'
 import { hasApplied, useSession } from '@/auth/session'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { DEPARTMENTS } from './departments'
+import { WithdrawButton } from '@/features/account/WithdrawButton'
 
 /**
  * 입력 상한. **스키마에서 온 값이다** — `student_no varchar(20)` (spec §3-2-2).
@@ -121,6 +122,8 @@ export function PendingPage() {
    * 승인 전까지 고칠 수 있다 (§3-1-6).
    */
   const [editing, setEditing] = useState(false)
+  /** 폼을 그리는가. 최초 신청이거나, 낸 내용을 고치는 중이면 그렇다. */
+  const showForm = applied === false || editing
   /**
    * 사용자가 고친 값. **아직 손대지 않았으면 `null`이고, 그때는 계정에 있는 값을 그대로
    * 보여준다.** 고칠 수 있는 것은 학번·학과뿐이다 — 이름·이메일은 구글 계정의 값이라
@@ -146,6 +149,29 @@ export function PendingPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
+
+  /**
+   * 고를 수 있는 학과. **서버가 내려준다** (`GET /departments`, #166). `null`은 "아직
+   * 안 왔다"이고, 실패는 `departmentsFailed`가 따로 든다 — 빈 배열로 뭉뚱그리면 목록이
+   * 정말 비어 온 경우와 못 받은 경우를 화면이 구분하지 못한다.
+   */
+  const [departments, setDepartments] = useState<string[] | null>(null)
+  const [departmentsFailed, setDepartmentsFailed] = useState(false)
+
+  /**
+   * **못 받으면 신청 자체가 막힌다** (#166). 학과는 필수인데 목록에서만 고를 수 있어,
+   * 조용히 빈 `<select>`를 두면 사용자는 제출이 안 되는 이유를 알 수 없다. 실패를 알리고
+   * 다시 부를 자리를 준다.
+   */
+  const loadDepartments = useCallback(() => {
+    setDepartmentsFailed(false)
+    getDepartments().then(setDepartments, () => setDepartmentsFailed(true))
+  }, [])
+
+  // 대기 안내에는 고를 자리가 없다. 수정을 눌러 폼이 열릴 때 부른다.
+  useEffect(() => {
+    if (showForm) loadDepartments()
+  }, [showForm, loadDepartments])
 
   /**
    * **신청 여부를 모르는 상태를 푼다** (spec §3-1-6 MUST).
@@ -285,7 +311,13 @@ export function PendingPage() {
     )
   }
 
-  const showForm = applied === false || editing
+  /**
+   * 목록이 아직/영영 없어도 **이미 낸 학과는 칸에 남는다.** 없으면 `<select>`의 값이
+   * 어느 `<option>`과도 맞지 않아 빈 칸으로 보이고, 수정하러 들어온 사람은 자기가 낸
+   * 학과가 지워진 줄 안다.
+   */
+  const departmentOptions =
+    departments ?? (values.department === '' ? [] : [values.department])
 
   return (
     <section className={CONTAINER}>
@@ -299,20 +331,16 @@ export function PendingPage() {
             승인 심사에 필요한 정보입니다. 승인 전까지 언제든 고칠 수 있습니다.
           </p>
 
+          {/*
+           * **순서는 "확인하는 것 → 적는 것"이다** (#293). 앞의 둘(이름·이메일)은 구글
+           * 계정에서 온 값이라 고칠 수 없고, 뒤의 둘(학번·학과)은 여기서 채운다. 섞어 두면
+           * 칸을 채우다 막히고 다시 채우기를 반복하게 되고, 어디부터 손대야 하는지가
+           * 순서만으로는 드러나지 않는다.
+           *
+           * **마이페이지와 같은 순서다** (#178 — 이름·이메일·학번·학과). 신청 화면만 다르면
+           * 승인 전후로 같은 정보가 다른 자리에 있어, 확인하러 온 사람이 매번 다시 훑는다.
+           */}
           <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="application-student-no">학번</Label>
-              <Input
-                id="application-student-no"
-                value={values.studentNo}
-                placeholder={STUDENT_NO_PLACEHOLDER}
-                maxLength={STUDENT_NO_MAX}
-                onChange={(event) =>
-                  setDraft({ ...values, studentNo: event.target.value })
-                }
-              />
-            </div>
-
             {/*
              * **이름·이메일은 구글 계정의 값이고 고칠 수 없다** (#224).
              *
@@ -346,6 +374,19 @@ export function PendingPage() {
             </div>
 
             <div className="space-y-2">
+              <Label htmlFor="application-student-no">학번</Label>
+              <Input
+                id="application-student-no"
+                value={values.studentNo}
+                placeholder={STUDENT_NO_PLACEHOLDER}
+                maxLength={STUDENT_NO_MAX}
+                onChange={(event) =>
+                  setDraft({ ...values, studentNo: event.target.value })
+                }
+              />
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="application-department">학과</Label>
               {/*
                 `<option value="">`을 첫 항목으로 둬서 "안 고름"이 눈에 보이게 한다.
@@ -356,17 +397,39 @@ export function PendingPage() {
                 className={SELECT_CLASS}
                 style={SELECT_ARROW}
                 value={values.department}
+                /*
+                 * 아직 못 받았으면 고를 수 없다. 열리는데 안이 비어 있으면 "학과가 없다"로
+                 * 읽힌다 — 목록이 오는 중이라는 것은 아래 문구가 말한다.
+                 */
+                disabled={departments === null}
                 onChange={(event) =>
                   setDraft({ ...values, department: event.target.value })
                 }
               >
-                <option value="">학과를 선택해 주세요</option>
-                {DEPARTMENTS.map((department) => (
+                <option value="">
+                  {departments === null
+                    ? '학과를 불러오는 중'
+                    : '학과를 선택해 주세요'}
+                </option>
+                {departmentOptions.map((department) => (
                   <option key={department} value={department}>
                     {department}
                   </option>
                 ))}
               </select>
+              {departmentsFailed && (
+                <p role="alert" className="text-sm text-muted-foreground">
+                  학과 목록을 불러오지 못했습니다. 학과를 골라야 신청할 수
+                  있습니다.{' '}
+                  <button
+                    type="button"
+                    className="underline underline-offset-4 hover:text-foreground"
+                    onClick={loadDepartments}
+                  >
+                    다시 불러오기
+                  </button>
+                </p>
+              )}
             </div>
 
             {error && (
@@ -415,15 +478,16 @@ export function PendingPage() {
             신청서를 받았습니다. 운영진이 확인한 뒤 승인합니다.
           </p>
 
+          {/* 폼과 같은 순서다 (#293). 제출 전후로 값이 자리를 옮기면 무엇이 저장됐는지 다시 훑게 된다. */}
           {user && (
             <dl className="mt-8 space-y-3 border-t border-border pt-6 text-sm">
               <div className="flex gap-4">
-                <dt className="w-16 shrink-0 text-muted-foreground">학번</dt>
-                <dd>{user.studentNo ?? '—'}</dd>
-              </div>
-              <div className="flex gap-4">
                 <dt className="w-16 shrink-0 text-muted-foreground">이름</dt>
                 <dd>{user.name}</dd>
+              </div>
+              <div className="flex gap-4">
+                <dt className="w-16 shrink-0 text-muted-foreground">학번</dt>
+                <dd>{user.studentNo ?? '—'}</dd>
               </div>
               {/*
                 이 필드가 생기기 전에 신청한 계정은 값이 없다 (§3-2-2). 학번과 같은
@@ -481,6 +545,22 @@ export function PendingPage() {
           </div>
         </>
       )}
+
+      {/*
+        **탈퇴 진입점** (spec §3-1-6 MUST, 5-TESTING T-390). `PENDING`은 마이페이지를 볼 수
+        없으므로 **탈퇴가 화면에 드러나는 곳이 여기뿐이다** — 없으면 구글 로그인만 해보고
+        신청서를 내지 않은 사람이 자기 계정을 지울 방법이 아예 없다. 그 계정은
+        승인 목록(`status=PENDING&applied=true`)에도 뜨지 않아 관리자 눈에도 안 띈다.
+
+        **두 모습 모두에 둔다** (MUST). 삼항 밖에 두어 신청 폼에서도 대기 안내에서도 보인다 —
+        마음이 바뀌는 것은 신청서를 내기 전에도 낸 뒤에도 일어난다.
+
+        로그아웃(헤더)과 **나란히 두되 같은 무게로 두지 않는다.** 되돌릴 수 없는 조작이라
+        구분선 아래 글자 버튼 하나이고, 확인 창을 거친다.
+      */}
+      <div className="mt-10 flex flex-col items-end gap-2 border-t border-border pt-4">
+        <WithdrawButton />
+      </div>
     </section>
   )
 }

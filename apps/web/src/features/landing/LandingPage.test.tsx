@@ -65,6 +65,21 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+/**
+ * 랜딩 헤더의 계정 메뉴를 연다. **앱 헤더와 같은 컴포넌트다** (#178).
+ *
+ * Radix 메뉴는 `pointerdown`으로 열린다 — `click`만 쏘면 안 열린다. jsdom에 `PointerEvent`가
+ * 없어 `MouseEvent`로 대신 만든다 (`MemberListPage.test.tsx`와 같은 방식).
+ */
+async function openAccountMenu() {
+  const trigger = await screen.findByRole('button', { name: '계정 메뉴' })
+  fireEvent.pointerDown(
+    trigger,
+    new MouseEvent('pointerdown', { bubbles: true, button: 0 }),
+  )
+  return await screen.findByRole('menu')
+}
+
 describe('공개 랜딩', () => {
   /*
    * T-57~T-59, T-61 — 어느 세션 상태에서도 가드에 걸리지 않고 그대로 렌더된다.
@@ -209,7 +224,8 @@ describe('랜딩 헤더 상태별 진입점', () => {
     expect(apply).toHaveAttribute('href', '/login')
     expect(apply).not.toHaveAttribute('target')
     expect(screen.queryByRole('button', { name: '지원하기' })).toBeNull()
-    expect(screen.queryByRole('button', { name: '로그아웃' })).toBeNull()
+    // 비로그인 헤더는 그대로다 — 계정 메뉴는 로그인한 사람에게만 있다.
+    expect(screen.queryByRole('button', { name: '계정 메뉴' })).toBeNull()
   })
 
   // spec §3-1-4 — PENDING 안에 두 상태가 있다. 신청도 안 한 사람에게
@@ -230,7 +246,16 @@ describe('랜딩 헤더 상태별 진입점', () => {
       await screen.findByRole('link', { name: '지원하기' }),
     ).toHaveAttribute('href', '/pending')
     expect(screen.queryByRole('link', { name: '승인 대기 중' })).toBeNull()
-    expect(screen.getByRole('button', { name: '로그아웃' })).toBeInTheDocument()
+    /*
+     * `PENDING`에게는 마이페이지 항목이 없다 (spec §3-1-3 매트릭스). 메뉴 자체는 열린다 —
+     * 로그아웃이 그 안에 있고, 매트릭스에서 로그아웃은 `PENDING`도 `O`다.
+     */
+    const menu = await openAccountMenu()
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['로그아웃'])
   })
 
   it('신청서를 낸 PENDING에게는 승인 대기 중이 보인다', async () => {
@@ -247,7 +272,12 @@ describe('랜딩 헤더 상태별 진입점', () => {
       await screen.findByRole('link', { name: '승인 대기 중' }),
     ).toHaveAttribute('href', '/pending')
     expect(screen.queryByRole('link', { name: '지원하기' })).toBeNull()
-    expect(screen.getByRole('button', { name: '로그아웃' })).toBeInTheDocument()
+    const menu = await openAccountMenu()
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['로그아웃'])
   })
 
   /*
@@ -403,7 +433,7 @@ describe('랜딩 헤더 상태별 진입점', () => {
     }
   })
 
-  it('ACTIVE에게는 부원 화면 링크와 로그아웃이 보인다', async () => {
+  it('ACTIVE에게는 부원 화면 링크와 계정 메뉴가 보인다', async () => {
     auth.me = () => Promise.resolve(BASE)
 
     renderLanding()
@@ -415,8 +445,21 @@ describe('랜딩 헤더 상태별 진입점', () => {
         href,
       )
     }
-    expect(screen.getByRole('button', { name: '로그아웃' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '지원하기' })).toBeNull()
+
+    /*
+     * **앱 헤더와 같은 계정 메뉴다** (#178). 랜딩에서 부원 화면으로 넘어갈 때 같은 자리에
+     * 같은 아이콘·같은 항목이 있어야 한다 — 복사해 두면 한쪽만 고쳐진다.
+     */
+    const menu = await openAccountMenu()
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['마이페이지', '로그아웃'])
+    expect(
+      within(menu).getByRole('menuitem', { name: '마이페이지' }),
+    ).toHaveAttribute('href', '/me')
   })
 
   /*

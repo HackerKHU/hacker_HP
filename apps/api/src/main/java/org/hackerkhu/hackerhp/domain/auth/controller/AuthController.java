@@ -12,9 +12,12 @@ import jakarta.validation.Valid;
 import org.hackerkhu.hackerhp.domain.auth.dto.ApplicationRequest;
 import org.hackerkhu.hackerhp.domain.auth.dto.BootstrapRequest;
 import org.hackerkhu.hackerhp.domain.auth.dto.MeResponse;
+import org.hackerkhu.hackerhp.domain.user.dto.ContentSummaryResponse;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.domain.user.service.AdminBootstrapService;
 import org.hackerkhu.hackerhp.domain.user.service.UserApplicationService;
+import org.hackerkhu.hackerhp.domain.user.service.UserContentSummaryService;
+import org.hackerkhu.hackerhp.domain.user.service.UserRemovalService;
 import org.hackerkhu.hackerhp.global.auth.AccessTokenCookie;
 import org.hackerkhu.hackerhp.global.auth.PublicApi;
 import org.hackerkhu.hackerhp.global.error.ErrorResponse;
@@ -24,6 +27,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -47,18 +51,24 @@ public class AuthController {
   private final CsrfTokenRepository csrfTokenRepository;
   private final UserApplicationService userApplicationService;
   private final AdminBootstrapService adminBootstrapService;
+  private final UserContentSummaryService userContentSummaryService;
+  private final UserRemovalService userRemovalService;
 
   public AuthController(
       UserRepository userRepository,
       AccessTokenCookie accessTokenCookie,
       CsrfTokenRepository csrfTokenRepository,
       UserApplicationService userApplicationService,
-      AdminBootstrapService adminBootstrapService) {
+      AdminBootstrapService adminBootstrapService,
+      UserContentSummaryService userContentSummaryService,
+      UserRemovalService userRemovalService) {
     this.userRepository = userRepository;
     this.accessTokenCookie = accessTokenCookie;
     this.csrfTokenRepository = csrfTokenRepository;
     this.userApplicationService = userApplicationService;
     this.adminBootstrapService = adminBootstrapService;
+    this.userContentSummaryService = userContentSummaryService;
+    this.userRemovalService = userRemovalService;
   }
 
   /**
@@ -257,6 +267,121 @@ public class AuthController {
   @PostMapping("/logout")
   @PreAuthorize("isAuthenticated()")
   public ResponseEntity<Void> logout(HttpServletRequest request, HttpServletResponse response) {
+    HttpSession session = request.getSession(false);
+    if (session != null) {
+      session.invalidate();
+    }
+    accessTokenCookie.clear(response);
+    return ResponseEntity.noContent().build();
+  }
+
+  /**
+   * 탈퇴하면 <b>무엇이 남는지</b> (spec 2-2 §2-2-4 MUST, #223).
+   *
+   * <p><b>관리자용 경로를 열어 쓰지 않는다.</b> 그쪽은 {@code {id}}를 받으므로 열면 <b>남의 콘텐츠 건수를 세어 볼 수 있다.</b> 여기는 대상이
+   * 언제나 요청자 자신이라 id를 받지 않는다.
+   *
+   * <p><b>{@code PENDING}도 부른다.</b> 건수는 전부 {@code 0}이겠지만 화면이 그것을 확인하고 창을 그린다 — 상태에 따라 확인 창의 모양이 갈리면
+   * 그 분기가 두 벌이 된다.
+   */
+  @Operation(
+      summary = "탈퇴하면 남을 내 콘텐츠 건수",
+      description =
+          """
+          탈퇴 확인 창이 쓰는 값이다. **네 값을 항상 담는다** — `0`을 빼면 화면이 "없음"과
+          "모름"을 가르지 못한다.
+
+          계정이 사라지고 작성자 관계가 끊기면 **본인도 운영자도 그 콘텐츠를 다시 찾을 수
+          없다.** 그래서 지우기 전에 남을 것을 보여준다.
+          """)
+  @ApiResponse(responseCode = "200", description = "자료·공지·활동사진·게시글 건수")
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED`",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description = "`SUSPENDED` — 정지된 계정은 이 경로에 닿지 못한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @GetMapping("/me/content-summary")
+  @PreAuthorize("isAuthenticated()")
+  public ContentSummaryResponse myContentSummary(@AuthenticationPrincipal Long userId) {
+    return userContentSummaryService.of(userId);
+  }
+
+  /**
+   * 회원 탈퇴 (spec 2-2 §2-2-4 "본인 탈퇴", #223).
+   *
+   * <p><b>처리는 관리자의 회원 제거와 같다</b> — 자료·공지·활동사진·게시글은 남고 작성자가 "탈퇴한 회원"이 되며, 즐겨찾기는 함께 사라진다. 규칙은 {@link
+   * org.hackerkhu.hackerhp.domain.user.service.UserRemovalService}에 한 벌만 있다.
+   *
+   * <p><b>{@code PENDING}도 부를 수 있다</b> (MUST). 막으면 구글 로그인만 해보고 신청서를 내지 않은 사람이 <b>자기 계정을 지울 방법이
+   * 없다</b> — 그 계정은 승인 목록에 뜨지 않아 관리자 눈에도 띄지 않는다.
+   *
+   * <p><b>{@code SUSPENDED}는 {@code AccountStatusFilter}가 먼저 막는다.</b> 탈퇴를 위한 예외를 뚫지 않는다 — 열면 정지된
+   * 사람이 탈퇴 후 재가입으로 정지를 지운다.
+   */
+  @Operation(
+      summary = "회원 탈퇴",
+      description =
+          """
+          내 계정을 지운다. **자료·공지·활동사진·게시글은 남고** 작성자 표시가 "탈퇴한 회원"으로
+          바뀐다. 즐겨찾기는 함께 사라진다.
+
+          **같은 구글 계정으로 다시 가입할 수 있다** — 계정 레코드를 지우므로 붙잡는 행이 남지
+          않는다.
+
+          응답이 **세션과 신원 토큰 쿠키를 함께 버린다.** 저장소의 세션 행만 지우면 이 요청에
+          붙어 있는 세션이 응답을 내보낼 때 되살아난다.
+          """)
+  @ApiResponse(responseCode = "204", description = "탈퇴됨")
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED`",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description = "`FORBIDDEN` — **마지막 활성 관리자는 탈퇴할 수 없다.** / `SUSPENDED` — 정지된 계정은 이 경로에 닿지 못한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "409",
+      description = "`CONCURRENT_CHANGE` — 지우기 직전에 관리자가 계정을 되살렸다. **다시 시도하면 된다**",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "500",
+      description =
+          "`INTERNAL_ERROR` — 정지가 세션에 반영되지 않아 탈퇴를 멈췄다. **계정이 정지된 채로 남아 본인은 이어갈 수 없으므로 운영자가 이어받는다**",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @DeleteMapping("/me")
+  @PreAuthorize("isAuthenticated()")
+  public ResponseEntity<Void> withdraw(
+      @AuthenticationPrincipal Long userId,
+      HttpServletRequest request,
+      HttpServletResponse response) {
+    userRemovalService.withdraw(userId);
+    /*
+     * 본인을 지웠다. 저장소의 세션 행은 이미 사라졌지만, 이 요청에 붙어 있는 세션은 응답을
+     * 내보낼 때 다시 저장된다 — 방금 지운 세션이 되살아나 만료까지 남는다 (2-2 §2-2-4 MUST).
+     * 로그아웃과 같은 처리다.
+     */
     HttpSession session = request.getSession(false);
     if (session != null) {
       session.invalidate();

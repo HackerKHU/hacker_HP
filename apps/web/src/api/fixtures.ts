@@ -26,7 +26,6 @@
  * 타입이 계약을 강제하는 것이 이 파일의 존재 이유다.
  */
 
-import { DEPARTMENTS } from '@/features/auth/departments'
 import type {
   AdminUserQuery,
   ApproveResult,
@@ -144,6 +143,31 @@ let application: {
   department: string
 } | null = null
 
+/**
+ * 학과 목록 (`GET /departments`, #166). **원본은 서버의 `Department.ALL`이고 여기 있는 것은
+ * 더미다** — 화면이 목록을 갖던 사본(`features/auth/departments.ts`)은 #166에서 지웠다.
+ *
+ * 전부 옮겨 적지 않는다. 이 파일은 서버가 붙으면 통째로 지우는 임시 계층이라, 103개를
+ * 베껴 두면 지워야 할 사본이 이름만 바꿔 되살아난다.
+ *
+ * **다만 길이는 실제와 맞춘다.** 개수는 네이티브 `<select>`에서 OS 피커가 처리해 화면에
+ * 드러나지 않지만, 가장 긴 이름은 닫힌 칸에 그대로 그려져 잘리거나 화살표를 밀 수 있다.
+ * 짧은 이름만 두면 그 위험을 화면에서 볼 수가 없다. 마지막 항목이 서버 목록에서 가장 넓은
+ * 축의 이름이다 — 라틴 문자가 섞여 글꼴 대체까지 함께 걸린다.
+ */
+const DEPARTMENTS = [
+  '컴퓨터공학과',
+  '인공지능학과',
+  '소프트웨어융합학과',
+  '전자공학과',
+  '경영학과',
+  '글로벌Hospitality·관광학과',
+] as const
+
+export function fixtureDepartments(): Promise<string[]> {
+  return Promise.resolve([...DEPARTMENTS])
+}
+
 export function fixtureMe(): Promise<User | null> {
   // 서버가 세션이 없으면 204로 답한다 (#190). 오류가 아니라 "비로그인"이라는 답이다.
   if (SCENARIO === 'guest') return Promise.resolve(null)
@@ -173,6 +197,60 @@ export function fixtureMe(): Promise<User | null> {
    */
   if (SCENARIO === 'admin') return Promise.resolve(self())
   return Promise.resolve(USERS[SCENARIO])
+}
+
+/**
+ * 탈퇴하면 남을 콘텐츠 (`GET /auth/me/content-summary`, #226).
+ *
+ * **네 값을 항상 담는다** (계약 MUST) — `0`을 빼면 확인 창이 "없음"과 "모름"을 가르지
+ * 못한다. `PENDING`도 부를 수 있고 그때는 전부 `0`이다: 신청서만 낸 계정에는 올린 것이
+ * 없다. 관리자용 경로와 달리 대상이 언제나 본인이라 id를 받지 않는다.
+ */
+export function fixtureMyContentSummary(): Promise<ContentSummary> {
+  if (SCENARIO === 'guest') {
+    return Promise.reject(
+      new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
+    )
+  }
+  if (SCENARIO === 'applying' || SCENARIO === 'pending') {
+    return Promise.resolve({ notes: 0, notices: 0, photos: 0, posts: 0 })
+  }
+  return Promise.resolve({ notes: 3, notices: 0, photos: 5, posts: 2 })
+}
+
+/**
+ * 회원 탈퇴 (`DELETE /auth/me`). **되돌릴 수 없다.**
+ *
+ * **마지막 활성 관리자 보호를 함께 흉내 낸다** (2-2 §2-2-7 MUST). 통과시키면 그 실패
+ * 화면을 픽스처만으로 만들 수 없다 — 명부에 활성 관리자가 본인뿐인 `admin` 시나리오가
+ * 정확히 그 경우다.
+ *
+ * 세션 폐기·쿠키 정리는 서버 몫이라 흉내 낼 것이 없다. 화면은 `204`만 보고 움직인다.
+ */
+export function fixtureWithdraw(): Promise<void> {
+  if (SCENARIO === 'guest') {
+    return Promise.reject(
+      new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
+    )
+  }
+  if (
+    SCENARIO === 'admin' &&
+    !MEMBERS.some(
+      (user) =>
+        user.id !== SELF_ID &&
+        user.role === 'ADMIN' &&
+        user.status === 'ACTIVE',
+    )
+  ) {
+    return Promise.reject(
+      new ApiError(
+        'FORBIDDEN',
+        403,
+        '마지막 활성 관리자는 탈퇴할 수 없습니다. 다른 관리자를 지정한 뒤 다시 시도해 주세요.',
+      ),
+    )
+  }
+  return Promise.resolve()
 }
 
 /**
