@@ -1120,3 +1120,148 @@ describe('게시판 픽스처', () => {
     expect(error).toBeInstanceOf(ApiError)
   })
 })
+
+/**
+ * 비활동 시나리오 (#231, spec 3-1 §3-1-2).
+ *
+ * **"자료 말고는 다 된다"를 픽스처가 지키는지.** 막히는 쪽만 재면 `SUSPENDED` 옆에
+ * 끼워 넣은 구현 — 무엇을 부르든 거절하는 것 — 도 정답으로 보인다 (5-TESTING T-335 노트).
+ * 그래서 여기서는 **열려 있어야 할 것**을 먼저 본다.
+ */
+describe('비활동 시나리오 픽스처', () => {
+  it('세션이 살아 있고 INACTIVE / USER다', async () => {
+    const { fixtureMe } = await loadFixtures('inactive')
+
+    const me = await signedIn(fixtureMe)
+
+    expect(me.status).toBe('INACTIVE')
+    // `INACTIVE`는 언제나 `USER`다 (3-1 §3-1-2 MUST) — ADMIN/INACTIVE는 만들지 않는다.
+    expect(me.role).toBe('USER')
+  })
+
+  /*
+   * 매트릭스의 `USER (INACTIVE)` 열에서 자료 네 행만 `X`이고 **나머지 열여덟은 `ACTIVE`와
+   * 같다** (3-1 §3-1-3). 그중 화면이 실제로 부르는 것들을 여기서 확인한다.
+   */
+  it('공지·활동사진·게시판 조회와 게시판 작성은 그대로 된다', async () => {
+    const { fixtureNotices, fixturePhotos, fixturePosts, fixtureCreatePost } =
+      await loadFixtures('inactive')
+
+    await expect(fixtureNotices()).resolves.toBeTruthy()
+    await expect(fixturePhotos()).resolves.toBeTruthy()
+    await expect(fixturePosts()).resolves.toBeTruthy()
+
+    const written = await fixtureCreatePost({
+      title: '비활동 부원도 글을 쓴다',
+      content: '자료만 막힌다 (3-1 §3-1-2).',
+    })
+    expect(written.title).toBe('비활동 부원도 글을 쓴다')
+  })
+
+  /*
+   * **자료 갈래 전체가 막힌다** (3-1 §3-1-2 MUST). 서버는 경로 접두사로 막지만 픽스처에는
+   * 지나갈 경로가 없어 함수마다 막는다 — 그래서 **목록을 손으로 옮겨 순회한다.** 한
+   * 함수라도 빠지면 픽스처로 만든 화면에서만 자료가 열린다 (T-338과 같은 이유).
+   */
+  it('자료·즐겨찾기 경로가 전부 403 INACTIVE로 거절된다', async () => {
+    const fixtures = await loadFixtures('inactive')
+    const { ApiError } = fixtures
+
+    const calls: [string, () => Promise<unknown>][] = [
+      ['목록', () => fixtures.fixtureNotes()],
+      ['상세', () => fixtures.fixtureNote(1)],
+      ['필터 옵션', () => fixtures.fixtureNoteFilters()],
+      ['즐겨찾기 목록', () => fixtures.fixtureBookmarks()],
+      ['즐겨찾기 담기', () => fixtures.fixtureSetBookmark(1, true)],
+      ['업로드 URL 발급', () => fixtures.fixtureUploadUrls([])],
+      [
+        '등록',
+        () =>
+          fixtures.fixtureCreateNote({
+            category: 'SUBJECT',
+            title: '제목',
+            subjectName: '운영체제',
+            professor: null,
+            year: 2026,
+            semester: 'SPRING',
+            examType: null,
+            files: [],
+          }),
+      ],
+      [
+        '수정',
+        () =>
+          fixtures.fixtureUpdateNote(1, {
+            category: 'SUBJECT',
+            title: '제목',
+            subjectName: '운영체제',
+            professor: null,
+            year: 2026,
+            semester: 'SPRING',
+            examType: null,
+            files: [],
+          }),
+      ],
+      ['삭제', () => fixtures.fixtureRemoveNote(1)],
+      ['내려받기 URL 발급', () => fixtures.fixtureDownloadUrl(1, 1)],
+    ]
+
+    for (const [label, call] of calls) {
+      const caught = await call().then(
+        () => null,
+        (error: unknown) => error,
+      )
+      expect(caught, `${label}이 거절되지 않았다`).toBeInstanceOf(ApiError)
+      expect((caught as InstanceType<typeof ApiError>).code).toBe('INACTIVE')
+      expect((caught as InstanceType<typeof ApiError>).status).toBe(403)
+    }
+  })
+
+  /*
+   * **코드와 메시지는 서버의 것과 같아야 한다** (`ErrorCode.INACTIVE`). 화면이 `403`을
+   * 코드로 갈라 안내를 정하므로(3-1 §3-1-5), `FORBIDDEN`을 돌려주면 픽스처로 만든 화면은
+   * "권한이 없습니다"를 띄우고 **비활동 안내 경로는 한 번도 실행되지 않는다.**
+   */
+  it('거절의 코드와 메시지가 서버의 것과 같다', async () => {
+    const { fixtureNotes, ApiError } = await loadFixtures('inactive')
+
+    const caught = await fixtureNotes().then(
+      () => null,
+      (error: unknown) => error,
+    )
+
+    expect(caught).toBeInstanceOf(ApiError)
+    expect((caught as InstanceType<typeof ApiError>).message).toBe(
+      '이번 학기에 활동하지 않는 계정이라 자료를 볼 수 없습니다.',
+    )
+  })
+
+  /* 신청 API는 `PENDING` 전용이다 (계약 §3-2-3, T-50) — 비활동 부원은 신청 대상이 아니다. */
+  it('신청서는 낼 수 없다', async () => {
+    const { fixtureApplication, ApiError } = await loadFixtures('inactive')
+
+    const caught = await fixtureApplication({
+      studentNo: '2021123456',
+      department: '컴퓨터공학과',
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    )
+
+    expect(caught).toBeInstanceOf(ApiError)
+    expect((caught as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+  })
+
+  /* 관리 API는 `ADMIN` 전용이다 — 비활동 부원에게 권한이 열리면 매트릭스가 어긋난다. */
+  it('회원 관리는 열리지 않는다', async () => {
+    const { fixtureAdminUsers, ApiError } = await loadFixtures('inactive')
+
+    const caught = await fixtureAdminUsers().then(
+      () => null,
+      (error: unknown) => error,
+    )
+
+    expect(caught).toBeInstanceOf(ApiError)
+    expect((caught as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+  })
+})

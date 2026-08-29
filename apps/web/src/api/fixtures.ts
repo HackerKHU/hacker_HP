@@ -60,6 +60,10 @@ import type { Page, Role, User } from './types'
  *
  * - `user`      ACTIVE / USER
  * - `admin`     ACTIVE / ADMIN
+ * - `inactive`  INACTIVE / USER — **자료만 막힌 부원** (spec 3-1 §3-1-2, #228). `user`와 같은
+ *               사람이고 상태만 다르다: 공지·갤러리·자유게시판·마이페이지는 그대로 열리고
+ *               자료 갈래만 `403 INACTIVE`다. 헤더의 비활동 표시(#231)를 눈으로 보려면
+ *               이 시나리오여야 한다 — "은근하게"는 화면을 띄워 보지 않고는 판정할 수 없다
  * - `applying`  PENDING, 신청서 미제출 — 신청 폼을 봐야 하는 상태 (spec 3-1-6)
  * - `pending`   PENDING, 신청서 제출 완료 — 승인 대기 안내를 봐야 하는 상태
  * - `guest`     세션 없음. getMe가 `null` (서버는 204, #190)
@@ -69,9 +73,19 @@ import type { Page, Role, User } from './types'
  * `/login?error=...`로 되돌리므로(계약 §3-2-3), 그 화면은 주소로 직접 열어 만든다.
  * 시나리오로 두면 `guest`와 결과가 같아 아무것도 구분하지 못한다.
  */
-type Scenario = 'user' | 'admin' | 'applying' | 'pending' | 'guest' | 'blocked'
+type Scenario =
+  | 'user'
+  | 'admin'
+  | 'inactive'
+  | 'applying'
+  | 'pending'
+  | 'guest'
+  | 'blocked'
 
 const SCENARIO = (import.meta.env.VITE_FIXTURE_SCENARIO ?? 'user') as Scenario
+
+/** 계정이 `PENDING`인 시나리오. 신청 API는 이들에게만 열린다 (계약 §3-2-3, T-50). */
+const PENDING_SCENARIOS: Scenario[] = ['applying', 'pending', 'blocked']
 
 const BASE = {
   id: 1,
@@ -84,13 +98,28 @@ const BASE = {
 } as const
 
 const USERS: Record<
-  'user' | 'admin' | 'applying' | 'pending' | 'blocked',
+  'user' | 'admin' | 'inactive' | 'applying' | 'pending' | 'blocked',
   User
 > = {
   user: {
     ...BASE,
     role: 'USER',
     status: 'ACTIVE',
+    approvedAt: '2026-03-03T09:00:00Z',
+  },
+  /*
+   * **`user`와 같은 사람이다.** id·이름·이메일까지 같고 `status`만 다르다 — 지난 학기에
+   * 활동하던 부원이 이번 학기에 내려간 것이 이 상태의 실제 모습이고([2-2 §2-2-3]),
+   * 같은 사람으로 두면 자료 작성자·게시글 작성자를 고르는 곳(`viewer()` 등)이 시나리오를
+   * 하나 더 알 필요가 없다.
+   *
+   * **`INACTIVE`는 언제나 `USER`다** (3-1 §3-1-2 MUST) — `ADMIN`/`INACTIVE` 조합은 만들지
+   * 않는다. 그래서 관리자용 시나리오를 따로 두지 않았다.
+   */
+  inactive: {
+    ...BASE,
+    role: 'USER',
+    status: 'INACTIVE',
     approvedAt: '2026-03-03T09:00:00Z',
   },
   admin: {
@@ -271,9 +300,15 @@ export function fixtureApplication(body: {
       new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
     )
   }
-  // 신청 API는 PENDING 전용이다 (계약 §3-2-3, T-50). 픽스처가 이걸 허용하면
-  // 승인 후 학번을 바꾸는 회귀가 화면 개발 중에 드러나지 않는다.
-  if (SCENARIO === 'user' || SCENARIO === 'admin') {
+  /*
+   * 신청 API는 PENDING 전용이다 (계약 §3-2-3, T-50). 픽스처가 이걸 허용하면
+   * 승인 후 학번을 바꾸는 회귀가 화면 개발 중에 드러나지 않는다.
+   *
+   * **허용하는 쪽을 적는다.** `user`·`admin`을 막는 식으로 적었더니 `inactive`가 늘었을 때
+   * 조용히 통과했다 — 그 계정은 `PENDING`이 아니라 신청서를 낼 수 없다. 여기는 기본이
+   * 닫힘이어야 하는 자리다.
+   */
+  if (!PENDING_SCENARIOS.includes(SCENARIO)) {
     return Promise.reject(
       new ApiError('FORBIDDEN', 403, '승인된 계정은 신청서를 낼 수 없습니다.'),
     )
@@ -1115,9 +1150,34 @@ function pageOf(
   }
 }
 
+/**
+ * 자료 갈래는 비활동 부원에게 닫혀 있다 (spec 3-1 §3-1-2 MUST, 계약 §3-2-4의 열한 경로).
+ *
+ * **코드와 메시지는 서버의 것을 그대로 쓴다** (`ErrorCode.INACTIVE`). 화면이 `403`을 코드로
+ * 갈라 안내를 정하므로([3-1 §3-1-5](3-1-DESIGN-ARCHITECTURE.md)), 여기서 `FORBIDDEN`을
+ * 돌려주면 픽스처로 만든 화면은 *"권한이 없습니다"* 를 띄우고 **비활동 안내 경로는 한 번도
+ * 실행되지 않는다.**
+ *
+ * **서버는 경로 접두사로 막고**(`/api/v1/notes/**`·`/api/v1/bookmarks/**`, #229) 여기는
+ * 함수마다 막는다 — 픽스처에는 지나갈 경로가 없기 때문이다. 그래서 **기본이 열림이다**:
+ * 자료 픽스처를 새로 만들면 이 줄을 직접 넣어야 한다. 빠뜨리면 비활동 부원에게 열린 채로
+ * 남고, 그 상태는 서버가 막아 주므로 화면에서만 어긋난다.
+ */
+function requireNoteAccess(): ApiError | null {
+  if (SCENARIO !== 'inactive') return null
+  return new ApiError(
+    'INACTIVE',
+    403,
+    '이번 학기에 활동하지 않는 계정이라 자료를 볼 수 없습니다.',
+  )
+}
+
 export function fixtureNotes(
   query: NoteQuery = {},
 ): Promise<Page<NoteSummary>> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
   const matched = NOTES.filter((note) => matchesNote(note, query))
     .map(toSummary)
     /*
@@ -1133,6 +1193,9 @@ export function fixtureNotes(
 }
 
 export function fixtureNote(id: number): Promise<NoteDetail> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
   const found = NOTES.find((note) => note.id === id)
   if (!found) {
     return Promise.reject(
@@ -1147,6 +1210,9 @@ export function fixtureNote(id: number): Promise<NoteDetail> {
  * 자료를 추가했을 때 옵션이 따라오지 않아, 고를 수 없는 과목이 생긴다.
  */
 export function fixtureNoteFilters(): Promise<NoteFilterOptions> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
   return Promise.resolve({
     subjects: [...new Set(NOTES.map((note) => note.subjectName))].sort((a, b) =>
       a.localeCompare(b),
@@ -1166,6 +1232,9 @@ export function fixtureNoteFilters(): Promise<NoteFilterOptions> {
 export function fixtureBookmarks(
   query: { page?: number; size?: number } = {},
 ): Promise<Page<NoteSummary>> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
   /*
    * **담긴 순서다** (계약 §3-2-4) — 자료 등록 시각이 아니다. 그리고 이 목록의
    * `bookmarked`는 언제나 참이다: 목록에 있다는 것이 곧 담겨 있다는 뜻이다.
@@ -1178,6 +1247,9 @@ export function fixtureBookmarks(
 }
 
 export function fixtureSetBookmark(id: number, next: boolean): Promise<void> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
   const found = NOTES.find((note) => note.id === id)
   /*
    * **담기는 없는 자료에 `404`, 빼기는 그래도 성공이다** (계약 §3-2-4). 자료가 지워지면
@@ -1216,6 +1288,9 @@ const FIXTURE_MAX_BYTES = 20 * 1024 * 1024
 const FIXTURE_MAX_FILES = 10
 
 export function fixtureUploadUrls(files: UploadCandidate[]): Promise<Upload[]> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
   if (files.length === 0 || files.length > FIXTURE_MAX_FILES) {
     return Promise.reject(
       new ApiError(
@@ -1305,6 +1380,9 @@ function toFiles(files: UploadedFile[]): NoteFile[] {
 export function fixtureCreateNote(
   body: NoteMetadata & { files: UploadedFile[] },
 ): Promise<NoteDetail> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
   const invalid = validateNote(body)
   if (invalid) return Promise.reject(invalid)
 
@@ -1328,6 +1406,9 @@ export function fixtureUpdateNote(
   id: number,
   body: NoteMetadata & { files: FileRef[] },
 ): Promise<NoteDetail> {
+  const blocked = requireNoteAccess()
+  if (blocked) return Promise.reject(blocked)
+
   const found = NOTES.find((note) => note.id === id)
   if (!found) {
     return Promise.reject(
@@ -1368,6 +1449,9 @@ export function fixtureUpdateNote(
 }
 
 export function fixtureRemoveNote(id: number): Promise<void> {
+  const blocked = requireNoteAccess()
+  if (blocked) return Promise.reject(blocked)
+
   const found = NOTES.find((note) => note.id === id)
   if (!found) {
     return Promise.reject(
@@ -1440,6 +1524,9 @@ export function fixtureDownloadUrl(
   noteId: number,
   fileId: number,
 ): Promise<DownloadUrl> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
   const note = NOTES.find((item) => item.id === noteId)
   const file = note?.files.find((item) => item.id === fileId)
   /*
