@@ -9,7 +9,7 @@ import {
   remove,
   setBookmark,
 } from '@/api/notes'
-import { useSession } from '@/auth/session'
+import { isInactive, useSession } from '@/auth/session'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +32,7 @@ import {
   formatDate,
   formatSize,
   NOTES_PATH,
+  noteErrorText,
   SEMESTER_LABEL,
 } from './labels'
 
@@ -47,7 +48,8 @@ type Status = 'loading' | 'loaded' | 'notFound' | 'failed'
 export function NoteDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { state, reportApiError } = useSession()
+  const session = useSession()
+  const { state, reportApiError } = session
 
   const [note, setNote] = useState<NoteDetail | null>(null)
   const [status, setStatus] = useState<Status>('loading')
@@ -173,7 +175,7 @@ export function NoteDetailPage() {
 
       {status === 'failed' && (
         <p role="alert" className="mt-8 text-sm text-muted-foreground">
-          자료를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+          {noteErrorText(isInactive(session))}
         </p>
       )}
 

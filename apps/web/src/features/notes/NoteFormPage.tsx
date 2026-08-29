@@ -13,7 +13,7 @@ import {
   update,
   uploadAll,
 } from '@/api/notes'
-import { useSession } from '@/auth/session'
+import { isInactive, useSession } from '@/auth/session'
 import { SELECT_CLASS, SelectArrow } from '@/components/native-select'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,6 +25,7 @@ import {
   categoryPath,
   EXAM_TYPE_LABEL,
   formatSize,
+  noteErrorText,
   SEMESTER_LABEL,
 } from './labels'
 
@@ -92,7 +93,8 @@ export function NoteFormPage() {
   const editing = id !== undefined
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { state, reportApiError } = useSession()
+  const session = useSession()
+  const { state, reportApiError } = session
 
   /*
    * 어느 목록에서 왔는지 `?category=`로 받아 첫 값으로 쓴다. 시험 정리본 목록에서 눌렀는데
@@ -307,7 +309,7 @@ export function NoteFormPage() {
 
       {loading === 'failed' && (
         <p role="alert" className="mt-8 text-sm text-muted-foreground">
-          자료를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+          {noteErrorText(isInactive(session))}
         </p>
       )}
 

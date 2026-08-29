@@ -20,12 +20,20 @@ import type { User } from '../api/types'
  * **나쁜 상태를 타입 차원에서 표현할 수 없게** 만든다. `user`는 `active`일 때만 존재한다.
  */
 /**
- * 세션에 들어갈 수 있는 사용자. `status`를 리터럴로 고정한다.
+ * 세션에 들어갈 수 있는 사용자. `status`를 **이용 가능한 값으로만** 좁힌다.
  *
  * `User`를 그대로 쓰면 `{ kind: 'active', user: 정지된_사용자 }`가 타입상 만들어진다 —
  * 나쁜 상태를 표현할 수 없게 만든다는 이 유니온의 명분에 구멍이 남는다.
+ *
+ * **`INACTIVE`가 여기 들어간다** (#231, spec 3-1 §3-1-2). 비활동 부원은 로그인도 되고
+ * 공지·게시판·갤러리·마이페이지도 그대로 쓴다 — 막히는 것은 자료 갈래뿐이라 세션 입장에서는
+ * `ACTIVE`와 같은 자리다. `ActiveUser`라는 이름은 그래서 버렸다: `status: 'INACTIVE'`인
+ * `ActiveUser`는 읽는 사람을 속인다. **자료를 쓸 수 있는지는 이 타입이 아니라
+ * `isInactive()`로 묻는다.**
  */
-export type ActiveUser = Omit<User, 'status'> & { status: 'ACTIVE' }
+export type SessionUser = Omit<User, 'status'> & {
+  status: 'ACTIVE' | 'INACTIVE'
+}
 
 /**
  * 승인 대기 사용자. `PENDING`은 신청 전과 신청 후를 모두 포함하므로(3-1 §3-1-2)
@@ -40,7 +48,7 @@ export type SessionState =
   /** `user`가 `null`이면 403 PENDING_APPROVAL로만 알아낸 상태라 신청 여부를 모른다. */
   | { kind: 'pending'; user: PendingUser | null }
   | { kind: 'suspended' }
-  | { kind: 'active'; user: ActiveUser }
+  | { kind: 'active'; user: SessionUser }
 
 interface Session {
   /** `loading` 동안 가드는 판단을 미룬다 — 새로고침마다 /login으로 튀지 않게. */
@@ -91,28 +99,64 @@ function fromUser(me: User | null): SessionState {
       // `status === 'ACTIVE'` 검사로 객체가 좁혀지지 않는다. 리터럴로 다시 세우면
       // 문맥 타입이 그대로 붙어 `as`가 필요 없다.
       return { kind: 'active', user: { ...me, status: 'ACTIVE' } }
+    case 'INACTIVE':
+      // **이용 가능한 상태다** (spec 3-1 §3-1-2 — "자료를 뺀 전체 기능"). 로그인 화면으로
+      // 보내면 그 사람은 공지도 마이페이지도 못 본다. 자료 갈래에서만 막는다.
+      return { kind: 'active', user: { ...me, status: 'INACTIVE' } }
     default:
       return unknownStatus(me.status)
   }
 }
 
 /**
- * API 오류로부터 세션 상태를 정한다. 해당 없으면 `null` — 세션을 건드리지 않는다.
+ * 403 INACTIVE가 세션에 하는 일.
+ *
+ * **세션을 `INACTIVE`로 정리하되 내보내지 않는다** (spec 3-1 §3-1-5 표, #228). 정지·승인
+ * 대기와 다른 점이 이것이다 — 그 사람은 여전히 로그인 상태이고 공지·게시판을 계속 쓴다.
+ * **로그인 화면으로 보내면 안 된다.**
+ *
+ * 오류 본문에는 사용자 정보가 없으므로 **이미 서 있는 세션의 `status`만 갈아끼운다.**
+ * 이 코드는 자료 경로에서만 나오므로(spec 3-2 §3-2-7) 세션이 없는 채로 도착하지 않는다 —
+ * 그래도 오면 아무것도 하지 않는다. 없는 사용자를 지어낼 수는 없고, 그렇다고 내보내는 것은
+ * 위 MUST를 정면으로 어긴다.
+ */
+function markInactive(prev: SessionState): SessionState {
+  if (prev.kind !== 'active') return prev
+  // 이미 비활동이면 **같은 객체를 돌려준다.** 자료 화면은 요청마다 이 코드를 받으므로
+  // 매번 새 객체를 세우면 세션을 구독하는 화면 전체가 그때마다 다시 그려진다.
+  if (prev.user.status === 'INACTIVE') return prev
+  return { kind: 'active', user: { ...prev.user, status: 'INACTIVE' } }
+}
+
+/**
+ * API 오류가 세션에 하는 일을 돌려준다. 해당 없으면 `null` — 세션을 건드리지 않는다.
+ *
+ * **상태가 아니라 전이를 돌려준다** (#231). `403 INACTIVE`가 다음 상태를 혼자 정하지
+ * 못하기 때문이다 — 그 응답은 "자료가 막혔다"만 알려주고 누구인지는 이전 세션에만 있다.
+ * 세 호출 지점(보고·갱신·최초 확인)이 같은 목록 하나를 쓰게 하려고 반환 형태를 맞췄다.
  *
  * SUSPENDED를 PENDING_APPROVAL과 대칭으로 다루는 것이 핵심이다. 세션 도중 관리자가
  * 정지시키면(#31) 이후 모든 보호 API가 403 SUSPENDED로 실패하는데, 이걸 무시하면
  * ACTIVE 세션이 그대로 남아 화면은 열려 있고 요청만 전부 실패한다.
  */
-function fromApiError(error: unknown): SessionState | null {
+function fromApiError(
+  error: unknown,
+): ((prev: SessionState) => SessionState) | null {
   if (!(error instanceof ApiError)) return null
   switch (error.code) {
     case 'PENDING_APPROVAL':
-      // 이 코드는 "승인 대기"만 알려준다. 신청 여부는 알 수 없다.
-      return { kind: 'pending', user: null }
+      /*
+       * 이 코드는 "승인 대기"만 알려준다. 신청 여부는 알 수 없으므로 **이미 알고 있으면
+       * 지우지 않는다** — 덮어쓰면 신청서를 낸 사람에게 폼이 다시 뜬다.
+       */
+      return (prev) =>
+        prev.kind === 'pending' ? prev : { kind: 'pending', user: null }
     case 'SUSPENDED':
-      return { kind: 'suspended' }
+      return () => ({ kind: 'suspended' })
+    case 'INACTIVE':
+      return markInactive
     case 'UNAUTHENTICATED':
-      return { kind: 'guest' }
+      return () => ({ kind: 'guest' })
     default:
       return null
   }
@@ -126,14 +170,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const setUser = useCallback((me: User | null) => setState(fromUser(me)), [])
 
   const reportApiError = useCallback((error: unknown) => {
-    setState((prev) => {
-      const next = fromApiError(error)
-      if (!next) return prev
-      // 403 PENDING_APPROVAL은 신청 여부를 알려주지 않는다. 이미 알고 있으면 지우지 않는다 —
-      // 덮어쓰면 신청서를 낸 사람에게 폼이 다시 뜬다.
-      if (next.kind === 'pending' && prev.kind === 'pending') return prev
-      return next
-    })
+    const next = fromApiError(error)
+    if (next) setState(next)
   }, [])
 
   const refresh = useCallback(
@@ -170,8 +208,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
          * 정해지지 않으면 화면이 영영 `loading`에 갇힌다. 알 수 없는 실패면 비로그인으로
          * 두되 이는 "로그아웃됐다"가 아니라 **"아직 로그인으로 확인된 바 없다"**는 뜻이고,
          * 사용자는 로그인 화면에서 다시 시도할 수 있다.
+         *
+         * 그래서 **비로그인에서 출발해 전이를 얹는다.** 상태를 알려준 실패는 그대로 반영되고
+         * (승인 대기·정지·비로그인), 이전 세션이 있어야만 뜻이 서는 `403 INACTIVE`는 저절로
+         * 비로그인에 머문다 — 자료 경로에서만 나오는 코드라 여기 오지도 않는다.
          */
-        if (alive) setState(fromApiError(error) ?? { kind: 'guest' })
+        const base: SessionState = { kind: 'guest' }
+        if (alive) setState(fromApiError(error)?.(base) ?? base)
       })
     return () => {
       alive = false
@@ -217,6 +260,22 @@ export function homePath({ state }: Session): string {
 
 export function isPending({ state }: Session): boolean {
   return state.kind === 'pending'
+}
+
+/**
+ * 이번 학기 비활동 부원인가 (#231, spec 3-1 §3-1-2).
+ *
+ * **가드가 아니라 안내의 근거다.** 이 값으로 화면을 막지 않는다 — 비활동 부원은 자료
+ * 갈래만 서버가 `403 INACTIVE`로 막고, 나머지는 `ACTIVE`와 똑같이 쓴다. 화면은 이걸로
+ * **"왜 안 되는지"만** 설명한다.
+ *
+ * **상태를 상시로 알리는 자리에는 쓰지 않는다** (2026-08-29 결정). 헤더에 비활동 배지를
+ * 뒀다가 걷어냈다 — 이 사람이 하는 일의 대부분은 `ACTIVE`와 똑같이 되고, 그 화면들에서
+ * 배지는 아무것도 바꾸지 않는 채 자리만 차지한다. **알아야 하는 순간은 막히는 순간
+ * 하나뿐이다.**
+ */
+export function isInactive({ state }: Session): boolean {
+  return state.kind === 'active' && state.user.status === 'INACTIVE'
 }
 
 /**

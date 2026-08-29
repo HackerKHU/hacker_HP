@@ -1,6 +1,13 @@
 export type Role = 'USER' | 'ADMIN'
 
-export type UserStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED'
+/**
+ * 계정 상태. 원본은 spec/3-1-DESIGN-ARCHITECTURE.md §3-1-2 표다.
+ *
+ * `INACTIVE`는 **이번 학기에 활동하지 않는 부원**이다 (#228). 로그인도 되고 공지·게시판·
+ * 갤러리·마이페이지도 그대로 쓴다 — **자료 갈래에서만** 막힌다. 그래서 화면에서 이 값은
+ * `SUSPENDED`가 아니라 `ACTIVE` 쪽에 붙는다 (`auth/session.tsx`).
+ */
+export type UserStatus = 'PENDING' | 'ACTIVE' | 'INACTIVE' | 'SUSPENDED'
 
 export interface User {
   id: number
