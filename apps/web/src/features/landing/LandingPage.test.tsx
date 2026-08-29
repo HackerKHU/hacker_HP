@@ -209,6 +209,30 @@ const MEMBER_LINKS: [string, string][] = [
   ['갤러리', '/photos'],
 ]
 
+const PUBLIC_LINKS: [string, string][] = [
+  ['소개', '#about'],
+  ['활동', '#activities'],
+  ['기록', '#stats'],
+  ['FAQ', '#faq'],
+  ['후원', '#support'],
+]
+
+const ADMIN_LINKS: [string, string][] = [
+  ...MEMBER_LINKS,
+  ['회원 관리', '/admin/members'],
+]
+
+function expectNavigationLinks(
+  navigation: HTMLElement,
+  expectedLinks: [string, string][],
+) {
+  expect(
+    within(navigation)
+      .getAllByRole('link')
+      .map((link) => [link.textContent, link.getAttribute('href')]),
+  ).toEqual(expectedLinks)
+}
+
 describe('랜딩 헤더 상태별 진입점', () => {
   /*
    * 정지된 계정에는 지원하기를 보이지 않는다 (#194 검수). 그 계정은 로그인이 막혀 있어
@@ -407,6 +431,156 @@ describe('랜딩 헤더 상태별 진입점', () => {
     )
     expect(document.getElementById('mobile-menu')).toBeNull()
   })
+
+  /*
+   * #305 — 공개 앵커와 부원 메뉴를 고르는 판단은 세션 상태 하나에서 시작하고, 데스크톱과
+   * 모바일은 그 결과를 같이 쓴다. 이 표가 상태 하나를 빠뜨리면 `active` 유니온에 함께
+   * 들어오는 `INACTIVE`처럼 이름과 실제 계정 상태가 다른 갈래에서 회귀가 남는다.
+   */
+  it.each([
+    {
+      label: 'loading',
+      getMe: () => new Promise<User>(() => undefined),
+      expectedLinks: null,
+      navigationName: null,
+    },
+    {
+      label: 'guest',
+      getMe: () => Promise.reject(new Error('비로그인')),
+      expectedLinks: PUBLIC_LINKS,
+      navigationName: '섹션 이동',
+    },
+    {
+      label: 'pending 신청 전',
+      getMe: () =>
+        Promise.resolve({
+          ...BASE,
+          status: 'PENDING' as const,
+          studentNo: null,
+          appliedAt: null,
+          approvedAt: null,
+        }),
+      expectedLinks: PUBLIC_LINKS,
+      navigationName: '섹션 이동',
+    },
+    {
+      label: 'pending 신청 후',
+      getMe: () =>
+        Promise.resolve({
+          ...BASE,
+          status: 'PENDING' as const,
+          approvedAt: null,
+        }),
+      expectedLinks: PUBLIC_LINKS,
+      navigationName: '섹션 이동',
+    },
+    {
+      label: 'pending 사용자 정보 없음',
+      getMe: () =>
+        Promise.reject(
+          new ApiError('PENDING_APPROVAL', 403, '승인 대기 중인 계정입니다.'),
+        ),
+      expectedLinks: PUBLIC_LINKS,
+      navigationName: '섹션 이동',
+    },
+    {
+      label: 'suspended',
+      getMe: () =>
+        Promise.reject(new ApiError('SUSPENDED', 403, '정지된 계정입니다.')),
+      expectedLinks: PUBLIC_LINKS,
+      navigationName: '섹션 이동',
+    },
+    {
+      label: 'inactive USER',
+      getMe: () => Promise.resolve({ ...BASE, status: 'INACTIVE' as const }),
+      expectedLinks: MEMBER_LINKS,
+      navigationName: '주요 메뉴',
+    },
+    {
+      label: 'active USER',
+      getMe: () => Promise.resolve(BASE),
+      expectedLinks: MEMBER_LINKS,
+      navigationName: '주요 메뉴',
+    },
+    {
+      label: 'active ADMIN',
+      getMe: () => Promise.resolve({ ...BASE, role: 'ADMIN' as const }),
+      expectedLinks: ADMIN_LINKS,
+      navigationName: '주요 메뉴',
+    },
+  ])(
+    '$label의 데스크톱과 모바일 메뉴가 같은 배타적 목록을 쓴다',
+    async ({ label, getMe, expectedLinks, navigationName }) => {
+      auth.me = getMe
+
+      renderLanding()
+      await screen.findByAltText(CLUB.name)
+
+      if (expectedLinks === null || navigationName === null) {
+        expect(
+          screen.queryByRole('navigation', { name: '섹션 이동' }),
+        ).not.toBeInTheDocument()
+        expect(
+          screen.queryByRole('navigation', { name: '주요 메뉴' }),
+        ).not.toBeInTheDocument()
+        expect(
+          screen.queryByRole('button', { name: '메뉴 열기' }),
+        ).not.toBeInTheDocument()
+        // 오른쪽의 기존 loading 처리도 그대로여야 한다.
+        expect(screen.queryByRole('link', { name: '로그인' })).toBeNull()
+        expect(screen.queryByRole('button', { name: '계정 메뉴' })).toBeNull()
+        return
+      }
+
+      const toggle = await screen.findByRole('button', { name: '메뉴 열기' })
+      const desktopNavigation = screen.getByRole('navigation', {
+        name: navigationName,
+      })
+      expectNavigationLinks(desktopNavigation, expectedLinks)
+
+      const otherNavigationName =
+        navigationName === '섹션 이동' ? '주요 메뉴' : '섹션 이동'
+      expect(
+        screen.queryByRole('navigation', { name: otherNavigationName }),
+      ).not.toBeInTheDocument()
+
+      fireEvent.click(toggle)
+      const mobileMenu = document.getElementById('mobile-menu') as HTMLElement
+      const mobileNavigation = within(mobileMenu).getByRole('navigation', {
+        name: navigationName,
+      })
+      expectNavigationLinks(mobileNavigation, expectedLinks)
+
+      const desktopAdmin = within(desktopNavigation).queryByRole('link', {
+        name: '회원 관리',
+      })
+      const mobileAdmin = within(mobileNavigation).queryByRole('link', {
+        name: '회원 관리',
+      })
+
+      if (label === 'active ADMIN') {
+        expect(desktopAdmin?.previousElementSibling?.tagName).toBe('SPAN')
+        expect(desktopAdmin?.previousElementSibling).toHaveAttribute(
+          'aria-hidden',
+          'true',
+        )
+        expect(mobileAdmin?.previousElementSibling?.tagName).toBe('DIV')
+        expect(mobileAdmin?.previousElementSibling).toHaveAttribute(
+          'aria-hidden',
+          'true',
+        )
+      } else {
+        expect(desktopAdmin).toBeNull()
+        expect(mobileAdmin).toBeNull()
+        expect(
+          desktopNavigation.querySelector('[aria-hidden="true"]'),
+        ).toBeNull()
+        expect(
+          mobileNavigation.querySelector('[aria-hidden="true"]'),
+        ).toBeNull()
+      }
+    },
+  )
 
   /*
    * **모바일 메뉴가 데스크톱과 같은 목록을 그린다** (#251). 두 곳에 따로 적으면 화면이

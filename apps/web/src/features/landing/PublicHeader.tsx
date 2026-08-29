@@ -1,12 +1,18 @@
 import { MenuIcon, XIcon } from 'lucide-react'
 import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { hasApplied, homePath, useSession } from '@/auth/session'
+import {
+  hasApplied,
+  homePath,
+  type SessionState,
+  useSession,
+} from '@/auth/session'
 import {
   HEADER_ACTION,
   HEADER_NAV_DIVIDER,
   HEADER_NAV_DIVIDER_STACKED,
   HEADER_NAV_ITEM,
+  type HeaderMenu,
   headerMenus,
 } from '@/components/header-nav'
 import { Button } from '@/components/ui/button'
@@ -22,9 +28,84 @@ import { CLUB, SECTIONS } from './content'
  */
 const NAV_ITEM = cn(HEADER_NAV_ITEM, 'text-muted-foreground')
 
+type LandingNavigation =
+  | { kind: 'hidden' }
+  | { kind: 'public' }
+  | { kind: 'member'; menus: HeaderMenu[] }
+
 /**
- * 랜딩 전용 헤더. `AppHeader`와 별개 컴포넌트다 — 배경이 검정이고 메뉴가 라우트가 아니라
- * **섹션 앵커**라서 성격이 다르다. 하나로 합치면 두 성격이 조건문으로 뒤엉킨다.
+ * 세션 상태에서 랜딩 헤더의 왼쪽 내비게이션을 한 번만 결정한다.
+ *
+ * `active`는 세션 유니온의 이름이지 계정의 `ACTIVE` status만 뜻하지 않는다.
+ * `INACTIVE` 부원도 이 갈래에 들어오므로 공개 메뉴가 아니라 부원 메뉴를 본다.
+ */
+function landingNavigation(state: SessionState): LandingNavigation {
+  switch (state.kind) {
+    case 'loading':
+      return { kind: 'hidden' }
+    case 'active':
+      return { kind: 'member', menus: headerMenus(state.user.role) }
+    default:
+      return { kind: 'public' }
+  }
+}
+
+function HeaderNavigation({
+  navigation,
+  stacked = false,
+  onNavigate,
+}: {
+  navigation: Exclude<LandingNavigation, { kind: 'hidden' }>
+  stacked?: boolean
+  onNavigate?: () => void
+}) {
+  const className = stacked ? 'flex flex-col' : 'flex items-center gap-1'
+
+  if (navigation.kind === 'public') {
+    return (
+      <nav className={className} aria-label="섹션 이동">
+        {SECTIONS.map((section) => (
+          <a
+            key={section.id}
+            href={`#${section.id}`}
+            className={cn(NAV_ITEM, stacked && 'block')}
+            onClick={onNavigate}
+          >
+            {section.label}
+          </a>
+        ))}
+      </nav>
+    )
+  }
+
+  return (
+    <nav className={className} aria-label="주요 메뉴">
+      {navigation.menus.map((menu) => (
+        <Fragment key={menu.to}>
+          {menu.apart ? (
+            stacked ? (
+              <div aria-hidden="true" className={HEADER_NAV_DIVIDER_STACKED} />
+            ) : (
+              <span aria-hidden="true" className={HEADER_NAV_DIVIDER} />
+            )
+          ) : null}
+          <Link
+            to={menu.to}
+            className={cn(NAV_ITEM, stacked && 'block')}
+            onClick={onNavigate}
+          >
+            {menu.label}
+          </Link>
+        </Fragment>
+      ))}
+    </nav>
+  )
+}
+
+/**
+ * 랜딩 전용 헤더. `AppHeader`와 별개 컴포넌트다 — 배경이 검정이고, 방문자에게는 섹션
+ * 앵커를 보여 주는 공개 페이지의 역할이 남아 있다. 부원 메뉴 목록은 `header-nav.ts`에서
+ * 공유하되 어느 목록을 보여 줄지는 이 헤더가 세션 상태로 결정한다.
  */
 export function PublicHeader() {
   const session = useSession()
@@ -33,15 +114,8 @@ export function PublicHeader() {
    * 열린 채 두면 이동한 섹션을 메뉴가 가린다.
    */
   const [menuOpen, setMenuOpen] = useState(false)
-  const isActive = session.state.kind === 'active'
-  /**
-   * 부원 화면 메뉴. **내부 헤더와 같은 목록이다** (#306, `header-nav.ts`) — 두 화면을
-   * 오가는 사람에게 헤더가 바뀌면 로고가 8px 미끄러졌던 것(#247)과 같은 종류로 어긋난다.
-   */
-  const menus = headerMenus(
-    // `isActive`로 좁히지 않는다 — 불리언은 유니온을 좁히지 못해 `state.user`가 안 보인다.
-    session.state.kind === 'active' ? session.state.user.role : null,
-  )
+  const hasMemberSession = session.state.kind === 'active'
+  const navigation = landingNavigation(session.state)
   // PENDING일 때만 의미가 있다. `null`이면 403으로만 알아내 신청 여부를 모르는 상태다.
   const applied = hasApplied(session)
 
@@ -78,67 +152,18 @@ export function PublicHeader() {
         </a>
 
         {/*
-         * 섹션 앵커와 부원 화면 링크를 **한 덩어리로 묶되 구분선으로 가른다** (#155).
-         *
-         * 둘은 하는 일이 다르다 — 앞쪽은 이 페이지 안에서 움직이고(`#about`), 뒤쪽은
-         * 다른 화면으로 전환한다(`/notices`·`/notes`·`/photos`). 그대로 붙이면 눌렀을 때
-         * 페이지가 바뀌는지 아닌지 예측할 수 없고, 멀리 떼어 놓으면 목적지 메뉴가 계정
-         * 조작(로그아웃) 옆에 끼어 보인다. 묶어서 보여주고 성격은 선으로 가른다.
-         *
-         * `nav[aria-label="섹션 이동"]` 안에 넣지 않는 이유도 같다. 라우트 링크가 그
-         * 이름 아래 들어가면 스크린리더에게 거짓말이 된다.
+         * 공개 앵커와 부원 메뉴는 **서로 배타적이다** (#305). 세션에서 고른 `navigation`
+         * 하나를 데스크톱과 모바일이 같이 써서 한쪽만 다른 메뉴를 보이는 일을 막는다.
+         * `loading`이면 이 묶음 자체를 그리지 않아 공개 메뉴가 먼저 번쩍이지 않는다.
          *
          * **`md` 미만에서는 통째로 접힌다.** 늘어난 링크가 좁은 화면의 한 줄을 더 밀지
          * 않는다 — 320px 압박(#249)과 무관하게 두려는 것이다.
          */}
-        <div className="hidden items-center gap-1 md:flex">
-          {isActive ? (
-            /*
-             * **부원에게는 내부 화면과 같은 메뉴만 보여준다** (#306).
-             *
-             * 로그인한 부원에게 랜딩은 읽을 페이지가 아니라 **지나가는 자리**다. 이미 아는
-             * 소개를 다시 읽지 않고, 헤더에서 찾는 것은 공지와 자료다. 섹션 앵커 다섯 개
-             * 뒤에 그 넷이 밀려 있으면 두 화면을 오갈 때 메뉴가 아홉 칸에서 넷으로 줄어든다.
-             *
-             * 섹션으로 가는 길을 잃지만, 페이지를 내려 읽으면 그대로 있다 — 로고를 눌러
-             * 랜딩에 온 사람은 대개 그 아래를 스크롤한다.
-             *
-             * **`nav`의 이름은 `주요 메뉴`다** — 내부 헤더가 쓰는 그 이름이다. `섹션 이동`
-             * 아래에 라우트 링크를 넣으면 스크린리더에게 거짓말이 되고, 이름까지 같아야
-             * 두 화면을 오갈 때 같은 메뉴로 읽힌다.
-             */
-            <nav className="flex items-center gap-1" aria-label="주요 메뉴">
-              {menus.map((menu) => (
-                <Fragment key={menu.to}>
-                  {/* 관리자 전용 화면 앞에서 끊는다 (#307) — 내부 헤더와 같은 규칙이다. */}
-                  {menu.apart && (
-                    <span aria-hidden="true" className={HEADER_NAV_DIVIDER} />
-                  )}
-                  <Link to={menu.to} className={NAV_ITEM}>
-                    {menu.label}
-                  </Link>
-                </Fragment>
-              ))}
-            </nav>
-          ) : (
-            /*
-             * **비로그인과 `PENDING`은 섹션 앵커다.** 그 다섯이 이 페이지를 읽는 순서이고,
-             * 부원 화면 링크는 눌러도 가드가 로그인으로 되돌린다 (spec §3-1-3) — 누르기
-             * 전에는 그렇게 될 줄 모른다.
-             */
-            <nav className="flex items-center gap-1" aria-label="섹션 이동">
-              {SECTIONS.map((section) => (
-                <a
-                  key={section.id}
-                  href={`#${section.id}`}
-                  className={NAV_ITEM}
-                >
-                  {section.label}
-                </a>
-              ))}
-            </nav>
-          )}
-        </div>
+        {navigation.kind !== 'hidden' && (
+          <div className="hidden items-center gap-1 md:flex">
+            <HeaderNavigation navigation={navigation} />
+          </div>
+        )}
 
         {/*
          * 세션을 확인하는 동안에는 아무것도 그리지 않는다. "로그인"을 먼저 그렸다가
@@ -189,10 +214,10 @@ export function PublicHeader() {
                  * `hasApplied`가 `null`이면 403으로만 알아낸 경우라 신청 여부를 모른다.
                  * 그때는 아무 주장도 하지 않고 로그아웃만 남긴다.
                  *
-                 * ACTIVE는 여기 없다. 부원의 공지사항은 **목적지**라 왼쪽 메뉴로 옮겼고,
+                 * 부원 세션은 여기 없다. 부원의 공지사항은 **목적지**라 왼쪽 메뉴로 옮겼고,
                  * 이 자리는 내 상태와 다음 행동만 남긴다 — 로그인·로그아웃과 같은 성격이다.
                  */}
-                {!isActive && applied !== null && (
+                {!hasMemberSession && applied !== null && (
                   <Button asChild variant="outline" className={HEADER_ACTION}>
                     <Link to={homePath(session)}>
                       {applied ? '승인 대기 중' : '지원하기'}
@@ -210,92 +235,59 @@ export function PublicHeader() {
                  * 놀랍다. 세션이 비면 이 헤더가 비로그인 모습으로 다시 그려져 로그아웃된
                  * 것이 화면에 드러난다.
                  */}
-                <AccountMenu showMyPage={isActive} />
+                <AccountMenu showMyPage={hasMemberSession} />
               </>
             )}
           </div>
         )}
 
         {/*
-         * 섹션 메뉴만 여기로 접는다. 지원하기·로그인은 밖에 남긴다 — 랜딩을 처음 보는
-         * 사람의 다음 행동이라 한 번의 탭 뒤로 숨기지 않는다.
+         * 왼쪽 내비게이션만 여기로 접는다. 지원하기·로그인·계정 메뉴는 밖에 남긴다 —
+         * 현재 세션에서의 다음 행동이라 한 번의 탭 뒤로 숨기지 않는다.
          *
          * ⚠️ **버튼이 커졌다.** 한때 `size="sm"`(h-8·14px)이라 390px에서도 로고와 함께
          * 들어간다고 적혀 있었는데, 메뉴 글씨에 맞춰 기본 크기(h-9·16px)로 올리면서
          * 가로로 더 넓어졌다. **좁은 화면에서 이 줄이 넘치는지는 실측이 필요하다** —
          * #249가 그것을 기다리고 있고, 그 값이 여기서 한 번 더 나빠졌다.
          *
-         * 세션 확인 중에도 그린다 — 섹션 이동은 세션과 무관하다.
+         * 세션 확인이 끝나기 전에는 그리지 않는다. 공개 메뉴를 먼저 열 수 있게 두면 확인이
+         * 끝난 뒤 부원 메뉴로 바뀌어 같은 드롭다운의 의미가 도중에 달라진다.
          */}
-        <button
-          type="button"
-          className={cn(
-            NAV_ITEM,
-            'px-2 md:hidden',
-            // 액션 묶음이 없을 때(세션 확인 중)도 오른쪽에 붙도록. 있으면 그 옆이다.
-            session.state.kind === 'loading' && 'ml-auto',
-          )}
-          aria-expanded={menuOpen}
-          aria-controls="mobile-menu"
-          aria-label={menuOpen ? '메뉴 닫기' : '메뉴 열기'}
-          onClick={() => setMenuOpen((open) => !open)}
-        >
-          {menuOpen ? (
-            <XIcon className="size-5" aria-hidden="true" />
-          ) : (
-            <MenuIcon className="size-5" aria-hidden="true" />
-          )}
-        </button>
+        {navigation.kind !== 'hidden' && (
+          <button
+            type="button"
+            className={cn(NAV_ITEM, 'px-2 md:hidden')}
+            aria-expanded={menuOpen}
+            aria-controls="mobile-menu"
+            aria-label={menuOpen ? '메뉴 닫기' : '메뉴 열기'}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            {menuOpen ? (
+              <XIcon className="size-5" aria-hidden="true" />
+            ) : (
+              <MenuIcon className="size-5" aria-hidden="true" />
+            )}
+          </button>
+        )}
       </div>
 
       {/*
-       * 데스크톱과 같은 구분 원칙이다 — 섹션 앵커는 nav 안, 부원 화면(라우트)은 밖.
-       * 헤더 안에 두어 sticky를 같이 탄다.
+       * 데스크톱과 같은 `navigation`을 쓴다. 관리자의 회원 관리 앞 구분선만 세로 목록에
+       * 맞는 가로선으로 바뀌고, 링크 집합과 순서는 그대로다.
        *
        * **세로로 쌓이므로 항목이 늘어도 가로 폭을 먹지 않는다.** 좁은 화면에서 헤더 한 줄이
        * 받는 압박(#249)은 로고·액션·햄버거가 정하고, 이 목록은 거기 들어가지 않는다.
        */}
-      {menuOpen && (
+      {navigation.kind !== 'hidden' && menuOpen && (
         <div
           id="mobile-menu"
           className="border-t border-border px-4 pb-4 pt-2 md:hidden"
         >
-          {/* 데스크톱과 같은 규칙이다 (#306) — 부원에게는 라우트 메뉴, 그 밖에는 섹션 앵커. */}
-          {isActive ? (
-            <nav className="flex flex-col" aria-label="주요 메뉴">
-              {menus.map((menu) => (
-                <Fragment key={menu.to}>
-                  {/* 세로로 쌓이므로 가로선이다 — 세로선은 여기서 아무것도 가르지 못한다. */}
-                  {menu.apart && (
-                    <div
-                      aria-hidden="true"
-                      className={HEADER_NAV_DIVIDER_STACKED}
-                    />
-                  )}
-                  <Link
-                    to={menu.to}
-                    className={cn(NAV_ITEM, 'block')}
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    {menu.label}
-                  </Link>
-                </Fragment>
-              ))}
-            </nav>
-          ) : (
-            <nav className="flex flex-col" aria-label="섹션 이동">
-              {SECTIONS.map((section) => (
-                <a
-                  key={section.id}
-                  href={`#${section.id}`}
-                  className={NAV_ITEM}
-                  onClick={() => setMenuOpen(false)}
-                >
-                  {section.label}
-                </a>
-              ))}
-            </nav>
-          )}
+          <HeaderNavigation
+            navigation={navigation}
+            stacked
+            onNavigate={() => setMenuOpen(false)}
+          />
         </div>
       )}
     </header>
