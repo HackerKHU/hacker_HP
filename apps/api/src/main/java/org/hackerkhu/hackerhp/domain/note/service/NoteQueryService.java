@@ -80,6 +80,12 @@ public class NoteQueryService {
     return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
   }
 
+  /**
+   * <b>여기서 조회수를 올리지 않는다</b> (#245). 이 클래스는 통째로 읽기 전용 트랜잭션이라 {@code UPDATE}가 거절당하고, 읽기 전용을 풀더라도 같은
+   * 트랜잭션이면 증가 실패가 조회까지 되돌린다. 올리는 것은 {@code NoteViewService}가 이 메서드가 끝난 뒤에 한다.
+   *
+   * <p>그래서 여기서 만든 응답의 {@code viewCount}는 <b>올리기 전 값</b>이다.
+   */
   public NoteDetailResponse get(Long viewerId, Long id) {
     Note note =
         notes
@@ -88,7 +94,8 @@ public class NoteQueryService {
     return NoteDetailResponse.of(
         note,
         uploaderOf(note, uploaderNames(List.of(note))),
-        bookmarks.existsByUserIdAndNoteId(viewerId, id));
+        bookmarks.existsByUserIdAndNoteId(viewerId, id),
+        note.getViewCount());
   }
 
   /**
