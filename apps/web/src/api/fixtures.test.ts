@@ -432,7 +432,7 @@ describe('회원 관리 픽스처', () => {
 
     const page = await fixtureAdminUsers({ status: 'PENDING', size: 100 })
 
-    // 이런 계정이 없으면 "선택되지 않는다"는 화면 규칙을 확인할 수가 없다.
+    // 이런 계정이 있어야 행별 승인과 선택 활성화의 실패 경로를 함께 확인할 수 있다.
     expect(page.content.some((user) => user.appliedAt === null)).toBe(true)
     expect(page.content.some((user) => user.appliedAt !== null)).toBe(true)
   })
@@ -580,71 +580,123 @@ describe('회원 관리 픽스처', () => {
     expect(overlap).toEqual([])
   })
 
-  /*
-   * 2-2 §2-2-7 MUST — 마지막 활성 관리자는 자기 자신을 정지할 수 없다. 화면은 활성
-   * 관리자가 몇 명인지 모르므로 이 판단을 하지 않는다. 픽스처가 서버처럼 거부해야
-   * 그 실패 화면을 만들 수 있다.
-   */
-  it('마지막 활성 관리자가 되면 자기 정지가 거부된다', async () => {
+  it('관리자는 수와 본인 여부와 무관하게 권한 회수 전 정지가 거부된다', async () => {
     const { fixtureAdminUsers, fixtureUpdateUserStatus, ApiError } =
       await loadFixtures('admin')
+    const admins = await fixtureAdminUsers({ role: 'ADMIN', size: 100 })
+    expect(admins.content.length).toBeGreaterThan(1)
 
-    const all = await fixtureAdminUsers({ role: 'ADMIN', size: 100 })
-    const others = all.content.filter((user) => user.id !== 2)
-    // 본인 말고 다른 활성 관리자를 전부 정지시켜 "마지막 한 명" 상태를 만든다.
-    for (const other of others) {
-      await fixtureUpdateUserStatus(other.id, 'SUSPENDED')
-    }
-
-    const error = await fixtureUpdateUserStatus(2, 'SUSPENDED').catch(
-      (caught: unknown) => caught,
-    )
+    const error = await fixtureUpdateUserStatus(
+      admins.content[0].id,
+      'SUSPENDED',
+    ).catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(ApiError)
     expect((error as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
-    const after = await fixtureAdminUsers({ size: 100 })
-    expect(after.content.find((user) => user.id === 2)?.status).toBe('ACTIVE')
+    expect((error as Error).message).toContain('권한을 회수')
   })
 
-  it('활성 관리자가 둘 이상이면 자기 정지가 허용된다', async () => {
-    const { fixtureUpdateUserStatus } = await loadFixtures('admin')
-
-    // 명단에 활성 관리자가 셋(본인 + 둘) 있으므로 그대로 시도한다.
-    const updated = await fixtureUpdateUserStatus(2, 'SUSPENDED')
-
-    expect(updated.status).toBe('SUSPENDED')
-  })
-
-  /*
-   * 2-2 §2-2-3 MUST — 정지된 회원은 **이미 로그인된 세션도 다음 요청에서 차단**된다.
-   *
-   * 픽스처가 본인을 정지하고도 세션을 ACTIVE ADMIN으로 계속 돌려주면, 정지된 관리자가
-   * 관리 화면을 계속 쓰는 상태를 화면에서 확인할 수 없다 — 계약보다 무른 픽스처다.
-   */
-  it('본인을 정지하면 다음 세션 조회가 정지 상태를 돌려준다', async () => {
-    const { fixtureMe, fixtureUpdateUserStatus } = await loadFixtures('admin')
-
-    const before = await signedIn(fixtureMe)
-    expect(before.status).toBe('ACTIVE')
-
-    await fixtureUpdateUserStatus(before.id, 'SUSPENDED')
-
-    const after = await signedIn(fixtureMe)
-    expect(after.id).toBe(before.id)
-    expect(after.status).toBe('SUSPENDED')
-  })
-
-  it('정지된 관리자는 회원 목록도 더 볼 수 없다', async () => {
-    const { fixtureMe, fixtureUpdateUserStatus, fixtureAdminUsers, ApiError } =
+  it('선택 비활성화는 혼합 결과·중복·입력 순서·멱등을 재현한다', async () => {
+    const { fixtureAdminUsers, fixtureDeactivateUsers } =
       await loadFixtures('admin')
+    const all = await fixtureAdminUsers({ size: 100 })
+    const active = all.content.find(
+      (user) => user.role === 'USER' && user.status === 'ACTIVE',
+    )
+    const admin = all.content.find((user) => user.role === 'ADMIN')
+    if (!active || !admin) throw new Error('픽스처 명단이 부족하다')
 
-    const me = await signedIn(fixtureMe)
-    await fixtureUpdateUserStatus(me.id, 'SUSPENDED')
+    const result = await fixtureDeactivateUsers([
+      admin.id,
+      active.id,
+      admin.id,
+      999999,
+    ])
 
-    const error = await fixtureAdminUsers().catch((caught: unknown) => caught)
+    expect(result).toEqual({
+      deactivated: [active.id],
+      failed: [
+        { userId: admin.id, reason: 'NOT_ACTIVE_USER' },
+        { userId: 999999, reason: 'NOT_FOUND' },
+      ],
+    })
+    await expect(fixtureDeactivateUsers([active.id])).resolves.toEqual({
+      deactivated: [],
+      failed: [{ userId: active.id, reason: 'NOT_ACTIVE_USER' }],
+    })
+  })
 
-    expect(error).toBeInstanceOf(ApiError)
-    expect((error as InstanceType<typeof ApiError>).code).toBe('SUSPENDED')
+  it('일괄 활성화는 혼합 상태와 멱등 processed를 재현한다', async () => {
+    const { fixtureAdminUsers, fixtureBulkUpdateUserStatus } =
+      await loadFixtures('admin')
+    const all = await fixtureAdminUsers({ size: 100 })
+    const active = all.content.find((user) => user.status === 'ACTIVE')
+    const inactive = all.content.find((user) => user.status === 'INACTIVE')
+    const unapplied = all.content.find(
+      (user) => user.status === 'PENDING' && user.appliedAt === null,
+    )
+    if (!active || !inactive || !unapplied)
+      throw new Error('픽스처 명단이 부족하다')
+
+    await expect(
+      fixtureBulkUpdateUserStatus(
+        [active.id, unapplied.id, inactive.id, 999999],
+        'ACTIVE',
+      ),
+    ).resolves.toEqual({
+      targetStatus: 'ACTIVE',
+      processed: [active.id, inactive.id],
+      failed: [
+        { userId: unapplied.id, reason: 'NOT_APPLIED' },
+        { userId: 999999, reason: 'NOT_FOUND' },
+      ],
+    })
+  })
+
+  it('일괄 정지는 관리자·PENDING 실패와 USER 멱등을 재현한다', async () => {
+    const { fixtureAdminUsers, fixtureBulkUpdateUserStatus } =
+      await loadFixtures('admin')
+    const all = await fixtureAdminUsers({ size: 100 })
+    const admin = all.content.find((user) => user.role === 'ADMIN')
+    const pending = all.content.find((user) => user.status === 'PENDING')
+    const suspended = all.content.find(
+      (user) => user.role === 'USER' && user.status === 'SUSPENDED',
+    )
+    if (!admin || !pending || !suspended)
+      throw new Error('픽스처 명단이 부족하다')
+
+    await expect(
+      fixtureBulkUpdateUserStatus(
+        [admin.id, suspended.id, pending.id],
+        'SUSPENDED',
+      ),
+    ).resolves.toEqual({
+      targetStatus: 'SUSPENDED',
+      processed: [suspended.id],
+      failed: [
+        {
+          userId: admin.id,
+          reason: 'ADMIN_SUSPEND_REQUIRES_ROLE_REVOCATION',
+        },
+        { userId: pending.id, reason: 'PENDING_NOT_ALLOWED' },
+      ],
+    })
+  })
+
+  it('선택 상태 fixture는 validation과 403을 성공으로 바꾸지 않는다', async () => {
+    const admin = await loadFixtures('admin')
+    const validation = await admin
+      .fixtureBulkUpdateUserStatus([], 'ACTIVE')
+      .catch((caught: unknown) => caught)
+    expect(validation).toBeInstanceOf(admin.ApiError)
+    expect((validation as InstanceType<typeof admin.ApiError>).status).toBe(400)
+
+    const user = await loadFixtures('user')
+    const forbidden = await user
+      .fixtureDeactivateUsers([1])
+      .catch((caught: unknown) => caught)
+    expect(forbidden).toBeInstanceOf(user.ApiError)
+    expect((forbidden as InstanceType<typeof user.ApiError>).status).toBe(403)
   })
 })
 

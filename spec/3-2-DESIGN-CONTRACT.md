@@ -789,9 +789,10 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 | GET | `/admin/users` | ADMIN | 목록 — `status`, `role`, `q`, `applied`, `sort`, `page`, `size` |
 | POST | `/admin/users/approve` | ADMIN | 일괄 승인 — body: `{ "userIds": [1,2,3] }` |
 | POST | `/admin/users/reject` | ADMIN | 일괄 거부 — body: `{ "userIds": [1,2,3] }` |
-| POST | `/admin/users/deactivate` | ADMIN | **학기 전환 일괄 비활성화 — 조건이다. body 없음** |
+| POST | `/admin/users/deactivate` | ADMIN | 비활성화 — body 없음은 조건 전원(하위 호환), `{ "userIds": [...] }`는 선택 회원 |
 | POST | `/admin/users/reactivate` | ADMIN | 학기 복구 — body: `{ "userIds": [1,2,3] }` |
-| PATCH | `/admin/users/{id}/status` | ADMIN | `ACTIVE` ↔ `SUSPENDED`, `INACTIVE` → `SUSPENDED` (본인을 `SUSPENDED`로: 마지막 활성 관리자면 차단) |
+| PATCH | `/admin/users/status` | ADMIN | 선택 회원 일괄 활성화·정지 — body: `{ "userIds": [1,2,3], "status": "ACTIVE" }` |
+| PATCH | `/admin/users/{id}/status` | ADMIN | `USER`의 `ACTIVE` ↔ `SUSPENDED`, `INACTIVE` → `SUSPENDED`; `ADMIN` 정지는 권한 회수 후 별도 요청 |
 | PATCH | `/admin/users/{id}/role` | ADMIN | 권한 부여/회수 (본인 대상: 마지막 활성 관리자면 차단) |
 | GET | `/admin/users/{id}/content-summary` | ADMIN | 제거 확인 창이 쓰는 건수 — 그 회원이 남길 자료·공지·사진·게시글 |
 | DELETE | `/admin/users/{id}` | ADMIN | 회원 제거 (본인 대상: 마지막 활성 관리자면 차단) |
@@ -866,9 +867,46 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 | **`status`로 `INACTIVE`를 보냄** | `400 VALIDATION_ERROR` (MUST, #228). 비활성화·복구는 학기 전환 경로의 몫이다 ([2-2 §2-2-3](2-2-OPERATOR-REQUIREMENTS.md#학기-전환--일괄-비활성화와-복구)) — **여기서도 받으면 전이 규칙이 두 곳에 생긴다** |
 | `status`가 `ACTIVE`·`SUSPENDED`가 아님 | `400 VALIDATION_ERROR` |
 | 없는 `id` | `404 NOT_FOUND` |
-| **정지 뒤 활성 관리자가 0명이 됨** | `403 FORBIDDEN` ([§2-2-7](2-2-OPERATOR-REQUIREMENTS.md) MUST). 자기 대상인지와 무관하다 |
+| **`ADMIN`을 `SUSPENDED`로 바꿈** | `403 FORBIDDEN` (MUST, #296). 먼저 권한을 `USER`로 회수한 뒤 별도 정지 요청을 해야 한다 |
 
 **`SUSPENDED` 해제는 언제나 `ACTIVE`다** — 정지 전이 `INACTIVE`였어도 그렇다 ([2-2 §2-2-3](2-2-OPERATOR-REQUIREMENTS.md#2-2-3-회원-상태-변경)).
+
+### 선택 회원 일괄 활성화·정지 (2026-08-30 확정, #313)
+
+```json
+요청  PATCH /admin/users/status
+      { "userIds": [1, 2, 3], "status": "ACTIVE" }
+응답  200
+      {
+        "targetStatus": "ACTIVE",
+        "processed": [1, 2],
+        "failed": [{ "userId": 3, "reason": "NOT_APPLIED" }]
+      }
+```
+
+`status`는 `ACTIVE` 또는 `SUSPENDED`만 받는다. `userIds`는 원본 기준 1~100개의 양의 정수여야
+하고, 같은 id는 첫 등장만 처리한다. `processed`와 `failed`는 입력의 첫 등장 순서를 각각
+지키며, 중복을 뺀 모든 id는 두 배열 중 정확히 한 곳에 들어간다. **`processed`에는 실제로
+바뀐 회원과 이미 목표 상태였던 멱등 처리가 함께 들어간다** (MUST).
+
+`ACTIVE` 요청은 신청 완료 `PENDING`을 승인하면서 `approved_at`을 기록하고, `INACTIVE`의
+`deactivated_at`을 지운 뒤 활성화하며, `SUSPENDED`를 해제한다. 이미 `ACTIVE`면 멱등 성공이다.
+신청하지 않은 `PENDING`은 `NOT_APPLIED`다. `SUSPENDED` 요청은 `USER`인 `ACTIVE`·`INACTIVE`를
+정지하고 `deactivated_at`을 지우며, 이미 정지된 `USER`도 멱등 성공이다. `ADMIN`은 현재 상태와
+무관하게 `ADMIN_SUSPEND_REQUIRES_ROLE_REVOCATION`, `PENDING`은 `PENDING_NOT_ALLOWED`로 실패한다.
+없는 id는 두 목표 상태 모두 `NOT_FOUND`다.
+
+| `reason` | 상황 |
+|---|---|
+| `NOT_FOUND` | 그 id의 계정이 없다 |
+| `NOT_APPLIED` | `ACTIVE` 요청 대상이 신청서를 내지 않은 `PENDING`이다 |
+| `PENDING_NOT_ALLOWED` | `SUSPENDED` 요청 대상이 `PENDING`이다 |
+| `ADMIN_SUSPEND_REQUIRES_ROLE_REVOCATION` | `ADMIN` 정지를 요청했다 — 먼저 권한을 회수해야 한다 |
+
+항목별 실패는 성공을 되돌리지 않고 `200`으로 집계한다. `ACTIVE`는 세션 반영 실패도 항목
+실패가 아니라 `200`으로 끝난다. `SUSPENDED`는 차단이 강해지는 변경이므로 세션 반영 실패 시
+`500 INTERNAL_ERROR`이며, 이미 커밋한 DB 변경은 되돌리지 않는다. 재시도해도 멱등하도록
+이미 목표 상태인 회원을 `processed`에 포함한다.
 
 ### 가입 거부 (2026-08-22 확정, #58)
 
@@ -892,32 +930,54 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 
 운영 규칙은 [2-2 §2-2-3](2-2-OPERATOR-REQUIREMENTS.md#학기-전환--일괄-비활성화와-복구)에 있다. 여기는 계약만 적는다.
 
-#### `POST /admin/users/deactivate` — 조건 일괄
+#### `POST /admin/users/deactivate` — 조건 전원(하위 호환) 또는 id 선택
 
 ```json
 요청  (본문 없음)
 응답  200 { "deactivated": [1, 2, 7] }
+
+요청  { "userIds": [1, 2, 3] }
+응답  200 {
+        "deactivated": [1],
+        "failed": [{ "userId": 2, "reason": "NOT_ACTIVE_USER" }]
+      }
 ```
 
-**본문을 받지 않는다** (MUST). 대상은 `role = 'USER' AND status = 'ACTIVE'`인 전원으로 **서버가 정한다.** id를 받으면 100개 상한에 걸려 학기 전환이 페이지 수만큼 쪼개지고, **한 페이지를 빠뜨려도 아무도 모른다.**
+본문이 없거나 `null` 또는 빈 객체면 기존 조건 전원 경로다. 대상은
+`role = 'USER' AND status = 'ACTIVE'`인 전원으로 서버가 정한다. 이 경로는 학기 전체 전환을
+위한 **하위 호환 API 계약**이며, #297 회원 관리 화면에는 이 경로를 실행하는 버튼이 없다.
+현재 화면에는 선택 기반 상태 조작 버튼 세 개만 있다.
+
+`userIds`가 있으면 선택 경로다. 원본 기준 1~100개의 양의 정수여야 하고 빈 배열은
+`400 VALIDATION_ERROR`다. 중복은 첫 등장만 처리하며 `deactivated`와 `failed`는 입력의 첫 등장
+순서를 각각 지킨다. `ACTIVE USER`만 `INACTIVE`로 바꾸고, 없는 id는 `NOT_FOUND`, 그 밖의
+상태·권한 조합은 `NOT_ACTIVE_USER`로 집계한다. 일부 실패는 성공을 되돌리지 않고 `200`이다.
 
 **`deactivated`는 실제로 바뀐 id다** (MUST). 조건으로 실행했으므로 관리자는 목록에서 누가 바뀌는지 볼 수 없다 — 이 배열이 **그 자리에서 결과를 보여주는 수단**이다. 잘못 눌렀으면 그대로 복구 요청에 넣는다. 이미 `INACTIVE`였던 사람은 여기 들어가지 않는다. **응답을 잃어도 되돌릴 수 있어야 하므로 근거는 따로 남긴다** — `deactivated_at`이 그것이다 (아래).
 
 **같은 배치는 같은 `deactivated_at`을 갖는다** (MUST). 시각은 [§2-2-7](2-2-OPERATOR-REQUIREMENTS.md#2-2-7-안전장치)의 규칙대로 **행을 잠근 채 한 번 잡아** 전원에게 같은 값을 쓴다. 행마다 따로 찍으면 한 배치가 시각으로 갈라져 "직전 배치"를 고를 수 없다.
 
-**실패 배열이 없다** (MUST). 승인·거부와 다른 점이다 — 대상을 서버가 골랐으므로 "이 사람은 대상이 아니었다"가 성립하지 않는다. 조건에 맞으면 전부 바뀐다.
+**조건 전원 응답에는 `failed` 배열이 없고, 선택 응답에는 항상 있다** (MUST). 조건 전원은
+서버가 대상 집합을 고르므로 "이 사람은 대상이 아니었다"가 성립하지 않지만, 선택 경로는
+관리자가 보낸 모든 id의 처리 여부를 알려야 한다.
 
 **멱등하다.** 두 번 불러도 두 번째는 `{"deactivated": []}`다.
 
 **동시에 도착해도 한 id는 한 응답에만 담긴다** (MUST, 2026-08-26 리뷰). 대상을 먼저 조회하고 나중에 갱신하면 **두 요청이 같은 `ACTIVE` 집합을 읽어** 양쪽 응답에 같은 id가 담기고 이력도 두 벌 쌓인다. 그러면 `deactivated`가 *"내가 바꾼 것"* 이 아니게 되어 **되돌리기가 남이 방금 내린 사람까지 올려 버린다.** 세는 것과 바꾸는 것이 한 연산이어야 하고, 응답에는 **갱신이 실제로 바꾼 행만** 담는다 — 부트스트랩의 "확인과 자리 잡기가 한 연산이어야 한다"와 같은 요구다.
 
-**세션 반영은 `ACTIVE`·`INACTIVE`인 일반 부원 전원에게 한다** (MUST) — `deactivated`보다 넓다. 이유는 [2-2 §2-2-3](2-2-OPERATOR-REQUIREMENTS.md#학기-전환--일괄-비활성화와-복구)에 있다: 재요청이 복구 수단이려면 이미 내려간 사람도 반영 대상에 남아야 한다. **반영에 실패하면 `500 INTERNAL_ERROR`이고 변경은 되돌리지 않는다** ([2-2 §2-2-5](2-2-OPERATOR-REQUIREMENTS.md#차단이-강해지는-변경은-세션에-닿아야-성공이다) MUST).
+조건 전원 경로의 세션 반영은 `ACTIVE`·`INACTIVE`인 일반 부원 전원에게 한다 (MUST) —
+`deactivated`보다 넓다. 선택 경로는 선택한 id 중 같은 조건의 회원에게만 반영한다. 어느
+경로든 반영에 실패하면 `500 INTERNAL_ERROR`이고 변경은 되돌리지 않는다
+([2-2 §2-2-5](2-2-OPERATOR-REQUIREMENTS.md#차단이-강해지는-변경은-세션에-닿아야-성공이다) MUST).
 
 **그 `500`은 일반 오류 본문이다** — `deactivated`를 실어 보내지 않는다. **되돌릴 근거는 응답이 아니라 `deactivated_at`이다** (MUST, 2026-08-28 리뷰). 상태 변경과 같은 트랜잭션에서 찍히므로 세션 반영이 실패해도, 브라우저가 닫혀도 남는다. 응답의 `deactivated`는 **그 자리에서 바로 보여주기 위한 것**이지 유일한 기록이 아니다.
 
 > 처음에는 이 `500`이 `deactivated`를 함께 담게 하려 했다. 두 가지 이유로 접었다. **오류 본문에 필드를 더해도 클라이언트가 그것을 들고 있을 곳이 없고**(관리자가 화면을 떠나면 다시 잃는다), 대안으로 삼았던 *"이력을 같은 트랜잭션에서 커밋한다"* 는 **§2-2-7의 MUST와 정면으로 충돌한다** — 이력은 커밋과 세션 반영보다 뒤에 남기고 실패를 삼켜야 하며([T-211·T-212](5-TESTING.md#5-2-필수-테스트-사례)), 구현도 변경 트랜잭션 안에서 부르면 거부한다. 되돌릴 근거는 **현재 상태의 일부**여야 했다.
 
-**대상 건수는 `GET /admin/users?status=ACTIVE&role=USER&size=1`의 `page.totalElements`로 얻는다.** 미리보기 전용 API를 두지 않는다 — 목록이 이미 같은 조건을 받는다.
+조건 전원 경로의 대상 건수는 `GET /admin/users?status=ACTIVE&role=USER&size=1`의
+`page.totalElements`로 얻는다. 미리보기 전용 API를 두지 않는다. 이 하위 호환 경로의 확인
+UI는 #297 회원 관리 화면에 남겨 두지 않는다. 선택 경로는 현재 페이지에서 고른 대상 수와
+이름을 확인 창에 보여준다.
 
 #### `POST /admin/users/reactivate` — id 목록
 
@@ -1002,7 +1062,11 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 
 **승인 대상 목록은 `status = 'PENDING' AND applied_at IS NOT NULL`로 거른다** (MUST). 신청하지 않은 계정은 **승인 대상에 포함되지 않는다.**
 
-여기서 말하는 것은 **승인의 대상 집합**이지 회원 목록 화면이 아니다 (2026-08-10 명확화). `GET /admin/users`는 모든 회원을 보여주는 화면이고 신청하지 않은 계정도 관리자가 봐야 한다 — 그 사람이 존재한다는 것 자체가 운영 정보다. 요점은 **그 계정이 승인 대상에서 빠지는 것**이고, 화면은 이를 상태 표시("미승인")와 선택 불가로 드러낸다 ([5-TESTING T-73](5-TESTING.md#5-2-필수-테스트-사례)).
+여기서 말하는 것은 **승인의 대상 집합**이지 회원 목록 화면이나 선택 상태 조작의 대상 집합이
+아니다 (2026-08-30, #297 명확화). `GET /admin/users`는 신청하지 않은 계정도 보여주고,
+화면은 이를 "미승인" 상태로 표시한다. 행별 승인 버튼은 없지만 선택 체크박스는 있으며,
+일괄 `ACTIVE` 요청에서는 서버가 `NOT_APPLIED`로 집계한다
+([5-TESTING T-73](5-TESTING.md#5-2-필수-테스트-사례)).
 
 `POST /admin/users/approve`에 신청하지 않은 계정의 id가 섞여 오면 그 건은 실패로 집계하고 그 계정의 상태를 바꾸지 않는다 (MUST). 목록에서 걸렀더라도 API를 직접 부르는 경로가 남아 있다.
 

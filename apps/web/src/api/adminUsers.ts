@@ -2,6 +2,7 @@ import { request, toQuery } from './client'
 import {
   fixtureAdminUsers,
   fixtureApproveUsers,
+  fixtureBulkUpdateUserStatus,
   fixtureContentSummary,
   fixtureDeactivateUsers,
   fixtureReactivateUsers,
@@ -98,32 +99,57 @@ export function reject(userIds: number[]): Promise<RejectResult> {
 }
 
 /**
- * 학기 전환 — 일괄 비활성화 결과 (계약 §3-2-6, #228).
- *
- * **실패 배열이 없다** (MUST). 승인·거부와 다른 점이다 — 대상을 서버가 골랐으므로
- * *"이 사람은 대상이 아니었다"* 가 성립하지 않는다.
+ * 선택 회원 비활성화 결과 (계약 §3-2-6, #295).
  */
 export interface DeactivateResult {
   /** 실제로 `INACTIVE`가 된 id. 이미 비활동이던 사람은 들어가지 않는다. */
   deactivated: number[]
+  /** 선택 경로에서 바뀌지 않은 id와 사유. */
+  failed: { userId: number; reason: DeactivateFailureReason }[]
 }
 
+export type DeactivateFailureReason = 'NOT_FOUND' | 'NOT_ACTIVE_USER'
+
 /**
- * 학기 전환 — 일괄 비활성화 (2-2 §2-2-3).
- *
- * **본문을 보내지 않는다** (계약 §3-2-6 MUST). 대상은 `role = 'USER' AND status = 'ACTIVE'`인
- * 전원으로 **서버가 정한다** — id를 보내면 100개 상한에 걸려 학기 전환이 페이지 수만큼
- * 쪼개지고, **한 페이지를 빠뜨려도 아무도 모른다.**
- *
- * 대상 건수는 목록을 같은 조건으로 조회해 얻는다(`status=ACTIVE&role=USER&size=1`) —
- * 미리보기 전용 API를 두지 않는다.
+ * 선택 회원 비활성화 (#295). 본문 없는 전원 경로와 달리 고른 id만 처리한다.
  */
-export function deactivateAll(): Promise<DeactivateResult> {
+export function deactivate(userIds: number[]): Promise<DeactivateResult> {
   if (import.meta.env.VITE_USE_FIXTURES === 'true') {
-    return fixtureDeactivateUsers()
+    return fixtureDeactivateUsers(userIds)
   }
   return request<DeactivateResult>('/admin/users/deactivate', {
     method: 'POST',
+    body: JSON.stringify({ userIds }),
+  })
+}
+
+export type BulkStatusTarget = 'ACTIVE' | 'SUSPENDED'
+
+export type BulkStatusFailureReason =
+  | 'NOT_FOUND'
+  | 'NOT_APPLIED'
+  | 'PENDING_NOT_ALLOWED'
+  | 'ADMIN_SUSPEND_REQUIRES_ROLE_REVOCATION'
+
+export interface BulkStatusResult {
+  targetStatus: BulkStatusTarget
+  /** 실제 변경과 이미 목표 상태였던 멱등 성공을 입력 순서대로 담는다. */
+  processed: number[]
+  /** 처리하지 못한 id와 사유를 입력 순서대로 담는다. */
+  failed: { userId: number; reason: BulkStatusFailureReason }[]
+}
+
+/** 선택 회원 일괄 활성화·정지 (#313). 단건 API를 병렬 호출하지 않는다. */
+export function bulkUpdateStatus(
+  userIds: number[],
+  status: BulkStatusTarget,
+): Promise<BulkStatusResult> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true') {
+    return fixtureBulkUpdateUserStatus(userIds, status)
+  }
+  return request<BulkStatusResult>('/admin/users/status', {
+    method: 'PATCH',
+    body: JSON.stringify({ userIds, status }),
   })
 }
 
