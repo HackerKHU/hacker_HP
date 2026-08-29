@@ -1,5 +1,5 @@
 import { MenuIcon, XIcon } from 'lucide-react'
-import { Fragment, useState } from 'react'
+import { Fragment } from 'react'
 import { Link } from 'react-router-dom'
 import {
   hasApplied,
@@ -9,6 +9,9 @@ import {
 } from '@/auth/session'
 import {
   HEADER_ACTION,
+  HEADER_CONTAINER,
+  HEADER_LOGO,
+  HEADER_MENU_BUTTON,
   HEADER_NAV_DIVIDER,
   HEADER_NAV_DIVIDER_STACKED,
   HEADER_NAV_ITEM,
@@ -16,6 +19,7 @@ import {
   headerMenus,
 } from '@/components/header-nav'
 import { Button } from '@/components/ui/button'
+import { useHeaderMenu } from '@/components/useHeaderMenu'
 import { AccountMenu } from '@/features/account/AccountMenu'
 import { cn } from '@/lib/utils'
 import { CLUB, SECTIONS } from './content'
@@ -113,7 +117,7 @@ export function PublicHeader() {
    * 모바일 메뉴. 항목을 누르면 닫는다 — 앵커는 페이지를 안 바꾸므로 저절로 닫히지 않고,
    * 열린 채 두면 이동한 섹션을 메뉴가 가린다.
    */
-  const [menuOpen, setMenuOpen] = useState(false)
+  const mobileMenu = useHeaderMenu()
   const hasMemberSession = session.state.kind === 'active'
   const navigation = landingNavigation(session.state)
   // PENDING일 때만 의미가 있다. `null`이면 403으로만 알아내 신청 여부를 모르는 상태다.
@@ -122,33 +126,36 @@ export function PublicHeader() {
   return (
     <header className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur">
       {/*
-       * **`AppHeader`와 같은 컨테이너다** (#247). 높이·폭·패딩·간격이 전부 같아야 랜딩에서
-       * 로그인해 넘어올 때 로고가 움직이지 않는다.
+       * **`AppHeader`와 같은 컨테이너다** (#247, #249). 높이·폭·패딩·간격이 같아야
+       * 랜딩에서 로그인해 넘어올 때 로고가 움직이지 않는다.
        *
-       * 모바일은 **간격만** 줄인다 — 320px에서 "승인 대기 중"+로그아웃+햄버거가 `gap-8`을
-       * 못 버틴다. **가로 패딩은 줄이지 않는다**: 한때 `px-4`였는데 그것은 위 근거가 아니라
-       * 간격과 함께 딸려온 값이었고, 랜딩 본문(`CONTAINER`)과 푸터가 `px-6`이라 **좁은
-       * 화면에서 헤더 로고만 본문보다 8px 왼쪽에 섰다.**
+       * **가로 패딩은 줄이지 않는다**: 랜딩 본문(`CONTAINER`)과 푸터가 `px-6`이라 좁은
+       * 화면에서도 헤더 로고가 같은 정렬선에 있어야 한다.
        */}
-      <div className="mx-auto flex h-20 w-full max-w-[1152px] items-center gap-4 px-6 md:gap-8">
+      <div className={HEADER_CONTAINER}>
         {/*
-         * 가로 락업(심볼 + `HACKER`). 헤더는 가로로 긴 자리라 세로 락업을 넣으면 높이가
-         * 눌려 글자가 안 읽힌다 (`brand/README.md` — 가로 락업은 그래서 워드마크를
-         * 원작 비율의 2.4배로 키운 조합이다).
+         * 320px에서는 32px 심볼로 폭을 줄이고 `md`부터 가로 락업(심볼 + `HACKER`)을 쓴다.
+         * 데스크톱 헤더는 가로로 긴 자리라 세로 락업을 넣으면 높이가 눌려 글자가 안 읽힌다.
          *
          * 랜딩은 `.dark`라 **흰 잉크**를 쓴다. 배경이 채워진 `-on-black`이 아니라
          * 투명 배경이어야 헤더의 반투명 배경 위에서 네모가 안 비친다.
          *
-         * 높이를 고정하고 폭을 `auto`로 둔다 — 원본 512×104의 비율이 그대로 지켜진다.
+         * 두 자산 모두 높이를 32px로 고정하고 각 원본 비율을 지킨다.
          */}
-        <a href="#top" className="shrink-0">
-          <img
-            src="/brand/lockup-horizontal-white-512.png"
-            alt={CLUB.name}
-            width={512}
-            height={104}
-            className="h-8 w-auto"
-          />
+        <a href="#top" className="col-start-1 shrink-0">
+          <picture>
+            <source
+              media="(max-width: 767px)"
+              srcSet="/brand/mark-white-512.png"
+            />
+            <img
+              src="/brand/lockup-horizontal-white-512.png"
+              alt={CLUB.name}
+              width={512}
+              height={104}
+              className={HEADER_LOGO}
+            />
+          </picture>
         </a>
 
         {/*
@@ -167,10 +174,12 @@ export function PublicHeader() {
 
         {/*
          * 세션을 확인하는 동안에는 아무것도 그리지 않는다. "로그인"을 먼저 그렸다가
-         * 곧바로 다른 것으로 바뀌면 깜빡인다.
+         * 곧바로 다른 것으로 바뀌면 깜빡인다. 320px에서는 guest의 보조 동작인 로그인만
+         * 모바일 메뉴에도 두고 첫 줄에서는 숨긴다. 지원하기와 나머지 상태 조작은 한 번의
+         * 탭 뒤로 숨기지 않는다.
          */}
         {session.state.kind !== 'loading' && (
-          <div className="ml-auto flex items-center gap-2">
+          <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-2 md:col-auto md:row-auto md:ml-auto">
             {session.state.kind === 'guest' ||
             session.state.kind === 'suspended' ? (
               <>
@@ -194,7 +203,14 @@ export function PublicHeader() {
                     <Link to="/login">지원하기</Link>
                   </Button>
                 )}
-                <Button asChild variant="outline" className={HEADER_ACTION}>
+                <Button
+                  asChild
+                  variant="outline"
+                  className={cn(
+                    HEADER_ACTION,
+                    session.state.kind === 'guest' && 'hidden md:inline-flex',
+                  )}
+                >
                   <Link to="/login">로그인</Link>
                 </Button>
               </>
@@ -242,27 +258,24 @@ export function PublicHeader() {
         )}
 
         {/*
-         * 왼쪽 내비게이션만 여기로 접는다. 지원하기·로그인·계정 메뉴는 밖에 남긴다 —
-         * 현재 세션에서의 다음 행동이라 한 번의 탭 뒤로 숨기지 않는다.
-         *
-         * ⚠️ **버튼이 커졌다.** 한때 `size="sm"`(h-8·14px)이라 390px에서도 로고와 함께
-         * 들어간다고 적혀 있었는데, 메뉴 글씨에 맞춰 기본 크기(h-9·16px)로 올리면서
-         * 가로로 더 넓어졌다. **좁은 화면에서 이 줄이 넘치는지는 실측이 필요하다** —
-         * #249가 그것을 기다리고 있고, 그 값이 여기서 한 번 더 나빠졌다.
-         *
-         * 세션 확인이 끝나기 전에는 그리지 않는다. 공개 메뉴를 먼저 열 수 있게 두면 확인이
-         * 끝난 뒤 부원 메뉴로 바뀌어 같은 드롭다운의 의미가 도중에 달라진다.
+         * 세션 확인 전에는 공개 메뉴를 먼저 열 수 없게 버튼 자체를 그리지 않는다.
+         * 액션 뒤에 두어 모바일의 시각 순서와 키보드 탭 순서가 같다.
          */}
         {navigation.kind !== 'hidden' && (
           <button
+            ref={mobileMenu.triggerRef}
             type="button"
-            className={cn(NAV_ITEM, 'px-2 md:hidden')}
-            aria-expanded={menuOpen}
-            aria-controls="mobile-menu"
-            aria-label={menuOpen ? '메뉴 닫기' : '메뉴 열기'}
-            onClick={() => setMenuOpen((open) => !open)}
+            className={cn(
+              NAV_ITEM,
+              HEADER_MENU_BUTTON,
+              'col-start-3 row-start-1',
+            )}
+            aria-expanded={mobileMenu.open}
+            aria-controls="public-mobile-menu"
+            aria-label={mobileMenu.open ? '메뉴 닫기' : '메뉴 열기'}
+            onClick={mobileMenu.toggle}
           >
-            {menuOpen ? (
+            {mobileMenu.open ? (
               <XIcon className="size-5" aria-hidden="true" />
             ) : (
               <MenuIcon className="size-5" aria-hidden="true" />
@@ -278,16 +291,30 @@ export function PublicHeader() {
        * **세로로 쌓이므로 항목이 늘어도 가로 폭을 먹지 않는다.** 좁은 화면에서 헤더 한 줄이
        * 받는 압박(#249)은 로고·액션·햄버거가 정하고, 이 목록은 거기 들어가지 않는다.
        */}
-      {navigation.kind !== 'hidden' && menuOpen && (
+      {navigation.kind !== 'hidden' && mobileMenu.open && (
         <div
-          id="mobile-menu"
-          className="border-t border-border px-4 pb-4 pt-2 md:hidden"
+          id="public-mobile-menu"
+          className="border-t border-border px-6 pb-4 pt-2 md:hidden"
         >
           <HeaderNavigation
             navigation={navigation}
             stacked
-            onNavigate={() => setMenuOpen(false)}
+            onNavigate={mobileMenu.close}
           />
+          {session.state.kind === 'guest' ? (
+            <>
+              <div aria-hidden="true" className={HEADER_NAV_DIVIDER_STACKED} />
+              <nav aria-label="계정">
+                <Link
+                  to="/login"
+                  className={cn(NAV_ITEM, 'block')}
+                  onClick={mobileMenu.close}
+                >
+                  로그인
+                </Link>
+              </nav>
+            </>
+          ) : null}
         </div>
       )}
     </header>

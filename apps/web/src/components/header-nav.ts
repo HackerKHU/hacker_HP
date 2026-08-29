@@ -13,13 +13,8 @@ import { lookup } from '@/lib/lookup'
  * 맞지만, 헤더는 손이 아니라 눈이 먼저 닿는 자리라 기준이 다르다. 화면을 직접 보고 내린
  * 판단이 규칙의 일관성보다 우선한다.
  *
- * **랜딩은 좁은 화면에서 이 값과 무관하다.** 메뉴 묶음이 `hidden md:flex`라 768px
- * 미만에서는 그려지지 않고 햄버거 뒤로 접힌다 — 그 폭에서 헤더 한 줄이 받는 압박(#249)은
- * 로고·액션 버튼·햄버거가 정하고 여기는 거기 들어가지 않는다.
- *
- * **앱 헤더는 접히지 않는다.** 메뉴가 늘 한 줄에 있어 키운 만큼 가로로 넓어진다 — 앱
- * 화면은 데스크톱 전용이라(spec §1-2 — 반응형은 범위 밖) 지금은 문제가 아니지만,
- * 모바일까지 받기로 하면 **여기가 아니라 그 헤더에 접는 규칙을 넣어야 한다.**
+ * 두 헤더 모두 `md` 미만에서는 메뉴 묶음을 햄버거 뒤로 접는다 (#249). 이 값은 펼친
+ * 세로 메뉴에서도 그대로 써서 데스크톱과 모바일의 글씨 크기·터치 영역이 갈리지 않는다.
  *
  * **색은 각자 붙인다.** 앱은 현재 위치를 `text-foreground`로 드러내야 하고 랜딩은 그런
  * 구분이 없다 — 여기에 색까지 넣으면 그 차이가 조건문으로 되돌아온다.
@@ -38,7 +33,7 @@ export const HEADER_NAV_ITEM =
  *
  * 색과 테두리는 각자 `variant`가 정한다 — 여기는 크기만 맞춘다.
  */
-export const HEADER_ACTION = 'text-base'
+export const HEADER_ACTION = 'h-11 px-3 text-base md:h-9 md:px-4'
 
 /**
  * 헤더 메뉴 한 칸.
@@ -127,3 +122,21 @@ export const HEADER_NAV_DIVIDER = 'mx-2 h-4 w-px bg-border'
  * 세로선을 그으면 아무것도 가르지 못한다.
  */
 export const HEADER_NAV_DIVIDER_STACKED = 'my-2 h-px bg-border'
+
+/**
+ * 두 헤더의 안쪽 컨테이너. 모바일에서는 심볼·상태 조작·메뉴 버튼을 세 열로 받고,
+ * 데스크톱에서는 기존 한 줄 flex로 돌아간다.
+ *
+ * 320px 뷰포트의 고정 스크롤바 환경은 실제 콘텐츠 폭이 305px뿐이다. `gap-x-2`면
+ * `px-6` 안의 257px에 27px 심볼·44px 메뉴 버튼·상태 조작이 함께 들어간다. `px-6`은
+ * 랜딩 본문·푸터와 같은 정렬선이라 좁은 화면에서도 줄이지 않는다 (#247, #249).
+ */
+export const HEADER_CONTAINER =
+  'mx-auto grid h-20 w-full max-w-[1152px] grid-cols-[auto_1fr_auto] items-center gap-x-2 px-6 md:flex md:flex-nowrap md:gap-8'
+
+/** 320px에서는 심볼, `md` 이상에서는 기존 가로 락업을 쓸 때의 공통 크기다. */
+export const HEADER_LOGO = 'h-8 w-[27px] md:w-auto'
+
+/** 아이콘 하나인 모바일 메뉴 버튼도 44×44px 터치 영역과 보이는 포커스를 갖는다. */
+export const HEADER_MENU_BUTTON =
+  'inline-flex size-11 shrink-0 items-center justify-center p-0 md:hidden'
