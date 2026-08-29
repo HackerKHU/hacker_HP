@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
+import { CLUB } from '@/features/landing/content'
 import { AppLayout } from './AppLayout'
 
 /*
@@ -52,6 +53,27 @@ describe('AppLayout', () => {
     renderLayout()
 
     expect(screen.getByRole('link', { name })).toHaveAttribute('href', href)
+  })
+
+  /*
+   * **랜딩과 같은 푸터다** (#304, `SiteFooter`). 목록도 모양도 같아야 한다 — 랜딩 쪽과
+   * 나란히 재는 사례는 `FooterParity.test.tsx`에 있다.
+   *
+   * 링크 하나가 아니라 **목록 전체**를 단정한다: 하나만 보면 다른 길이 다시 늘어나도
+   * 통과한다. `동아리 소개`가 있었는데 **헤더 로고가 이미 `/`로 간다** — 같은 곳으로 가는
+   * 길이 둘이었다.
+   */
+  it('푸터가 랜딩과 같은 링크 셋을 그린다', () => {
+    renderLayout()
+
+    const footer = screen.getByRole('contentinfo')
+    expect(
+      within(footer)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual(['인스타그램', '개인정보처리방침', '이용약관'])
+    // 동아리 이름·주소도 함께 온다. 내부 화면에만 없을 이유가 없다.
+    expect(footer).toHaveTextContent(CLUB.fullName)
   })
 
   it('세로 가운데를 정렬 속성으로 잡지 않는다 — 넘치면 위쪽이 스크롤 밖으로 밀린다', () => {
