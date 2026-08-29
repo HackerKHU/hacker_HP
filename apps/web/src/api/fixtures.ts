@@ -26,7 +26,6 @@
  * 타입이 계약을 강제하는 것이 이 파일의 존재 이유다.
  */
 
-import { DEPARTMENTS } from '@/features/auth/departments'
 import type {
   AdminUserQuery,
   ApproveResult,
@@ -143,6 +142,31 @@ let application: {
   studentNo: string
   department: string
 } | null = null
+
+/**
+ * 학과 목록 (`GET /departments`, #166). **원본은 서버의 `Department.ALL`이고 여기 있는 것은
+ * 더미다** — 화면이 목록을 갖던 사본(`features/auth/departments.ts`)은 #166에서 지웠다.
+ *
+ * 전부 옮겨 적지 않는다. 이 파일은 서버가 붙으면 통째로 지우는 임시 계층이라, 103개를
+ * 베껴 두면 지워야 할 사본이 이름만 바꿔 되살아난다.
+ *
+ * **다만 길이는 실제와 맞춘다.** 개수는 네이티브 `<select>`에서 OS 피커가 처리해 화면에
+ * 드러나지 않지만, 가장 긴 이름은 닫힌 칸에 그대로 그려져 잘리거나 화살표를 밀 수 있다.
+ * 짧은 이름만 두면 그 위험을 화면에서 볼 수가 없다. 마지막 항목이 서버 목록에서 가장 넓은
+ * 축의 이름이다 — 라틴 문자가 섞여 글꼴 대체까지 함께 걸린다.
+ */
+const DEPARTMENTS = [
+  '컴퓨터공학과',
+  '인공지능학과',
+  '소프트웨어융합학과',
+  '전자공학과',
+  '경영학과',
+  '글로벌Hospitality·관광학과',
+] as const
+
+export function fixtureDepartments(): Promise<string[]> {
+  return Promise.resolve([...DEPARTMENTS])
+}
 
 export function fixtureMe(): Promise<User | null> {
   // 서버가 세션이 없으면 204로 답한다 (#190). 오류가 아니라 "비로그인"이라는 답이다.

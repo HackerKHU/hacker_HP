@@ -25,7 +25,8 @@ export interface ApplicationRequest {
   studentNo: string
   /**
    * 정해진 목록에서 고른 값 (spec §3-2-3 MUST). 서버가 목록에 없는 값을
-   * `400 VALIDATION_ERROR`로 거부한다 — 목록은 `features/auth/departments.ts`에 있다.
+   * `400 VALIDATION_ERROR`로 거부한다 — 목록은 `GET /departments`가 내려준다
+   * (`api/departments.ts`, #166).
    */
   department: string
 }

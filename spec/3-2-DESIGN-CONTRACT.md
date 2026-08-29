@@ -84,7 +84,9 @@ erDiagram
 
 **`department`는 정해진 목록에서만 고른다** (MUST) — 자유 입력이 아니다. `컴공`/`컴퓨터공학과`/`소프트웨어융합대학 컴퓨터공학부`처럼 표기가 제각각이 되면 회원 목록에서 학과로 걸러보는 것이 사실상 불가능해진다. 목록은 경희대 서울·국제캠퍼스 전체 학과이며, 별도 관리 화면 없이 `apps/api`의 `Department` 클래스(`domain/user/entity` 패키지)에 코드로 고정한다 — 학과 개편이 잦지 않아 관리 화면을 따로 둘 만큼의 빈도가 아니다.
 
-**`GET /departments`가 이 목록을 그대로 내려준다** (아래 §3-2-3, #166). 그래도 이 목록은 세 곳에 있다 — 위 `Department.ALL`(원본), CHECK 제약을 정의하는 마이그레이션(최초 `V3__add_department.sql`, 목록을 학교 공식 안내와 대조해 바로잡은 `V10__fix_department_names.sql`이 갱신 — develop에 먼저 병합된 다른 작업이 V9를 먼저 썼다), 그리고 API가 생기기 전부터 화면이 써 온 `apps/web`의 `features/auth/departments.ts`다. **한 곳만 고치면 그 학과 지원자의 가입이 막힌다** — 웹에만 있으면 `400`, CHECK에만 없으면 저장이 터진다. 세 벌이 어긋나면 `apps/web`의 `departments.test.ts`가 원본 파일을 직접 읽어 CI에서 실패시킨다. 화면이 `GET /departments`를 쓰도록 바꾸고 나면(#166) `departments.ts`·`departments.test.ts`를 지워 두 벌로 줄인다.
+**`GET /departments`가 이 목록을 그대로 내려준다** (아래 §3-2-3, #166). 화면은 이 응답만 쓴다 — 목록을 복사해 갖고 있던 `apps/web`의 `features/auth/departments.ts`는 #166에서 지웠다. 남은 사본은 둘이다: 위 `Department.ALL`(원본)과 CHECK 제약을 정의하는 마이그레이션(최초 `V3__add_department.sql`, 목록을 학교 공식 안내와 대조해 바로잡은 `V10__fix_department_names.sql`이 갱신 — develop에 먼저 병합된 다른 작업이 V9를 먼저 썼다). **둘 중 하나만 고치면 그 학과 지원자의 가입이 막힌다** — CHECK에 없으면 저장이 터진다. 어긋남은 `apps/api`가 감시한다.
+
+**목록을 못 받은 화면은 그 사실을 말한다** (MUST). `department`는 필수이고 목록에서만 고를 수 있으므로, 조용히 빈 `<select>`를 두면 사용자는 신청이 막힌 이유를 알 방법이 없다. 실패를 알리고 다시 부를 자리를 준다 (T-115).
 
 신규 신청은 `department`를 **필수**로 받는다 (MUST) — 관리자가 승인 심사에서 실제로 참고하는 값이다. 다만 **컬럼 자체는 `NULL`을 허용한다**: 이 필드가 생기기 전에 이미 승인된 기존 회원은 값이 없고, 일괄 채우지 않는다 — 잘못 추정한 기본값을 넣느니 비워 두고 개별적으로 보완하는 쪽을 택했다. 그래서 "필수"는 DB 제약이 아니라 `POST /auth/application`의 검증이 담당한다 (아래).
 
