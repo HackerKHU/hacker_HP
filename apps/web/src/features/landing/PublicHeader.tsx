@@ -2,7 +2,11 @@ import { MenuIcon, XIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { hasApplied, homePath, useSession } from '@/auth/session'
-import { HEADER_ACTION, HEADER_NAV_ITEM } from '@/components/header-nav'
+import {
+  HEADER_ACTION,
+  HEADER_NAV_ITEM,
+  headerMenus,
+} from '@/components/header-nav'
 import { Button } from '@/components/ui/button'
 import { AccountMenu } from '@/features/account/AccountMenu'
 import { cn } from '@/lib/utils'
@@ -17,23 +21,6 @@ import { CLUB, SECTIONS } from './content'
 const NAV_ITEM = cn(HEADER_NAV_ITEM, 'text-muted-foreground')
 
 /**
- * 부원 화면으로 가는 링크.
- *
- * **데스크톱 묶음과 모바일 메뉴가 이 목록 하나를 같이 쓴다.** 두 곳에 따로 적으면 화면이
- * 늘 때마다 한쪽만 고치게 되고, 그 어긋남은 좁은 화면에서만 드러나 오래 남는다 —
- * 자료게시판·갤러리가 생기고도(#59·#60) 랜딩에는 공지사항만 있던 것이 그 예다.
- *
- * `AppHeader`와 같은 경로를 쓰되 목록을 공유하지는 않는다. 그쪽은 `role`에 따라 회원
- * 관리가 붙고 여기는 `isActive` 하나로 갈리므로, 합치면 두 조건이 한 배열에 뒤엉킨다.
- */
-const MEMBER_LINKS = [
-  { to: '/notices', label: '공지사항' },
-  { to: '/notes', label: '자료게시판' },
-  { to: '/posts', label: '자유게시판' },
-  { to: '/photos', label: '갤러리' },
-]
-
-/**
  * 랜딩 전용 헤더. `AppHeader`와 별개 컴포넌트다 — 배경이 검정이고 메뉴가 라우트가 아니라
  * **섹션 앵커**라서 성격이 다르다. 하나로 합치면 두 성격이 조건문으로 뒤엉킨다.
  */
@@ -45,6 +32,14 @@ export function PublicHeader() {
    */
   const [menuOpen, setMenuOpen] = useState(false)
   const isActive = session.state.kind === 'active'
+  /**
+   * 부원 화면 메뉴. **내부 헤더와 같은 목록이다** (#306, `header-nav.ts`) — 두 화면을
+   * 오가는 사람에게 헤더가 바뀌면 로고가 8px 미끄러졌던 것(#247)과 같은 종류로 어긋난다.
+   */
+  const menus = headerMenus(
+    // `isActive`로 좁히지 않는다 — 불리언은 유니온을 좁히지 못해 `state.user`가 안 보인다.
+    session.state.kind === 'active' ? session.state.user.role : null,
+  )
   // PENDING일 때만 의미가 있다. `null`이면 403으로만 알아내 신청 여부를 모르는 상태다.
   const applied = hasApplied(session)
 
@@ -95,32 +90,45 @@ export function PublicHeader() {
          * 않는다 — 320px 압박(#249)과 무관하게 두려는 것이다.
          */}
         <div className="hidden items-center gap-1 md:flex">
-          <nav className="flex items-center gap-1" aria-label="섹션 이동">
-            {SECTIONS.map((section) => (
-              <a key={section.id} href={`#${section.id}`} className={NAV_ITEM}>
-                {section.label}
-              </a>
-            ))}
-          </nav>
-
-          {/*
-           * **부원에게만 보인다.** 셋 다 `ACTIVE` 전용 화면이라(spec §3-1-3) 비로그인이
-           * 누르면 가드가 로그인으로 보내는데, **누르기 전에는 그렇게 될 줄 모른다.**
-           * 랜딩을 처음 보는 사람의 다음 행동은 오른쪽 묶음의 지원하기·로그인이고,
-           * 튕겨 나갈 링크를 그 옆에 늘어놓으면 무엇을 눌러야 하는지 흐려진다.
-           *
-           * `isActive`는 세션 확인이 끝나야 참이 되므로, 오른쪽 묶음처럼 `loading`을
-           * 따로 거를 필요가 없다 — 확인 전에는 그려지지 않는다.
-           */}
-          {isActive && (
-            <>
-              <span aria-hidden="true" className="mx-2 h-4 w-px bg-border" />
-              {MEMBER_LINKS.map((link) => (
-                <Link key={link.to} to={link.to} className={NAV_ITEM}>
-                  {link.label}
+          {isActive ? (
+            /*
+             * **부원에게는 내부 화면과 같은 메뉴만 보여준다** (#306).
+             *
+             * 로그인한 부원에게 랜딩은 읽을 페이지가 아니라 **지나가는 자리**다. 이미 아는
+             * 소개를 다시 읽지 않고, 헤더에서 찾는 것은 공지와 자료다. 섹션 앵커 다섯 개
+             * 뒤에 그 넷이 밀려 있으면 두 화면을 오갈 때 메뉴가 아홉 칸에서 넷으로 줄어든다.
+             *
+             * 섹션으로 가는 길을 잃지만, 페이지를 내려 읽으면 그대로 있다 — 로고를 눌러
+             * 랜딩에 온 사람은 대개 그 아래를 스크롤한다.
+             *
+             * **`nav`의 이름은 `주요 메뉴`다** — 내부 헤더가 쓰는 그 이름이다. `섹션 이동`
+             * 아래에 라우트 링크를 넣으면 스크린리더에게 거짓말이 되고, 이름까지 같아야
+             * 두 화면을 오갈 때 같은 메뉴로 읽힌다.
+             */
+            <nav className="flex items-center gap-1" aria-label="주요 메뉴">
+              {menus.map((menu) => (
+                <Link key={menu.to} to={menu.to} className={NAV_ITEM}>
+                  {menu.label}
                 </Link>
               ))}
-            </>
+            </nav>
+          ) : (
+            /*
+             * **비로그인과 `PENDING`은 섹션 앵커다.** 그 다섯이 이 페이지를 읽는 순서이고,
+             * 부원 화면 링크는 눌러도 가드가 로그인으로 되돌린다 (spec §3-1-3) — 누르기
+             * 전에는 그렇게 될 줄 모른다.
+             */
+            <nav className="flex items-center gap-1" aria-label="섹션 이동">
+              {SECTIONS.map((section) => (
+                <a
+                  key={section.id}
+                  href={`#${section.id}`}
+                  className={NAV_ITEM}
+                >
+                  {section.label}
+                </a>
+              ))}
+            </nav>
           )}
         </div>
 
@@ -244,32 +252,33 @@ export function PublicHeader() {
           id="mobile-menu"
           className="border-t border-border px-4 pb-4 pt-2 md:hidden"
         >
-          <nav className="flex flex-col" aria-label="섹션 이동">
-            {SECTIONS.map((section) => (
-              <a
-                key={section.id}
-                href={`#${section.id}`}
-                className={NAV_ITEM}
-                onClick={() => setMenuOpen(false)}
-              >
-                {section.label}
-              </a>
-            ))}
-          </nav>
-          {isActive && (
-            <>
-              <div aria-hidden="true" className="my-2 h-px bg-border" />
-              {MEMBER_LINKS.map((link) => (
+          {/* 데스크톱과 같은 규칙이다 (#306) — 부원에게는 라우트 메뉴, 그 밖에는 섹션 앵커. */}
+          {isActive ? (
+            <nav className="flex flex-col" aria-label="주요 메뉴">
+              {menus.map((menu) => (
                 <Link
-                  key={link.to}
-                  to={link.to}
+                  key={menu.to}
+                  to={menu.to}
                   className={cn(NAV_ITEM, 'block')}
                   onClick={() => setMenuOpen(false)}
                 >
-                  {link.label}
+                  {menu.label}
                 </Link>
               ))}
-            </>
+            </nav>
+          ) : (
+            <nav className="flex flex-col" aria-label="섹션 이동">
+              {SECTIONS.map((section) => (
+                <a
+                  key={section.id}
+                  href={`#${section.id}`}
+                  className={NAV_ITEM}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  {section.label}
+                </a>
+              ))}
+            </nav>
           )}
         </div>
       )}

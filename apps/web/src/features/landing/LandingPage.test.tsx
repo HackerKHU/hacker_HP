@@ -391,7 +391,7 @@ describe('랜딩 헤더 상태별 진입점', () => {
    * 늘 때마다 한쪽만 고치게 되고, 그 어긋남은 좁은 화면에서만 드러나 오래 남는다 —
    * 자료게시판·갤러리가 생기고도 랜딩에는 공지사항만 있던 것이 그 예다.
    */
-  it('부원이면 모바일 메뉴에도 부원 화면 링크가 전부 있다', async () => {
+  it('부원이면 모바일 메뉴에도 내부 메뉴가 전부 있다', async () => {
     auth.me = () => Promise.resolve(BASE)
 
     renderLanding()
@@ -402,35 +402,72 @@ describe('랜딩 헤더 상태별 진입점', () => {
     const menu = document.getElementById('mobile-menu') as HTMLElement
 
     for (const [label, href] of MEMBER_LINKS) {
-      const link = within(menu).getByRole('link', { name: label })
-      expect(link).toHaveAttribute('href', href)
-      // 데스크톱과 같은 원칙 — 라우트 링크는 섹션 nav 밖이다 (#148).
+      expect(within(menu).getByRole('link', { name: label })).toHaveAttribute(
+        'href',
+        href,
+      )
+    }
+    // 데스크톱과 같은 규칙 — 부원에게는 섹션 앵커를 그리지 않는다 (#306).
+    expect(
+      within(menu).queryByRole('navigation', { name: '섹션 이동' }),
+    ).not.toBeInTheDocument()
+  })
+
+  /*
+   * **비로그인과 `PENDING`은 그대로 섹션 앵커다** (#306).
+   *
+   * 그 다섯이 이 페이지를 읽는 순서이고, 부원 화면 링크는 눌러도 가드가 로그인·대기
+   * 화면으로 되돌린다 (spec §3-1-3) — **누르기 전에는 그렇게 될 줄 모른다.**
+   */
+  it.each([
+    ['비로그인', null],
+    ['PENDING', { ...BASE, status: 'PENDING' as const, approvedAt: null }],
+  ])('%s에게는 섹션 앵커 다섯 개가 그대로 있다', async (_label, user) => {
+    auth.me = () =>
+      user ? Promise.resolve(user) : Promise.reject(new Error('비로그인'))
+
+    renderLanding()
+
+    const nav = await screen.findByRole('navigation', { name: '섹션 이동' })
+    expect(
+      within(nav)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual(['소개', '활동', '기록', 'FAQ', '후원'])
+
+    // 내부 메뉴는 그리지 않는다.
+    for (const [label] of MEMBER_LINKS) {
       expect(
-        within(menu).getByRole('navigation', { name: '섹션 이동' }),
-      ).not.toContainElement(link)
+        screen.queryByRole('link', { name: label }),
+      ).not.toBeInTheDocument()
     }
   })
 
   /*
-   * #155가 정한 자리다 — 섹션 앵커와 **한 묶음이되 그 nav 안에는 넣지 않는다.** 새로
-   * 늘어난 링크도 같은 규칙을 따라야 한다: 하나만 어긋나면 그것만 다른 성격으로 읽힌다.
+   * **부원에게는 내부 화면과 같은 메뉴만 보여준다** (#306).
+   *
+   * 로그인한 부원에게 랜딩은 읽을 페이지가 아니라 지나가는 자리다. 섹션 앵커 다섯 개
+   * 뒤에 부원 화면 넷이 밀려 있으면, 두 화면을 오갈 때 헤더가 아홉 칸에서 넷으로 줄어든다.
+   *
+   * **`nav`의 이름도 내부 헤더와 같다** — `섹션 이동`이 아니라 `주요 메뉴`다. 라우트
+   * 링크가 `섹션 이동` 아래 들어가면 스크린리더에게 거짓말이 된다.
    */
-  it('부원 화면 링크가 섹션 메뉴와 같은 묶음에 놓인다', async () => {
+  it('부원에게는 섹션 앵커 대신 내부 메뉴가 뜬다', async () => {
     auth.me = () => Promise.resolve(BASE)
 
     renderLanding()
     await screen.findAllByRole('link', { name: '공지사항' })
 
-    const sectionNav = screen.getAllByRole('navigation', {
-      name: '섹션 이동',
-    })[0]
+    expect(
+      screen.queryByRole('navigation', { name: '섹션 이동' }),
+    ).not.toBeInTheDocument()
 
-    for (const [label] of MEMBER_LINKS) {
-      // 데스크톱 묶음의 것을 고른다 — 모바일 메뉴는 닫혀 있어 하나뿐이다.
-      const link = screen.getByRole('link', { name: label })
-      expect(link.parentElement).toContainElement(sectionNav)
-      expect(sectionNav).not.toContainElement(link)
-    }
+    const nav = screen.getByRole('navigation', { name: '주요 메뉴' })
+    expect(
+      within(nav)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual(MEMBER_LINKS.map(([label]) => label))
   })
 
   it('ACTIVE에게는 부원 화면 링크와 계정 메뉴가 보인다', async () => {
