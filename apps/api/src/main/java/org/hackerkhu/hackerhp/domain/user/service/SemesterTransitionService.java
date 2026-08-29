@@ -3,6 +3,7 @@ package org.hackerkhu.hackerhp.domain.user.service;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
@@ -78,7 +79,7 @@ public class SemesterTransitionService {
    */
   public DeactivateResponse deactivate(Long requesterId, List<Long> userIds) {
     boolean selected = userIds != null && !userIds.isEmpty();
-    List<Long> targets = selected ? userIds.stream().distinct().sorted().toList() : List.of();
+    List<Long> targets = selected ? new ArrayList<>(new LinkedHashSet<>(userIds)) : List.of();
     Applied applied =
         transaction.execute(
             ignored ->
@@ -179,7 +180,7 @@ public class SemesterTransitionService {
     return new Applied(changed, List.of(), occurredAt);
   }
 
-  /** 선택 id와 요청자를 오름차순으로 잠근 뒤, 잠긴 최신 값으로 성공과 부분 실패를 가른다. */
+  /** 선택 id의 첫 등장 순서로 처리하되, 요청자와 대상 행은 오름차순으로 잠근 뒤 최신 값으로 성공과 부분 실패를 가른다. */
   private Applied applySelectedDeactivation(Long requesterId, List<Long> targets) {
     SortedSet<Long> toLock =
         new TreeSet<>(Stream.concat(Stream.of(requesterId), targets.stream()).toList());
