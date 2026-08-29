@@ -325,8 +325,7 @@ public class AdminUserController {
    *
    * <p><b>정지는 즉시 차단이다</b> (MUST). 이미 로그인해 있는 세션도 다음 요청에서 막힌다 (T-32).
    *
-   * <p>요청자를 받는 이유는 <b>마지막 활성 관리자가 자기 자신을 정지하는 것을 막기 위해서다</b> (§2-2-7 MUST). 화면은 활성 관리자가 몇 명인지 모르므로
-   * 이 판단을 하지 않는다 (T-80).
+   * <p><b>관리자 계정은 직접 정지할 수 없다.</b> 먼저 권한을 {@code USER}로 회수한 뒤 별도 요청으로 정지한다 (#296).
    */
   @Operation(
       summary = "회원 상태 변경",
@@ -336,6 +335,10 @@ public class AdminUserController {
 
           **정지는 즉시 차단이다.** 이미 로그인해 있는 세션도 다음 요청부터 `403 SUSPENDED`가
           된다 — 세션을 지우지 않고 갱신하므로 `401`이 아니다.
+
+          **대상이 `ADMIN`이면 현재 상태·활성 관리자 수·자기 대상 여부와 무관하게 거절한다.**
+          먼저 `PATCH /admin/users/{id}/role`로 `USER` 권한을 회수한 뒤 별도 요청으로 정지한다.
+          거절 문구는 "관리자 계정은 바로 정지할 수 없습니다. 먼저 관리자 권한을 회수한 뒤 정지해 주세요."다.
 
           **승인 대기(`PENDING`) 계정은 이 경로의 대상이 아니다.** 승인은
           `POST /admin/users/approve`가 한다.
@@ -360,7 +363,7 @@ public class AdminUserController {
   @ApiResponse(
       responseCode = "403",
       description =
-          "`FORBIDDEN` — `ADMIN`이 아니거나, CSRF 토큰이 없거나, **마지막 활성 관리자가 자기 자신을 정지하려 했다** · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
+          "`FORBIDDEN` — `ADMIN`이 아니거나, CSRF 토큰이 없거나, **대상 관리자 권한을 먼저 회수하지 않았다** · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,

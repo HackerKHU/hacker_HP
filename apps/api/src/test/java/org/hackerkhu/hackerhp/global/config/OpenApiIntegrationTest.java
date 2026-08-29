@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.domain.user.service.AdminSuspensionPolicy;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.junit.jupiter.api.AfterEach;
@@ -219,6 +220,21 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath(schema).value("#/components/schemas/ErrorResponse"))
         .andExpect(jsonPath("$.components.schemas.ErrorResponse.properties.code").exists())
         .andExpect(jsonPath("$.components.schemas.ErrorResponse.properties.message").exists());
+  }
+
+  /** #296. 상태 PATCH 명세도 관리자 권한 회수 선행과 정확한 거절 문구를 설명한다. */
+  @Test
+  void statusPatchDocumentsAdminRevocationBeforeSuspension() throws Exception {
+    String operation = "$.paths['/api/v1/admin/users/{id}/status'].patch";
+
+    mockMvc
+        .perform(signedIn(get(API_DOCS)))
+        .andExpect(
+            jsonPath(operation + ".description")
+                .value(org.hamcrest.Matchers.containsString(AdminSuspensionPolicy.MESSAGE)))
+        .andExpect(
+            jsonPath(operation + ".responses['403'].description")
+                .value(org.hamcrest.Matchers.containsString("관리자 권한을 먼저 회수")));
   }
 
   /** #295. 선택 비활성화의 optional 본문·상한·부분 실패 reason이 생성된 계약에 드러난다. */
