@@ -12,6 +12,7 @@ import {
   uploadAll,
 } from '@/api/photos'
 import { useSession } from '@/auth/session'
+import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -58,6 +59,7 @@ type Picked = {
 export function PhotoUploadPage() {
   const navigate = useNavigate()
   const { reportApiError } = useSession()
+  const alert = useLiveAlert()
 
   const [picked, setPicked] = useState<Picked[]>([])
   const fileInput = useRef<HTMLInputElement>(null)
@@ -214,14 +216,17 @@ export function PhotoUploadPage() {
         return
       }
 
+      alert.success(`${result.registered.length}장의 사진을 올렸습니다.`, {
+        persistOnNavigation: true,
+      })
       navigate('/photos', { replace: true })
     } catch (caught: unknown) {
-      reportApiError(caught)
+      if (reportApiError(caught)) return
       /*
        * **실패했는데 성공한 것처럼 보이면 안 된다.** 이동하지 않고 고른 사진을 그대로 둔 채
        * 서버가 준 메시지를 보여준다 — `415`·`403`은 무엇을 고쳐야 하는지 서버가 안다.
        */
-      setError(
+      alert.error(
         caught instanceof ApiError
           ? caught.message
           : '사진을 올리지 못했습니다. 잠시 후 다시 시도해 주세요.',
@@ -233,7 +238,7 @@ export function PhotoUploadPage() {
   }
 
   return (
-    <section>
+    <section className="min-h-[32rem]" data-detail-surface="photo-upload">
       <Link
         to="/photos"
         className="text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -266,6 +271,8 @@ export function PhotoUploadPage() {
              */
             disabled={saving}
             onChange={(event) => addFiles(event.target.files)}
+            aria-invalid={error !== null}
+            aria-describedby={error ? 'photo-files-error' : undefined}
             className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:border-input file:bg-transparent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground hover:file:bg-accent"
           />
           <p className="text-xs text-muted-foreground">
@@ -340,23 +347,29 @@ export function PhotoUploadPage() {
           </ul>
         )}
 
-        {progress && (
-          <p role="status" className="text-sm text-muted-foreground">
-            {progress}
-          </p>
-        )}
+        <div className="min-h-12" data-upload-feedback-slot="true">
+          {progress && (
+            <p role="status" className="text-sm text-muted-foreground">
+              {progress}
+            </p>
+          )}
 
-        {failedNotice && (
-          <p role="alert" className="text-sm text-muted-foreground">
-            {failedNotice}
-          </p>
-        )}
+          {failedNotice && (
+            <p role="alert" className="text-sm text-muted-foreground">
+              {failedNotice}
+            </p>
+          )}
 
-        {error && (
-          <p role="alert" className="text-sm text-muted-foreground">
-            {error}
-          </p>
-        )}
+          {error && (
+            <p
+              id="photo-files-error"
+              role="alert"
+              className="text-sm text-muted-foreground"
+            >
+              {error}
+            </p>
+          )}
+        </div>
 
         {/* 오른쪽 정렬 + 주 동작이 맨 끝 (`apps/web/README.md` "폼 버튼"). */}
         <div className="flex justify-end gap-2">

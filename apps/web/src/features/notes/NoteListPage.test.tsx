@@ -6,12 +6,12 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { MemoryRouter, useSearchParams } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/api/client'
 import type { NoteQuery, NoteSummary } from '@/api/notes'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, useSearchParams } from '@/test/TestRouter'
 import { NoteListPage } from './NoteListPage'
 
 /**
@@ -138,6 +138,19 @@ beforeEach(() => {
 })
 
 describe('자료 목록', () => {
+  it('조회 중과 완료 뒤에도 목록 surface와 pager 자리를 유지한다', async () => {
+    renderList()
+    expect(
+      document.querySelector('[data-list-surface="notes"]'),
+    ).toBeInTheDocument()
+    expect(
+      document.querySelector('[data-pager-slot="true"]'),
+    ).toBeInTheDocument()
+    await screen.findByRole('table')
+    expect(
+      document.querySelector('[data-list-surface="notes"]'),
+    ).toBeInTheDocument()
+  })
   /* 제목은 갈래와 무관하게 하나다 — 갈래는 그 안의 탭이다. */
   it('제목이 자료게시판이고 갈래 탭이 둘 있다', async () => {
     renderList()
@@ -383,6 +396,9 @@ describe('자료 목록', () => {
     await waitFor(() => {
       expect(api.bookmarked).toEqual([{ id: 301, next: true }])
     })
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '즐겨찾기에 담았습니다.',
+    )
   })
 
   /* 자료를 올리는 진입점. 문구가 바뀌면 여기서 잡힌다. */
@@ -478,6 +494,16 @@ describe('자료 목록', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '자료를 불러오지 못했습니다',
     )
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(
+      document.querySelector('[data-live-alert-viewport="true"]'),
+    ).not.toBeInTheDocument()
+    api.fail = false
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }))
+    expect(await screen.findByRole('table')).toBeVisible()
+    expect(
+      document.querySelector('[data-pager-slot="true"]'),
+    ).toBeInTheDocument()
   })
 
   /*

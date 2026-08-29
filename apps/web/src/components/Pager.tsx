@@ -8,6 +8,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '@/components/ui/pagination'
+import { cn } from '@/lib/utils'
 
 /**
  * 페이지 번호 줄.
@@ -16,8 +17,7 @@ import {
  * 보여주고, 건너뛰는 자리에만 생략 부호를 넣는다. 번호 5개 + 생략 2개라 **총 페이지 수와
  * 무관하게 7칸을 넘지 않는다.**
  *
- * ponytail: 공지 목록은 아직 자기 안에 같은 로직을 들고 있다. 그 화면은 이미 테스트가
- * 붙어 있어 이 이슈에서 건드리지 않았다 — 다음에 손댈 때 이걸로 옮긴다.
+ * 공지·자료·사진·게시글 목록이 이 창 계산과 아래의 예약된 pager 자리를 함께 쓴다.
  */
 export function pageWindow(page: number, totalPages: number): number[] {
   const last = totalPages - 1
@@ -83,59 +83,64 @@ export function Pager({
   onGo: (page: number) => void
   className?: string
 }) {
-  if (totalPages <= 1) return null
-
   return (
-    <Pagination className={className}>
-      <PaginationContent>
-        <PaginationItem>
-          <PaginationPrevious
-            href={hrefFor(Math.max(0, page - 1))}
-            aria-disabled={page === 0}
-            className={page === 0 ? 'pointer-events-none opacity-50' : ''}
-            onClick={(event) => {
-              event.preventDefault()
-              if (page > 0) onGo(page - 1)
-            }}
-          />
-        </PaginationItem>
-
-        {pageWindow(page, totalPages).map((number, index, shown) => (
-          <Fragment key={number}>
-            {index > 0 && number - shown[index - 1] > 1 && (
-              <PaginationItem>
-                <PaginationEllipsis />
-              </PaginationItem>
-            )}
+    <div
+      className={cn('flex min-h-10 items-start justify-center', className)}
+      data-pager-slot="true"
+    >
+      {totalPages > 1 ? (
+        <Pagination>
+          <PaginationContent>
             <PaginationItem>
-              <PaginationLink
-                href={hrefFor(number)}
-                isActive={number === page}
+              <PaginationPrevious
+                href={hrefFor(Math.max(0, page - 1))}
+                aria-disabled={page === 0}
+                className={page === 0 ? 'pointer-events-none opacity-50' : ''}
                 onClick={(event) => {
                   event.preventDefault()
-                  onGo(number)
+                  if (page > 0) onGo(page - 1)
                 }}
-              >
-                {number + 1}
-              </PaginationLink>
+              />
             </PaginationItem>
-          </Fragment>
-        ))}
 
-        <PaginationItem>
-          <PaginationNext
-            href={hrefFor(Math.min(totalPages - 1, page + 1))}
-            aria-disabled={page >= totalPages - 1}
-            className={
-              page >= totalPages - 1 ? 'pointer-events-none opacity-50' : ''
-            }
-            onClick={(event) => {
-              event.preventDefault()
-              if (page < totalPages - 1) onGo(page + 1)
-            }}
-          />
-        </PaginationItem>
-      </PaginationContent>
-    </Pagination>
+            {pageWindow(page, totalPages).map((number, index, shown) => (
+              <Fragment key={number}>
+                {index > 0 && number - shown[index - 1] > 1 && (
+                  <PaginationItem>
+                    <PaginationEllipsis />
+                  </PaginationItem>
+                )}
+                <PaginationItem>
+                  <PaginationLink
+                    href={hrefFor(number)}
+                    isActive={number === page}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      onGo(number)
+                    }}
+                  >
+                    {number + 1}
+                  </PaginationLink>
+                </PaginationItem>
+              </Fragment>
+            ))}
+
+            <PaginationItem>
+              <PaginationNext
+                href={hrefFor(Math.min(totalPages - 1, page + 1))}
+                aria-disabled={page >= totalPages - 1}
+                className={
+                  page >= totalPages - 1 ? 'pointer-events-none opacity-50' : ''
+                }
+                onClick={(event) => {
+                  event.preventDefault()
+                  if (page < totalPages - 1) onGo(page + 1)
+                }}
+              />
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
+      ) : null}
+    </div>
   )
 }

@@ -15,6 +15,7 @@ import {
 import type { Page } from '@/api/types'
 import { isInactive, useSession } from '@/auth/session'
 import { clampedOutOfRange } from '@/components/clampPage'
+import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import { SELECT_CLASS, SelectArrow } from '@/components/native-select'
 import { Pager, parsePage, writePage } from '@/components/Pager'
 import { Button } from '@/components/ui/button'
@@ -58,6 +59,7 @@ export function NoteListPage() {
   const { pathname } = useLocation()
   const session = useSession()
   const { state, reportApiError } = session
+  const alert = useLiveAlert()
 
   const category = categoryFromParam(searchParams.get('category'))
   /**
@@ -80,7 +82,6 @@ export function NoteListPage() {
   const [failed, setFailed] = useState(false)
   const [options, setOptions] = useState<NoteFilterOptions | null>(null)
   const [pending, setPending] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
 
   /** 주소가 바뀌어 화면이 다시 그려지면 입력 칸도 그 값에서 시작한다. */
@@ -168,12 +169,16 @@ export function NoteListPage() {
         if (alive) setOptions(result)
       })
       .catch((caught: unknown) => {
-        if (alive) reportApiError(caught)
+        if (alive && !reportApiError(caught)) {
+          alert.error(
+            '검색 필터를 불러오지 못했습니다. 목록 검색은 계속할 수 있습니다.',
+          )
+        }
       })
     return () => {
       alive = false
     }
-  }, [reportApiError])
+  }, [alert, reportApiError])
 
   /**
    * 조회 조건을 URL에 쓰는 **유일한 지점** (`apps/web/AGENTS.md` — 뒤로가기·새로고침·링크
@@ -218,13 +223,16 @@ export function NoteListPage() {
    */
   async function toggleBookmark(note: NoteSummary) {
     setPending(true)
-    setNotice(null)
     try {
       await setBookmark(note.id, !note.bookmarked)
+      alert.success(
+        note.bookmarked ? '즐겨찾기에서 뺐습니다.' : '즐겨찾기에 담았습니다.',
+      )
       setReloadKey((key) => key + 1)
     } catch (caught: unknown) {
-      reportApiError(caught)
-      setNotice('즐겨찾기를 바꾸지 못했습니다. 다시 시도해 주세요.')
+      if (!reportApiError(caught)) {
+        alert.error('즐겨찾기를 바꾸지 못했습니다. 다시 시도해 주세요.')
+      }
     } finally {
       setPending(false)
     }
@@ -465,61 +473,68 @@ export function NoteListPage() {
         </form>
       )}
 
-      {notice && (
-        <p role="alert" className="mt-6 text-sm text-muted-foreground">
-          {notice}
-        </p>
-      )}
+      <div className="mt-6 min-h-72" data-list-surface="notes">
+        {data === null && !failed && (
+          <p className="mt-8 text-sm text-muted-foreground">불러오는 중</p>
+        )}
 
-      {data === null && !failed && (
-        <p className="mt-8 text-sm text-muted-foreground">불러오는 중</p>
-      )}
+        {failed && (
+          <div className="mt-8 space-y-4">
+            <p role="alert" className="text-sm text-muted-foreground">
+              {noteErrorText(isInactive(session))}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setReloadKey((key) => key + 1)}
+            >
+              다시 시도
+            </Button>
+          </div>
+        )}
 
-      {failed && (
-        <p role="alert" className="mt-8 text-sm text-muted-foreground">
-          {noteErrorText(isInactive(session))}
-        </p>
-      )}
-
-      {data !== null && data.content.length === 0 && (
-        /*
-         * **조건이 걸려 0건인 것과 아예 없는 것을 가른다.** 검색해서 없는 사람에게
-         * "등록된 자료가 없습니다"라고 하면 검색어를 지워볼 생각을 못 한다.
-         */
-        <p className="mt-8 text-sm text-muted-foreground">
-          {onlyBookmarked
-            ? '담아둔 자료가 없습니다. 목록에서 별표를 눌러 담아보세요.'
-            : filtered
-              ? '조건에 맞는 자료가 없습니다. 검색어나 필터를 바꿔 보세요.'
-              : '등록된 자료가 없습니다.'}
-        </p>
-      )}
-
-      {data !== null && data.content.length > 0 && (
-        <>
-          <p className="mt-6 text-sm text-muted-foreground">
-            {onlyBookmarked ? '담아둔 자료' : '전체'} {data.page.totalElements}
-            건
+        {data !== null && data.content.length === 0 && (
+          /*
+           * **조건이 걸려 0건인 것과 아예 없는 것을 가른다.** 검색해서 없는 사람에게
+           * "등록된 자료가 없습니다"라고 하면 검색어를 지워볼 생각을 못 한다.
+           */
+          <p className="mt-8 text-sm text-muted-foreground">
+            {onlyBookmarked
+              ? '담아둔 자료가 없습니다. 목록에서 별표를 눌러 담아보세요.'
+              : filtered
+                ? '조건에 맞는 자료가 없습니다. 검색어나 필터를 바꿔 보세요.'
+                : '등록된 자료가 없습니다.'}
           </p>
-          <NoteTable
-            notes={data.content}
-            /*
-             * 담아둔 목록에는 시험·과목이 섞여 오므로 갈래를 보여준다. 탭으로 가른
-             * 목록에서는 전부 같은 값이라 감춘다.
-             */
-            showCategory={onlyBookmarked}
-            onToggleBookmark={toggleBookmark}
-            busy={pending || state.kind !== 'active'}
-          />
-          <Pager
-            className="mt-8"
-            page={page}
-            totalPages={data.page.totalPages}
-            hrefFor={pageHref}
-            onGo={goToPage}
-          />
-        </>
-      )}
+        )}
+
+        {data !== null && data.content.length > 0 && (
+          <>
+            <p className="mt-6 text-sm text-muted-foreground">
+              {onlyBookmarked ? '담아둔 자료' : '전체'}{' '}
+              {data.page.totalElements}건
+            </p>
+            <NoteTable
+              notes={data.content}
+              /*
+               * 담아둔 목록에는 시험·과목이 섞여 오므로 갈래를 보여준다. 탭으로 가른
+               * 목록에서는 전부 같은 값이라 감춘다.
+               */
+              showCategory={onlyBookmarked}
+              onToggleBookmark={toggleBookmark}
+              busy={pending || state.kind !== 'active'}
+            />
+          </>
+        )}
+      </div>
+
+      <Pager
+        className="mt-8"
+        page={page}
+        totalPages={data?.page.totalPages ?? 0}
+        hrefFor={pageHref}
+        onGo={goToPage}
+      />
     </section>
   )
 }

@@ -1,9 +1,9 @@
 import { render, screen, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
 import { CLUB } from '@/features/landing/content'
+import { MemoryRouter } from '@/test/TestRouter'
 import { AppHeader } from './AppHeader'
 
 /*

@@ -5,13 +5,13 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import type { ContentSummary } from '@/api/adminUsers'
 import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, useLocation, useNavigate } from '@/test/TestRouter'
 
 /**
  * 회원 탈퇴 (#226, spec 5-TESTING **T-388·T-389·T-390·T-391·T-395·T-400·T-402**).
@@ -250,13 +250,10 @@ describe('회원 탈퇴', () => {
       )
       fireEvent.click(within(dialog).getByRole('button', { name: '탈퇴' }))
 
-      /*
-       * 확인 창은 닫히므로 사유는 **창 밖에** 남는다 — 안에 두면 창과 함께 사라져,
-       * 왜 안 되는지 못 본 채 같은 버튼을 다시 누르게 된다.
-       */
-      expect(await screen.findByRole('alert')).toHaveTextContent(
-        (error as ApiError).message,
-      )
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent((error as ApiError).message)
+      expect(alert.closest('[data-live-alert-viewport="true"]')).not.toBeNull()
+      expect(screen.getAllByRole('alert')).toHaveLength(1)
       expect(pathname()).toBe('/me')
       expect(
         await screen.findByRole('heading', { name: '내 정보' }),

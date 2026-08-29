@@ -1,7 +1,7 @@
-import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { logout } from '@/api/auth'
 import { ApiError } from '@/api/client'
+import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import { useSession } from './session'
 
 /**
@@ -22,12 +22,12 @@ function isLoggedOut(error: unknown): boolean {
  * `redirectTo`를 주면 성공 후 그 경로로 replace 이동한다. 주지 않으면 이동하지 않고
  * 세션만 비운다 — 지금 화면이 비로그인에게도 열려 있으면 굳이 옮길 이유가 없다.
  *
- * @returns `logout` 실행 함수와 `failed`(사용자에게 실패를 알려야 하는지)
+ * @returns 로그아웃 실행 함수. 실패 안내는 공통 live alert로 이 훅이 직접 보낸다.
  */
 export function useLogout(redirectTo?: string) {
   const { setUser } = useSession()
   const navigate = useNavigate()
-  const [failed, setFailed] = useState(false)
+  const alert = useLiveAlert()
 
   async function run() {
     try {
@@ -42,14 +42,13 @@ export function useLogout(redirectTo?: string) {
          * 다음 사람이 사이트를 열면 getMe()가 성공해 남의 계정으로 들어가진다.
          * 로그인 화면을 보여주는 것이 오히려 위험한 경우다.
          */
-        setFailed(true)
+        alert.error('로그아웃하지 못했습니다. 다시 시도해 주세요.')
         return
       }
     }
-    setFailed(false)
     setUser(null)
     if (redirectTo) navigate(redirectTo, { replace: true })
   }
 
-  return { logout: run, failed }
+  return { logout: run }
 }

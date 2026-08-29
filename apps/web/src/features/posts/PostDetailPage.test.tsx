@@ -1,10 +1,10 @@
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/api/client'
 import type { PostDetail } from '@/api/posts'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, Route, Routes } from '@/test/TestRouter'
 import { PostDetailPage } from './PostDetailPage'
 
 /**
@@ -74,6 +74,9 @@ describe('게시글 상세', () => {
   it('제목·본문·작성자·작성일을 보여준다', async () => {
     renderDetail()
 
+    expect(
+      document.querySelector('[data-detail-surface="post"]'),
+    ).toBeInTheDocument()
     expect(
       await screen.findByRole('heading', { name: POST.title }),
     ).toBeVisible()

@@ -1,9 +1,9 @@
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ApiError } from '@/api/client'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter } from '@/test/TestRouter'
 
 vi.mock('@/api/auth', () => ({
   getMe: () =>

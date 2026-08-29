@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
 import { CLUB } from '@/features/landing/content'
 import { PublicHeader } from '@/features/landing/PublicHeader'
+import { MemoryRouter } from '@/test/TestRouter'
 import { AppHeader } from './AppHeader'
 
 /**

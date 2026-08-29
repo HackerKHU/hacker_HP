@@ -1,9 +1,9 @@
-import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PostSummary } from '@/api/posts'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter } from '@/test/TestRouter'
 import { PostListPage } from './PostListPage'
 
 /**
@@ -18,6 +18,7 @@ const api = vi.hoisted(() => ({
   calls: [] as { page?: number; size?: number }[],
   total: 0,
   totalPages: 1,
+  listError: null as unknown,
 }))
 
 const POST: PostSummary = {
@@ -29,6 +30,7 @@ const POST: PostSummary = {
 
 vi.mock('@/api/posts', () => ({
   list: (query: { page?: number; size?: number }) => {
+    if (api.listError) return Promise.reject(api.listError)
     api.calls.push(query)
     return Promise.resolve({
       content: api.rows,
@@ -75,9 +77,42 @@ beforeEach(() => {
   api.calls = []
   api.total = 2
   api.totalPages = 1
+  api.listError = null
 })
 
 describe('자유 게시판 목록', () => {
+  it('조회 상태와 무관하게 목록 surface와 pager 자리를 유지한다', async () => {
+    renderList()
+    expect(
+      document.querySelector('[data-list-surface="posts"]'),
+    ).toBeInTheDocument()
+    expect(
+      document.querySelector('[data-pager-slot="true"]'),
+    ).toBeInTheDocument()
+    await screen.findByText(POST.title)
+    expect(
+      document.querySelector('[data-list-surface="posts"]'),
+    ).toBeInTheDocument()
+  })
+
+  it('조회 실패 surface에서 재시도해 목록을 복구한다', async () => {
+    api.listError = new Error('network')
+    renderList()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '글을 불러오지 못했습니다',
+    )
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(
+      document.querySelector('[data-live-alert-viewport="true"]'),
+    ).not.toBeInTheDocument()
+    api.listError = null
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }))
+    expect(await screen.findByText(POST.title)).toBeVisible()
+    expect(
+      document.querySelector('[data-pager-slot="true"]'),
+    ).toBeInTheDocument()
+  })
   it('글 제목과 작성자를 보여주고 상세로 잇는다', async () => {
     renderList()
 

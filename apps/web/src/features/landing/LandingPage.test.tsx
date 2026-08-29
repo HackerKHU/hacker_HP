@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter } from '@/test/TestRouter'
 import { CLUB, FAQS } from './content'
 
 const auth = vi.hoisted(() => ({

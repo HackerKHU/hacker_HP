@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter } from '@/test/TestRouter'
 
 /**
  * 헤더의 계정 메뉴 (#178).
@@ -16,11 +16,13 @@ import { SessionProvider } from '@/auth/session'
 const auth = vi.hoisted(() => ({
   me: (): Promise<User> =>
     Promise.reject(new Error('테스트가 지정하지 않았다')),
+  logoutError: null as unknown,
 }))
 
 vi.mock('@/api/auth', () => ({
   getMe: () => auth.me(),
-  logout: () => Promise.resolve(),
+  logout: () =>
+    auth.logoutError ? Promise.reject(auth.logoutError) : Promise.resolve(),
 }))
 
 // 이 파일은 헤더만 본다. 공지 화면이 실제 요청을 내보내면 로딩 실패 alert가 섞인다.
@@ -75,6 +77,7 @@ async function openMenu() {
 
 beforeEach(() => {
   auth.me = () => Promise.resolve(MEMBER)
+  auth.logoutError = null
 })
 
 describe('계정 메뉴', () => {
@@ -143,6 +146,23 @@ describe('계정 메뉴', () => {
         .getAllByRole('menuitem')
         .map((item) => item.textContent),
     ).toEqual(['로그아웃'])
+  })
+
+  it('로그아웃 실패는 레이아웃 밖 fixed live alert 하나로 알린다', async () => {
+    auth.logoutError = new Error('network')
+    renderAt()
+    const menu = await openMenu()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '로그아웃' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('로그아웃하지 못했습니다')
+    expect(alert.closest('[data-live-alert-viewport="true"]')).not.toBeNull()
+    expect(screen.getByRole('banner')).not.toContainElement(alert)
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole('button', { name: '알림 닫기' }))
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   /* 비로그인에게는 헤더 자체가 없다 — 로그인 화면은 `AppLayout` 밖이다. */

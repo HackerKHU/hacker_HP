@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Photo } from '@/api/photos'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter } from '@/test/TestRouter'
 import { PhotoGalleryPage } from './PhotoGalleryPage'
 
 /**
@@ -19,6 +19,8 @@ const api = vi.hoisted(() => ({
   removed: [] as number[],
   total: 0,
   totalPages: 1,
+  removeError: null as unknown,
+  listError: null as unknown,
 }))
 
 function photo(id: number, caption: string | null): Photo {
@@ -35,6 +37,7 @@ function photo(id: number, caption: string | null): Photo {
 
 vi.mock('@/api/photos', () => ({
   list: (query: { page?: number; size?: number }) => {
+    if (api.listError) return Promise.reject(api.listError)
     api.calls.push(query)
     return Promise.resolve({
       content: api.rows,
@@ -47,6 +50,7 @@ vi.mock('@/api/photos', () => ({
     })
   },
   remove: (id: number) => {
+    if (api.removeError) return Promise.reject(api.removeError)
     api.removed.push(id)
     api.rows = api.rows.filter((row) => row.id !== id)
     api.total -= 1
@@ -112,10 +116,44 @@ beforeEach(() => {
   api.removed = []
   api.total = 2
   api.totalPages = 1
+  api.removeError = null
+  api.listError = null
   auth.me = BASE
 })
 
 describe('활동사진 갤러리', () => {
+  it('조회 상태와 무관하게 그리드 surface와 pager 자리를 유지한다', async () => {
+    renderGallery()
+    expect(
+      document.querySelector('[data-list-surface="photos"]'),
+    ).toBeInTheDocument()
+    expect(
+      document.querySelector('[data-pager-slot="true"]'),
+    ).toBeInTheDocument()
+    await screen.findAllByRole('button', { name: /크게 보기/ })
+    expect(
+      document.querySelector('[data-list-surface="photos"]'),
+    ).toBeInTheDocument()
+  })
+
+  it('조회 실패 surface에서 재시도해 그리드를 복구한다', async () => {
+    api.listError = new Error('network')
+    renderGallery()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '사진을 불러오지 못했습니다',
+    )
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(
+      document.querySelector('[data-live-alert-viewport="true"]'),
+    ).not.toBeInTheDocument()
+    api.listError = null
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }))
+    expect(await screen.findByText('2026 신입생 환영회')).toBeVisible()
+    expect(
+      document.querySelector('[data-pager-slot="true"]'),
+    ).toBeInTheDocument()
+  })
   /*
    * 화면 이름은 **갤러리**다 (2026-08-23). 담고 있는 것은 여전히 활동사진이고(spec §2-1-7)
    * 라우트도 `/photos`지만, 사용자에게 보이는 이름은 헤더 메뉴·제목·돌아가기 링크에서
@@ -241,6 +279,24 @@ describe('활동사진 갤러리', () => {
     await waitFor(() => {
       expect(api.removed).toEqual([501])
     })
+    expect(screen.getByRole('status')).toHaveTextContent('사진을 삭제했습니다.')
+  })
+
+  it('삭제 실패는 fixed error alert로 알리고 사진을 유지한다', async () => {
+    auth.me = { ...BASE, role: 'ADMIN' }
+    api.removeError = new Error('network')
+    renderGallery()
+    await screen.findByText('2026 신입생 환영회')
+
+    fireEvent.click(
+      screen.getByRole('button', { name: '2026 신입생 환영회 삭제' }),
+    )
+    fireEvent.click(await screen.findByRole('button', { name: '삭제' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('사진을 삭제하지 못했습니다')
+    expect(alert.closest('[data-live-alert-viewport="true"]')).not.toBeNull()
+    expect(screen.getByText('2026 신입생 환영회')).toBeVisible()
   })
 
   /*

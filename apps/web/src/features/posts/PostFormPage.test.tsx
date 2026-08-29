@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, Route, Routes } from '@/test/TestRouter'
 import { PostFormPage } from './PostFormPage'
 
 /**
@@ -95,6 +95,10 @@ describe('글쓰기', () => {
     expect(
       await screen.findByRole('heading', { name: '게시글 상세' }),
     ).toBeVisible()
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '게시글을 등록했습니다.',
+    )
+    expect(screen.getAllByRole('status')).toHaveLength(1)
     expect(api.created).toEqual([
       { title: '스터디 모집', content: '수요일 저녁입니다.' },
     ])
@@ -107,9 +111,18 @@ describe('글쓰기', () => {
     fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      '제목과 내용을 입력해주세요',
+      '제목을 입력해주세요.내용을 입력해주세요.',
     )
     expect(api.created).toEqual([])
+    const title = screen.getByLabelText('제목')
+    const content = screen.getByLabelText('내용')
+    expect(title).toHaveAttribute('aria-describedby', 'post-title-error')
+    expect(content).toHaveAttribute('aria-describedby', 'post-content-error')
+    expect(title).toHaveAttribute('aria-invalid', 'true')
+    expect(content).toHaveAttribute('aria-invalid', 'true')
+    expect(
+      document.querySelector('[data-form-feedback-slot="true"]'),
+    ).toBeInTheDocument()
   })
 
   /*
@@ -163,7 +176,7 @@ describe('글쓰기', () => {
     fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      '제목과 내용을 입력해주세요',
+      '내용을 입력해주세요.',
     )
     expect(api.created).toEqual([])
   })

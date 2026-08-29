@@ -183,6 +183,41 @@
 }
 
 /*
+ * 짧은 비동기 작업 결과. 문서 흐름 밖의 viewport 고정 레이어라 알림의 등장·소멸이
+ * 목록·폼·pager를 밀지 않는다. 바깥은 클릭을 통과시키고 카드만 조작을 받는다.
+ * z-40은 일반 헤더보다 높고 AlertDialog(z-50)보다 낮다.
+ */
+.live-alert-viewport {
+  position: fixed;
+  z-index: 40;
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  padding-block-end: max(0.75rem, env(safe-area-inset-bottom));
+  padding-inline-start: max(0.75rem, env(safe-area-inset-left));
+  padding-inline-end: max(0.75rem, env(safe-area-inset-right));
+}
+
+.live-alert-card {
+  width: min(100%, 28rem);
+  min-width: 0;
+  max-height: calc(
+    100dvh -
+    max(0.75rem, env(safe-area-inset-top)) -
+    max(0.75rem, env(safe-area-inset-bottom))
+  );
+  max-width: calc(
+    100vw -
+    max(0.75rem, env(safe-area-inset-left)) -
+    max(0.75rem, env(safe-area-inset-right))
+  );
+  overflow-y: auto;
+  pointer-events: auto;
+}
+
+/*
  * 활동 카드 가로 흐름. 사진과 제목, 한 줄 설명이 한 카드이고 그 카드들이 흐른다.
  *
  * 트랙에 같은 묶음을 두 벌 이어붙이고 절반(-50%)만큼 밀어 끊김 없이 반복한다.

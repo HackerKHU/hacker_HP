@@ -1,9 +1,15 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PhotoRegisterItem, PhotoRegisterResult } from '@/api/photos'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, Route, Routes } from '@/test/TestRouter'
 import { PhotoUploadPage } from './PhotoUploadPage'
 
 /**
@@ -195,6 +201,17 @@ describe('활동사진 업로드', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '1장을 올렸고 1장이 실패했습니다',
     )
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    const feedback = document.querySelector(
+      '[data-upload-feedback-slot="true"]',
+    ) as HTMLElement
+    expect(feedback).toBeInTheDocument()
+    expect(within(feedback).getByRole('alert')).toHaveTextContent(
+      '20MB를 넘습니다',
+    )
+    expect(
+      document.querySelector('[data-live-alert-viewport="true"]'),
+    ).not.toBeInTheDocument()
     // 사유를 문구로 옮겨 무엇을 고쳐야 하는지 알린다.
     expect(screen.getByRole('alert')).toHaveTextContent('20MB를 넘습니다')
     // 갤러리로 가지 않았다.
@@ -211,6 +228,9 @@ describe('활동사진 업로드', () => {
     fireEvent.click(await screen.findByRole('button', { name: '저장' }))
 
     expect(await screen.findByRole('heading', { name: '갤러리' })).toBeVisible()
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '1장의 사진을 올렸습니다.',
+    )
   })
 
   /*
@@ -225,6 +245,14 @@ describe('활동사진 업로드', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '올릴 수 없는 형식입니다',
+    )
+    expect(screen.getByLabelText('사진')).toHaveAttribute(
+      'aria-describedby',
+      'photo-files-error',
+    )
+    expect(screen.getByLabelText('사진')).toHaveAttribute(
+      'aria-invalid',
+      'true',
     )
     expect(api.uploaded).toEqual([])
   })
@@ -258,6 +286,12 @@ describe('활동사진 업로드', () => {
     await waitFor(() => {
       expect(api.registered).toHaveLength(1)
     })
+    const feedback = document.querySelector(
+      '[data-upload-feedback-slot="true"]',
+    ) as HTMLElement
+    expect(within(feedback).getByRole('status')).toHaveTextContent(
+      '사진 변환하는 중',
+    )
     expect(screen.getByLabelText('사진')).toBeDisabled()
     expect(screen.getByLabelText('설명 (선택)')).toBeDisabled()
     expect(screen.getByRole('button', { name: 'mt.jpg 빼기' })).toBeDisabled()

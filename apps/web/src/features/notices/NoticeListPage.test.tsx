@@ -6,21 +6,24 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/api/client'
 import type { Notice } from '@/api/notices'
 import type { Page } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, useLocation } from '@/test/TestRouter'
 import { NoticeListPage } from './NoticeListPage'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
 const api = vi.hoisted(() => ({
   calls: [] as (number | undefined)[],
+  listError: null as unknown,
   role: 'USER' as 'USER' | 'ADMIN',
   togglePinFails: false,
+  togglePinError: null as unknown,
   togglePinCalls: [] as number[],
+  togglePinAttempts: [] as number[],
 }))
 
 /**
@@ -74,6 +77,7 @@ const PAGES: Page<Notice>[] = [
 
 vi.mock('@/api/notices', () => ({
   list: ({ page }: { page?: number }) => {
+    if (api.listError) return Promise.reject(api.listError)
     api.calls.push(page)
     const index = page ?? 0
     // 실제 서버는 범위를 넘은 page에도 유효한 PagedModel을 준다 — content만 비어 있다.
@@ -90,6 +94,8 @@ vi.mock('@/api/notices', () => ({
    * 다시 불러오지 않으면 순서가 그대로여서 테스트가 깨진다.
    */
   togglePin: (id: number) => {
+    api.togglePinAttempts.push(id)
+    if (api.togglePinError) return Promise.reject(api.togglePinError)
     if (api.togglePinFails) {
       return Promise.reject(new ApiError('FORBIDDEN', 403, '권한이 없습니다.'))
     }
@@ -162,12 +168,49 @@ function resetPages() {
 beforeEach(() => {
   resetPages()
   api.calls = []
+  api.listError = null
   api.role = 'USER'
   api.togglePinFails = false
+  api.togglePinError = null
   api.togglePinCalls = []
+  api.togglePinAttempts = []
 })
 
 describe('공지 목록', () => {
+  it('조회 상태가 바뀌어도 목록 surface와 pager 자리를 유지한다', async () => {
+    renderList()
+    expect(
+      document.querySelector('[data-list-surface="notices"]'),
+    ).toBeInTheDocument()
+    expect(
+      document.querySelector('[data-pager-slot="true"]'),
+    ).toBeInTheDocument()
+    await screen.findByRole('link', { name: /고정된 공지/ })
+    expect(
+      document.querySelector('[data-list-surface="notices"]'),
+    ).toBeInTheDocument()
+  })
+
+  it('조회 실패 surface 안에서 알리고 같은 자리에서 재시도한다', async () => {
+    api.listError = new Error('network')
+    renderList()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '공지를 불러오지 못했습니다',
+    )
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(
+      document.querySelector('[data-live-alert-viewport="true"]'),
+    ).not.toBeInTheDocument()
+    api.listError = null
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }))
+    expect(
+      await screen.findByRole('link', { name: /고정된 공지/ }),
+    ).toBeVisible()
+    expect(
+      document.querySelector('[data-pager-slot="true"]'),
+    ).toBeInTheDocument()
+  })
   it('고정 공지를 일반 공지와 구분해 렌더한다', async () => {
     renderList()
 
@@ -283,6 +326,10 @@ describe('공지 목록', () => {
       expect(titles()[0]).toMatch(/최근 공지/)
     })
     expect(api.togglePinCalls).toEqual([2])
+    const status = screen
+      .getByText('공지의 고정 상태를 바꿨습니다.')
+      .closest('[role="status"]')
+    expect(status).toHaveAttribute('data-live-alert-kind', 'success')
     // 정렬은 서버가 준 순서다 — 토글 후 목록을 다시 불러왔다는 뜻이다.
     expect(api.calls.length).toBeGreaterThan(1)
     expect(
@@ -304,11 +351,30 @@ describe('공지 목록', () => {
     fireEvent.click(screen.getByRole('button', { name: '관리' }))
     fireEvent.click(screen.getAllByRole('button', { name: /^고정/ })[0])
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '고정 상태를 바꾸지 못했습니다',
-    )
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('고정 상태를 바꾸지 못했습니다')
+    expect(alert.closest('[data-live-alert-viewport="true"]')).not.toBeNull()
     expect(
       screen.getByRole('link', { name: /고정된 공지/ }),
     ).toBeInTheDocument()
+  })
+
+  it('세션 전이 오류는 공통 alert를 중복해서 띄우지 않는다', async () => {
+    api.role = 'ADMIN'
+    api.togglePinError = new ApiError('SUSPENDED', 403, '정지된 계정입니다.')
+
+    renderList()
+    await screen.findByRole('link', { name: /고정된 공지/ })
+    fireEvent.click(screen.getByRole('button', { name: '관리' }))
+    fireEvent.click(screen.getAllByRole('button', { name: /^고정/ })[0])
+
+    await waitFor(() => expect(api.togglePinAttempts).toEqual([1]))
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: '관리' })).toBeNull()
+    })
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(
+      document.querySelector('[data-live-alert-viewport="true"]'),
+    ).not.toBeInTheDocument()
   })
 })

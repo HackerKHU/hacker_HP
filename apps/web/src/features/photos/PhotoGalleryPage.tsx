@@ -5,6 +5,7 @@ import { ApiError } from '@/api/client'
 import { list, type Photo, remove } from '@/api/photos'
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
+import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import { Pager, parsePage, writePage } from '@/components/Pager'
 import {
   AlertDialog,
@@ -60,6 +61,7 @@ export function PhotoGalleryPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { pathname } = useLocation()
   const { state, reportApiError } = useSession()
+  const alert = useLiveAlert()
   const isAdmin = state.kind === 'active' && state.user.role === 'ADMIN'
 
   const page = parsePage(searchParams.get('page'))
@@ -68,7 +70,6 @@ export function PhotoGalleryPage() {
   const [busy, setBusy] = useState(false)
   /** 크게 보고 있는 사진. `null`이면 오버레이가 닫혀 있다 (#270). */
   const [zoomed, setZoomed] = useState<Photo | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey는 본문에서 읽지 않고 재조회 트리거로만 쓴다.
@@ -111,18 +112,19 @@ export function PhotoGalleryPage() {
   /** 삭제는 되돌릴 수 없다. 확인 단계를 거친 뒤에만 여기 도달한다. */
   async function handleDelete(photo: Photo) {
     setBusy(true)
-    setNotice(null)
     try {
       await remove(photo.id)
+      alert.success('사진을 삭제했습니다.')
       // 낙관적으로 지우지 않는다. 서버가 받아들인 뒤 다시 읽어 그린다.
       setReloadKey((key) => key + 1)
     } catch (caught: unknown) {
-      reportApiError(caught)
-      setNotice(
-        caught instanceof ApiError
-          ? caught.message
-          : '사진을 삭제하지 못했습니다. 다시 시도해 주세요.',
-      )
+      if (!reportApiError(caught)) {
+        alert.error(
+          caught instanceof ApiError
+            ? caught.message
+            : '사진을 삭제하지 못했습니다. 다시 시도해 주세요.',
+        )
+      }
     } finally {
       setBusy(false)
     }
@@ -149,137 +151,143 @@ export function PhotoGalleryPage() {
         )}
       </div>
 
-      {notice && (
-        <p role="alert" className="mt-6 text-sm text-muted-foreground">
-          {notice}
-        </p>
-      )}
+      <div className="mt-6 min-h-[32rem]" data-list-surface="photos">
+        {data === null && !failed && (
+          <p className="text-sm text-muted-foreground">불러오는 중</p>
+        )}
 
-      {data === null && !failed && (
-        <p className="mt-8 text-sm text-muted-foreground">불러오는 중</p>
-      )}
+        {failed && (
+          <div className="space-y-4">
+            <p role="alert" className="text-sm text-muted-foreground">
+              사진을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setReloadKey((key) => key + 1)}
+            >
+              다시 시도
+            </Button>
+          </div>
+        )}
 
-      {failed && (
-        <p role="alert" className="mt-8 text-sm text-muted-foreground">
-          사진을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
-        </p>
-      )}
-
-      {data !== null && data.content.length === 0 && (
-        <p className="mt-8 text-sm text-muted-foreground">
-          등록된 사진이 없습니다.
-        </p>
-      )}
-
-      {data !== null && data.content.length > 0 && (
-        <>
-          <p className="mt-6 text-sm text-muted-foreground">
-            전체 {data.page.totalElements}장
+        {data !== null && data.content.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            등록된 사진이 없습니다.
           </p>
+        )}
 
-          {/*
-           * 그리드. 폭에 따라 열이 준다 — 사진은 표와 달리 좁은 화면에서도 볼 만하다.
-           *
-           * **`aspect-square`로 칸을 고정하고 `object-cover`로 채운다.** 원본 비율이
-           * 제각각이라 그대로 두면 줄 높이가 들쭉날쭉해 그리드가 계단처럼 보인다.
-           */}
-          <ul className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {data.content.map((photo) => (
-              <li key={photo.id} className="group relative">
-                {/*
-                 * **그 자리에서 크게 본다** (#270). 한때 원본을 새 탭으로 열었는데, 사진
-                 * 한 장을 보려고 갤러리를 떠났다가 돌아와야 해 훑는 흐름이 매번 끊겼다.
-                 *
-                 * 링크가 아니라 버튼이다 — 다른 주소로 가지 않고 이 화면에서 열고 닫는다.
-                 */}
-                <button
-                  type="button"
-                  onClick={() => setZoomed(photo)}
-                  aria-label={
-                    photo.caption
-                      ? `${photo.caption} 크게 보기`
-                      : '사진 크게 보기'
-                  }
-                  className="block w-full cursor-zoom-in overflow-hidden rounded-none border border-border outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                >
-                  <img
-                    src={photo.thumbnailUrl}
-                    /*
-                     * **설명이 없으면 `alt`를 비운다.** 없는 설명을 "활동사진"처럼 지어내
-                     * 채우면 스크린리더가 사진마다 같은 말을 스무 번 읽는다 — 장식으로
-                     * 두는 편이 낫다. 아래 설명 문단이 진짜 정보를 담는다.
-                     */
-                    alt={photo.caption ?? ''}
-                    loading="lazy"
-                    className="aspect-square w-full bg-muted object-cover transition-transform group-hover:scale-105"
-                  />
-                </button>
+        {data !== null && data.content.length > 0 && (
+          <>
+            <p className="text-sm text-muted-foreground">
+              전체 {data.page.totalElements}장
+            </p>
 
-                <div className="mt-2 flex items-start justify-between gap-2">
-                  <div className="min-w-0 text-sm">
-                    {photo.caption && (
-                      <p className="truncate">{photo.caption}</p>
-                    )}
-                    <p className="truncate text-xs text-muted-foreground">
-                      {/* 업로더 이름은 절대 비지 않는다 — 제거되면 "탈퇴한 회원"이다 (§3-2-2). */}
-                      {photo.uploaderName} · {formatDate(photo.createdAt)}
-                    </p>
-                  </div>
+            {/*
+             * 그리드. 폭에 따라 열이 준다 — 사진은 표와 달리 좁은 화면에서도 볼 만하다.
+             *
+             * **`aspect-square`로 칸을 고정하고 `object-cover`로 채운다.** 원본 비율이
+             * 제각각이라 그대로 두면 줄 높이가 들쭉날쭉해 그리드가 계단처럼 보인다.
+             */}
+            <ul className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+              {data.content.map((photo) => (
+                <li key={photo.id} className="group relative">
+                  {/*
+                   * **그 자리에서 크게 본다** (#270). 한때 원본을 새 탭으로 열었는데, 사진
+                   * 한 장을 보려고 갤러리를 떠났다가 돌아와야 해 훑는 흐름이 매번 끊겼다.
+                   *
+                   * 링크가 아니라 버튼이다 — 다른 주소로 가지 않고 이 화면에서 열고 닫는다.
+                   */}
+                  <button
+                    type="button"
+                    onClick={() => setZoomed(photo)}
+                    aria-label={
+                      photo.caption
+                        ? `${photo.caption} 크게 보기`
+                        : '사진 크게 보기'
+                    }
+                    className="block w-full cursor-zoom-in overflow-hidden rounded-none border border-border outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                  >
+                    <img
+                      src={photo.thumbnailUrl}
+                      /*
+                       * **설명이 없으면 `alt`를 비운다.** 없는 설명을 "활동사진"처럼 지어내
+                       * 채우면 스크린리더가 사진마다 같은 말을 스무 번 읽는다 — 장식으로
+                       * 두는 편이 낫다. 아래 설명 문단이 진짜 정보를 담는다.
+                       */
+                      alt={photo.caption ?? ''}
+                      loading="lazy"
+                      className="aspect-square w-full bg-muted object-cover transition-transform group-hover:scale-105"
+                    />
+                  </button>
 
-                  {isAdmin && (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7 shrink-0"
-                          disabled={busy}
-                          aria-label={
-                            photo.caption
-                              ? `${photo.caption} 삭제`
-                              : `${formatDate(photo.createdAt)}에 올린 사진 삭제`
-                          }
-                        >
-                          <Trash2 className="size-4" aria-hidden="true" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>
-                            사진을 삭제할까요?
-                          </AlertDialogTitle>
-                          <AlertDialogDescription>
-                            {photo.caption
-                              ? `「${photo.caption}」을(를) 삭제합니다.`
-                              : '이 사진을 삭제합니다.'}{' '}
-                            되돌릴 수 없습니다.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>취소</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() => handleDelete(photo)}
+                  <div className="mt-2 flex items-start justify-between gap-2">
+                    <div className="min-w-0 text-sm">
+                      {photo.caption && (
+                        <p className="truncate">{photo.caption}</p>
+                      )}
+                      <p className="truncate text-xs text-muted-foreground">
+                        {/* 업로더 이름은 절대 비지 않는다 — 제거되면 "탈퇴한 회원"이다 (§3-2-2). */}
+                        {photo.uploaderName} · {formatDate(photo.createdAt)}
+                      </p>
+                    </div>
+
+                    {isAdmin && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 shrink-0"
+                            disabled={busy}
+                            aria-label={
+                              photo.caption
+                                ? `${photo.caption} 삭제`
+                                : `${formatDate(photo.createdAt)}에 올린 사진 삭제`
+                            }
                           >
-                            삭제
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
+                            <Trash2 className="size-4" aria-hidden="true" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              사진을 삭제할까요?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              {photo.caption
+                                ? `「${photo.caption}」을(를) 삭제합니다.`
+                                : '이 사진을 삭제합니다.'}{' '}
+                              되돌릴 수 없습니다.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>취소</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleDelete(photo)}
+                            >
+                              삭제
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
 
-          <Pager
-            className="mt-8"
-            page={page}
-            totalPages={data.page.totalPages}
-            hrefFor={pageHref}
-            onGo={(next) => setSearchParams(pageParams(next))}
-          />
-        </>
-      )}
+      <Pager
+        className="mt-8"
+        page={page}
+        totalPages={data?.page.totalPages ?? 0}
+        hrefFor={pageHref}
+        onGo={(next) => setSearchParams(pageParams(next))}
+      />
     </section>
   )
 }

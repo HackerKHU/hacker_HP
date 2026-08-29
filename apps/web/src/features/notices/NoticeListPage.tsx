@@ -1,22 +1,14 @@
 import { Pin } from 'lucide-react'
-import { Fragment, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { list, type Notice, togglePin } from '@/api/notices'
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
 import { ListSurface } from '@/components/ListSurface'
-import { parsePage, writePage } from '@/components/Pager'
+import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
+import { Pager, parsePage, writePage } from '@/components/Pager'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from '@/components/ui/pagination'
 import { cn } from '@/lib/utils'
 
 const PAGE_SIZE = 10
@@ -45,26 +37,6 @@ function isNew(createdAt: string): boolean {
  *
  * 총 3페이지처럼 적을 때는 건너뛰는 자리가 없어 생략 부호가 뜨지 않는다.
  */
-function pageWindow(page: number, totalPages: number): number[] {
-  const last = totalPages - 1
-  const wanted = [0, last, page - 1, page, page + 1]
-  const shown = [...new Set(wanted)]
-    .filter((number) => number >= 0 && number <= last)
-    .sort((a, b) => a - b)
-
-  // 건너뛰는 페이지가 딱 하나면 생략 부호 대신 그 번호를 그대로 넣는다. 생략 부호가
-  // 번호와 같은 자리를 차지하므로 하나를 감춰봤자 이득이 없고 보기만 어색하다.
-  // 번호가 하나 늘 때 생략 부호가 하나 줄므로 7칸 상한은 그대로다.
-  const filled: number[] = []
-  for (const number of shown) {
-    const previous = filled.at(-1)
-    if (previous !== undefined && number - previous === 2)
-      filled.push(previous + 1)
-    filled.push(number)
-  }
-  return filled
-}
-
 /** 서버는 UTC로 내려준다. 목록에서는 날짜까지만 보여준다. */
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('ko-KR', {
@@ -97,6 +69,7 @@ export function NoticeListPage() {
   const page = parsePage(searchParams.get('page'))
 
   const { state, reportApiError } = useSession()
+  const alert = useLiveAlert()
   const isAdmin = state.kind === 'active' && state.user.role === 'ADMIN'
 
   const [data, setData] = useState<Page<Notice> | null>(null)
@@ -107,7 +80,6 @@ export function NoticeListPage() {
   // 토글은 목록 정렬을 바꾼다. 하나가 진행 중이면 전부 잠근다 — 항목별로 추적하는 것보다
   // 짧고, 동시에 여러 개를 누르는 것이 애초에 의미가 없다.
   const [pinning, setPinning] = useState(false)
-  const [pinFailed, setPinFailed] = useState(false)
   // 재조회 트리거. 값을 올리면 아래 effect가 다시 돈다.
   const [reloadKey, setReloadKey] = useState(0)
 
@@ -180,13 +152,14 @@ export function NoticeListPage() {
    */
   async function handleTogglePin(id: number) {
     setPinning(true)
-    setPinFailed(false)
     try {
       await togglePin(id)
+      alert.success('공지의 고정 상태를 바꿨습니다.')
       setReloadKey((key) => key + 1)
     } catch (error: unknown) {
-      reportApiError(error)
-      setPinFailed(true)
+      if (!reportApiError(error)) {
+        alert.error('고정 상태를 바꾸지 못했습니다. 다시 시도해 주세요.')
+      }
     } finally {
       setPinning(false)
     }
@@ -222,164 +195,123 @@ export function NoticeListPage() {
         )}
       </div>
 
-      {data === null && !failed && (
-        <p className="mt-8 text-sm text-muted-foreground">불러오는 중</p>
-      )}
+      <div className="mt-6 min-h-72" data-list-surface="notices">
+        {data === null && !failed && (
+          <p className="mt-8 text-sm text-muted-foreground">불러오는 중</p>
+        )}
 
-      {failed && (
-        <p role="alert" className="mt-8 text-sm text-muted-foreground">
-          공지를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
-        </p>
-      )}
+        {failed && (
+          <div className="mt-8 space-y-4">
+            <p role="alert" className="text-sm text-muted-foreground">
+              공지를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setReloadKey((key) => key + 1)}
+            >
+              다시 시도
+            </Button>
+          </div>
+        )}
 
-      {pinFailed && (
-        <p role="alert" className="mt-4 text-sm text-muted-foreground">
-          고정 상태를 바꾸지 못했습니다. 다시 시도해 주세요.
-        </p>
-      )}
+        {data !== null && data.content.length === 0 && (
+          <p className="mt-8 text-sm text-muted-foreground">
+            등록된 공지가 없습니다.
+          </p>
+        )}
 
-      {data !== null && data.content.length === 0 && (
-        <p className="mt-8 text-sm text-muted-foreground">
-          등록된 공지가 없습니다.
-        </p>
-      )}
-
-      {data !== null && data.content.length > 0 && (
-        <ListSurface className="mt-6">
-          <ul>
-            {data.content.map((notice) => (
-              <li
-                key={notice.id}
-                className="flex items-center border-b border-border last:border-b-0"
-              >
-                <Link
-                  to={`/notices/${notice.id}`}
-                  className={cn(
-                    'flex min-w-0 flex-1 items-center gap-4 py-3 pr-2 pl-3 transition-colors hover:bg-accent',
-                    /*
-                     * **포커스 표시를 안쪽에 그린다.** 카드가 `overflow-hidden`이라 밖으로
-                     * 나가는 브라우저 기본 `outline`이 경계에서 잘려, 키보드로 훑을 때 지금
-                     * 어느 행에 있는지 보이지 않는다.
-                     *
-                     * 다른 컨트롤과 같은 링을 쓰되 `ring-inset`으로 안쪽에 둔다.
-                     */
-                    'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset',
-                    // 무채색 팔레트라 색으로 구분할 수 없다. 고정 공지는 좌측 세로 바와
-                    // 핀 아이콘, 순검정 제목으로 가른다.
-                    notice.isPinned
-                      ? 'border-l-[3px] border-l-primary'
-                      : 'border-l-[3px] border-l-transparent',
-                  )}
+        {data !== null && data.content.length > 0 && (
+          <ListSurface>
+            <ul>
+              {data.content.map((notice) => (
+                <li
+                  key={notice.id}
+                  className="flex items-center border-b border-border last:border-b-0"
                 >
-                  <span
+                  <Link
+                    to={`/notices/${notice.id}`}
                     className={cn(
-                      'flex min-w-0 flex-1 items-center gap-2 text-sm',
+                      'flex min-w-0 flex-1 items-center gap-4 py-3 pr-2 pl-3 transition-colors hover:bg-accent',
+                      /*
+                       * **포커스 표시를 안쪽에 그린다.** 카드가 `overflow-hidden`이라 밖으로
+                       * 나가는 브라우저 기본 `outline`이 경계에서 잘려, 키보드로 훑을 때 지금
+                       * 어느 행에 있는지 보이지 않는다.
+                       *
+                       * 다른 컨트롤과 같은 링을 쓰되 `ring-inset`으로 안쪽에 둔다.
+                       */
+                      'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset',
+                      // 무채색 팔레트라 색으로 구분할 수 없다. 고정 공지는 좌측 세로 바와
+                      // 핀 아이콘, 순검정 제목으로 가른다.
                       notice.isPinned
-                        ? 'font-medium text-primary'
-                        : 'text-foreground',
+                        ? 'border-l-[3px] border-l-primary'
+                        : 'border-l-[3px] border-l-transparent',
                     )}
                   >
-                    {notice.isPinned && (
-                      <>
-                        <Pin className="size-3.5 shrink-0" aria-hidden="true" />
-                        {/* 아이콘만 두면 스크린리더가 못 읽는다. 의미는 남긴다. */}
-                        <span className="sr-only">고정</span>
-                      </>
-                    )}
-                    <span className="truncate">{notice.title}</span>
-                    {isNew(notice.createdAt) && (
-                      // 고정(핀 + 세로 바)이 강한 표시라 새글은 테두리만 있는 약한 라벨로
-                      // 둔다. 둘 다 채우면 위계가 사라져 아무것도 안 튄다.
-                      <Badge
-                        variant="outline"
-                        className="shrink-0 rounded-sm px-1.5 py-0 text-[10px] leading-none tracking-wide text-muted-foreground"
-                      >
-                        NEW
-                      </Badge>
-                    )}
-                  </span>
-                  <time
-                    dateTime={notice.createdAt}
-                    className="shrink-0 text-sm text-muted-foreground"
-                  >
-                    {formatDate(notice.createdAt)}
-                  </time>
-                </Link>
-
-                {managing && isAdmin && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="ml-2 shrink-0"
-                    disabled={pinning}
-                    onClick={() => handleTogglePin(notice.id)}
-                  >
-                    {notice.isPinned ? '고정 해제' : '고정'}
-                  </Button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </ListSurface>
-      )}
-
-      {data !== null && data.page.totalPages > 1 && (
-        <Pagination className="mt-8">
-          <PaginationContent>
-            <PaginationItem>
-              <PaginationPrevious
-                href={hrefFor(Math.max(0, page - 1))}
-                aria-disabled={page === 0}
-                className={page === 0 ? 'pointer-events-none opacity-50' : ''}
-                onClick={(event) => {
-                  event.preventDefault()
-                  if (page > 0) goTo(page - 1)
-                }}
-              />
-            </PaginationItem>
-
-            {pageWindow(page, data.page.totalPages).map(
-              (number, index, shown) => (
-                <Fragment key={number}>
-                  {index > 0 && number - shown[index - 1] > 1 && (
-                    <PaginationItem>
-                      <PaginationEllipsis />
-                    </PaginationItem>
-                  )}
-                  <PaginationItem>
-                    <PaginationLink
-                      href={hrefFor(number)}
-                      isActive={number === page}
-                      onClick={(event) => {
-                        event.preventDefault()
-                        goTo(number)
-                      }}
+                    <span
+                      className={cn(
+                        'flex min-w-0 flex-1 items-center gap-2 text-sm',
+                        notice.isPinned
+                          ? 'font-medium text-primary'
+                          : 'text-foreground',
+                      )}
                     >
-                      {number + 1}
-                    </PaginationLink>
-                  </PaginationItem>
-                </Fragment>
-              ),
-            )}
+                      {notice.isPinned && (
+                        <>
+                          <Pin
+                            className="size-3.5 shrink-0"
+                            aria-hidden="true"
+                          />
+                          {/* 아이콘만 두면 스크린리더가 못 읽는다. 의미는 남긴다. */}
+                          <span className="sr-only">고정</span>
+                        </>
+                      )}
+                      <span className="truncate">{notice.title}</span>
+                      {isNew(notice.createdAt) && (
+                        // 고정(핀 + 세로 바)이 강한 표시라 새글은 테두리만 있는 약한 라벨로
+                        // 둔다. 둘 다 채우면 위계가 사라져 아무것도 안 튄다.
+                        <Badge
+                          variant="outline"
+                          className="shrink-0 rounded-sm px-1.5 py-0 text-[10px] leading-none tracking-wide text-muted-foreground"
+                        >
+                          NEW
+                        </Badge>
+                      )}
+                    </span>
+                    <time
+                      dateTime={notice.createdAt}
+                      className="shrink-0 text-sm text-muted-foreground"
+                    >
+                      {formatDate(notice.createdAt)}
+                    </time>
+                  </Link>
 
-            <PaginationItem>
-              <PaginationNext
-                href={hrefFor(Math.min(data.page.totalPages - 1, page + 1))}
-                aria-disabled={page >= data.page.totalPages - 1}
-                className={
-                  page >= data.page.totalPages - 1
-                    ? 'pointer-events-none opacity-50'
-                    : ''
-                }
-                onClick={(event) => {
-                  event.preventDefault()
-                  if (page < data.page.totalPages - 1) goTo(page + 1)
-                }}
-              />
-            </PaginationItem>
-          </PaginationContent>
-        </Pagination>
-      )}
+                  {managing && isAdmin && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="ml-2 shrink-0"
+                      disabled={pinning}
+                      onClick={() => handleTogglePin(notice.id)}
+                    >
+                      {notice.isPinned ? '고정 해제' : '고정'}
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </ListSurface>
+        )}
+      </div>
+
+      <Pager
+        className="mt-8"
+        page={page}
+        totalPages={data?.page.totalPages ?? 0}
+        hrefFor={hrefFor}
+        onGo={goTo}
+      />
     </section>
   )
 }

@@ -991,6 +991,34 @@ T-112·T-113이 이 절의 이유다. **"서버에 못 닿았다"는 "로그아�
 
 T-116은 화면마다 빠지기 쉽다. `403`은 `PENDING_APPROVAL`·`SUSPENDED`·`FORBIDDEN`이 함께 쓰므로 **화면이 코드를 세션 계층에 넘겨야** 정지·승인 대기가 감지된다. 넘기지 않으면 오류 문구만 뜨고 세션은 옛 상태로 남는다.
 
+### 비동기 결과 알림과 안정된 화면 자리
+
+짧은 조작 결과는 viewport 고정 live alert로 알리되, 해결에 필요한 상태는 화면 안의 예약된
+자리에 남긴다. 두 경로를 함께 쓰면 같은 실패가 두 번 발표되고, 둘 다 쓰지 않으면 발표 경로가
+사라진다. 따라서 아래 사례는 문구의 존재뿐 아니라 **발표 노드의 수와 위치**를 함께 본다.
+
+| # | 조건 | 기대 |
+|---|---|---|
+| T-421 | success·info·error를 차례로 호출 | 화면에는 최신 live node **하나만** 있다. success/info는 `role=status` + `aria-live=polite`, error는 `role=alert`, 모두 `aria-atomic=true`다 |
+| T-422 | 기본 자동 소멸 | success/info는 6초, error는 10초다. 80자 이상은 늘어나되 15초를 넘지 않는다 |
+| T-423 | 새 알림·같은 문구 재호출·닫기·provider unmount·StrictMode 재실행 | 이전 timer가 새 알림을 닫지 않고, 같은 문구도 새 node로 발표하며, 닫기는 포커스를 옮기지 않고 timer를 정리한다 |
+| T-424 | pathname/search 이동 | 일반 알림은 사라진다. 알림 원인이 된 1회 navigation을 건너야 해 `persistOnNavigation`을 명시한 쓰기 성공(저장·업로드·삭제)·URL 정규화 안내만 다음 route 한 번까지 남고 그 다음 이동에는 사라진다 |
+| T-425 | `reportApiError()`가 세션 전이 오류를 처리 | `true`를 반환하고 호출부는 전역 alert를 만들지 않는다. 이동한 로그인·대기·제한 화면의 지속 안내만 남아 발표가 중복되지 않는다 |
+| T-426 | 목록의 loading → fetch error → retry → ready/empty | 같은 `data-list-surface` 안에서 바뀌고 `data-pager-slot`은 계속 남는다. fetch error는 그 surface의 인라인 alert **하나**로만 발표한다 |
+| T-427 | 신청·공지·자료·게시글 폼의 필드 검증 | 오류가 난 필드만 `aria-invalid=true`이고 그 필드의 `aria-describedby`가 정확한 오류를 가리킨다. 빈 때도 `data-form-feedback-slot` 또는 업로드 feedback slot이 남는다 |
+| T-428 | 사진·자료 업로드 진행 및 부분 실패 | progress와 파일명별 실패가 예약된 인라인 slot에 계속 남고, 전체 성공/일반 실패만 fixed alert로 알린다 |
+| T-429 | 삭제·탈퇴·회원 상태 변경 | 실행 전 `AlertDialog`의 설명·취소·확인과 disabled 조건이 보존되고, 확인 뒤 짧은 실행 결과만 fixed alert로 바뀐다 |
+| T-430 | fixed alert를 320px·1440px에서 표시 | safe area 안에 있고 긴 한글·공백 없는 URL이 가로로 넘치지 않으며, 바깥 layer는 아래 조작을 막지 않는다. z-index는 `AlertDialog`보다 낮다 |
+
+T-425는 세션 판정과 시각 알림을 분리하는 경계다. `reportApiError()` 안에서 alert까지 만들면
+모든 호출부가 간단해 보이지만, 가드가 옮긴 화면의 설명과 같은 오류를 두 번 읽는다. 반대로
+호출부가 반환값을 무시하면 세션 전이 오류와 일반 오류를 같은 문구로 한 번 더 알리게 된다.
+
+T-426·T-427·T-428은 fixed alert만으로 해결되지 않는 이동을 잡는다. 목록 결과 자체와 pager,
+필드별 오류, 업로드 진행은 문서 흐름에 남아야 하므로 빈 상태에도 자리를 예약한다. 좌표와
+가로 overflow, pointer-events, dialog 적층은 jsdom이 계산하지 못하므로 T-430은 실제 Chromium
+수동 검증도 함께 남긴다.
+
 T-81은 헷갈리기 쉬운 자리라 따로 둔다. `created_at`(첫 구글 로그인)과 `applied_at`(신청서 제출)은 며칠 차이가 나므로([2-2 §2-2-1](2-2-OPERATOR-REQUIREMENTS.md) MUST) 바꿔 쓰면 운영자가 다른 날짜를 보고 판단한다. 형태가 같은 두 날짜라 눈으로는 안 걸린다.
 
 ## 5-3 수동 검증

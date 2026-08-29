@@ -5,12 +5,12 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, useLocation } from '@/test/TestRouter'
 
 /**
  * 신청·대기 화면 (#38).
@@ -319,6 +319,9 @@ describe('신청서 제출', () => {
     expect(
       await screen.findByRole('heading', { name: '승인 대기 중' }),
     ).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '가입 신청서를 제출했습니다.',
+    )
     /*
      * **두 필드를 다 담아야 한다** (spec §3-2-3 MUST). `department`가 빠진 채로 나가면
      * 서버가 `400 VALIDATION_ERROR`로 막는데, 화면에 고를 자리가 없으면 사용자가 그
@@ -396,6 +399,21 @@ describe('신청서 제출', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '학과를 선택해주세요.',
     )
+    expect(screen.getByLabelText('학과')).toHaveAttribute(
+      'aria-describedby',
+      'application-department-error',
+    )
+    expect(screen.getByLabelText('학과')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    )
+    expect(screen.getByLabelText('학번')).toHaveAttribute(
+      'aria-invalid',
+      'false',
+    )
+    expect(
+      document.querySelector('[data-form-feedback-slot="true"]'),
+    ).toBeInTheDocument()
     expect(api.submitted).toEqual([])
   })
 
@@ -423,6 +441,14 @@ describe('신청서 제출', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '학번을 입력해주세요.',
+    )
+    expect(screen.getByLabelText('학번')).toHaveAttribute(
+      'aria-describedby',
+      'application-student-no-error',
+    )
+    expect(screen.getByLabelText('학과')).toHaveAttribute(
+      'aria-invalid',
+      'false',
     )
     expect(api.submitted).toEqual([])
   })
@@ -517,6 +543,10 @@ describe('제출 중 상태가 바뀌면', () => {
       expect(pathname()).toBe('/login')
     })
     expect(await screen.findByRole('alert')).toHaveTextContent(/정지된 계정/)
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(
+      document.querySelector('[data-live-alert-viewport="true"]'),
+    ).not.toBeInTheDocument()
   })
 
   // 세션이 바뀌지 않는 실패(409·400)에서는 화면에 그대로 남아 사유가 보인다.

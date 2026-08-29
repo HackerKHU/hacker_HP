@@ -1,11 +1,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ApiError } from '@/api/client'
 import type { Notice } from '@/api/notices'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, useLocation } from '@/test/TestRouter'
 
 /**
  * 공지 작성·수정 화면 (#41).
@@ -160,31 +160,50 @@ describe('공지 등록', () => {
     await waitFor(() => {
       expect(pathname()).toBe('/notices/99')
     })
+    expect(screen.getByRole('status')).toHaveTextContent('공지를 등록했습니다.')
     expect(api.created).toEqual([{ title: '새 제목', content: '새 본문' }])
   })
 
   // 스키마가 둘 다 NOT NULL이다. 공백만 넣은 것도 빈 값으로 본다.
   it.each([
-    ['제목이 공백뿐이면', '   ', '본문'],
-    ['내용이 공백뿐이면', '제목', '   '],
-  ])('%s 저장 요청이 나가지 않는다', async (_label, title, content) => {
-    renderAt('/admin/notices/new')
-    await screen.findByLabelText('제목')
+    ['제목이 공백뿐이면', '   ', '본문', '제목을 입력해주세요.'],
+    ['내용이 공백뿐이면', '제목', '   ', '내용을 입력해주세요.'],
+  ])(
+    '%s 저장 요청이 나가지 않는다',
+    async (_label, title, content, message) => {
+      renderAt('/admin/notices/new')
+      await screen.findByLabelText('제목')
 
-    fireEvent.change(screen.getByLabelText('제목'), {
-      target: { value: title },
-    })
-    fireEvent.change(screen.getByLabelText('내용'), {
-      target: { value: content },
-    })
-    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+      fireEvent.change(screen.getByLabelText('제목'), {
+        target: { value: title },
+      })
+      fireEvent.change(screen.getByLabelText('내용'), {
+        target: { value: content },
+      })
+      fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '제목과 내용을 입력해주세요.',
-    )
-    expect(api.created).toEqual([])
-    expect(pathname()).toBe('/admin/notices/new')
-  })
+      expect(await screen.findByRole('alert')).toHaveTextContent(message)
+      const invalid = title.trim() === '' ? '제목' : '내용'
+      const valid = invalid === '제목' ? '내용' : '제목'
+      expect(screen.getByLabelText(invalid)).toHaveAttribute(
+        'aria-describedby',
+        invalid === '제목' ? 'notice-title-error' : 'notice-content-error',
+      )
+      expect(screen.getByLabelText(invalid)).toHaveAttribute(
+        'aria-invalid',
+        'true',
+      )
+      expect(screen.getByLabelText(valid)).toHaveAttribute(
+        'aria-invalid',
+        'false',
+      )
+      expect(
+        document.querySelector('[data-form-feedback-slot="true"]'),
+      ).toBeInTheDocument()
+      expect(api.created).toEqual([])
+      expect(pathname()).toBe('/admin/notices/new')
+    },
+  )
 
   // 제목은 varchar(200)이다 (spec §3-2-2). 상한이 화면에 드러나야 한다.
   it('제목 상한이 화면에 보이고 입력이 상한을 넘지 않는다', async () => {

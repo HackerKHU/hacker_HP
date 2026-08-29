@@ -5,7 +5,6 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import type {
@@ -17,6 +16,7 @@ import type {
 import { ApiError } from '@/api/client'
 import type { Page, User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, useLocation, useNavigate } from '@/test/TestRouter'
 
 /**
  * 회원 관리 화면 (#42).
@@ -396,6 +396,12 @@ describe('접근 권한', () => {
 
     expect(await loaded()).toBeInTheDocument()
     expect(
+      document.querySelector('[data-list-surface="members"]'),
+    ).toBeInTheDocument()
+    expect(
+      document.querySelector('[data-pager-slot="true"]'),
+    ).toBeInTheDocument()
+    expect(
       screen.getByRole('heading', { name: '회원 관리' }),
     ).toBeInTheDocument()
   })
@@ -571,7 +577,7 @@ describe('승인 대상', () => {
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: '거부' }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent(
+    expect(await screen.findByRole('alert')).toHaveTextContent(
       '거부하지 못했습니다',
     )
     await waitFor(() => {
@@ -634,7 +640,7 @@ describe('승인 대상', () => {
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: '권한 회수' }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent(
+    expect(await screen.findByRole('alert')).toHaveTextContent(
       '활성 관리자가 없어집니다. 다른 관리자를 먼저 지정해 주세요.',
     )
   })
@@ -784,8 +790,10 @@ describe('일괄 승인', () => {
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: '승인' }))
 
-    const status = await screen.findByRole('status')
+    const status = await screen.findByRole('alert')
     expect(status).toHaveTextContent('1명을 승인하고 1명은 실패했습니다')
+    expect(status.closest('[data-live-alert-viewport="true"]')).not.toBeNull()
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
     expect(status).toHaveTextContent('신청한둘')
     expect(status).toHaveTextContent('신청서를 내지 않은 계정')
   })
@@ -811,7 +819,7 @@ describe('일괄 승인', () => {
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: '승인' }))
 
-    const status = await screen.findByRole('status')
+    const status = await screen.findByRole('alert')
     expect(status).toHaveTextContent(
       '이미 승인되었거나 정지된 계정: 신청한하나',
     )
@@ -831,7 +839,7 @@ describe('일괄 승인', () => {
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: '승인' }))
 
-    const status = await screen.findByRole('status')
+    const status = await screen.findByRole('alert')
     expect(status).toHaveTextContent('찾을 수 없는 계정: #999')
   })
 
@@ -844,7 +852,7 @@ describe('일괄 승인', () => {
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: '승인' }))
 
-    const status = await screen.findByRole('status')
+    const status = await screen.findByRole('alert')
     expect(status).toHaveTextContent('승인하지 못했습니다')
     expect(status).toHaveTextContent('권한이 없습니다')
     expect(status).not.toHaveTextContent('승인했습니다.')
@@ -929,7 +937,7 @@ describe('일괄 승인', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '승인' }))
 
     // 위와 같은 이유로 재조회가 끝난 증거를 기다린다.
-    await screen.findByRole('status')
+    await screen.findByRole('alert')
     await screen.findByText(/승인 가능 1명/)
 
     /*
@@ -1028,7 +1036,7 @@ describe('상태 변경', () => {
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: '정지' }))
 
-    const status = await screen.findByRole('status')
+    const status = await screen.findByRole('alert')
     expect(status).toHaveTextContent('상태를 바꾸지 못했습니다')
     expect(status).toHaveTextContent('마지막 활성 관리자')
     expect(status).not.toHaveTextContent('정지했습니다.')
@@ -1293,6 +1301,16 @@ describe('검색·필터·정렬', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '회원 목록을 불러오지 못했습니다',
     )
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(
+      document.querySelector('[data-live-alert-viewport="true"]'),
+    ).not.toBeInTheDocument()
+    api.listError = null
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }))
+    expect(await loaded()).toBeInTheDocument()
+    expect(
+      document.querySelector('[data-pager-slot="true"]'),
+    ).toBeInTheDocument()
   })
 })
 
@@ -1391,7 +1409,11 @@ describe('일괄 비활성화', () => {
     await loaded()
 
     fireEvent.click(screen.getByRole('button', { name: '일괄 비활동 전환' }))
-    await screen.findByText(/대상 인원수를 불러오지 못했습니다/)
+    await waitFor(() =>
+      expect(screen.getByRole('alertdialog')).toHaveTextContent(
+        '대상 인원수를 불러오지 못했습니다',
+      ),
+    )
 
     const confirm = screen.getByRole('button', { name: '비활동 전환' })
     expect(confirm).toBeEnabled()
@@ -1454,7 +1476,7 @@ describe('일괄 비활성화', () => {
     await openDeactivate()
     fireEvent.click(screen.getByRole('button', { name: '비활동 전환' }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent(
+    expect(await screen.findByRole('alert')).toHaveTextContent(
       '목록에서 상태를 확인해 주세요',
     )
   })
@@ -1515,7 +1537,7 @@ describe('일괄 복구', () => {
     await selectAndConfirm()
     fireEvent.click(screen.getByRole('button', { name: '복구' }))
 
-    const notice = await screen.findByRole('status')
+    const notice = await screen.findByRole('alert')
     expect(notice).toHaveTextContent('1명은 복구하지 못했습니다')
     expect(notice).toHaveTextContent('비활동이 아닌 계정')
     expect(notice).toHaveTextContent('비활동회원')
