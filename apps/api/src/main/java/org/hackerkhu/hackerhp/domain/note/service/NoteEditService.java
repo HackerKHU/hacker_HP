@@ -283,6 +283,7 @@ public class NoteEditService {
         policy.maxFileCount());
   }
 
+  /** <b>수정은 조회가 아니다</b> (#245) — 조회수를 올리지 않고 지금 값을 그대로 싣는다. */
   private NoteDetailResponse detailOf(Note note, Long viewerId) {
     Long uploaderId = note.getUploaderId();
     String name =
@@ -290,6 +291,7 @@ public class NoteEditService {
     return NoteDetailResponse.of(
         note,
         Uploader.of(uploaderId, name),
-        bookmarks.existsByUserIdAndNoteId(viewerId, note.getId()));
+        bookmarks.existsByUserIdAndNoteId(viewerId, note.getId()),
+        note.getViewCount());
   }
 }
