@@ -12,7 +12,15 @@ export const CATEGORY_LABEL: Record<Category, string> = {
 
 export const SEMESTER_LABEL: Record<Semester, string> = {
   SPRING: '1학기',
+  SUMMER: '여름 계절학기',
   FALL: '2학기',
+  WINTER: '겨울 계절학기',
+}
+
+/** 주소의 `semester`를 계약의 enum으로 좁힌다. 모르는 값은 필터에서 제거한다. */
+export function semesterFromParam(raw: string | null): Semester | undefined {
+  if (raw === null || !Object.hasOwn(SEMESTER_LABEL, raw)) return undefined
+  return raw as Semester
 }
 
 export const EXAM_TYPE_LABEL: Record<ExamType, string> = {

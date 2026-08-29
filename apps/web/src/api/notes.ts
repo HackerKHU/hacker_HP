@@ -15,7 +15,7 @@ import type { Page } from './types'
 
 /** 자료의 갈래 (spec §2-1-1). `EXAM`만 `examType`을 갖는다. */
 export type Category = 'EXAM' | 'SUBJECT'
-export type Semester = 'SPRING' | 'FALL'
+export type Semester = 'SPRING' | 'SUMMER' | 'FALL' | 'WINTER'
 export type ExamType = 'MIDTERM' | 'FINAL'
 
 /**
