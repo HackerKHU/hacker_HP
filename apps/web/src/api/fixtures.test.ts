@@ -656,6 +656,53 @@ describe('회원 관리 픽스처', () => {
  * 날까지 드러나지 않는다.
  */
 describe('자료 픽스처', () => {
+  it('조회수순은 내림차순이고 동률은 id 내림차순이다', async () => {
+    const { fixtureNotes } = await loadFixtures('user')
+
+    const page = await fixtureNotes({ sort: 'views', size: 100 })
+    const counts = page.content.map((note) => note.viewCount)
+    expect(new Set(counts).size).toBeGreaterThan(1)
+
+    for (let index = 1; index < page.content.length; index += 1) {
+      const previous = page.content[index - 1]
+      const current = page.content[index]
+      if (previous.viewCount === current.viewCount) {
+        expect(previous.id).toBeGreaterThan(current.id)
+      } else {
+        expect(previous.viewCount).toBeGreaterThan(current.viewCount)
+      }
+    }
+  })
+
+  it('상세를 열면 저장된 조회수를 1 올린 뒤 반환하고 후속 목록에도 반영한다', async () => {
+    const { fixtureNote, fixtureNotes } = await loadFixtures('user')
+    const before = await fixtureNotes({ size: 100 })
+    const target = before.content[0]
+
+    const detail = await fixtureNote(target.id)
+    const after = await fixtureNotes({ size: 100 })
+    const reflected = after.content.find((note) => note.id === target.id)
+
+    expect(detail.viewCount).toBe(target.viewCount + 1)
+    expect(reflected?.viewCount).toBe(detail.viewCount)
+  })
+
+  it('상세를 연 뒤 즐겨찾기를 바꾸어도 조회수는 더 오르지 않는다', async () => {
+    const { fixtureNote, fixtureNotes, fixtureSetBookmark } =
+      await loadFixtures('user')
+    const page = await fixtureNotes({ size: 100 })
+    const target = page.content.find((note) => !note.bookmarked)
+    if (!target) throw new Error('담기지 않은 자료가 없다')
+    const detail = await fixtureNote(target.id)
+
+    await fixtureSetBookmark(target.id, true)
+    const after = await fixtureNotes({ size: 100 })
+    const reflected = after.content.find((note) => note.id === target.id)
+
+    expect(reflected?.bookmarked).toBe(true)
+    expect(reflected?.viewCount).toBe(detail.viewCount)
+  })
+
   /* 검색어와 필터는 AND로 함께 걸린다 (spec §2-1-1 MUST). */
   it('검색어와 필터를 함께 적용한다', async () => {
     const { fixtureNotes } = await loadFixtures('user')
@@ -740,6 +787,14 @@ describe('자료 픽스처', () => {
     }
   })
 
+  it('즐겨찾기는 조회수와 무관하게 담은 순서를 유지한다', async () => {
+    const { fixtureBookmarks } = await loadFixtures('user')
+
+    const page = await fixtureBookmarks({ size: 100 })
+
+    expect(page.content.map((note) => note.id)).toEqual([306, 303, 301])
+  })
+
   /*
    * 확장자·용량을 픽스처도 거부한다 (계약 §3-2-4). **확장자를 크기보다 먼저 본다** —
    * "이 종류는 아예 안 받는다"가 "조금 줄여서 다시"보다 먼저 알아야 할 사실이다.
@@ -795,6 +850,33 @@ describe('자료 픽스처', () => {
 
     expect(created.uploader.id).toBe(1)
     expect(created.files).toHaveLength(1)
+    expect(created.viewCount).toBe(0)
+  })
+
+  it('수정해도 기존 조회수를 보존한다', async () => {
+    const { fixtureNote, fixtureNotes, fixtureUpdateNote } =
+      await loadFixtures('user')
+    const page = await fixtureNotes({ size: 100 })
+    const mine = page.content.find((note) => note.uploader.id === 1)
+    if (!mine) throw new Error('내 자료가 없다')
+    const before = await fixtureNote(mine.id)
+
+    const updated = await fixtureUpdateNote(before.id, {
+      category: before.category,
+      title: `${before.title} 수정`,
+      subjectName: before.subjectName,
+      professor: before.professor,
+      year: before.year,
+      semester: before.semester,
+      examType: before.examType,
+      files: before.files.map((file) => ({ fileId: file.id })),
+    })
+    const after = await fixtureNotes({ size: 100 })
+
+    expect(updated.viewCount).toBe(before.viewCount)
+    expect(after.content.find((note) => note.id === before.id)?.viewCount).toBe(
+      before.viewCount,
+    )
   })
 
   /*

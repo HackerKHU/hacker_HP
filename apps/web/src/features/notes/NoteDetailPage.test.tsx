@@ -16,6 +16,7 @@ import { NoteDetailPage } from './NoteDetailPage'
 
 const api = vi.hoisted(() => ({
   note: null as NoteDetail | null,
+  gets: 0,
   issued: [] as number[],
   removed: [] as number[],
   bookmarked: [] as { id: number; next: boolean }[],
@@ -31,6 +32,7 @@ const MINE: NoteDetail = {
   semester: 'SPRING',
   examType: 'MIDTERM',
   uploader: { id: 1, name: '홍길동' },
+  viewCount: 12_345,
   files: [{ id: 1000, originalName: '정리본.pdf', sizeBytes: 1_048_576 }],
   bookmarked: false,
   createdAt: '2026-08-01T09:00:00Z',
@@ -38,12 +40,14 @@ const MINE: NoteDetail = {
 }
 
 vi.mock('@/api/notes', () => ({
-  get: () =>
-    api.note
+  get: () => {
+    api.gets += 1
+    return api.note
       ? Promise.resolve(api.note)
       : Promise.reject(
           new ApiError('NOT_FOUND', 404, '자료를 찾을 수 없습니다.'),
-        ),
+        )
+  },
   downloadUrl: (_noteId: number, fileId: number) => {
     api.issued.push(fileId)
     return Promise.resolve({
@@ -97,6 +101,7 @@ function renderDetail() {
 
 beforeEach(() => {
   api.note = MINE
+  api.gets = 0
   api.issued = []
   api.removed = []
   api.bookmarked = []
@@ -113,6 +118,9 @@ describe('자료 상세', () => {
     ).toBeVisible()
     expect(screen.getByText('정리본.pdf')).toBeVisible()
     expect(screen.getByText('1.0 MB')).toBeVisible()
+    const viewCountLabel = screen.getByText('조회수')
+    expect(viewCountLabel.tagName).toBe('DT')
+    expect(viewCountLabel.nextElementSibling).toHaveTextContent('12345')
   })
 
   /*
@@ -182,19 +190,38 @@ describe('자료 상세', () => {
     expect(screen.getByRole('link', { name: '수정' })).toBeVisible()
   })
 
-  /* 담기·빼기는 방향을 정해 보낸다 (계약 §3-2-4 MUST — 토글이 아니다). */
-  it('담긴 자료의 별표를 누르면 빼기 요청이 나간다', async () => {
-    api.note = { ...MINE, bookmarked: true }
+  /*
+   * 담기·빼기는 방향을 정해 보낸다 (계약 §3-2-4 MUST — 토글이 아니다).
+   * 즐겨찾기는 조회가 아니므로 성공 뒤 상세 GET을 다시 부르지 않는다.
+   */
+  it.each([
+    { initial: false, action: '즐겨찾기', next: true },
+    { initial: true, action: '즐겨찾기 해제', next: false },
+  ])(
+    '$action 성공 후 bookmarked만 바꾸고 상세를 재조회하지 않는다',
+    async ({ initial, action, next }) => {
+      api.note = { ...MINE, bookmarked: initial }
 
-    renderDetail()
-    await screen.findByText('정리본.pdf')
+      renderDetail()
+      await screen.findByText('정리본.pdf')
+      expect(api.gets).toBe(1)
 
-    fireEvent.click(screen.getByRole('button', { name: /즐겨찾기 해제/ }))
+      fireEvent.click(screen.getByRole('button', { name: action }))
 
-    await waitFor(() => {
-      expect(api.bookmarked).toEqual([{ id: 301, next: false }])
-    })
-  })
+      await waitFor(() => {
+        expect(api.bookmarked).toEqual([{ id: 301, next }])
+      })
+      expect(api.gets).toBe(1)
+      expect(
+        screen.getByRole('button', {
+          name: next ? '즐겨찾기 해제' : '즐겨찾기',
+        }),
+      ).toBeVisible()
+      const viewCountLabel = screen.getByText('조회수')
+      expect(viewCountLabel.nextElementSibling).toHaveTextContent('12345')
+      expect(screen.getByText('정리본.pdf')).toBeVisible()
+    },
+  )
 
   it('없는 자료면 안내가 뜬다', async () => {
     api.note = null

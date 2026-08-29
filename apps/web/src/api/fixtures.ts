@@ -1133,6 +1133,8 @@ const NOTES: FixtureNote[] = Array.from({ length: 23 }, (_, index) => {
         : owner === 1
           ? { id: 99, name: '권승원' }
           : { id: null, name: '탈퇴한 회원' },
+    // 조회수가 다른 자료와 동률인 자료를 모두 둔다. `views` 정렬의 1·2차 기준을 함께 볼 수 있다.
+    viewCount: (index % 5) * 25,
     files: [
       {
         id: 1000 + index * 2,
@@ -1255,7 +1257,9 @@ export function fixtureNotes(
     .sort((a, b) =>
       query.sort === 'title'
         ? a.title.localeCompare(b.title) || a.id - b.id
-        : b.createdAt.localeCompare(a.createdAt) || b.id - a.id,
+        : query.sort === 'views'
+          ? b.viewCount - a.viewCount || b.id - a.id
+          : b.createdAt.localeCompare(a.createdAt) || b.id - a.id,
     )
   return Promise.resolve(pageOf(matched, query.page, query.size))
 }
@@ -1270,6 +1274,8 @@ export function fixtureNote(id: number): Promise<NoteDetail> {
       new ApiError('NOT_FOUND', 404, '자료를 찾을 수 없습니다.'),
     )
   }
+  // 서버 계약과 같이 성공한 상세 GET 하나가 조회 1회다. 응답은 올린 뒤의 값을 준다.
+  found.viewCount += 1
   return Promise.resolve(withBookmark(found))
 }
 
@@ -1413,6 +1419,7 @@ function toDetail(
   files: NoteFile[],
   uploader: Uploader,
   createdAt: string,
+  viewCount: number,
 ): FixtureNote {
   return {
     id,
@@ -1425,6 +1432,7 @@ function toDetail(
     // `SUBJECT`에는 시험 구분이 없다 (계약 §3-2-2 CHECK 제약).
     examType: body.category === 'EXAM' ? body.examType : null,
     uploader,
+    viewCount,
     files,
     createdAt,
     updatedAt: new Date().toISOString(),
@@ -1461,6 +1469,7 @@ export function fixtureCreateNote(
     toFiles(body.files),
     { id: me.id, name: me.name },
     new Date().toISOString(),
+    0,
   )
   NOTES.unshift(created)
   return Promise.resolve(withBookmark(created))
@@ -1511,6 +1520,8 @@ export function fixtureUpdateNote(
     // 업로더는 그대로다. ADMIN이 남의 자료를 고쳐도 그렇다.
     found.uploader,
     found.createdAt,
+    // 메타데이터를 고치는 것은 조회가 아니다. 저장된 조회수를 그대로 옮긴다.
+    found.viewCount,
   )
   NOTES[NOTES.indexOf(found)] = updated
   return Promise.resolve(withBookmark(updated))

@@ -113,12 +113,18 @@ export function NoteDetailPage() {
   /** 담기·빼기. 서버가 준 `bookmarked`를 보고 방향을 정한다 (계약 §3-2-4 — 토글이 아니다). */
   async function toggleBookmark() {
     if (!note) return
+    const next = !note.bookmarked
     setBusy(true)
     setError(null)
     try {
-      await setBookmark(note.id, !note.bookmarked)
-      // 낙관적으로 바꾸지 않는다. 서버가 받아들인 뒤 그 상태로 다시 읽는다.
-      setNote(await get(note.id))
+      await setBookmark(note.id, next)
+      /*
+       * 낙관적 변경이 아니다. 서버가 요청을 받은 뒤 그 값만 반영한다.
+       * 상세 GET은 성공할 때마다 조회수를 올리므로 즐겨찾기 조작 뒤에 다시 부르지 않는다.
+       */
+      setNote((current) =>
+        current?.id === note.id ? { ...current, bookmarked: next } : current,
+      )
     } catch (caught: unknown) {
       reportApiError(caught)
       setError('즐겨찾기를 바꾸지 못했습니다. 다시 시도해 주세요.')
@@ -263,6 +269,8 @@ export function NoteDetailPage() {
             <dd>{note.uploader.name}</dd>
             <dt className="text-muted-foreground">등록일</dt>
             <dd>{formatDate(note.createdAt)}</dd>
+            <dt className="text-muted-foreground">조회수</dt>
+            <dd className="whitespace-nowrap tabular-nums">{note.viewCount}</dd>
             <dt className="text-muted-foreground">수정일</dt>
             <dd>{formatDate(note.updatedAt)}</dd>
           </dl>

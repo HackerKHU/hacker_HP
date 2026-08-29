@@ -44,6 +44,7 @@ const MINE: NoteDetail = {
   semester: 'SPRING',
   examType: 'MIDTERM',
   uploader: { id: 1, name: '홍길동' },
+  viewCount: 17,
   files: [{ id: 1000, originalName: '기존.pdf', sizeBytes: 1_048_576 }],
   bookmarked: false,
   createdAt: '2026-08-01T09:00:00Z',

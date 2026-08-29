@@ -7,7 +7,9 @@ import {
   type ExamType,
   filters as fetchFilters,
   list,
+  NOTE_SORTS,
   type NoteFilterOptions,
+  type NoteSortValue,
   type NoteSummary,
   type Semester,
   setBookmark,
@@ -34,10 +36,23 @@ import { NoteTable } from './NoteTable'
 const PAGE_SIZE = 20
 
 /** 정렬 선택지. 값은 계약의 `sort` 파라미터 그대로다 (spec §3-2-4). */
-const SORTS = [
-  { value: 'latest', label: '최신순' },
-  { value: 'title', label: '제목순' },
-] as const
+const SORT_LABEL: Record<NoteSortValue, string> = {
+  latest: '최신순',
+  title: '제목순',
+  views: '조회수순',
+}
+const SORTS = NOTE_SORTS.map((value) => ({ value, label: SORT_LABEL[value] }))
+
+/** 주소는 사람이 고칠 수 있다. 계약에 있는 정렬만 복원하고 나머지는 기본값으로 본다. */
+function sortFromParam(raw: string | null): NoteSortValue {
+  return NOTE_SORTS.find((value) => value === raw) ?? 'latest'
+}
+
+/** 갈래를 바꾸더라도 유효한 비기본 정렬은 새 갈래에서도 같은 뜻이라 유지한다. */
+function categoryHref(category: Category, sort: NoteSortValue): string {
+  const path = categoryPath(category)
+  return sort === 'latest' ? path : `${path}&sort=${sort}`
+}
 
 /**
  * 자료게시판. **시험 정리본과 과목 정리본이 한 화면이고 갈래는 탭으로 가른다.**
@@ -72,7 +87,7 @@ export function NoteListPage() {
   const year = searchParams.get('year') ?? ''
   const semester = searchParams.get('semester') ?? ''
   const examType = searchParams.get('examType') ?? ''
-  const sort = searchParams.get('sort') === 'title' ? 'title' : 'latest'
+  const sort = sortFromParam(searchParams.get('sort'))
 
   /** 입력 중인 검색어. **제출해야 URL에 들어간다** — 한 글자마다 조회하지 않는다. */
   const [draft, setDraft] = useState(q)
@@ -263,7 +278,8 @@ export function NoteListPage() {
        *
        * **탭을 바꾸면 검색·필터가 딸려가지 않는다.** 시험 자료를 "중간"으로 걸러 보다가
        * 과목 탭으로 넘어가면 그 조건은 뜻을 잃는다 — 갈래마다 고를 수 있는 값이 다르고,
-       * 특히 시험 구분은 `SUBJECT`에 걸면 결과가 늘 0건이다.
+       * 특히 시험 구분은 `SUBJECT`에 걸면 결과가 늘 0건이다. 단, 정렬은 갈래와
+       * 무관하므로 유효한 비기본값을 보존한다.
        */}
       <div className="mt-6 flex items-end justify-between gap-4 border-b border-border">
         {/*
@@ -278,7 +294,7 @@ export function NoteListPage() {
             {(Object.keys(CATEGORY_LABEL) as Category[]).map((value) => (
               <Link
                 key={value}
-                to={categoryPath(value)}
+                to={categoryHref(value, sort)}
                 aria-current={value === category ? 'page' : undefined}
                 className={cn(
                   '-mb-px border-b-2 px-4 py-2 text-sm transition-colors',
