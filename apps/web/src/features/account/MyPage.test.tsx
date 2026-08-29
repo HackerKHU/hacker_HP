@@ -114,9 +114,15 @@ describe('마이페이지', () => {
     const section = page.closest('section')
     expect(section).not.toBeNull()
     expect(section?.querySelectorAll('input, select, textarea')).toHaveLength(0)
+    /*
+     * 버튼은 탈퇴 하나뿐이다 (#226). 저장·수정처럼 값을 바꾸는 조작이 하나라도 늘면
+     * 여기서 걸린다 — 탈퇴는 정보를 고치는 것이 아니라 계정을 지우는 것이다.
+     */
     expect(
-      within(section as HTMLElement).queryByRole('button'),
-    ).not.toBeInTheDocument()
+      within(section as HTMLElement)
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual(['회원 탈퇴'])
   })
 
   /*

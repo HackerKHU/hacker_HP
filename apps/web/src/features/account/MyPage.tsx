@@ -1,5 +1,6 @@
 import type { ActiveUser } from '@/auth/session'
 import { useSession } from '@/auth/session'
+import { WithdrawButton } from './WithdrawButton'
 
 /**
  * 상태 표시. **한 칸짜리 표인 것이 의도다.**
@@ -95,6 +96,15 @@ export function MyPage() {
         여기 있는 정보는 직접 고칠 수 없습니다. 잘못된 값이 있으면 운영진에게
         문의해 주세요.
       </p>
+
+      {/*
+        **탈퇴는 눈에 잘 띄지 않는 자리에 둔다** (#226). 실수로 누를 버튼이 아니다 —
+        구분선 아래 맨 끝, 글자 버튼 하나다. 그렇다고 숨기지는 않는다: 개인정보처리방침이
+        고지하는 "삭제를 요구할 수 있다"를 본인이 실행하는 자리가 여기다.
+      */}
+      <div className="mt-10 flex flex-col items-end gap-2 border-t border-border pt-4">
+        <WithdrawButton />
+      </div>
     </section>
   )
 }

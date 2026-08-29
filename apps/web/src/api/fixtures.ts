@@ -200,6 +200,60 @@ export function fixtureMe(): Promise<User | null> {
 }
 
 /**
+ * 탈퇴하면 남을 콘텐츠 (`GET /auth/me/content-summary`, #226).
+ *
+ * **네 값을 항상 담는다** (계약 MUST) — `0`을 빼면 확인 창이 "없음"과 "모름"을 가르지
+ * 못한다. `PENDING`도 부를 수 있고 그때는 전부 `0`이다: 신청서만 낸 계정에는 올린 것이
+ * 없다. 관리자용 경로와 달리 대상이 언제나 본인이라 id를 받지 않는다.
+ */
+export function fixtureMyContentSummary(): Promise<ContentSummary> {
+  if (SCENARIO === 'guest') {
+    return Promise.reject(
+      new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
+    )
+  }
+  if (SCENARIO === 'applying' || SCENARIO === 'pending') {
+    return Promise.resolve({ notes: 0, notices: 0, photos: 0, posts: 0 })
+  }
+  return Promise.resolve({ notes: 3, notices: 0, photos: 5, posts: 2 })
+}
+
+/**
+ * 회원 탈퇴 (`DELETE /auth/me`). **되돌릴 수 없다.**
+ *
+ * **마지막 활성 관리자 보호를 함께 흉내 낸다** (2-2 §2-2-7 MUST). 통과시키면 그 실패
+ * 화면을 픽스처만으로 만들 수 없다 — 명부에 활성 관리자가 본인뿐인 `admin` 시나리오가
+ * 정확히 그 경우다.
+ *
+ * 세션 폐기·쿠키 정리는 서버 몫이라 흉내 낼 것이 없다. 화면은 `204`만 보고 움직인다.
+ */
+export function fixtureWithdraw(): Promise<void> {
+  if (SCENARIO === 'guest') {
+    return Promise.reject(
+      new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
+    )
+  }
+  if (
+    SCENARIO === 'admin' &&
+    !MEMBERS.some(
+      (user) =>
+        user.id !== SELF_ID &&
+        user.role === 'ADMIN' &&
+        user.status === 'ACTIVE',
+    )
+  ) {
+    return Promise.reject(
+      new ApiError(
+        'FORBIDDEN',
+        403,
+        '마지막 활성 관리자는 탈퇴할 수 없습니다. 다른 관리자를 지정한 뒤 다시 시도해 주세요.',
+      ),
+    )
+  }
+  return Promise.resolve()
+}
+
+/**
  * 신청서 제출은 본문을 반환하지 않는다. 제출 후 화면은 `fixtureMe()`로 다시 그린다.
  *
  * `applying` 시나리오에서는 제출 여부를 기억해, 이어지는 `fixtureMe()`가 신청 완료
