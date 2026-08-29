@@ -206,18 +206,89 @@ describe('활동사진 업로드', () => {
       '[data-upload-feedback-slot="true"]',
     ) as HTMLElement
     expect(feedback).toBeInTheDocument()
-    expect(within(feedback).getByRole('alert')).toHaveTextContent(
-      '20MB를 넘습니다',
-    )
+    expect(feedback).toHaveClass('h-32', 'overflow-y-auto')
+    expect(within(feedback).queryByRole('alert')).toBeNull()
+    expect(
+      within(feedback).getByText('huge.jpg: 20MB를 넘습니다'),
+    ).toBeVisible()
+    expect(
+      within(feedback).getByRole('list', { name: '업로드 실패 파일' }),
+    ).toBeVisible()
+    const summary = screen.getByRole('alert')
+    expect(summary).toHaveTextContent('1장을 올렸고 1장이 실패했습니다')
+    expect(summary).not.toHaveTextContent('huge.jpg')
+    expect(summary.closest('[data-live-alert-viewport="true"]')).not.toBeNull()
+    expect(
+      document.querySelectorAll(
+        '[data-live-alert-viewport="true"] [role="alert"]',
+      ),
+    ).toHaveLength(1)
+    expect(within(feedback).queryByRole('status')).not.toBeInTheDocument()
     expect(
       document.querySelector('[data-live-alert-viewport="true"]'),
-    ).not.toBeInTheDocument()
-    // 사유를 문구로 옮겨 무엇을 고쳐야 하는지 알린다.
-    expect(screen.getByRole('alert')).toHaveTextContent('20MB를 넘습니다')
+    ).toBeInTheDocument()
     // 갤러리로 가지 않았다.
     expect(screen.queryByRole('heading', { name: '갤러리' })).toBeNull()
     // 실패한 사진만 남는다.
     expect(await screen.findAllByLabelText('설명 (선택)')).toHaveLength(1)
+  })
+
+  it('서로 다른 부분 실패를 key로 원본 파일명과 사유에 연결한다', async () => {
+    api.result = {
+      registered: [PHOTO],
+      failed: [
+        {
+          key: 'photos/uploads/fixture-1.jpg',
+          reason: 'FILE_TOO_LARGE',
+        },
+        {
+          key: 'photos/uploads/fixture-2.jpg',
+          reason: 'UNSUPPORTED_FILE_TYPE',
+        },
+      ],
+    }
+
+    renderUpload()
+    pick('good.jpg', 'too-large.jpg', 'broken-image.jpg')
+    const selection = document.querySelector(
+      '[data-upload-selection-slot="true"]',
+    ) as HTMLElement
+    vi.spyOn(selection, 'getBoundingClientRect').mockReturnValue({
+      height: 640,
+    } as DOMRect)
+    fireEvent.click(await screen.findByRole('button', { name: '저장' }))
+
+    const summary = await screen.findByRole('alert')
+    expect(summary).toHaveTextContent('1장을 올렸고 2장이 실패했습니다')
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+
+    const feedback = document.querySelector(
+      '[data-upload-feedback-slot="true"]',
+    ) as HTMLElement
+    const failures = within(feedback).getByRole('list', {
+      name: '업로드 실패 파일',
+    })
+    expect(within(failures).getAllByRole('listitem')).toHaveLength(2)
+    expect(failures).toHaveTextContent('too-large.jpg: 20MB를 넘습니다')
+    expect(failures).toHaveTextContent(
+      'broken-image.jpg: 이미지로 읽을 수 없습니다',
+    )
+    expect(within(feedback).queryByRole('alert')).toBeNull()
+    expect(feedback).toHaveClass('h-32', 'overflow-y-auto')
+    expect(selection).toHaveStyle({ minHeight: '640px' })
+    expect(await screen.findAllByLabelText('설명 (선택)')).toHaveLength(2)
+
+    // 새 파일 검증이 시작되면 이전 fixed 요약을 닫아 live alert가 두 개가 되지 않는다.
+    pick('report.pdf')
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-live-alert-viewport="true"]'),
+      ).not.toBeInTheDocument()
+    })
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'report.pdf은(는) 올릴 수 없는 형식입니다',
+    )
   })
 
   /* 전부 성공하면 갤러리로 보낸다 — 결과를 볼 수 있는 곳이다. */

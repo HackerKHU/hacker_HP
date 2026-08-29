@@ -1759,7 +1759,8 @@ let nextPhotoId = 601
  * 등록.
  *
  * **일부가 실패해도 성공 응답이다** (계약 §3-2-5). 픽스처도 그래야 화면이 `registered`와
- * `failed`를 함께 읽는지 확인할 수 있다 — **마지막 한 장을 일부러 실패시킨다**(2장 이상일 때).
+ * `failed`를 함께 읽는지 확인할 수 있다. 2장이면 마지막 한 장, 3장 이상이면 마지막 두
+ * 장을 서로 다른 사유로 실패시켜 파일명-사유 매핑과 긴 실패 목록을 브라우저에서 확인한다.
  * 전부 성공시키면 실패 안내를 화면에서 만들 수 없다.
  */
 export function fixtureRegisterPhotos(
@@ -1777,8 +1778,16 @@ export function fixtureRegisterPhotos(
   const registered: Photo[] = []
   const failed: PhotoRegisterResult['failed'] = []
   photos.forEach((item, index) => {
-    // 2장 이상이면 마지막 한 장이 실패한다 — 부분 실패 화면을 볼 수 있어야 한다.
-    if (photos.length > 1 && index === photos.length - 1) {
+    // 여러 key를 서로 다른 사유에 연결하는 화면까지 볼 수 있게 마지막 두 장을 가른다.
+    if (photos.length >= 3 && index === photos.length - 2) {
+      failed.push({ key: item.key, reason: 'FILE_TOO_LARGE' })
+      return
+    }
+    if (photos.length >= 3 && index === photos.length - 1) {
+      failed.push({ key: item.key, reason: 'UNSUPPORTED_FILE_TYPE' })
+      return
+    }
+    if (photos.length === 2 && index === photos.length - 1) {
       failed.push({ key: item.key, reason: 'NOT_FOUND' })
       return
     }

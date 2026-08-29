@@ -38,6 +38,14 @@ type Picked = {
   caption: string
 }
 
+/** 등록 응답의 key를 제출 당시 원본 파일에 다시 연결한 실패 한 건. */
+type FailedFile = {
+  key: string
+  fileName: string
+  previewUrl: string | null
+  reason: string
+}
+
 /**
  * 활동사진 업로드 (spec §2-1-7, §3-2-5).
  *
@@ -63,10 +71,14 @@ export function PhotoUploadPage() {
 
   const [picked, setPicked] = useState<Picked[]>([])
   const fileInput = useRef<HTMLInputElement>(null)
+  const pickedGrid = useRef<HTMLUListElement>(null)
+  const [reservedPickedHeight, setReservedPickedHeight] = useState<
+    number | null
+  >(null)
   const [saving, setSaving] = useState(false)
   const [progress, setProgress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [failedNotice, setFailedNotice] = useState<string | null>(null)
+  const [failedFiles, setFailedFiles] = useState<FailedFile[]>([])
 
   /**
    * 미리보기 주소를 되돌려준다. `URL.createObjectURL`이 만든 것은 **명시적으로 풀지
@@ -96,6 +108,8 @@ export function PhotoUploadPage() {
    */
   function addFiles(files: FileList | null) {
     if (!files) return
+    // 이전 부분 실패 요약과 새 파일 검증 오류가 동시에 live announcement가 되지 않게 한다.
+    alert.dismiss()
     const chosen = [...files]
     if (fileInput.current) fileInput.current.value = ''
 
@@ -118,6 +132,8 @@ export function PhotoUploadPage() {
     }
 
     setError(null)
+    // 사용자가 목록을 직접 바꾸면 이전 제출에서 예약한 그리드 높이는 더 이상 기준이 아니다.
+    setReservedPickedHeight(null)
     setPicked((current) => [
       ...current,
       ...chosen.map((file) => ({
@@ -129,10 +145,16 @@ export function PhotoUploadPage() {
   }
 
   function removeAt(index: number) {
-    setPicked((current) => {
-      URL.revokeObjectURL(current[index].previewUrl)
-      return current.filter((_, at) => at !== index)
-    })
+    const removed = picked[index]
+    alert.dismiss()
+    URL.revokeObjectURL(removed.previewUrl)
+    setReservedPickedHeight(null)
+    setFailedFiles((failures) =>
+      failures.filter((failure) => failure.previewUrl !== removed.previewUrl),
+    )
+    setPicked((current) =>
+      current.filter((item) => item.previewUrl !== removed.previewUrl),
+    )
   }
 
   function setCaption(index: number, caption: string) {
@@ -144,15 +166,27 @@ export function PhotoUploadPage() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     if (saving) return
+    // 재시도의 progress·검증과 이전 부분 실패 요약을 겹쳐 발표하지 않는다.
+    alert.dismiss()
 
     if (picked.length === 0) {
       setError('사진을 한 장 이상 골라주세요.')
       return
     }
 
+    /*
+     * 부분 성공 뒤 성공 카드만 빠져도 아래 조작은 움직이지 않는다. 피드백 slot만 고정해도
+     * 모바일 1열에서는 카드 한 장 높이만큼 버튼이 위로 튀므로, 제출 직전 그리드의 실제
+     * 높이도 결과를 고칠 때까지 보존한다. 사용자가 파일을 추가·제거하면 위에서 해제한다.
+     */
+    const submittedGridHeight =
+      pickedGrid.current?.getBoundingClientRect().height
+    if (submittedGridHeight && submittedGridHeight > 0) {
+      setReservedPickedHeight(submittedGridHeight)
+    }
     setSaving(true)
     setError(null)
-    setFailedNotice(null)
+    setFailedFiles([])
     /*
      * **지금 목록을 붙잡아 둔다.** 아래는 `await`가 둘 있는 긴 구간이고, 그 사이 화면 상태가
      * 바뀌면 나중에 인덱스로 대조할 때 어긋난다. 입력은 `saving` 동안 잠그지만(아래 폼 참고)
@@ -185,11 +219,22 @@ export function PhotoUploadPage() {
        * 남아서 무엇이 왜 빠졌는지 보여주고, 성공한 것만 목록에서 지운다.
        */
       if (result.failed.length > 0) {
-        const detail = result.failed
-          .map((failure) => FAILURE_TEXT[failure.reason])
-          .join(', ')
-        setFailedNotice(
-          `${result.registered.length}장을 올렸고 ${result.failed.length}장이 실패했습니다 (${detail}). 실패한 사진은 아래에 남아 있습니다 — 다시 시도해 주세요.`,
+        const submittedByKey = new Map(
+          keys.map((key, index) => [key, submitted[index]]),
+        )
+        setFailedFiles(
+          result.failed.map((failure) => {
+            const original = submittedByKey.get(failure.key)
+            return {
+              key: failure.key,
+              fileName: original?.file.name ?? failure.key,
+              previewUrl: original?.previewUrl ?? null,
+              reason: FAILURE_TEXT[failure.reason],
+            }
+          }),
+        )
+        alert.error(
+          `${result.registered.length}장을 올렸고 ${result.failed.length}장이 실패했습니다. 아래 파일별 사유를 확인해 다시 시도해 주세요.`,
         )
 
         /*
@@ -282,7 +327,16 @@ export function PhotoUploadPage() {
         </div>
 
         {picked.length > 0 && (
-          <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ul
+            ref={pickedGrid}
+            className="grid grid-cols-1 content-start gap-4 sm:grid-cols-2 lg:grid-cols-3"
+            data-upload-selection-slot="true"
+            style={
+              reservedPickedHeight === null
+                ? undefined
+                : { minHeight: reservedPickedHeight }
+            }
+          >
             {picked.map((item, index) => (
               <li
                 /*
@@ -347,17 +401,33 @@ export function PhotoUploadPage() {
           </ul>
         )}
 
-        <div className="min-h-12" data-upload-feedback-slot="true">
+        <div
+          className="h-32 overflow-y-auto py-2"
+          data-upload-feedback-slot="true"
+        >
           {progress && (
             <p role="status" className="text-sm text-muted-foreground">
               {progress}
             </p>
           )}
 
-          {failedNotice && (
-            <p role="alert" className="text-sm text-muted-foreground">
-              {failedNotice}
-            </p>
+          {failedFiles.length > 0 && (
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>다시 올릴 사진과 실패 사유</p>
+              <ul
+                className="list-disc space-y-1 pl-5"
+                aria-label="업로드 실패 파일"
+              >
+                {failedFiles.map((failure) => (
+                  <li
+                    key={failure.key}
+                    className="break-words [overflow-wrap:anywhere]"
+                  >
+                    {failure.fileName}: {failure.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
 
           {error && (

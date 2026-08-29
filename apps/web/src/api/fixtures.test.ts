@@ -938,9 +938,9 @@ describe('활동사진 픽스처', () => {
 
   /*
    * **일부가 실패해도 성공 응답이다** (계약 §3-2-5). 픽스처가 전부 성공시키면 화면이
-   * `failed`를 읽는지 확인할 수 없다 — 그래서 2장 이상이면 마지막 한 장을 실패시킨다.
+   * `failed`를 읽는지 확인할 수 없다 — 그래서 2장이면 마지막 한 장을 실패시킨다.
    */
-  it('두 장 이상 등록하면 일부 실패가 함께 온다', async () => {
+  it('두 장을 등록하면 마지막 한 장의 실패가 함께 온다', async () => {
     const { fixtureRegisterPhotos } = await loadFixtures('admin')
 
     const result = await fixtureRegisterPhotos([
@@ -951,6 +951,22 @@ describe('활동사진 픽스처', () => {
     expect(result.registered).toHaveLength(1)
     expect(result.failed).toHaveLength(1)
     expect(result.failed[0].key).toBe('photos/uploads/b.jpg')
+  })
+
+  it('세 장 이상 등록하면 마지막 두 key가 서로 다른 실패 사유에 연결된다', async () => {
+    const { fixtureRegisterPhotos } = await loadFixtures('admin')
+
+    const result = await fixtureRegisterPhotos([
+      { key: 'photos/uploads/a.jpg', caption: '성공' },
+      { key: 'photos/uploads/b.jpg', caption: '큼' },
+      { key: 'photos/uploads/c.jpg', caption: '깨짐' },
+    ])
+
+    expect(result.registered).toHaveLength(1)
+    expect(result.failed).toEqual([
+      { key: 'photos/uploads/b.jpg', reason: 'FILE_TOO_LARGE' },
+      { key: 'photos/uploads/c.jpg', reason: 'UNSUPPORTED_FILE_TYPE' },
+    ])
   })
 
   /* **업로더는 인증 주체로만 정한다** (계약 §3-2-5 MUST) — 본문으로 받지 않는다. */
