@@ -2,7 +2,6 @@ package org.hackerkhu.hackerhp.domain.post;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -530,16 +529,14 @@ class PostIntegrationTest extends AbstractIntegrationTest {
   @Test
   void authorEditsTheirOwnPost() throws Exception {
     long id = write(member, "원래 제목", "원래 본문");
-    String before =
-        objectMapper
-            .readTree(
-                mockMvc
-                    .perform(sessions.as(member, get(POSTS + "/" + id)))
-                    .andReturn()
-                    .getResponse()
-                    .getContentAsString())
-            .path("updatedAt")
-            .asText();
+    /*
+     * PostgreSQL TIMESTAMP는 마이크로초 정밀도다. write()에 들어간 Instant나 API 직렬화값이
+     * 아니라 수정 직전 DB round-trip 값을 기준으로 잡아, 수정이 저장 시각을 보존했는지
+     * 정밀도 차이 없이 비교한다.
+     */
+    var original = posts.findById(id).orElseThrow();
+    Instant originalCreatedAt = original.getCreatedAt();
+    assertThat(original.getUpdatedAt()).isEqualTo(originalCreatedAt);
 
     mockMvc
         .perform(editRequest(member, id, "고친 제목", "고친 본문"))
@@ -551,8 +548,11 @@ class PostIntegrationTest extends AbstractIntegrationTest {
     mockMvc
         .perform(sessions.as(member, get(POSTS + "/" + id)))
         .andExpect(jsonPath("$.title").value("고친 제목"))
-        .andExpect(jsonPath("$.content").value("고친 본문"))
-        .andExpect(jsonPath("$.updatedAt").value(not(before)));
+        .andExpect(jsonPath("$.content").value("고친 본문"));
+
+    var edited = posts.findById(id).orElseThrow();
+    assertThat(edited.getCreatedAt()).isEqualTo(originalCreatedAt);
+    assertThat(edited.getUpdatedAt()).isNotEqualTo(edited.getCreatedAt());
   }
 
   /** T-342 — <b>남의 글은 고칠 수 없다</b> (MUST). 예외가 없다 — 작성자 본인만이다. */
