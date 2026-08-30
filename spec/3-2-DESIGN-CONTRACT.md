@@ -67,7 +67,7 @@ erDiagram
 | `created_at` | datetime | NOT NULL | 계정 생성일시 (첫 구글 로그인) |
 | `applied_at` | datetime | NULL | 신청서 제출일시 |
 | `approved_at` | datetime | NULL | 승인일시 |
-| `deactivated_at` | datetime | NULL | **학기 전환으로 내려간 시각** (2026-08-28 리뷰, #228). `status = 'INACTIVE'`일 때만 값이 있다 — 아래 참고 |
+| `deactivated_at` | datetime | NULL | **비활성화 배치로 내려간 시각** (2026-08-28 리뷰, #228). `status = 'INACTIVE'`일 때는 항상 값이 있고, 다른 상태는 `NULL`이다 — 아래 참고 |
 | `version` | bigint | NOT NULL, default 0 | 낙관적 잠금용. 아래 참고 |
 
 **비밀번호 컬럼이 없다.** 인증은 구글이 담당하며 자체 비밀번호를 받지도 저장하지도 않는다 ([3-3 결정 13](3-3-DESIGN-DECISIONS.md#3-3-14-결정-13--가입로그인을-구글-oauth로-한다)).
@@ -92,9 +92,19 @@ erDiagram
 
 **승인 대상은 `status = 'PENDING' AND applied_at IS NOT NULL`이다** (MUST). 구글 로그인만 하고 신청하지 않은 계정을 관리자의 승인 목록에서 제외한다.
 
+**가입 거부는 같은 `users` 행을 미승인으로 초기화한다** (MUST). `id`·`google_sub`·
+`email`·`name`·`created_at`은 유지하고, 신청서 데이터인 `student_no`·`department`·
+`applied_at` 세 필드만 `NULL`로 만든다. `role`·`status`·`approved_at`·`deactivated_at`도
+이 조작이 바꾸지 않는다. 정상 대상은 원래 `USER/PENDING`이고 승인·비활성화 시각이 없으므로
+그 불변식은 그대로다. 기존 세션도 유지하며, 재신청은 같은 id로 `POST /auth/application`을
+다시 호출한다.
+
 **`deactivated_at`은 되돌리기의 근거다** (MUST, 2026-08-28 리뷰 #228). 비활성화가 조건으로 실행되므로 *"방금 누가 내려갔나"* 는 응답에만 담기는데, **응답은 잃을 수 있다** — 세션 반영이 실패해 `500`이 나가거나, 브라우저가 닫히거나, 연결이 끊긴다. 그러면 관리자는 **원래 비활동이던 사람과 방금 내려간 사람을 가르지 못해** 되돌릴 수 없다. 이력은 대안이 되지 못한다: 이력은 세션 반영보다 **뒤에** 남기고 실패를 삼키므로([2-2 §2-2-7](2-2-OPERATOR-REQUIREMENTS.md#2-2-7-안전장치) MUST) 정확히 그 실패 경로에서 비어 있다.
 
 - **한 배치는 같은 값을 갖는다** (MUST). 그래서 "가장 최근 비활성화"가 곧 직전 배치이고, 화면이 그것만 골라 복구에 넣을 수 있다.
+- **선택 한 명도 하나의 배치다.** `SUSPENDED` 한 명을 `INACTIVE`로 바꾸면 그
+  요청 시각이 `deactivated_at`이고, 그 회원이 직전 배치 복구 후보가 되는 것은
+  의도된 정책이다.
 - **`INACTIVE`를 벗어나면 `NULL`로 되돌린다** (MUST) — 복구든 정지든 그렇다. 남겨 두면 지금 비활동이 아닌 사람이 배치에 섞여 **되돌리기가 엉뚱한 사람을 올린다.**
 - **이전 상태를 기억하는 열이 아니다.** `SUSPENDED`가 된 사람에게서도 지워지므로 정지 해제가 `INACTIVE`로 돌아가는 근거로 쓸 수 없다 ([5-TESTING T-348](5-TESTING.md#비활동-부원과-학기-전환-228)).
 
@@ -406,7 +416,7 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 
 **그 정지는 관리자 검사를 타지 않는다** (MUST, 2026-08-28 리뷰). 관리자 경로의 정지는 *"요청자가 활성 관리자인가"* 를 먼저 보는데, 그대로 재사용하면 **일반 부원의 탈퇴가 첫 단계에서 `403`이 되어 이 계약을 실행할 수 없다.** 본인 탈퇴의 선행 정지는 **요청자와 대상이 같다는 것**이 근거이므로 관리자 자격을 요구하지 않는다 — 내부 경로를 따로 두되 **다음 둘은 그대로 한다**: 대상 행을 잠근 채 바꾸는 것, 그리고 대상이 관리자일 때의 **마지막 활성 관리자 검사**. 뒤엣것을 빠뜨리면 관리자가 자기 자신을 정지시켜 활성 관리자를 0명으로 만든다.
 
-**`PENDING`은 정지를 건너뛴다** (MUST, 2026-08-28 리뷰). `PENDING → SUSPENDED`는 [§2-2-3](2-2-OPERATOR-REQUIREMENTS.md#2-2-3-회원-상태-변경)이 허용하지 않는 전이라, 밟으려 하면 **탈퇴가 그 자리에서 실패한다.** 건너뛰어도 안전한 이유는 가입 거부와 같다 — 그 계정은 남긴 것이 없고 세션의 `status`가 `PENDING`이라 보호 API를 열지 못한다. **다만 세션 반영 확인은 건너뛰지 않는다** (MUST): 정지를 밟지 않은 갈래에서도 *"지우기 전에 세션이 정리됐다"* 가 성립해야 한다.
+**`PENDING`은 정지를 건너뛴다** (MUST, 2026-08-28 리뷰). `PENDING → SUSPENDED`는 [§2-2-3](2-2-OPERATOR-REQUIREMENTS.md#2-2-3-회원-상태-변경)이 허용하지 않는 전이라, 밟으려 하면 **탈퇴가 그 자리에서 실패한다.** 건너뛰어도 안전한 이유는 그 계정이 콘텐츠를 남길 수 없고 세션의 `status`가 `PENDING`이라 보호 API를 열지 못하기 때문이다. **다만 세션 반영 확인은 건너뛰지 않는다** (MUST): 정지를 밟지 않은 갈래에서도 *"지우기 전에 세션이 정리됐다"* 가 성립해야 한다.
 
 **지우기 직전의 재확인도 회원 제거와 같다** (MUST). 대상이 `ACTIVE`로 돌아와 있으면 지우지 않고 **`409 CONCURRENT_CHANGE`** 로 멈춘다. 마지막 활성 관리자 검사도 이 시점에 다시 통과해야 한다.
 
@@ -792,8 +802,8 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 | POST | `/admin/users/deactivate` | ADMIN | 비활성화 — body 없음은 조건 전원(하위 호환), `{ "userIds": [...] }`는 선택 회원 |
 | POST | `/admin/users/reactivate` | ADMIN | 학기 복구 — body: `{ "userIds": [1,2,3] }` |
 | PATCH | `/admin/users/status` | ADMIN | 선택 회원 일괄 활성화·정지 — body: `{ "userIds": [1,2,3], "status": "ACTIVE" }` |
-| PATCH | `/admin/users/{id}/status` | ADMIN | `USER`의 `ACTIVE` ↔ `SUSPENDED`, `INACTIVE` → `SUSPENDED`; `ADMIN` 정지는 권한 회수 후 별도 요청 |
-| PATCH | `/admin/users/{id}/role` | ADMIN | 권한 부여/회수 (본인 대상: 마지막 활성 관리자면 차단) |
+| PATCH | `/admin/users/{id}/status` | ADMIN | 하위 호환 단건 endpoint: `USER`의 `ACTIVE` ↔ `SUSPENDED`, `INACTIVE` → `SUSPENDED`; `INACTIVE`는 목표값으로 받지 않는다 |
+| PATCH | `/admin/users/{id}/role` | ADMIN | `PENDING`을 제외한 `USER` 승격은 원자적 `ACTIVE ADMIN` 정규화, 회수는 `ACTIVE USER` (마지막 활성 관리자면 차단) |
 | GET | `/admin/users/{id}/content-summary` | ADMIN | 제거 확인 창이 쓰는 건수 — 그 회원이 남길 자료·공지·사진·게시글 |
 | DELETE | `/admin/users/{id}` | ADMIN | 회원 제거 (본인 대상: 마지막 활성 관리자면 차단) |
 
@@ -917,14 +927,20 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 
 **일부가 실패해도 `200`이다** — 승인과 같은 규칙이다. 한 건 때문에 되돌리면 성공한 거부까지 사라진다. 상한도 승인과 같은 **100개**다(같은 화면에서 같은 체크박스로 고른다).
 
-**대상은 `PENDING`뿐이다** (MUST). 이용 중인 회원을 이 경로로 지우면 "제거"가 되는데, 그쪽은 세션 폐기·정지 선행 같은 규칙이 따로 붙는다([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)). 그 건은 `NOT_PENDING`으로 집계한다.
+**대상은 `PENDING`뿐이다** (MUST). 이용 중인 회원을 이 경로로 초기화하면 회원 제거·정지
+규칙을 우회하므로 그 건은 `NOT_PENDING`으로 집계한다. 요청자와 대상 행의 잠금, 요청자의
+`ACTIVE ADMIN` 재확인은 그대로 적용한다.
 
 | `reason` | |
 |---|---|
 | `NOT_FOUND` | 그 id의 계정이 없다 |
-| `NOT_PENDING` | `PENDING`이 아니다 — 제거 경로를 우회하는 것을 막는다 |
+| `NOT_PENDING` | `PENDING`이 아니다 — 활동 계정의 신청 정보를 지우는 우회를 막는다 |
 
-**계정 레코드를 지운다. 별도 상태를 두지 않는다** ([2-2 §2-2-2](2-2-OPERATOR-REQUIREMENTS.md)). 상태로 남기면 그 계정이 `email`·`google_sub` UNIQUE를 붙잡아 **같은 사람이 다시 가입할 수 없다.**
+`rejected`에는 미승인 상태로 되돌린 id를 담는다. `student_no`·`department`·`applied_at`이
+이미 모두 `NULL`이면 목표 상태이므로 멱등 성공으로 이 배열에 포함하지만, 실제 신청서 변경이
+없어 `REJECT` 이력을 추가하지 않는다. 셋 중 하나라도 값이 있던 계정은 세 필드를 비우고
+대상당 `REJECT` 한 행을 남긴다. 거부 전후의 role/status가 같으므로 세션 갱신·폐기는 하지
+않는다. 응답은 기존 `rejected` 필드명을 하위 호환으로 유지한다.
 
 ### 학기 전환 — 일괄 비활성화·복구 (2026-08-26 확정, #228)
 
@@ -950,12 +966,14 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 
 `userIds`가 있으면 선택 경로다. 원본 기준 1~100개의 양의 정수여야 하고 빈 배열은
 `400 VALIDATION_ERROR`다. 중복은 첫 등장만 처리하며 `deactivated`와 `failed`는 입력의 첫 등장
-순서를 각각 지킨다. `ACTIVE USER`만 `INACTIVE`로 바꾸고, 없는 id는 `NOT_FOUND`, 그 밖의
-상태·권한 조합은 `NOT_ACTIVE_USER`로 집계한다. 일부 실패는 성공을 되돌리지 않고 `200`이다.
+순서를 각각 지킨다. `ACTIVE`/`SUSPENDED USER`를 `INACTIVE`로 바꾸고, 없는 id는
+`NOT_FOUND`, `ADMIN`·`PENDING`·이미 `INACTIVE`인 계정은 `NOT_ACTIVE_USER`로 집계한다.
+이 reason 이름은 하위 호환을 위해 유지하며, 현재 의미는 **비활성화할 수 없는
+상태·권한**이다. 일부 실패는 성공을 되돌리지 않고 `200`이다.
 
 **`deactivated`는 실제로 바뀐 id다** (MUST). 조건으로 실행했으므로 관리자는 목록에서 누가 바뀌는지 볼 수 없다 — 이 배열이 **그 자리에서 결과를 보여주는 수단**이다. 잘못 눌렀으면 그대로 복구 요청에 넣는다. 이미 `INACTIVE`였던 사람은 여기 들어가지 않는다. **응답을 잃어도 되돌릴 수 있어야 하므로 근거는 따로 남긴다** — `deactivated_at`이 그것이다 (아래).
 
-**같은 배치는 같은 `deactivated_at`을 갖는다** (MUST). 시각은 [§2-2-7](2-2-OPERATOR-REQUIREMENTS.md#2-2-7-안전장치)의 규칙대로 **행을 잠근 채 한 번 잡아** 전원에게 같은 값을 쓴다. 행마다 따로 찍으면 한 배치가 시각으로 갈라져 "직전 배치"를 고를 수 없다.
+**같은 배치는 같은 `deactivated_at`을 갖는다** (MUST). 시각은 [§2-2-7](2-2-OPERATOR-REQUIREMENTS.md#2-2-7-안전장치)의 규칙대로 **행을 잠근 채 한 번 잡아** 전원에게 같은 값을 쓴다. 행마다 따로 찍으면 한 배치가 시각으로 갈라져 "직전 배치"를 고를 수 없다. **한 명만 고른 선택 요청도 배치이며, 그 회원이 가장 최근 복구 후보가 된다.**
 
 **조건 전원 응답에는 `failed` 배열이 없고, 선택 응답에는 항상 있다** (MUST). 조건 전원은
 서버가 대상 집합을 고르므로 "이 사람은 대상이 아니었다"가 성립하지 않지만, 선택 경로는
@@ -966,7 +984,8 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 **동시에 도착해도 한 id는 한 응답에만 담긴다** (MUST, 2026-08-26 리뷰). 대상을 먼저 조회하고 나중에 갱신하면 **두 요청이 같은 `ACTIVE` 집합을 읽어** 양쪽 응답에 같은 id가 담기고 이력도 두 벌 쌓인다. 그러면 `deactivated`가 *"내가 바꾼 것"* 이 아니게 되어 **되돌리기가 남이 방금 내린 사람까지 올려 버린다.** 세는 것과 바꾸는 것이 한 연산이어야 하고, 응답에는 **갱신이 실제로 바꾼 행만** 담는다 — 부트스트랩의 "확인과 자리 잡기가 한 연산이어야 한다"와 같은 요구다.
 
 조건 전원 경로의 세션 반영은 `ACTIVE`·`INACTIVE`인 일반 부원 전원에게 한다 (MUST) —
-`deactivated`보다 넓다. 선택 경로는 선택한 id 중 같은 조건의 회원에게만 반영한다. 어느
+`deactivated`보다 넓다. 선택 경로는 선택한 id 중 `ACTIVE`·`SUSPENDED`·`INACTIVE`
+`USER`에게 반영해 재시도가 낡은 세션을 복구할 수 있게 한다. 어느
 경로든 반영에 실패하면 `500 INTERNAL_ERROR`이고 변경은 되돌리지 않는다
 ([2-2 §2-2-5](2-2-OPERATOR-REQUIREMENTS.md#차단이-강해지는-변경은-세션에-닿아야-성공이다) MUST).
 
@@ -1014,11 +1033,16 @@ UI는 #297 회원 관리 화면에 남겨 두지 않는다. 선택 경로는 현
 |---|---|
 | 이미 그 권한 | 아무것도 하지 않고 `200`. **이력도 쌓이지 않는다** |
 | 대상이 `PENDING` | `400 VALIDATION_ERROR` — 승인일시 없는 `ADMIN`이 생긴다 |
-| **대상이 `INACTIVE`** | `400 VALIDATION_ERROR` (MUST, 2026-08-26, #228). **자료를 못 보는 관리자**가 생긴다 — 남의 자료를 지울 수는 있는데 자기는 목록을 열지 못한다 ([2-2 §2-2-5](2-2-OPERATOR-REQUIREMENTS.md#2-2-5-권한-부여회수), [3-1 §3-1-2](3-1-DESIGN-ARCHITECTURE.md#비활동-부원inactive은-자료만-막힌다)의 "`INACTIVE`는 언제나 `USER`다"). 올려야 할 사람이면 복구를 먼저 한다 |
+| `ACTIVE USER` → `ADMIN` | `ACTIVE ADMIN`. role만 바꾼다 |
+| `INACTIVE`/`SUSPENDED USER` → `ADMIN` | 한 트랜잭션에서 `status=ACTIVE`, `role=ADMIN`, `deactivated_at=NULL`로 정규화한다 (MUST) |
+| `ADMIN` → `USER` | `ACTIVE USER`. 중간·최종 `INACTIVE ADMIN`/`SUSPENDED ADMIN`은 없다 |
 | 없는 `id` | `404 NOT_FOUND` |
 | **회수 뒤 활성 관리자가 0명** | `403 FORBIDDEN` ([§2-2-7](2-2-OPERATOR-REQUIREMENTS.md) MUST). 자기 대상인지와 무관하다 |
 
-**Role만 바꾼다. Status는 건드리지 않는다** ([2-2 §2-2-5](2-2-OPERATOR-REQUIREMENTS.md)). 회수는 **그 사람의 기존 세션에도 즉시 반영된다** (T-34).
+승격은 대상을 잠그고 상태 정규화와 role 변경을 **하나의 원자적 연산**으로
+커밋한다 (MUST). 세션에도 커밋 후 최종 `ACTIVE ADMIN`만 반영하고, 이력은
+대상당 `GRANT_ADMIN` 한 행만 남긴다. 동시 상태 변경과 경쟁해도 중간 invalid
+조합을 커밋하지 않는다. 회수는 **그 사람의 기존 세션에도 즉시 반영된다** (T-34).
 
 ### 회원 제거
 

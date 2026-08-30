@@ -4,7 +4,12 @@ import { list, type PostSummary } from '@/api/posts'
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
 import { ListSurface } from '@/components/ListSurface'
-import { Pager, parsePage, writePage } from '@/components/Pager'
+import {
+  KOREAN_PAGER_LABELS,
+  Pager,
+  parsePage,
+  writePage,
+} from '@/components/Pager'
 import { Button } from '@/components/ui/button'
 import { formatDate } from './format'
 
@@ -167,6 +172,7 @@ export function PostListPage() {
         totalPages={data?.page.totalPages ?? 0}
         hrefFor={pageHref}
         onGo={(next) => setSearchParams(pageParams(next))}
+        labels={KOREAN_PAGER_LABELS}
       />
     </section>
   )

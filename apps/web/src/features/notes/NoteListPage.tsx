@@ -17,7 +17,12 @@ import { isInactive, useSession } from '@/auth/session'
 import { clampedOutOfRange } from '@/components/clampPage'
 import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import { SELECT_CLASS, SelectArrow } from '@/components/native-select'
-import { Pager, parsePage, writePage } from '@/components/Pager'
+import {
+  KOREAN_PAGER_LABELS,
+  Pager,
+  parsePage,
+  writePage,
+} from '@/components/Pager'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -534,6 +539,7 @@ export function NoteListPage() {
         totalPages={data?.page.totalPages ?? 0}
         hrefFor={pageHref}
         onGo={goToPage}
+        labels={KOREAN_PAGER_LABELS}
       />
     </section>
   )

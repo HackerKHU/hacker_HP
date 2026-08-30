@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import {
   act,
   fireEvent,
@@ -28,7 +30,6 @@ const api = vi.hoisted(() => ({
   rejected: [] as number[][],
   bulkCalls: [] as { userIds: number[]; status: BulkStatusTarget }[],
   deactivateCalls: [] as number[][],
-  statusCalls: [] as { id: number; status: string }[],
   roleCalls: [] as { id: number; role: Role }[],
   roleError: null as ApiError | null,
   summaryCalls: [] as number[],
@@ -36,6 +37,8 @@ const api = vi.hoisted(() => ({
   removed: [] as number[],
   approveResult: null as ApproveResult | null,
   rejectResult: null as RejectResult | null,
+  approveError: null as Error | null,
+  rejectError: null as Error | null,
   bulkResult: null as BulkStatusResult | null,
   deactivateResult: null as DeactivateResult | null,
   bulkError: null as ApiError | null,
@@ -43,6 +46,12 @@ const api = vi.hoisted(() => ({
   listError: null as ApiError | null,
   holdBulk: false,
   releaseBulk: null as (() => void) | null,
+  holdApprove: false,
+  releaseApprove: null as (() => void) | null,
+  holdReject: false,
+  releaseReject: null as (() => void) | null,
+  totalElements: 42,
+  totalPages: 3,
 }))
 
 function member(overrides: Partial<User> & { id: number; name: string }): User {
@@ -88,17 +97,29 @@ vi.mock('@/api/adminUsers', () => ({
       page: {
         size: 20,
         number: query.page ?? 0,
-        totalElements: 42,
-        totalPages: 3,
+        totalElements: api.totalElements,
+        totalPages: api.totalPages,
       },
     }
   },
   approve: async (userIds: number[]): Promise<ApproveResult> => {
     api.approved.push(userIds)
+    if (api.approveError) throw api.approveError
+    if (api.holdApprove) {
+      await new Promise<void>((resolve) => {
+        api.releaseApprove = resolve
+      })
+    }
     return api.approveResult ?? { approved: userIds, failed: [] }
   },
   reject: async (userIds: number[]): Promise<RejectResult> => {
     api.rejected.push(userIds)
+    if (api.rejectError) throw api.rejectError
+    if (api.holdReject) {
+      await new Promise<void>((resolve) => {
+        api.releaseReject = resolve
+      })
+    }
     return api.rejectResult ?? { rejected: userIds, failed: [] }
   },
   bulkUpdateStatus: async (
@@ -141,11 +162,13 @@ vi.mock('@/api/adminUsers', () => ({
   updateRole: async (id: number, role: Role): Promise<User> => {
     api.roleCalls.push({ id, role })
     if (api.roleError) throw api.roleError
-    return { ...members[0], role }
-  },
-  updateStatus: async (id: number, status: string): Promise<User> => {
-    api.statusCalls.push({ id, status })
-    return members[0]
+    const found = members.find((user) => user.id === id) ?? members[0]
+    if (role === 'ADMIN') {
+      found.status = 'ACTIVE'
+      found.deactivatedAt = null
+    }
+    found.role = role
+    return { ...found }
   },
 }))
 
@@ -226,10 +249,12 @@ async function confirmBulk(button: string, confirm: string) {
   fireEvent.click(within(dialog).getByRole('button', { name: confirm }))
 }
 
-const BULK_LABELS = [
-  '선택 항목 활성화',
-  '선택 항목 비활성화',
-  '선택 항목 정지',
+const SELECTION_ACTION_LABELS = [
+  '선택한 회원 승인',
+  '선택한 회원 거부',
+  '선택한 회원 활성화',
+  '선택한 회원 비활성화',
+  '선택한 회원 정지',
 ] as const
 
 beforeEach(() => {
@@ -239,7 +264,6 @@ beforeEach(() => {
   api.rejected = []
   api.bulkCalls = []
   api.deactivateCalls = []
-  api.statusCalls = []
   api.roleCalls = []
   api.roleError = null
   api.summaryCalls = []
@@ -247,6 +271,8 @@ beforeEach(() => {
   api.removed = []
   api.approveResult = null
   api.rejectResult = null
+  api.approveError = null
+  api.rejectError = null
   api.bulkResult = null
   api.deactivateResult = null
   api.bulkError = null
@@ -254,6 +280,12 @@ beforeEach(() => {
   api.listError = null
   api.holdBulk = false
   api.releaseBulk = null
+  api.holdApprove = false
+  api.releaseApprove = null
+  api.holdReject = false
+  api.releaseReject = null
+  api.totalElements = 42
+  api.totalPages = 3
   auth.role = 'ADMIN'
 })
 
@@ -281,11 +313,11 @@ describe('회원 목록과 선택', () => {
     expect(within(row('정지회원')).getByText('정지')).toBeInTheDocument()
   })
 
-  it('세 버튼만 정확한 순서·라벨·동일 class/variant/size로 항상 둔다', async () => {
+  it('다섯 버튼을 정확한 순서·라벨·동일 class/variant/size로 항상 둔다', async () => {
     renderAt()
     await loaded()
 
-    const buttons = BULK_LABELS.map((name) =>
+    const buttons = SELECTION_ACTION_LABELS.map((name) =>
       screen.getByRole('button', { name }),
     )
     const group = buttons[0].parentElement
@@ -294,7 +326,7 @@ describe('회원 목록과 선택', () => {
       within(group)
         .getAllByRole('button')
         .map((button) => button.textContent),
-    ).toEqual(BULK_LABELS)
+    ).toEqual(SELECTION_ACTION_LABELS)
     expect(new Set(buttons.map((button) => button.className))).toHaveLength(1)
     for (const button of buttons) {
       expect(button).toHaveAttribute('data-variant', 'outline')
@@ -303,12 +335,6 @@ describe('회원 목록과 선택', () => {
     }
     expect(
       screen.queryByRole('button', { name: '일괄 비활동 전환' }),
-    ).toBeNull()
-    expect(
-      screen.queryByRole('button', { name: /선택한 .*명 승인/ }),
-    ).toBeNull()
-    expect(
-      screen.queryByRole('button', { name: /선택한 .*명 거부/ }),
     ).toBeNull()
     expect(
       screen.queryByRole('button', { name: /선택한 .*명 복구/ }),
@@ -352,21 +378,73 @@ describe('회원 목록과 선택', () => {
 })
 
 describe('선택 상태 일괄 조작', () => {
+  it('AlertDialog modal lock은 유지하되 이미 예약한 scrollbar 폭을 body margin에 더하지 않는다', async () => {
+    renderAt()
+    await loaded()
+    expect(document.body).not.toHaveAttribute('data-scroll-locked')
+    const initialInlineMargin = document.body.style.marginRight
+
+    fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: '선택한 회원 정지' }))
+    await screen.findByRole('alertdialog')
+
+    // modal·focus trap·scroll lock을 없애는 식으로 위치 흔들림을 숨기지 않는다.
+    await waitFor(() =>
+      expect(document.body).toHaveAttribute('data-scroll-locked'),
+    )
+    expect(document.body.style.marginRight).toBe(initialInlineMargin)
+
+    /*
+     * jsdom은 실제 scrollbar 폭과 동적 style singleton의 cascade를 브라우저처럼 계산하지
+     * 않는다. 그래서 런타임에서는 Radix lock의 생명주기를, 여기서는 실제 stylesheet의
+     * 고우선순위 override를 함께 확인한다.
+     */
+    const raw = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf-8')
+    const css = raw.replace(/\/\*[\s\S]*?\*\//g, '')
+    const override = css.match(
+      /html\s+body\[data-scroll-locked\]\s*\{([^}]*)\}/,
+    )
+    expect(override?.[1]).toMatch(/margin-right:\s*0\s*!important;/)
+    expect(override?.[1]).not.toMatch(/overflow|overscroll/)
+
+    fireEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', {
+        name: '취소',
+      }),
+    )
+    await waitFor(() =>
+      expect(document.body).not.toHaveAttribute('data-scroll-locked'),
+    )
+    expect(document.body.style.marginRight).toBe(initialInlineMargin)
+  })
+
   it.each([
     [
-      '선택 항목 활성화',
+      '선택한 회원 승인',
+      '승인',
+      '선택한 회원을 승인할까요?',
+      '신청서를 내지 않았거나 이미 처리된 회원',
+    ],
+    [
+      '선택한 회원 거부',
+      '거부',
+      '선택한 신청을 거부할까요?',
+      '승인 대기 상태가 아닌 회원',
+    ],
+    [
+      '선택한 회원 활성화',
       '활성화',
       '선택한 회원을 활성화할까요?',
       '신청서를 내지 않은 승인 대기 계정',
     ],
     [
-      '선택 항목 비활성화',
+      '선택한 회원 비활성화',
       '비활성화',
       '선택한 회원을 비활성화할까요?',
-      '관리자·승인 대기·정지·이미 비활동인 계정',
+      '관리자·승인 대기·이미 비활동인 계정',
     ],
     [
-      '선택 항목 정지',
+      '선택한 회원 정지',
       '정지',
       '선택한 회원을 정지할까요?',
       '관리자 계정은 실패',
@@ -386,6 +464,15 @@ describe('선택 상태 일괄 조작', () => {
       expect(dialog).toHaveTextContent('미신청')
       expect(dialog).toHaveTextContent('김관리')
       expect(dialog).toHaveTextContent(warning)
+      if (button === '선택한 회원 거부') {
+        expect(dialog).toHaveTextContent('미승인 상태로 되돌립니다')
+        expect(dialog).toHaveTextContent(
+          '계정은 유지되어 다시 신청할 수 있습니다',
+        )
+        expect(dialog).not.toHaveTextContent('계정을 지웁니다')
+      }
+      expect(api.approved).toEqual([])
+      expect(api.rejected).toEqual([])
       expect(api.bulkCalls).toEqual([])
       expect(api.deactivateCalls).toEqual([])
 
@@ -399,14 +486,14 @@ describe('선택 상태 일괄 조작', () => {
     fireEvent.click(within(row('신청완료')).getByRole('checkbox'))
     fireEvent.click(within(row('정지회원')).getByRole('checkbox'))
 
-    await confirmBulk('선택 항목 활성화', '활성화')
+    await confirmBulk('선택한 회원 활성화', '활성화')
     await waitFor(() =>
       expect(api.bulkCalls).toEqual([{ userIds: [1, 5], status: 'ACTIVE' }]),
     )
     await loaded()
 
     fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
-    await confirmBulk('선택 항목 정지', '정지')
+    await confirmBulk('선택한 회원 정지', '정지')
     await waitFor(() =>
       expect(api.bulkCalls).toEqual([
         { userIds: [1, 5], status: 'ACTIVE' },
@@ -421,21 +508,182 @@ describe('선택 상태 일괄 조작', () => {
     fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
     fireEvent.click(within(row('김관리')).getByRole('checkbox'))
 
-    await confirmBulk('선택 항목 비활성화', '비활성화')
+    await confirmBulk('선택한 회원 비활성화', '비활성화')
 
     await waitFor(() => expect(api.deactivateCalls).toEqual([[3, 99]]))
   })
 
-  it('요청 중에는 세 버튼을 모두 잠근다', async () => {
+  it('선택 승인·거부는 상태를 미리 거르지 않고 고른 id를 각각 한 번만 보낸다', async () => {
+    renderAt()
+    await loaded()
+    fireEvent.click(within(row('신청완료')).getByRole('checkbox'))
+    fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
+
+    await confirmBulk('선택한 회원 승인', '승인')
+    await waitFor(() => expect(api.approved).toEqual([[1, 3]]))
+    await loaded()
+
+    fireEvent.click(within(row('미신청')).getByRole('checkbox'))
+    fireEvent.click(within(row('김관리')).getByRole('checkbox'))
+    await confirmBulk('선택한 회원 거부', '거부')
+
+    await waitFor(() => expect(api.rejected).toEqual([[2, 99]]))
+  })
+
+  it('선택 승인의 부분 실패는 서버 사유를 error live alert로 보여준다', async () => {
+    api.approveResult = {
+      approved: [1],
+      failed: [{ userId: 3, reason: 'NOT_PENDING' }],
+    }
+    renderAt()
+    await loaded()
+    fireEvent.click(within(row('신청완료')).getByRole('checkbox'))
+    fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
+
+    await confirmBulk('선택한 회원 승인', '승인')
+
+    const approvalAlert = await screen.findByRole('alert')
+    expect(approvalAlert).toHaveTextContent('1명을 승인하고 1명은 실패')
+    expect(approvalAlert).toHaveTextContent('활동회원')
+    expect(approvalAlert).toHaveTextContent('이미 승인되었거나 정지된 계정')
+  })
+
+  it('선택 거부의 부분 실패도 서버 사유를 error live alert로 보여준다', async () => {
+    api.rejectResult = {
+      rejected: [1],
+      failed: [{ userId: 3, reason: 'NOT_PENDING' }],
+    }
+    renderAt()
+    await loaded()
+    fireEvent.click(within(row('신청완료')).getByRole('checkbox'))
+    fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
+
+    await confirmBulk('선택한 회원 거부', '거부')
+
+    const rejectionAlert = await screen.findByRole('alert')
+    expect(rejectionAlert).toHaveTextContent(
+      '1명의 신청을 거부해 미승인 상태로 되돌렸습니다',
+    )
+    expect(rejectionAlert).toHaveTextContent('1명은 거부하지 못했습니다')
+    expect(rejectionAlert).toHaveTextContent(
+      '승인 대기 상태가 아닌 계정: 활동회원',
+    )
+  })
+
+  it.each([
+    {
+      action: 'approve' as const,
+      button: '선택한 회원 승인',
+      confirm: '승인',
+      error: new ApiError('NETWORK_ERROR', 0, '연결이 끊어졌습니다.'),
+      uncertainEffect: '일부 승인이 반영되었을 수 있습니다',
+      selectedAfter: 2,
+    },
+    {
+      action: 'reject' as const,
+      button: '선택한 회원 거부',
+      confirm: '거부',
+      error: new ApiError('NETWORK_ERROR', 0, '연결이 끊어졌습니다.'),
+      uncertainEffect: '일부 미승인 변경이 반영되었을 수 있습니다',
+      selectedAfter: 0,
+    },
+  ])(
+    '선택 $confirm 5xx/network는 결과를 단정하지 않고 재조회한다',
+    async ({
+      action,
+      button,
+      confirm,
+      error,
+      uncertainEffect,
+      selectedAfter,
+    }) => {
+      if (action === 'approve') api.approveError = error
+      else api.rejectError = error
+      renderAt()
+      await loaded()
+      fireEvent.click(within(row('신청완료')).getByRole('checkbox'))
+      fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
+      const queriesBefore = api.queries.length
+
+      await confirmBulk(button, confirm)
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent(
+        `${confirm} 요청 결과를 확정할 수 없습니다`,
+      )
+      expect(alert).toHaveTextContent(uncertainEffect)
+      expect(alert).toHaveTextContent('다시 불러온 목록')
+      expect(screen.queryByRole('status')).toBeNull()
+      await waitFor(() =>
+        expect(api.queries.length).toBeGreaterThan(queriesBefore),
+      )
+      await waitFor(() =>
+        expect(
+          screen.getByText(
+            new RegExp(`이 페이지에서 ${selectedAfter}명 선택됨`),
+          ),
+        ).toBeInTheDocument(),
+      )
+    },
+  )
+
+  it.each([
+    {
+      action: 'approve' as const,
+      button: '선택한 회원 승인',
+      confirm: '승인',
+      error: new ApiError(
+        'VALIDATION_ERROR',
+        400,
+        '승인 대상이 올바르지 않습니다.',
+      ),
+    },
+    {
+      action: 'reject' as const,
+      button: '선택한 회원 거부',
+      confirm: '거부',
+      error: new ApiError('FORBIDDEN', 403, '거부 권한이 없습니다.'),
+    },
+  ])(
+    '선택 $confirm 4xx는 서버 사유를 확정 실패로 보이고 재조회한다',
+    async ({ action, button, confirm, error }) => {
+      if (action === 'approve') api.approveError = error
+      else api.rejectError = error
+      renderAt()
+      await loaded()
+      fireEvent.click(within(row('신청완료')).getByRole('checkbox'))
+      const queriesBefore = api.queries.length
+
+      await confirmBulk(button, confirm)
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent(
+        `${confirm}하지 못했습니다. ${error.message}`,
+      )
+      expect(alert).not.toHaveTextContent('결과를 확정할 수 없습니다')
+      expect(screen.queryByRole('status')).toBeNull()
+      await waitFor(() =>
+        expect(api.queries.length).toBeGreaterThan(queriesBefore),
+      )
+    },
+  )
+
+  it('요청 중에는 다섯 버튼과 모든 선택 checkbox를 잠근다', async () => {
     api.holdBulk = true
     renderAt()
     await loaded()
     fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
 
-    await confirmBulk('선택 항목 정지', '정지')
+    await confirmBulk('선택한 회원 정지', '정지')
     await waitFor(() => expect(api.bulkCalls).toHaveLength(1))
-    for (const label of BULK_LABELS) {
+    for (const label of SELECTION_ACTION_LABELS) {
       expect(screen.getByRole('button', { name: label })).toBeDisabled()
+    }
+    expect(
+      screen.getByRole('checkbox', { name: '이 페이지의 모든 회원 선택' }),
+    ).toBeDisabled()
+    for (const user of members) {
+      expect(within(row(user.name)).getByRole('checkbox')).toBeDisabled()
     }
 
     api.releaseBulk?.()
@@ -449,7 +697,7 @@ describe('선택 상태 일괄 조작', () => {
     renderAt()
     await loaded()
     fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
-    fireEvent.click(screen.getByRole('button', { name: '선택 항목 정지' }))
+    fireEvent.click(screen.getByRole('button', { name: '선택한 회원 정지' }))
     const dialog = await screen.findByRole('alertdialog')
     const action = within(dialog).getByRole('button', { name: '정지' })
 
@@ -461,7 +709,7 @@ describe('선택 상태 일괄 조작', () => {
 
     await waitFor(() => expect(api.bulkCalls).toHaveLength(1))
     expect(action).toBeDisabled()
-    for (const label of BULK_LABELS) {
+    for (const label of SELECTION_ACTION_LABELS) {
       expect(
         screen.getByRole('button', { name: label, hidden: true }),
       ).toBeDisabled()
@@ -470,6 +718,81 @@ describe('선택 상태 일괄 조작', () => {
     api.releaseBulk?.()
     await waitFor(() =>
       expect(screen.getByText(/1명을 정지 처리했습니다/)).toBeInTheDocument(),
+    )
+  })
+
+  it.each([
+    {
+      button: '선택한 회원 승인',
+      confirm: '승인',
+      hold: () => {
+        api.holdApprove = true
+      },
+      calls: () => api.approved,
+      release: () => api.releaseApprove?.(),
+    },
+    {
+      button: '선택한 회원 거부',
+      confirm: '거부',
+      hold: () => {
+        api.holdReject = true
+      },
+      calls: () => api.rejected,
+      release: () => api.releaseReject?.(),
+    },
+  ])(
+    '$button 확인을 동일 틱에 두 번 누르면 API는 한 번만 나간다',
+    async ({ button, confirm, hold, calls, release }) => {
+      hold()
+      renderAt()
+      await loaded()
+      fireEvent.click(within(row('신청완료')).getByRole('checkbox'))
+      fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
+      fireEvent.click(screen.getByRole('button', { name: button }))
+      const dialog = await screen.findByRole('alertdialog')
+      const action = within(dialog).getByRole('button', { name: confirm })
+
+      act(() => {
+        action.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        action.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+
+      await waitFor(() => expect(calls()).toEqual([[1, 3]]))
+      expect(action).toBeDisabled()
+      expect(
+        screen.getByRole('checkbox', {
+          name: '이 페이지의 모든 회원 선택',
+          hidden: true,
+        }),
+      ).toBeDisabled()
+      expect(within(row('미신청')).getByRole('checkbox')).toBeDisabled()
+
+      release()
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    },
+  )
+
+  it('행 상태 확인을 빠르게 연속 클릭해도 API를 한 번만 호출한다', async () => {
+    api.holdBulk = true
+    renderAt()
+    await loaded()
+    await rowAction('활동회원', '정지')
+    const dialog = await screen.findByRole('alertdialog')
+    const action = within(dialog).getByRole('button', { name: '정지' })
+
+    act(() => {
+      action.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      action.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    await waitFor(() =>
+      expect(api.bulkCalls).toEqual([{ userIds: [3], status: 'SUSPENDED' }]),
+    )
+    expect(action).toBeDisabled()
+
+    api.releaseBulk?.()
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '활동회원 회원을 정지했습니다',
     )
   })
 
@@ -488,7 +811,7 @@ describe('선택 상태 일괄 조작', () => {
       fireEvent.click(within(row(name)).getByRole('checkbox'))
     }
 
-    await confirmBulk('선택 항목 활성화', '활성화')
+    await confirmBulk('선택한 회원 활성화', '활성화')
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('2명을 활성화 처리했습니다')
@@ -516,7 +839,7 @@ describe('선택 상태 일괄 조작', () => {
       screen.getByRole('checkbox', { name: '이 페이지의 모든 회원 선택' }),
     )
 
-    await confirmBulk('선택 항목 정지', '정지')
+    await confirmBulk('선택한 회원 정지', '정지')
 
     const text = (await screen.findByRole('alert')).textContent ?? ''
     expect(text.indexOf('김관리')).toBeLessThan(text.indexOf('신청완료'))
@@ -537,13 +860,15 @@ describe('선택 상태 일괄 조작', () => {
     fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
     fireEvent.click(within(row('김관리')).getByRole('checkbox'))
 
-    await confirmBulk('선택 항목 비활성화', '비활성화')
+    await confirmBulk('선택한 회원 비활성화', '비활성화')
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('1명을 비활성화했습니다')
     expect(alert).toHaveTextContent('활동회원')
     expect(alert).toHaveTextContent('2명은 변경하지 못했습니다')
-    expect(alert).toHaveTextContent('김관리: 활동 중인 일반 부원이 아님')
+    expect(alert).toHaveTextContent(
+      '김관리: 비활성화할 수 없는 상태·권한의 계정',
+    )
     expect(alert).toHaveTextContent('#777: 찾을 수 없는 계정')
   })
 
@@ -558,7 +883,7 @@ describe('선택 상태 일괄 조작', () => {
       await loaded()
       fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
 
-      await confirmBulk('선택 항목 정지', '정지')
+      await confirmBulk('선택한 회원 정지', '정지')
 
       const alert = await screen.findByRole('alert')
       expect(alert).toHaveTextContent(`정지하지 못했습니다. ${message}`)
@@ -566,19 +891,47 @@ describe('선택 상태 일괄 조작', () => {
     },
   )
 
-  it('500이면 변경 없음으로 단정하지 않고 재조회·재선택·재시도를 안내한다', async () => {
-    api.bulkError = new ApiError('INVALID_RESPONSE', 500, '서버 오류입니다.')
+  it.each([
+    new ApiError('INVALID_RESPONSE', 500, '서버 오류입니다.'),
+    new ApiError('NETWORK_ERROR', 0, '연결이 끊어졌습니다.'),
+  ])(
+    '500/status=0은 변경 없음으로 단정하지 않고 재조회를 안내한다',
+    async (error) => {
+      api.bulkError = error
+      renderAt()
+      await loaded()
+      fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
+      const before = api.queries.length
+
+      await confirmBulk('선택한 회원 정지', '정지')
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('정지 요청 결과를 확정할 수 없습니다')
+      expect(alert).toHaveTextContent('일부 상태 변경이 반영되었을 수 있습니다')
+      expect(alert).toHaveTextContent(
+        '다시 불러온 목록에서 상태와 선택 대상을 확인',
+      )
+      await waitFor(() => expect(api.queries.length).toBeGreaterThan(before))
+    },
+  )
+
+  it('선택 비활성화 status=0도 확정 실패가 아닌 불확정 결과로 안내한다', async () => {
+    api.deactivateError = new ApiError(
+      'NETWORK_ERROR',
+      0,
+      '연결이 끊어졌습니다.',
+    )
     renderAt()
     await loaded()
     fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
     const before = api.queries.length
 
-    await confirmBulk('선택 항목 정지', '정지')
+    await confirmBulk('선택한 회원 비활성화', '비활성화')
 
     const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('비활성화 요청 결과를 확정할 수 없습니다')
     expect(alert).toHaveTextContent('일부 상태 변경이 반영되었을 수 있습니다')
-    expect(alert).toHaveTextContent('다시 불러온 목록에서 상태를 확인')
-    expect(alert).toHaveTextContent('다시 선택해 재시도')
+    expect(alert).not.toHaveTextContent('비활성화하지 못했습니다')
     await waitFor(() => expect(api.queries.length).toBeGreaterThan(before))
   })
 })
@@ -617,7 +970,10 @@ describe('조회 조건 변경', () => {
     ],
     [
       '페이지',
-      () => fireEvent.click(screen.getByRole('button', { name: '다음' })),
+      () =>
+        fireEvent.click(
+          screen.getByRole('link', { name: '다음 페이지로 이동' }),
+        ),
     ],
   ] as const)(
     '%s 변경은 selection을 해제하고 info alert로 이유를 알린다',
@@ -643,7 +999,7 @@ describe('조회 조건 변경', () => {
     renderAt()
     await loaded()
     fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
-    fireEvent.click(screen.getByRole('button', { name: '선택 항목 정지' }))
+    fireEvent.click(screen.getByRole('button', { name: '선택한 회원 정지' }))
     expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('정렬'), {
@@ -716,7 +1072,9 @@ describe('조회 조건 변경', () => {
     renderAt('/admin/members?page=999')
 
     await waitFor(() => expect(api.queries.at(-1)?.page).toBe(2))
-    expect(await screen.findByText('3 / 3')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('link', { name: '3페이지로 이동' }),
+    ).toHaveAttribute('aria-current', 'page')
     expect(screen.getByTestId('search')).toHaveTextContent('?page=2')
   })
 
@@ -740,68 +1098,542 @@ describe('조회 조건 변경', () => {
   })
 })
 
-describe('행 조작과 목록 회귀', () => {
-  it('행별 승인은 확인 뒤 그 id만 보낸다', async () => {
-    renderAt()
+describe('회원 목록 페이지네이션', () => {
+  function shownPages(viewport: 'mobile' | 'desktop'): number[] {
+    return [
+      ...document.querySelectorAll(
+        `[data-pager-page][data-pager-${viewport}-visible="true"]`,
+      ),
+    ].map((item) => Number(item.getAttribute('data-pager-page')))
+  }
+
+  it('5페이지 이하는 모두 표시하고 현재 번호에 aria-current를 둔다', async () => {
+    api.totalElements = 100
+    api.totalPages = 5
+    renderAt('/admin/members?page=3')
     await loaded()
 
-    fireEvent.click(
-      within(row('신청완료')).getByRole('button', { name: '승인' }),
-    )
-    const dialog = await screen.findByRole('alertdialog')
-    expect(dialog).toHaveTextContent('신청완료')
-    fireEvent.click(within(dialog).getByRole('button', { name: '승인' }))
-
-    await waitFor(() => expect(api.approved).toEqual([[1]]))
+    expect(shownPages('mobile')).toEqual([1, 2, 3, 4, 5])
+    expect(shownPages('desktop')).toEqual([1, 2, 3, 4, 5])
+    expect(
+      screen.getByRole('link', { name: '4페이지로 이동' }),
+    ).toHaveAttribute('aria-current', 'page')
+    expect(
+      document.querySelector('[data-slot="pagination-content"]'),
+    ).toHaveClass('flex-wrap', 'justify-center', 'gap-1')
   })
 
-  it('일괄 거부 없이 행별 거부를 확인 뒤 실행한다', async () => {
-    renderAt()
+  it('번호를 직접 눌러도 검색·상태·권한·정렬 query를 보존한다', async () => {
+    renderAt(
+      '/admin/members?q=%EA%B0%95&status=PENDING&applied=true&role=USER&sort=name&page=1',
+    )
     await loaded()
 
-    fireEvent.click(
-      within(row('신청완료')).getByRole('button', { name: '거부' }),
-    )
-    const dialog = await screen.findByRole('alertdialog')
-    expect(dialog).toHaveTextContent('신청완료')
-    fireEvent.click(within(dialog).getByRole('button', { name: '거부' }))
+    fireEvent.click(screen.getByRole('link', { name: '3페이지로 이동' }))
 
-    await waitFor(() => expect(api.rejected).toEqual([[1]]))
+    await waitFor(() => expect(api.queries.at(-1)?.page).toBe(2))
+    const params = new URLSearchParams(
+      screen.getByTestId('search').textContent ?? '',
+    )
+    expect(params.get('q')).toBe('강')
+    expect(params.get('status')).toBe('PENDING')
+    expect(params.get('applied')).toBe('true')
+    expect(params.get('role')).toBe('USER')
+    expect(params.get('sort')).toBe('name')
+    expect(params.get('page')).toBe('2')
+    expect(api.queries.at(-1)).toMatchObject({
+      q: '강',
+      status: 'PENDING',
+      applied: true,
+      role: 'USER',
+      sort: 'name',
+      page: 2,
+    })
+    expect(
+      await screen.findByRole('link', { name: '3페이지로 이동' }),
+    ).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('1페이지 번호로 돌아가면 다른 query는 보존하고 page는 지운다', async () => {
+    renderAt('/admin/members?q=%EA%B0%95&status=ACTIVE&page=2')
+    await loaded()
+
+    fireEvent.click(screen.getByRole('link', { name: '1페이지로 이동' }))
+
+    await waitFor(() => expect(api.queries.at(-1)?.page).toBe(0))
+    const params = new URLSearchParams(
+      screen.getByTestId('search').textContent ?? '',
+    )
+    expect(params.get('q')).toBe('강')
+    expect(params.get('status')).toBe('ACTIVE')
+    expect(params.has('page')).toBe(false)
   })
 
   it.each([
-    ['활동회원', '정지', 3, 'SUSPENDED'],
-    ['정지회원', '정지 해제', 5, 'ACTIVE'],
+    [0, [1, 2, 3, 4, 20], [1, 2, 3, 4, 5, 6, 7, 8, 9, 20], 1],
+    [2, [1, 2, 3, 4, 20], [1, 2, 3, 4, 5, 6, 7, 8, 9, 20], 1],
+    [9, [1, 9, 10, 11, 20], [1, 7, 8, 9, 10, 11, 12, 13, 14, 20], 2],
+    [17, [1, 17, 18, 19, 20], [1, 12, 13, 14, 15, 16, 17, 18, 19, 20], 1],
+    [19, [1, 17, 18, 19, 20], [1, 12, 13, 14, 15, 16, 17, 18, 19, 20], 1],
   ] as const)(
-    '기존 행 메뉴에서 %s의 %s를 유지한다',
-    async (name, label, id, status) => {
+    '20페이지의 0-based %d에서 모바일 5개·PC 10개 창을 표시한다',
+    async (page, mobile, desktop, ellipses) => {
+      api.totalElements = 400
+      api.totalPages = 20
+      renderAt(`/admin/members?page=${page}`)
+      await loaded()
+
+      expect(shownPages('mobile')).toEqual(mobile)
+      expect(shownPages('desktop')).toEqual(desktop)
+      expect(
+        document.querySelectorAll(
+          '[data-pager-mobile-visible="true"] [data-slot="pagination-ellipsis"]',
+        ),
+      ).toHaveLength(ellipses)
+      expect(
+        document.querySelectorAll(
+          '[data-pager-desktop-visible="true"] [data-slot="pagination-ellipsis"]',
+        ),
+      ).toHaveLength(ellipses)
+      expect(
+        screen.getByRole('link', { name: `${page + 1}페이지로 이동` }),
+      ).toHaveAttribute('aria-current', 'page')
+    },
+  )
+
+  it.each([
+    [0, '', '이전 페이지로 이동', '다음 페이지로 이동'],
+    [19, '?page=19', '다음 페이지로 이동', '이전 페이지로 이동'],
+  ] as const)(
+    '0-based %d 경계에서 %s만 비활성화하고 클릭도 무시한다',
+    async (page, initialSearch, disabled, enabled) => {
+      api.totalElements = 400
+      api.totalPages = 20
+      renderAt(`/admin/members${initialSearch}`)
+      await loaded()
+
+      const disabledLink = screen.getByRole('link', { name: disabled })
+      expect(disabledLink).toHaveAttribute('aria-disabled', 'true')
+      expect(screen.getByRole('link', { name: enabled })).not.toHaveAttribute(
+        'aria-disabled',
+        'true',
+      )
+
+      const queryCount = api.queries.length
+      const searchBeforeClick = screen.getByTestId('search').textContent
+      fireEvent.click(disabledLink)
+
+      expect(screen.getByTestId('search').textContent).toBe(searchBeforeClick)
+      expect(api.queries).toHaveLength(queryCount)
+      expect(api.queries.at(-1)?.page).toBe(page)
+    },
+  )
+
+  it('번호 이동도 선택과 열린 확인을 해제하고 이유를 알린다', async () => {
+    api.totalElements = 200
+    api.totalPages = 10
+    renderAt()
+    await loaded()
+    const thirdPage = screen.getByRole('link', { name: '3페이지로 이동' })
+    fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: '선택한 회원 정지' }))
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
+
+    // modal 뒤 링크는 실제 포인터로 누를 수 없지만, 뒤로가기·주소 이동과 같은 URL 변경을 재현한다.
+    fireEvent.click(thirdPage)
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '진행 중이던 확인을 닫고 선택한 1명이 해제되었습니다.',
+    )
+    expect(screen.getByText(/이 페이지에서 0명 선택됨/)).toBeInTheDocument()
+    expect(screen.getByTestId('search')).toHaveTextContent('?page=2')
+  })
+})
+
+describe('행 조작과 목록 회귀', () => {
+  it.each([
+    ['승인', () => api.approved],
+    ['거부', () => api.rejected],
+  ] as const)(
+    '신청 완료 메뉴의 %s는 확인 뒤 그 id만 보내고 다른 선택을 보존한다',
+    async (action, calls) => {
+      renderAt()
+      await loaded()
+      fireEvent.click(within(row('활동회원')).getByRole('checkbox'))
+
+      await rowAction('신청완료', action)
+      const dialog = await screen.findByRole('alertdialog')
+      expect(dialog).toHaveTextContent('신청완료')
+      expect(calls()).toEqual([])
+      fireEvent.click(within(dialog).getByRole('button', { name: action }))
+
+      await waitFor(() => expect(calls()).toEqual([[1]]))
+      await waitFor(() =>
+        expect(within(row('활동회원')).getByRole('checkbox')).toBeChecked(),
+      )
+    },
+  )
+
+  it.each([
+    ['승인', () => api.approved],
+    ['거부', () => api.rejected],
+  ] as const)(
+    '신청 완료 메뉴의 %s 확인을 취소하면 트리거로 포커스가 돌아가고 요청하지 않는다',
+    async (action, calls) => {
+      renderAt()
+      await loaded()
+      const trigger = within(row('신청완료')).getByRole('button', {
+        name: '신청완료 관리 메뉴',
+      })
+      trigger.focus()
+
+      await rowAction('신청완료', action)
+      const dialog = await screen.findByRole('alertdialog')
+      expect(calls()).toEqual([])
+      fireEvent.click(within(dialog).getByRole('button', { name: '취소' }))
+
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+      expect(trigger).toHaveFocus()
+      expect(calls()).toEqual([])
+    },
+  )
+
+  it.each([
+    ['활동회원', ['비활성화', '정지', '관리자 지정', '제거']],
+    ['비활동회원', ['활성화', '정지', '관리자 지정', '제거']],
+    ['정지회원', ['활성화', '비활성화', '관리자 지정', '제거']],
+  ] as const)(
+    '%s USER 메뉴는 상태별 행동만 순서대로 보인다',
+    async (name, labels) => {
       renderAt()
       await loaded()
 
       openRowMenu(name)
-      fireEvent.click(await screen.findByRole('menuitem', { name: label }))
-      const dialog = await screen.findByRole('alertdialog')
-      fireEvent.click(within(dialog).getByRole('button', { name: label }))
-
-      await waitFor(() => expect(api.statusCalls).toEqual([{ id, status }]))
+      const menu = await screen.findByRole('menu')
+      expect(
+        within(menu)
+          .getAllByRole('menuitem')
+          .map((item) => item.textContent),
+      ).toEqual(labels)
+      expect(
+        menu.querySelectorAll('[data-slot="dropdown-menu-separator"]'),
+      ).toHaveLength(1)
     },
   )
 
-  it('기존 행 메뉴의 role 변경을 확인 뒤 실행한다', async () => {
+  it('행 메뉴를 반복해 열고 닫아도 body scrollbar 관련 style을 바꾸지 않고 트리거로 포커스가 돌아온다', async () => {
+    renderAt()
+    await loaded()
+    const trigger = within(row('활동회원')).getByRole('button', {
+      name: '활동회원 관리 메뉴',
+    })
+    const bodyStyle = () => ({
+      overflow: document.body.style.overflow,
+      padding: document.body.style.padding,
+      paddingRight: document.body.style.paddingRight,
+      right: document.body.style.right,
+      width: document.body.style.width,
+    })
+    const initial = bodyStyle()
+
+    for (let count = 0; count < 2; count += 1) {
+      trigger.focus()
+      fireEvent.pointerDown(
+        trigger,
+        new MouseEvent('pointerdown', { bubbles: true, button: 0 }),
+      )
+      const menu = await screen.findByRole('menu')
+      expect(bodyStyle()).toEqual(initial)
+      fireEvent.keyDown(menu, { key: 'Escape' })
+      await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+      expect(bodyStyle()).toEqual(initial)
+      expect(trigger).toHaveFocus()
+    }
+  })
+
+  it('ADMIN 메뉴는 권한 회수만 보이고 상태 조작·지정·제거를 숨긴다', async () => {
     renderAt()
     await loaded()
 
-    openRowMenu('활동회원')
-    fireEvent.click(
-      await screen.findByRole('menuitem', { name: '관리자 지정' }),
-    )
-    const dialog = await screen.findByRole('alertdialog')
-    fireEvent.click(within(dialog).getByRole('button', { name: '관리자 지정' }))
-
-    await waitFor(() =>
-      expect(api.roleCalls).toEqual([{ id: 3, role: 'ADMIN' }]),
-    )
+    openRowMenu('김관리')
+    const menu = await screen.findByRole('menu')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['권한 회수'])
+    expect(menu).not.toHaveTextContent('활성화')
+    expect(menu).not.toHaveTextContent('비활성화')
+    expect(menu).not.toHaveTextContent('정지')
+    expect(menu).not.toHaveTextContent('관리자 지정')
+    expect(menu).not.toHaveTextContent('제거')
+    expect(
+      menu.querySelector('[data-slot="dropdown-menu-separator"]'),
+    ).toBeNull()
   })
+
+  it('신청 완료 PENDING 메뉴는 승인·거부·구분선·제거 순서이고 inline 버튼은 없다', async () => {
+    renderAt()
+    await loaded()
+
+    expect(
+      within(row('신청완료')).queryByRole('button', { name: '승인' }),
+    ).toBeNull()
+    expect(
+      within(row('신청완료')).queryByRole('button', { name: '거부' }),
+    ).toBeNull()
+
+    openRowMenu('신청완료')
+    const menu = await screen.findByRole('menu')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['승인', '거부', '제거'])
+    expect(
+      menu.querySelectorAll('[data-slot="dropdown-menu-separator"]'),
+    ).toHaveLength(1)
+    for (const action of ['승인', '거부']) {
+      expect(
+        within(menu).getByRole('menuitem', { name: action }),
+      ).not.toHaveAttribute('data-variant', 'destructive')
+    }
+    expect(
+      within(menu).getByRole('menuitem', { name: '제거' }),
+    ).toHaveAttribute('data-variant', 'destructive')
+    expect(menu).not.toHaveTextContent('활성화')
+    expect(menu).not.toHaveTextContent('비활성화')
+    expect(menu).not.toHaveTextContent('정지')
+    expect(menu).not.toHaveTextContent('관리자 지정')
+    expect(menu).not.toHaveTextContent('권한 회수')
+  })
+
+  it('신청 전 PENDING 메뉴는 제거만 보이고 inline 승인·거부와 구분선이 없다', async () => {
+    renderAt()
+    await loaded()
+
+    expect(
+      within(row('미신청')).queryByRole('button', { name: '승인' }),
+    ).toBeNull()
+    expect(
+      within(row('미신청')).queryByRole('button', { name: '거부' }),
+    ).toBeNull()
+
+    openRowMenu('미신청')
+    const menu = await screen.findByRole('menu')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['제거'])
+    expect(
+      within(menu).getByRole('menuitem', { name: '제거' }),
+    ).toHaveAttribute('data-variant', 'destructive')
+    expect(menu).not.toHaveTextContent('승인')
+    expect(menu).not.toHaveTextContent('거부')
+    expect(menu).not.toHaveTextContent('활성화')
+    expect(menu).not.toHaveTextContent('비활성화')
+    expect(menu).not.toHaveTextContent('정지')
+    expect(menu).not.toHaveTextContent('관리자 지정')
+    expect(menu).not.toHaveTextContent('권한 회수')
+    expect(
+      menu.querySelector('[data-slot="dropdown-menu-separator"]'),
+    ).toBeNull()
+  })
+
+  it('PENDING은 비정상 ADMIN 조합이어도 status-first 승인·거부·제거 메뉴를 쓴다', async () => {
+    members[0].role = 'ADMIN'
+    renderAt()
+    await loaded()
+
+    openRowMenu('신청완료')
+    const menu = await screen.findByRole('menu')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['승인', '거부', '제거'])
+    expect(menu).not.toHaveTextContent('권한 회수')
+  })
+
+  it('권한 회수 후 USER로 재조회되면 해당 상태 메뉴를 보인다', async () => {
+    renderAt()
+    await loaded()
+
+    await rowAction('김관리', '권한 회수')
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '권한 회수' }))
+    await waitFor(() =>
+      expect(api.roleCalls).toEqual([{ id: 99, role: 'USER' }]),
+    )
+    await screen.findByRole('status')
+    await waitFor(() =>
+      expect(within(row('김관리')).getByText('부원')).toBeInTheDocument(),
+    )
+
+    openRowMenu('김관리')
+    const menu = await screen.findByRole('menu')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['비활성화', '정지', '관리자 지정', '제거'])
+  })
+
+  it.each([
+    ['비활동회원', '활성화', 4, 'ACTIVE'],
+    ['활동회원', '정지', 3, 'SUSPENDED'],
+  ] as const)(
+    '%s의 %s는 bulk status API에 해당 id만 보낸다',
+    async (name, label, id, status) => {
+      renderAt()
+      await loaded()
+
+      await rowAction(name, label)
+      const dialog = await screen.findByRole('alertdialog')
+      fireEvent.click(within(dialog).getByRole('button', { name: label }))
+
+      await waitFor(() =>
+        expect(api.bulkCalls).toEqual([{ userIds: [id], status }]),
+      )
+    },
+  )
+
+  it('정지 USER의 비활성화는 deactivate API에 해당 id만 보낸다', async () => {
+    renderAt()
+    await loaded()
+
+    await rowAction('정지회원', '비활성화')
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '비활성화' }))
+
+    await waitFor(() => expect(api.deactivateCalls).toEqual([[5]]))
+  })
+
+  it.each([
+    {
+      name: '비활동회원',
+      label: '활성화',
+      action: 'ACTIVATE',
+      reason: '찾을 수 없는 계정',
+    },
+    {
+      name: '정지회원',
+      label: '비활성화',
+      action: 'DEACTIVATE',
+      reason: '비활성화할 수 없는 상태·권한의 계정',
+    },
+    {
+      name: '활동회원',
+      label: '정지',
+      action: 'SUSPEND',
+      reason: '승인 대기 상태라 정지할 수 없는 계정',
+    },
+  ] as const)(
+    '행 $label 부분 실패는 성공으로 보이지 않고 사유를 알린 뒤 재조회한다',
+    async ({ name, label, action, reason }) => {
+      if (action === 'ACTIVATE') {
+        api.bulkResult = {
+          targetStatus: 'ACTIVE',
+          processed: [],
+          failed: [{ userId: 4, reason: 'NOT_FOUND' }],
+        }
+      } else if (action === 'DEACTIVATE') {
+        api.deactivateResult = {
+          deactivated: [],
+          failed: [{ userId: 5, reason: 'NOT_ACTIVE_USER' }],
+        }
+      } else {
+        api.bulkResult = {
+          targetStatus: 'SUSPENDED',
+          processed: [],
+          failed: [{ userId: 3, reason: 'PENDING_NOT_ALLOWED' }],
+        }
+      }
+      renderAt()
+      await loaded()
+      const queriesBefore = api.queries.length
+
+      await rowAction(name, label)
+      const dialog = await screen.findByRole('alertdialog')
+      fireEvent.click(within(dialog).getByRole('button', { name: label }))
+
+      const error = await screen.findByRole('alert')
+      expect(error).toHaveTextContent(reason)
+      expect(screen.queryByRole('status')).toBeNull()
+      await waitFor(() =>
+        expect(api.queries.length).toBeGreaterThan(queriesBefore),
+      )
+    },
+  )
+
+  it('행 상태 조작 status=0도 일부 반영 가능성을 안내하고 재조회한다', async () => {
+    api.bulkError = new ApiError('NETWORK_ERROR', 0, '연결이 끊어졌습니다.')
+    renderAt()
+    await loaded()
+    const before = api.queries.length
+
+    await rowAction('활동회원', '정지')
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '정지' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('정지 요청 결과를 확정할 수 없습니다')
+    expect(alert).toHaveTextContent('일부 상태 변경이 반영되었을 수 있습니다')
+    expect(alert).not.toHaveTextContent('정지하지 못했습니다')
+    await waitFor(() => expect(api.queries.length).toBeGreaterThan(before))
+  })
+
+  it.each(['활동회원', '비활동회원', '정지회원'])(
+    '%s의 관리자 지정은 활동 관리자 전환을 확인한다',
+    async (name) => {
+      renderAt()
+      await loaded()
+
+      await rowAction(name, '관리자 지정')
+      const dialog = await screen.findByRole('alertdialog')
+      expect(dialog).toHaveTextContent('활동 관리자로 전환')
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: '관리자 지정' }),
+      )
+
+      const id = ORIGINAL_MEMBERS.find((user) => user.name === name)?.id
+      await waitFor(() =>
+        expect(api.roleCalls).toEqual([{ id, role: 'ADMIN' }]),
+      )
+    },
+  )
+
+  it.each(['비활동회원', '정지회원'])(
+    '%s을 관리자로 지정한 뒤 재조회하면 활동중·관리자이고 권한 회수만 보인다',
+    async (name) => {
+      renderAt()
+      await loaded()
+
+      await rowAction(name, '관리자 지정')
+      const dialog = await screen.findByRole('alertdialog')
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: '관리자 지정' }),
+      )
+
+      expect(await screen.findByRole('status')).toHaveTextContent(
+        `${name} 회원을 활동 관리자로 지정했습니다.`,
+      )
+      await waitFor(() => {
+        expect(within(row(name)).getByText('활동중')).toBeInTheDocument()
+        expect(within(row(name)).getByText('관리자')).toBeInTheDocument()
+      })
+
+      openRowMenu(name)
+      const menu = await screen.findByRole('menu')
+      expect(
+        within(menu)
+          .getAllByRole('menuitem')
+          .map((item) => item.textContent),
+      ).toEqual(['권한 회수'])
+    },
+  )
 
   it('제거 확인 창이 남을 콘텐츠 건수를 항목별로 보여준 뒤에만 실행한다', async () => {
     renderAt()
@@ -821,6 +1653,47 @@ describe('행 조작과 목록 회귀', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '제거' }))
     await waitFor(() => expect(api.removed).toEqual([3]))
   })
+
+  it.each([
+    ['신청완료', 1],
+    ['미신청', 2],
+  ] as const)(
+    '%s PENDING도 기존 제거 확인과 API 경로를 재사용한다',
+    async (name, id) => {
+      renderAt()
+      await loaded()
+
+      await rowAction(name, '제거')
+      const dialog = await screen.findByRole('alertdialog')
+      expect(api.summaryCalls).toEqual([id])
+      await waitFor(() => expect(dialog).toHaveTextContent('자료 3건'))
+      expect(api.removed).toEqual([])
+
+      fireEvent.click(within(dialog).getByRole('button', { name: '제거' }))
+      await waitFor(() => expect(api.removed).toEqual([id]))
+    },
+  )
+
+  it.each(['신청완료', '미신청'] as const)(
+    '%s PENDING 제거 확인을 취소하면 같은 관리 메뉴 트리거로 포커스가 돌아온다',
+    async (name) => {
+      renderAt()
+      await loaded()
+      const trigger = within(row(name)).getByRole('button', {
+        name: `${name} 관리 메뉴`,
+      })
+      trigger.focus()
+
+      await rowAction(name, '제거')
+      const dialog = await screen.findByRole('alertdialog')
+      await waitFor(() => expect(dialog).toHaveTextContent('자료 3건'))
+      fireEvent.click(within(dialog).getByRole('button', { name: '취소' }))
+
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+      expect(trigger).toHaveFocus()
+      expect(api.removed).toEqual([])
+    },
+  )
 
   it('제거 content summary 조회 실패 시 실행을 차단한다', async () => {
     api.summaryError = new ApiError(

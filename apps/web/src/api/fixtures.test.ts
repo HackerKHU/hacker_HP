@@ -481,6 +481,87 @@ describe('회원 관리 픽스처', () => {
     expect(approved?.approvedAt).not.toBeNull()
   })
 
+  it('거부는 계정을 명단에 남기고 신청 정보만 비워 미승인 필터로 옮긴다', async () => {
+    const { fixtureAdminUsers, fixtureRejectUsers } =
+      await loadFixtures('admin')
+    const pending = await fixtureAdminUsers({
+      status: 'PENDING',
+      applied: true,
+      size: 100,
+    })
+    const applicant = pending.content[0]
+    if (!applicant) throw new Error('거부할 신청 픽스처가 없다')
+
+    const result = await fixtureRejectUsers([applicant.id, applicant.id])
+
+    expect(result).toEqual({ rejected: [applicant.id], failed: [] })
+    const allPending = await fixtureAdminUsers({
+      status: 'PENDING',
+      size: 100,
+    })
+    const reset = allPending.content.find((user) => user.id === applicant.id)
+    expect(reset).toMatchObject({
+      id: applicant.id,
+      email: applicant.email,
+      name: applicant.name,
+      status: 'PENDING',
+      role: 'USER',
+      studentNo: null,
+      department: null,
+      appliedAt: null,
+      approvedAt: null,
+      deactivatedAt: null,
+    })
+
+    const applied = await fixtureAdminUsers({
+      status: 'PENDING',
+      applied: true,
+      size: 100,
+    })
+    expect(applied.content.map((user) => user.id)).not.toContain(applicant.id)
+    const unapplied = await fixtureAdminUsers({
+      status: 'PENDING',
+      applied: false,
+      size: 100,
+    })
+    expect(unapplied.content.map((user) => user.id)).toContain(applicant.id)
+
+    // 이미 미승인이면 목표 상태이므로 같은 id를 멱등 성공으로 돌려준다.
+    await expect(fixtureRejectUsers([applicant.id])).resolves.toEqual({
+      rejected: [applicant.id],
+      failed: [],
+    })
+  })
+
+  it('거부 fixture도 신청 정보 세 필드 밖의 값을 정규화하지 않는다', async () => {
+    const { fixtureAdminUsers, fixtureRejectUsers } =
+      await loadFixtures('admin')
+    const pending = await fixtureAdminUsers({
+      status: 'PENDING',
+      applied: true,
+      size: 100,
+    })
+    const applicant = pending.content[0]
+    if (!applicant) throw new Error('거부할 신청 픽스처가 없다')
+    applicant.role = 'ADMIN'
+    applicant.approvedAt = '2026-08-01T00:00:00Z'
+    applicant.deactivatedAt = '2026-08-02T00:00:00Z'
+
+    await fixtureRejectUsers([applicant.id])
+
+    const after = await fixtureAdminUsers({ status: 'PENDING', size: 100 })
+    const reset = after.content.find((user) => user.id === applicant.id)
+    expect(reset).toMatchObject({
+      role: 'ADMIN',
+      status: 'PENDING',
+      approvedAt: '2026-08-01T00:00:00Z',
+      deactivatedAt: '2026-08-02T00:00:00Z',
+      studentNo: null,
+      department: null,
+      appliedAt: null,
+    })
+  })
+
   it('검색은 이름·학번·이메일을 함께 본다', async () => {
     const { fixtureAdminUsers } = await loadFixtures('admin')
 
@@ -596,25 +677,30 @@ describe('회원 관리 픽스처', () => {
     expect((error as Error).message).toContain('권한을 회수')
   })
 
-  it('선택 비활성화는 혼합 결과·중복·입력 순서·멱등을 재현한다', async () => {
+  it('선택 비활성화는 ACTIVE·SUSPENDED USER를 내리고 동일한 시각을 남긴다', async () => {
     const { fixtureAdminUsers, fixtureDeactivateUsers } =
       await loadFixtures('admin')
     const all = await fixtureAdminUsers({ size: 100 })
     const active = all.content.find(
       (user) => user.role === 'USER' && user.status === 'ACTIVE',
     )
+    const suspended = all.content.find(
+      (user) => user.role === 'USER' && user.status === 'SUSPENDED',
+    )
     const admin = all.content.find((user) => user.role === 'ADMIN')
-    if (!active || !admin) throw new Error('픽스처 명단이 부족하다')
+    if (!active || !suspended || !admin)
+      throw new Error('픽스처 명단이 부족하다')
 
     const result = await fixtureDeactivateUsers([
       admin.id,
       active.id,
+      suspended.id,
       admin.id,
       999999,
     ])
 
     expect(result).toEqual({
-      deactivated: [active.id],
+      deactivated: [active.id, suspended.id],
       failed: [
         { userId: admin.id, reason: 'NOT_ACTIVE_USER' },
         { userId: 999999, reason: 'NOT_FOUND' },
@@ -624,7 +710,37 @@ describe('회원 관리 픽스처', () => {
       deactivated: [],
       failed: [{ userId: active.id, reason: 'NOT_ACTIVE_USER' }],
     })
+
+    const changed = await fixtureAdminUsers({ status: 'INACTIVE', size: 100 })
+    const activeAfter = changed.content.find((user) => user.id === active.id)
+    const suspendedAfter = changed.content.find(
+      (user) => user.id === suspended.id,
+    )
+    expect(activeAfter).toMatchObject({ status: 'INACTIVE' })
+    expect(suspendedAfter).toMatchObject({ status: 'INACTIVE' })
+    expect(activeAfter?.deactivatedAt).toBeTruthy()
+    expect(suspendedAfter?.deactivatedAt).toBe(activeAfter?.deactivatedAt)
   })
+
+  it.each(['INACTIVE', 'SUSPENDED'] as const)(
+    '%s USER를 관리자로 지정하면 ACTIVE ADMIN으로 끝나고 비활성화 시각을 지운다',
+    async (status) => {
+      const { fixtureAdminUsers, fixtureUpdateUserRole } =
+        await loadFixtures('admin')
+      const page = await fixtureAdminUsers({ status, role: 'USER', size: 100 })
+      const target = page.content[0]
+      if (!target) throw new Error(`${status} USER 픽스처가 없다`)
+
+      const result = await fixtureUpdateUserRole(target.id, 'ADMIN')
+
+      expect(result).toMatchObject({
+        id: target.id,
+        status: 'ACTIVE',
+        role: 'ADMIN',
+        deactivatedAt: null,
+      })
+    },
+  )
 
   it('일괄 활성화는 혼합 상태와 멱등 processed를 재현한다', async () => {
     const { fixtureAdminUsers, fixtureBulkUpdateUserStatus } =

@@ -82,12 +82,12 @@ export interface RejectResult {
 /**
  * 거부 실패 사유 (§3-2-6).
  *
- * **`NOT_PENDING`을 "이미 처리됨"으로 뭉개지 않는다.** 이 경로로는 이용 중인 회원을 지울
- * 수 없다 — 그것은 "제거"이고 세션 폐기·정지 선행 같은 규칙이 따로 붙는다 (2-2 §2-2-4).
+ * **`NOT_PENDING`을 "이미 처리됨"으로 뭉개지 않는다.** 이 경로로는 이용 중인 회원의 신청
+ * 정보를 초기화할 수 없다. 회원 제거·정지는 별도 규칙을 따른다 (2-2 §2-2-4).
  */
 export type RejectFailureReason = 'NOT_FOUND' | 'NOT_PENDING'
 
-/** 일괄 거부. 남긴 것이 없는 `PENDING` 계정을 지운다 (2-2 §2-2-2). */
+/** 일괄 거부. 계정은 유지하고 `PENDING` 신청 정보를 비워 미승인으로 되돌린다 (2-2 §2-2-2). */
 export function reject(userIds: number[]): Promise<RejectResult> {
   if (import.meta.env.VITE_USE_FIXTURES === 'true') {
     return fixtureRejectUsers(userIds)
@@ -108,6 +108,10 @@ export interface DeactivateResult {
   failed: { userId: number; reason: DeactivateFailureReason }[]
 }
 
+/**
+ * `NOT_ACTIVE_USER`는 하위 호환을 위해 유지한 서버 코드다. 현재는 `ACTIVE`/
+ * `SUSPENDED USER`가 모두 대상이므로, 실제 의미는 "비활성화할 수 없는 상태·권한"이다.
+ */
 export type DeactivateFailureReason = 'NOT_FOUND' | 'NOT_ACTIVE_USER'
 
 /**
@@ -221,8 +225,9 @@ export function remove(id: number): Promise<void> {
 /**
  * 권한 부여·회수 (spec 2-2 §2-2-5).
  *
- * **마지막 활성 관리자인지는 화면이 판단하지 않는다** — 서버가 잠금을 걸고 원자적으로 센다
- * (§2-2-7 MUST). 화면은 거부 사유를 그대로 보여준다.
+ * **마지막 활성 관리자인지는 화면이 판단하지 않는다** — 서버가 잠금을 걸고 원자적으로 센다.
+ * `ADMIN`으로 올리면 기존 상태와 무관하게 최종 응답은 `ACTIVE ADMIN`이며, 화면은
+ * 중간 `INACTIVE ADMIN`/`SUSPENDED ADMIN`을 만들기 위한 별도 상태 요청을 보내지 않는다.
  */
 export function updateRole(id: number, role: Role): Promise<User> {
   if (import.meta.env.VITE_USE_FIXTURES === 'true') {

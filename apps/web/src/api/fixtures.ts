@@ -632,7 +632,7 @@ export function fixtureRemoveNotice(id: number): Promise<void> {
  * 회원 명부. 위 `USERS`(`/auth/me`용 단일 사용자)와 다른 목적이라 따로 둔다 —
  * 그쪽은 "지금 로그인한 사람"이고 이쪽은 "관리자가 보는 명단"이다.
  *
- * 신청 전(`appliedAt: null`) 계정을 일부러 섞어 뒀다. 행별 승인은 신청서를 낸 계정으로
+ * 신청 전(`appliedAt: null`) 계정을 일부러 섞어 뒀다. 행 메뉴 승인은 신청서를 낸 계정으로
  * 한정되지만(#297), 선택 상태 조작은 모든 행을 고른 뒤 서버 결과로 전이 가능 여부를
  * 알려야 한다. 명단에 이런 계정이 있어야 두 경로가 갈리는지 화면에서 확인할 수 있다.
  *
@@ -722,6 +722,7 @@ for (const [index, name] of MEMBER_NAMES.entries()) {
     createdAt: daysAgo(60 - index),
     appliedAt: applied ? daysAgo(60 - index - APPLY_DELAY[index % 6]) : null,
     approvedAt: pending ? null : daysAgo(40 - index),
+    deactivatedAt: inactive ? daysAgo(5) : null,
   })
 }
 
@@ -835,10 +836,10 @@ export function fixtureApproveUsers(userIds: number[]): Promise<ApproveResult> {
 }
 
 /**
- * 일괄 거부 (2-2 §2-2-2). `PENDING` 계정을 지운다.
+ * 일괄 거부 (2-2 §2-2-2). 계정은 유지하고 `PENDING` 신청 정보를 초기화한다.
  *
- * **`PENDING`이 아니면 거부하지 않는다** (§3-2-6). 이 경로로 이용 중인 회원을 지울 수
- * 없다 — 그것은 "제거"이고 세션 폐기·정지 선행 같은 규칙이 따로 붙는다 (§2-2-4).
+ * **`PENDING`이 아니면 거부하지 않는다** (§3-2-6). 이 경로로 이용 중인 회원의 신청
+ * 정보를 초기화할 수 없다 — 회원 제거·정지는 별도 규칙을 따른다 (§2-2-4).
  * 픽스처가 통과시키면 화면이 그 구분을 잃는다.
  */
 export function fixtureRejectUsers(userIds: number[]): Promise<RejectResult> {
@@ -848,23 +849,27 @@ export function fixtureRejectUsers(userIds: number[]): Promise<RejectResult> {
   const result: RejectResult = { rejected: [], failed: [] }
   // 승인과 같이 중복을 먼저 지운다 — 그대로 두면 실제로는 나올 수 없는 부분 실패가 생긴다.
   for (const id of [...new Set(userIds)]) {
-    const index = MEMBERS.findIndex((user) => user.id === id)
-    if (index < 0) {
+    const user = MEMBERS.find((candidate) => candidate.id === id)
+    if (!user) {
       result.failed.push({ userId: id, reason: 'NOT_FOUND' })
       continue
     }
-    if (MEMBERS[index].status !== 'PENDING') {
+    if (user.status !== 'PENDING') {
       result.failed.push({ userId: id, reason: 'NOT_PENDING' })
       continue
     }
-    MEMBERS.splice(index, 1)
+    user.studentNo = null
+    user.department = null
+    user.appliedAt = null
     result.rejected.push(id)
   }
   return Promise.resolve(result)
 }
 
 /**
- * 선택 회원 비활성화 (#295). 선택한 `ACTIVE USER`만 바꾸고 나머지는 항목별 실패로 남긴다.
+ * 선택 회원 비활성화 (#295). `ACTIVE`/`SUSPENDED USER`만 바꾸고 나머지는
+ * 항목별 실패로 남긴다. 정지 회원을 내릴 때도 되돌릴 근거인 `deactivatedAt`을
+ * 상태와 함께 세운다.
  * 중복은 첫 등장만 처리하며 두 결과 배열도 입력 순서를 지킨다.
  */
 export function fixtureDeactivateUsers(
@@ -877,17 +882,22 @@ export function fixtureDeactivateUsers(
   if (invalid) return Promise.reject(invalid)
 
   const result: DeactivateResult = { deactivated: [], failed: [] }
+  const deactivatedAt = new Date().toISOString()
   for (const id of [...new Set(userIds)]) {
     const user = MEMBERS.find((candidate) => candidate.id === id)
     if (!user) {
       result.failed.push({ userId: id, reason: 'NOT_FOUND' })
       continue
     }
-    if (user.role !== 'USER' || user.status !== 'ACTIVE') {
+    if (
+      user.role !== 'USER' ||
+      (user.status !== 'ACTIVE' && user.status !== 'SUSPENDED')
+    ) {
       result.failed.push({ userId: id, reason: 'NOT_ACTIVE_USER' })
       continue
     }
     user.status = 'INACTIVE'
+    user.deactivatedAt = deactivatedAt
     result.deactivated.push(user.id)
   }
   return Promise.resolve(result)
@@ -941,6 +951,7 @@ export function fixtureBulkUpdateUserStatus(
         user.approvedAt = new Date().toISOString()
       }
       user.status = 'ACTIVE'
+      user.deactivatedAt = null
       result.processed.push(id)
       continue
     }
@@ -957,6 +968,7 @@ export function fixtureBulkUpdateUserStatus(
       continue
     }
     user.status = 'SUSPENDED'
+    user.deactivatedAt = null
     result.processed.push(id)
   }
   return Promise.resolve(result)
@@ -988,6 +1000,7 @@ export function fixtureReactivateUsers(
       continue
     }
     found.status = 'ACTIVE'
+    found.deactivatedAt = null
     result.reactivated.push(id)
   }
   return Promise.resolve(result)
@@ -1101,6 +1114,11 @@ export function fixtureUpdateUserRole(id: number, role: Role): Promise<User> {
     )
   }
 
+  if (role === 'ADMIN') {
+    // 비활동·정지 ADMIN이 순간이라도 남지 않도록 한 조작의 최종값을 세운다.
+    found.status = 'ACTIVE'
+    found.deactivatedAt = null
+  }
   found.role = role
   return Promise.resolve(found)
 }
@@ -1136,6 +1154,7 @@ export function fixtureUpdateUserStatus(
   }
 
   found.status = status
+  found.deactivatedAt = null
   return Promise.resolve(found)
 }
 

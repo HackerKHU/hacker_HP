@@ -6,7 +6,12 @@ import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
 import { ListSurface } from '@/components/ListSurface'
 import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
-import { Pager, parsePage, writePage } from '@/components/Pager'
+import {
+  KOREAN_PAGER_LABELS,
+  Pager,
+  parsePage,
+  writePage,
+} from '@/components/Pager'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -26,17 +31,6 @@ function isNew(createdAt: string): boolean {
   return Date.now() - new Date(createdAt).getTime() < NEW_WITHIN_DAYS * DAY_MS
 }
 
-/**
- * 페이지네이션에 보여줄 번호 목록.
- *
- * **규칙** — 첫 페이지·마지막 페이지·현재 페이지와 그 양옆 한 칸을 보여준다. 번호가
- * 건너뛰는 자리에만 생략 부호가 들어간다.
- *
- * 번호 버튼은 최대 5개, 생략 부호는 최대 2개라 **총 페이지 수와 무관하게 7칸을 넘지 않는다.**
- * 전부 그리면 250건(25페이지)쯤에서 버튼이 본문 너비를 넘는다.
- *
- * 총 3페이지처럼 적을 때는 건너뛰는 자리가 없어 생략 부호가 뜨지 않는다.
- */
 /** 서버는 UTC로 내려준다. 목록에서는 날짜까지만 보여준다. */
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('ko-KR', {
@@ -311,6 +305,7 @@ export function NoticeListPage() {
         totalPages={data?.page.totalPages ?? 0}
         hrefFor={hrefFor}
         onGo={goTo}
+        labels={KOREAN_PAGER_LABELS}
       />
     </section>
   )

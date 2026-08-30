@@ -96,6 +96,24 @@ describe('개인정보처리방침', () => {
     expect(section).toHaveTextContent('즐겨찾기')
   })
 
+  it('가입 거부 때 신청 정보만 지우고 계정 식별정보와 재신청 경로는 유지한다고 알린다', async () => {
+    await openPrivacy()
+    const section = retentionSection()
+
+    expect(section).toHaveTextContent(
+      '학번과 학과, 가입 신청일시는 즉시 삭제합니다',
+    )
+    expect(section).toHaveTextContent(
+      '구글 계정 식별자와 이메일 주소, 이름, 계정 생성일시는 미승인 계정 기록으로 유지',
+    )
+    expect(section).toHaveTextContent(
+      '같은 계정으로 로그인해 다시 신청서를 제출',
+    )
+    expect(section).not.toHaveTextContent(
+      '가입 신청이 거부되면 계정 기록을 삭제',
+    )
+  })
+
   /*
    * 익명화라고 읽히면 안 된다. 자료 본문이나 파일 이름, 사진에 담긴
    * 정보는 그대로 남으므로 "표시까지"라는 범위를 화면이 말해야 한다.
