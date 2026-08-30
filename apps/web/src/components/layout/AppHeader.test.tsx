@@ -1,17 +1,10 @@
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
 import { CLUB } from '@/features/landing/content'
-import { MemoryRouter } from '@/test/TestRouter'
+import { MemoryRouter, useLocation, useNavigate } from '@/test/TestRouter'
 import { AppHeader } from './AppHeader'
-
-/*
- * `AppLayout.test.tsx`는 이 헤더를 통째로 mock으로 지운다 — 그 파일이 보는 것은 뼈대뿐이다.
- * 그래서 헤더 자체의 계약은 **여기서** 지킨다. 없으면 로고가 바뀌어도 아무도 못 잡는다.
- */
-
-const session = vi.hoisted(() => ({ role: 'USER' as 'USER' | 'ADMIN' }))
 
 const ACTIVE: User = {
   id: 1,
@@ -26,18 +19,23 @@ const ACTIVE: User = {
   approvedAt: '2026-03-03T09:00:00Z',
 }
 
+const auth = vi.hoisted(() => ({
+  me: (): Promise<User> =>
+    Promise.reject(new Error('테스트가 지정하지 않았다')),
+}))
+
 vi.mock('@/api/auth', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/auth')>()
   return {
     ...actual,
-    getMe: () => Promise.resolve({ ...ACTIVE, role: session.role }),
+    getMe: () => auth.me(),
     logout: () => Promise.resolve(),
   }
 })
 
-function renderHeader() {
+function renderHeader(initialEntry = '/notices') {
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <SessionProvider>
         <AppHeader />
       </SessionProvider>
@@ -45,8 +43,40 @@ function renderHeader() {
   )
 }
 
+function NavigateOutsideHeader() {
+  const { pathname } = useLocation()
+  const navigate = useNavigate()
+
+  return (
+    <>
+      <output aria-label="현재 경로">{pathname}</output>
+      <button type="button" onClick={() => navigate('/notes')}>
+        다른 화면으로 이동
+      </button>
+    </>
+  )
+}
+
+function renderHeaderWithNavigation() {
+  render(
+    <MemoryRouter initialEntries={['/notices']}>
+      <SessionProvider>
+        <AppHeader />
+        <NavigateOutsideHeader />
+      </SessionProvider>
+    </MemoryRouter>,
+  )
+}
+
+const MEMBER_LINKS: [string, string][] = [
+  ['공지사항', '/notices'],
+  ['자료게시판', '/notes'],
+  ['자유게시판', '/posts'],
+  ['갤러리', '/photos'],
+]
+
 beforeEach(() => {
-  session.role = 'USER'
+  auth.me = () => Promise.resolve(ACTIVE)
 })
 
 describe('AppHeader', () => {
@@ -58,46 +88,7 @@ describe('AppHeader', () => {
     expect(header).not.toHaveClass('sticky')
   })
 
-  /*
-   * 랜딩 헤더와 **같은 가로 락업이되 잉크만 반대**다. 내부 화면은 라이트 배경이라 검정을
-   * 쓴다 — 흰 잉크로 바뀌면 배경에 묻혀 아무것도 안 보이는데, 화면을 안 열어보면 모른다.
-   *
-   * 배경이 채워진 `-on-white`도 안 된다. 헤더 배경 위에 흰 네모가 비친다.
-   */
-  /*
-   * **관리자 전용 화면 앞에서 끊는다** (#307).
-   *
-   * `회원 관리`는 관리자에게만 뜨는 화면이라(spec §3-1-3 매트릭스) 나머지 넷과 성격이
-   * 다른데, 같은 간격으로 붙어 있으면 모양으로는 구별되지 않는다.
-   *
-   * **선은 스크린리더에 읽히지 않아야 한다** — 눈으로 읽는 것이고, 읽히면 메뉴 사이에
-   * 빈 항목이 하나 끼는 것으로 들린다. 그래서 `aria-hidden`을 함께 본다.
-   */
-  it('관리자 메뉴 앞에 구분선이 있다', async () => {
-    session.role = 'ADMIN'
-    renderHeader()
-
-    const nav = await screen.findByRole('navigation', { name: '주요 메뉴' })
-    const admin = await screen.findByRole('link', { name: '회원 관리' })
-
-    const divider = admin.previousElementSibling
-    expect(divider?.tagName).toBe('SPAN')
-    expect(divider).toHaveAttribute('aria-hidden', 'true')
-    // 선이 링크로 읽히지 않는다 — 메뉴는 여전히 다섯 칸이다.
-    expect(within(nav).getAllByRole('link')).toHaveLength(5)
-  })
-
-  /* 일반 부원에게는 가를 것이 없다. 선만 남으면 없는 경계를 그린다. */
-  it('일반 부원 헤더에는 구분선이 없다', async () => {
-    session.role = 'USER'
-    renderHeader()
-
-    const nav = await screen.findByRole('navigation', { name: '주요 메뉴' })
-    expect(within(nav).queryByRole('link', { name: '회원 관리' })).toBeNull()
-    expect(nav.querySelector('[aria-hidden="true"]')).toBeNull()
-  })
-
-  it('라이트 배경에 맞는 검정 잉크 락업을 쓴다', async () => {
+  it('데스크톱 lockup과 모바일 심볼이 같은 32px 크기를 쓴다', async () => {
     renderHeader()
 
     const logo = await screen.findByAltText(CLUB.name)
@@ -105,26 +96,178 @@ describe('AppHeader', () => {
       'src',
       '/brand/lockup-horizontal-black-512.png',
     )
+    expect(logo.className).toContain('h-8')
+    expect(logo.className).toContain('w-[27px]')
+    expect(logo.className).toContain('lg:w-auto')
+
+    const source = logo.closest('picture')?.querySelector('source')
+    expect(source).toHaveAttribute('media', '(max-width: 1023px)')
+    expect(source).toHaveAttribute('srcset', '/brand/mark-black-256.png')
   })
 
-  /*
-   * 로고는 장식이 아니라 이 사이트가 무엇인지 말하는 요소다. `alt`가 비면 스크린리더
-   * 사용자에게 그 정보가 통째로 사라진다.
-   */
-  it('로고에 대체 텍스트가 있다', async () => {
+  it('로고에 대체 텍스트가 있고 누르면 랜딩으로 간다', async () => {
     renderHeader()
 
-    expect(await screen.findByAltText(CLUB.name)).toBeInTheDocument()
-  })
-
-  /*
-   * **헤더 로고는 사이트의 홈으로 간다.** `/notices`를 가리키던 때는 바로 옆 주요 메뉴의
-   * `공지사항`과 목적지가 겹쳤고, 로그인한 부원에게는 랜딩으로 돌아갈 헤더 경로가 없었다.
-   */
-  it('로고를 누르면 랜딩으로 간다', async () => {
-    renderHeader()
-
-    const link = (await screen.findByAltText(CLUB.name)).closest('a')
+    const logo = await screen.findByAltText(CLUB.name)
+    const link = logo.closest('a')
     expect(link).toHaveAttribute('href', '/')
+    expect(link?.className).toContain('size-11')
+    expect(link?.className).toContain('lg:h-auto')
+    expect(link?.className).toContain('lg:w-auto')
+  })
+
+  it('모바일의 계정과 메뉴 버튼이 모두 44px 터치 영역을 쓴다', async () => {
+    renderHeader()
+
+    const account = await screen.findByRole('button', { name: '계정 메뉴' })
+    const navigation = screen.getByRole('button', { name: '메뉴 열기' })
+    expect(account.className).toContain('size-11')
+    expect(account.className).toContain('lg:size-9')
+    expect(navigation.className).toContain('size-11')
+    expect(navigation.className).toContain('lg:hidden')
+  })
+
+  it('1024px부터만 데스크톱 nav로 전환한다', async () => {
+    renderHeader()
+
+    const navigation = await screen.findByRole('navigation', {
+      name: '주요 메뉴',
+    })
+    expect(navigation.parentElement?.className).toContain('hidden')
+    expect(navigation.parentElement?.className).toContain('lg:flex')
+    expect(navigation.parentElement?.className).not.toContain('md:flex')
+
+    fireEvent.click(screen.getByRole('button', { name: '메뉴 열기' }))
+    const mobileMenu = document.getElementById('app-mobile-menu')
+    expect(mobileMenu?.className).toContain('lg:hidden')
+    expect(mobileMenu?.className).not.toContain('md:hidden')
+  })
+
+  it.each([
+    ['ACTIVE USER', ACTIVE, MEMBER_LINKS],
+    ['INACTIVE USER', { ...ACTIVE, status: 'INACTIVE' as const }, MEMBER_LINKS],
+    [
+      'ACTIVE ADMIN',
+      { ...ACTIVE, role: 'ADMIN' as const },
+      [...MEMBER_LINKS, ['회원 관리', '/admin/members']] as [string, string][],
+    ],
+  ])(
+    '%s의 모바일 메뉴가 권한에 맞는 항목만 보인다',
+    async (_label, user, links) => {
+      auth.me = () => Promise.resolve(user)
+      renderHeader()
+
+      fireEvent.click(await screen.findByRole('button', { name: '메뉴 열기' }))
+      const mobileMenu = document.getElementById(
+        'app-mobile-menu',
+      ) as HTMLElement
+      const navigation = within(mobileMenu).getByRole('navigation', {
+        name: '주요 메뉴',
+      })
+
+      expect(
+        within(navigation)
+          .getAllByRole('link')
+          .map((link) => [link.textContent, link.getAttribute('href')]),
+      ).toEqual(links)
+      for (const link of within(navigation).getAllByRole('link')) {
+        expect(link.className).toContain('min-h-11')
+      }
+    },
+  )
+
+  it.each([
+    ['loading', () => new Promise<User>(() => undefined)],
+    [
+      'PENDING',
+      () =>
+        Promise.resolve({
+          ...ACTIVE,
+          status: 'PENDING' as const,
+          approvedAt: null,
+        }),
+    ],
+    ['guest', () => Promise.reject(new Error('비로그인'))],
+  ])('%s에는 빈 모바일 메뉴 버튼을 그리지 않는다', async (_label, getMe) => {
+    auth.me = getMe
+    renderHeader()
+
+    await screen.findByAltText(CLUB.name)
+    expect(screen.queryByRole('button', { name: '메뉴 열기' })).toBeNull()
+    expect(document.getElementById('app-mobile-menu')).toBeNull()
+  })
+
+  it('관리자 모바일 메뉴의 회원 관리 앞에 가로 구분선이 있다', async () => {
+    auth.me = () => Promise.resolve({ ...ACTIVE, role: 'ADMIN' })
+    renderHeader()
+
+    fireEvent.click(await screen.findByRole('button', { name: '메뉴 열기' }))
+    const mobileMenu = document.getElementById('app-mobile-menu') as HTMLElement
+    const admin = within(mobileMenu).getByRole('link', { name: '회원 관리' })
+    const divider = admin.previousElementSibling
+
+    expect(divider?.tagName).toBe('DIV')
+    expect(divider).toHaveAttribute('aria-hidden', 'true')
+    expect(within(mobileMenu).getAllByRole('link')).toHaveLength(5)
+  })
+
+  it('일반 부원 모바일 메뉴에는 관리자 링크와 구분선이 없다', async () => {
+    renderHeader()
+
+    fireEvent.click(await screen.findByRole('button', { name: '메뉴 열기' }))
+    const mobileMenu = document.getElementById('app-mobile-menu') as HTMLElement
+
+    expect(
+      within(mobileMenu).queryByRole('link', { name: '회원 관리' }),
+    ).toBeNull()
+    expect(mobileMenu.querySelector('[aria-hidden="true"]')).toBeNull()
+  })
+
+  it('현재 링크를 표시하고 선택하면 모바일 메뉴를 닫는다', async () => {
+    renderHeader('/notices')
+
+    fireEvent.click(await screen.findByRole('button', { name: '메뉴 열기' }))
+    const mobileMenu = document.getElementById('app-mobile-menu') as HTMLElement
+    const current = within(mobileMenu).getByRole('link', { name: '공지사항' })
+
+    expect(current.className).toContain('text-foreground')
+    expect(current).toHaveAttribute('aria-current', 'page')
+    fireEvent.click(current)
+    expect(document.getElementById('app-mobile-menu')).toBeNull()
+  })
+
+  it('다른 컴포넌트의 navigate로 위치가 바뀌면 초점을 옮기지 않고 닫는다', async () => {
+    renderHeaderWithNavigation()
+
+    fireEvent.click(await screen.findByRole('button', { name: '메뉴 열기' }))
+    expect(document.getElementById('app-mobile-menu')).not.toBeNull()
+
+    const navigate = screen.getByRole('button', { name: '다른 화면으로 이동' })
+    navigate.focus()
+    fireEvent.click(navigate)
+
+    expect(screen.getByLabelText('현재 경로')).toHaveTextContent('/notes')
+    expect(document.getElementById('app-mobile-menu')).toBeNull()
+    expect(navigate).toHaveFocus()
+    expect(screen.getByRole('button', { name: '메뉴 열기' })).not.toHaveFocus()
+  })
+
+  it('재토글과 Escape로 닫고 Escape 뒤에는 버튼으로 초점을 돌린다', async () => {
+    renderHeader()
+
+    const open = await screen.findByRole('button', { name: '메뉴 열기' })
+    expect(open).toHaveAttribute('aria-controls', 'app-mobile-menu')
+    expect(open).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(open)
+    const close = screen.getByRole('button', { name: '메뉴 닫기' })
+    expect(close).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(close)
+    expect(document.getElementById('app-mobile-menu')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '메뉴 열기' }))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(document.getElementById('app-mobile-menu')).toBeNull()
+    expect(screen.getByRole('button', { name: '메뉴 열기' })).toHaveFocus()
   })
 })

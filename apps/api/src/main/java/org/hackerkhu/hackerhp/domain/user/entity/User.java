@@ -213,14 +213,14 @@ public class User {
   }
 
   /**
-   * 학기 전환 — 비활성화 (#228). {@code ACTIVE}에서만 내려간다.
+   * 학기 전환 — 비활성화 (#228). {@code ACTIVE} 또는 관리자가 명시적으로 고른 {@code SUSPENDED}에서 내려간다.
    *
-   * <p>{@code PENDING}은 승인 절차를 건너뛰게 되고, {@code SUSPENDED}는 <b>정지가 풀린다</b> — 비활동은 자료 말고 다 되기 때문이다
-   * (2-2 §2-2-3 MUST).
+   * <p>{@code PENDING}은 승인 절차를 건너뛰므로 받지 않는다. {@code SUSPENDED} → {@code INACTIVE}는 선택 비활성화에서만 호출하며,
+   * 관리자가 제재를 비활동으로 바꾸겠다고 대상을 명시한 경우다 (2-2 §2-2-3 MUST).
    */
   public void deactivate(Instant at) {
-    if (this.status != Status.ACTIVE) {
-      throw new IllegalStateException("ACTIVE 상태에서만 비활성화할 수 있습니다: " + this.status);
+    if (this.status != Status.ACTIVE && this.status != Status.SUSPENDED) {
+      throw new IllegalStateException("ACTIVE 또는 SUSPENDED 상태에서만 비활성화할 수 있습니다: " + this.status);
     }
     this.status = Status.INACTIVE;
     this.deactivatedAt = at;

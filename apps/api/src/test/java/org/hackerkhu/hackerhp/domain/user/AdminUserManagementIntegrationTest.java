@@ -302,7 +302,7 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
         .containsExactly(AdminAction.GRANT_ADMIN, AdminAction.REVOKE_ADMIN);
   }
 
-  /** <b>Status는 건드리지 않는다</b> (§2-2-5). 권한을 회수한다고 정지되는 것이 아니다. */
+  /** 이미 활동 중인 회원의 승격은 상태를 그대로 둔다. */
   @Test
   void changingRoleLeavesStatusAlone() throws Exception {
     User member =
@@ -311,6 +311,30 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
     mockMvc.perform(roleRequest(admin, member.getId(), Role.ADMIN)).andExpect(status().isOk());
 
     assertThat(reload(member).getStatus()).isEqualTo(Status.ACTIVE);
+  }
+
+  /** #324. 비활동·정지 일반 회원의 승격은 중간 invalid 조합 없이 활동 관리자로 끝난다. */
+  @Test
+  void grantingAdminNormalizesInactiveAndSuspendedMembersToActive() throws Exception {
+    User inactive =
+        userRepository.saveAndFlush(Accounts.inactive("sub-i", "inactive@khu.ac.kr", "20250003"));
+    User suspended =
+        userRepository.saveAndFlush(Accounts.suspended("sub-s", "suspended@khu.ac.kr", "20250004"));
+
+    for (User member : List.of(inactive, suspended)) {
+      mockMvc
+          .perform(roleRequest(admin, member.getId(), Role.ADMIN))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.role").value("ADMIN"))
+          .andExpect(jsonPath("$.status").value("ACTIVE"))
+          .andExpect(jsonPath("$.deactivatedAt").isEmpty());
+
+      User promoted = reload(member);
+      assertThat(promoted.getRole()).isEqualTo(Role.ADMIN);
+      assertThat(promoted.getStatus()).isEqualTo(Status.ACTIVE);
+      assertThat(promoted.getDeactivatedAt()).isNull();
+      assertThat(historyOf(promoted)).containsExactly(AdminAction.GRANT_ADMIN);
+    }
   }
 
   /** 이미 그 권한이면 아무것도 바뀌지 않고, <b>이력도 쌓이지 않는다</b> (#143). */
@@ -553,7 +577,8 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
     mockMvc
         .perform(sessions.as(admin, get("/api/v1/notices/" + noticeId)))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.authorName").value("김부원"));
+        // 표시 이름이라 학번 끝 두 자리가 붙는다 (#301, 3-2 §3-2-2).
+        .andExpect(jsonPath("$.authorName").value("김부원02"));
 
     mockMvc.perform(removeRequest(admin, member.getId())).andExpect(status().isNoContent());
 

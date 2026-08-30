@@ -278,9 +278,9 @@ class InactiveAccessIntegrationTest extends AbstractIntegrationTest {
         .isEqualTo(Status.INACTIVE);
   }
 
-  /** T-349. 비활동 부원을 관리자로 만들지 않는다 — <b>자료를 못 보는 관리자</b>가 생긴다. */
+  /** #324. 비활동 부원 승격은 같은 트랜잭션에서 활동 관리자로 정규화한다. */
   @Test
-  void anInactiveMemberCannotBePromoted() throws Exception {
+  void anInactiveMemberIsPromotedAsAnActiveAdmin() throws Exception {
     User admin = userRepository.saveAndFlush(Accounts.admin("sub-ad", "ad@khu.ac.kr", "20200001"));
 
     mockMvc
@@ -292,8 +292,14 @@ class InactiveAccessIntegrationTest extends AbstractIntegrationTest {
                         patch("/api/v1/admin/users/" + inactive.getId() + "/role")
                             .contentType("application/json")
                             .content("{\"role\":\"ADMIN\"}"))))
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.role").value("ADMIN"))
+        .andExpect(jsonPath("$.status").value("ACTIVE"))
+        .andExpect(jsonPath("$.deactivatedAt").isEmpty());
+
+    User promoted = userRepository.findById(inactive.getId()).orElseThrow();
+    assertThat(promoted.getStatus()).isEqualTo(Status.ACTIVE);
+    assertThat(promoted.getDeactivatedAt()).isNull();
   }
 
   /** T-352. 목록을 상태로 추릴 수 있다 — 복구할 사람을 고를 근거다. */

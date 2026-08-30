@@ -72,7 +72,12 @@ export function AccountMenu({
           열린 뒤 화살표로 항목을 옮기고 Escape로 닫는다. 직접 만들지 않는 이유가 이것이다.
         */}
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="계정 메뉴">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-11 lg:size-9"
+            aria-label="계정 메뉴"
+          >
             <UserRound />
           </Button>
         </DropdownMenuTrigger>

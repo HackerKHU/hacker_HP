@@ -223,10 +223,7 @@ public class UserRemovalService {
     if (target.getStatus() == Status.PENDING) {
       return;
     }
-    statusService.change(
-        requesterId,
-        targetId,
-        org.hackerkhu.hackerhp.domain.user.dto.StatusChangeRequest.Target.SUSPENDED);
+    statusService.suspendForRemoval(requesterId, targetId);
   }
 
   private Instant delete(Long requesterId, Long targetId) {

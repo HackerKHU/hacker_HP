@@ -38,6 +38,10 @@ function retentionSection() {
   return screen.getByText('5. 보관과 파기').parentElement as HTMLElement
 }
 
+function purposeSection() {
+  return screen.getByText('2. 수집·이용 목적').parentElement as HTMLElement
+}
+
 describe('개인정보처리방침', () => {
   // 랜딩과 같은 공개 페이지다. 가드 아래로 들어가면 비로그인이 못 본다.
   it('비로그인 상태에서 열린다', async () => {
@@ -153,6 +157,26 @@ describe('개인정보처리방침', () => {
    *
    * 학번만 보면 신청서에서 받는 두 값 중 하나가 빠져도 통과하므로 둘을 함께 본다.
    */
+  /*
+   * T-435 — **학번 뒷자리 노출을 고지한다** (#300 결정 18, #301).
+   *
+   * 결정 18은 이 고지를 **조건으로** 걸었다. 나머지 사례는 전부 서버가 만드는 표시 이름만
+   * 보므로, 이것이 없으면 **표시 이름만 배포해도 전부 통과한다** — 고지 없이 노출된다.
+   *
+   * 노출되지 **않는** 것까지 함께 본다. "학번을 보여준다"로만 적으면 다음 사람이 범위를
+   * 넓혀도 이 사례가 잡지 못한다.
+   */
+  it('학번 뒷자리가 다른 부원에게 보인다는 것을 알린다', async () => {
+    await openPrivacy()
+    const section = purposeSection()
+
+    expect(section).toHaveTextContent('학번 끝 두 자리')
+    expect(section).toHaveTextContent('다른 부원에게도 보입니다')
+    expect(section).toHaveTextContent(
+      '학번 전체나 학과, 이메일 주소는 다른 부원에게 보이지 않습니다',
+    )
+  })
+
   it('신청서에서 받는 학번과 학과를 모두 수집 항목에 적는다', async () => {
     await openPrivacy()
     const section = screen.getByText('1. 수집하는 개인정보')
