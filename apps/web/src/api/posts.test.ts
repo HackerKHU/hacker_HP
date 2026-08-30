@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearCookies, setCookie } from '@/test/cookies'
-import { countCodePoints, create, get, list, remove } from './posts'
+import { countCodePoints, create, get, list, remove, update } from './posts'
 
 /**
  * 게시판 API 래퍼.
@@ -133,13 +133,22 @@ describe('게시판 API 경로', () => {
   })
 
   /*
-   * **수정 함수는 없다.** 삭제는 관리자·작성자에게 열렸지만 수정은 여전히 범위 밖이다.
+   * **제목·본문만 통째로 보낸다.** 작성자는 인증 주체와 저장된 글로 서버가 판단한다.
    */
-  it('수정 함수를 내보내지 않는다', async () => {
-    const posts = await import('./posts')
+  it('수정은 CSRF를 실은 PATCH /posts/{id}에 원문을 보낸다', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(DETAIL))
 
-    expect(posts).not.toHaveProperty('update')
-    expect(posts).toHaveProperty('remove')
+    await update(701, { title: '  고친 제목  ', content: '\n  고친 본문\n' })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/v1/posts/701')
+    expect(init.method).toBe('PATCH')
+    expect(init.headers.get('X-XSRF-TOKEN')).toBe('test-token')
+    expect(JSON.parse(init.body)).toEqual({
+      title: '  고친 제목  ',
+      content: '\n  고친 본문\n',
+    })
+    expect(Object.keys(JSON.parse(init.body))).toEqual(['title', 'content'])
   })
 })
 

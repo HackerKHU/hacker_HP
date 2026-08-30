@@ -102,11 +102,12 @@ function App() {
             자유 게시판. **`/admin` 아래가 아니다** — 승인된 ACTIVE·INACTIVE 부원 모두
             조회·작성할 수 있다 (spec §3-1-3 매트릭스와 INACTIVE 예외 규칙).
 
-            **수정 라우트는 아직 없다** (#256). 삭제는 별도 라우트를 늘리지 않고 상세 화면에서
+            수정은 작성자 본인에게만 상세와 `/posts/:id/edit`에서 열고(#256·#279), 삭제는 별도 라우트를 늘리지 않고 상세 화면에서
             ACTIVE ADMIN 또는 ACTIVE·INACTIVE 작성자 본인에게 연다 (spec §3-2-5, #238·#278).
           */}
           <Route path="/posts" element={<PostListPage />} />
           <Route path="/posts/new" element={<PostFormPage />} />
+          <Route path="/posts/:id/edit" element={<PostFormPage />} />
           <Route path="/posts/:id" element={<PostDetailPage />} />
         </Route>
       </Route>

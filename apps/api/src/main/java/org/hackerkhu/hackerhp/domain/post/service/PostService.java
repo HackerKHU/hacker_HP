@@ -125,8 +125,8 @@ public class PostService {
   }
 
   /**
-   * 수정 (#256). <b>작성자 본인만</b> 할 수 있다 — 관리자도 예외가 아니다(D1, 결정 16과 별개로 신설한 결정 18). 보낸 것으로 통째로 바꾼다(D2,
-   * 자료 수정 #54와 같은 판단). 수정 기한은 두지 않는다(D4) — 오타는 나중에 발견된다.
+   * 수정 (#256). <b>작성자 본인만</b> 할 수 있다 — 관리자 역할도 예외를 만들지 않는다(D1, 결정 21). 보낸 것으로 통째로 바꾼다(D2, 자료 수정
+   * #54와 같은 판단). 수정 기한은 두지 않는다(D4) — 오타는 나중에 발견된다.
    */
   @Transactional
   public PostDetailResponse edit(Long requesterId, Long id, PostCreateRequest request) {

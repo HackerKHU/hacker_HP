@@ -1,9 +1,22 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
-import { MemoryRouter, Route, Routes } from '@/test/TestRouter'
+import { RequireActive } from '@/routes/guards'
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigationType,
+} from '@/test/TestRouter'
 import { PostFormPage } from './PostFormPage'
 
 /**
@@ -16,8 +29,19 @@ import { PostFormPage } from './PostFormPage'
 
 const api = vi.hoisted(() => ({
   created: [] as { title: string; content: string }[],
+  updated: [] as { id: number; title: string; content: string }[],
+  fetched: 0,
+  post: null as import('@/api/posts').PostDetail | null,
+  getFails: null as unknown,
+  getImpl: null as (() => Promise<import('@/api/posts').PostDetail>) | null,
   /** 다음 등록을 실패시킨다. 서버가 거부했을 때의 화면을 보려면 필요하다. */
   failWith: null as unknown,
+  updateImpl: null as
+    | ((
+        id: number,
+        body: { title: string; content: string },
+      ) => Promise<import('@/api/posts').PostDetail>)
+    | null,
 }))
 
 vi.mock('@/api/posts', async (importOriginal) => {
@@ -37,6 +61,30 @@ vi.mock('@/api/posts', async (importOriginal) => {
         updatedAt: '2026-08-01T09:00:00Z',
       })
     },
+    get: () => {
+      api.fetched += 1
+      if (api.getImpl) return api.getImpl()
+      if (api.getFails) return Promise.reject(api.getFails)
+      if (api.post) return Promise.resolve(api.post)
+      return Promise.reject(
+        new ApiError('NOT_FOUND', 404, '게시글을 찾을 수 없습니다.'),
+      )
+    },
+    update: (id: number, body: { title: string; content: string }) => {
+      if (api.failWith) return Promise.reject(api.failWith)
+      api.updated.push({ id, ...body })
+      if (api.updateImpl) return api.updateImpl(id, body)
+      if (!api.post) {
+        return Promise.reject(
+          new ApiError('NOT_FOUND', 404, '게시글을 찾을 수 없습니다.'),
+        )
+      }
+      return Promise.resolve({
+        ...api.post,
+        ...body,
+        updatedAt: '2026-08-02T09:00:00Z',
+      })
+    },
   }
 })
 
@@ -53,18 +101,42 @@ const BASE: User = {
   approvedAt: '2026-03-03T09:00:00Z',
 }
 
+const auth = vi.hoisted(() => ({ me: null as User | null }))
+
 vi.mock('@/api/auth', () => ({
-  getMe: () => Promise.resolve(BASE),
+  getMe: () => Promise.resolve(auth.me),
   logout: () => Promise.resolve(),
 }))
 
-function renderForm() {
+const EXISTING = {
+  id: 701,
+  title: '  기존 제목  ',
+  content: '\n  기존 본문\n',
+  author: { id: BASE.id, name: BASE.name },
+  createdAt: '2026-08-01T09:00:00Z',
+  updatedAt: '2026-08-01T09:00:00Z',
+}
+
+function NavigationProbe() {
+  const { pathname } = useLocation()
+  const navigationType = useNavigationType()
+  return <div data-testid="navigation">{`${pathname}:${navigationType}`}</div>
+}
+
+function renderForm(path = '/posts/new') {
   render(
-    <MemoryRouter initialEntries={['/posts/new']}>
+    <MemoryRouter initialEntries={[path]}>
       <SessionProvider>
+        <NavigationProbe />
         <Routes>
-          <Route path="/posts/new" element={<PostFormPage />} />
-          <Route path="/posts/:id" element={<h1>게시글 상세</h1>} />
+          <Route element={<RequireActive />}>
+            <Route path="/posts/new" element={<PostFormPage />} />
+            <Route path="/posts/:id/edit" element={<PostFormPage />} />
+            <Route path="/posts/:id" element={<h1>게시글 상세</h1>} />
+          </Route>
+          <Route path="/login" element={<h1>로그인</h1>} />
+          <Route path="/pending" element={<h1>승인 대기 중</h1>} />
+          <Route path="/notices" element={<h1>공지사항</h1>} />
         </Routes>
       </SessionProvider>
     </MemoryRouter>,
@@ -82,7 +154,14 @@ async function fill(title: string, content: string) {
 
 beforeEach(() => {
   api.created = []
+  api.updated = []
+  api.fetched = 0
+  api.post = EXISTING
+  api.getFails = null
+  api.getImpl = null
   api.failWith = null
+  api.updateImpl = null
+  auth.me = BASE
 })
 
 describe('글쓰기', () => {
@@ -241,5 +320,187 @@ describe('글쓰기', () => {
     )
     expect(screen.queryByRole('heading', { name: '게시글 상세' })).toBeNull()
     expect(screen.getByLabelText('제목')).toHaveValue('제목')
+  })
+})
+
+describe('게시글 수정', () => {
+  it('작성자에게만 원문을 채운 폼을 보여주고 PATCH 후 상세로 replace 이동한다', async () => {
+    renderForm('/posts/701/edit')
+
+    expect(await screen.findByLabelText('제목')).toHaveValue('  기존 제목  ')
+    expect(screen.getByLabelText('내용')).toHaveValue('\n  기존 본문\n')
+    fireEvent.change(screen.getByLabelText('제목'), {
+      target: { value: '  고친 제목  ' },
+    })
+    fireEvent.change(screen.getByLabelText('내용'), {
+      target: { value: '\n  고친 본문\n' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '수정' }))
+
+    expect(
+      await screen.findByRole('heading', { name: '게시글 상세' }),
+    ).toBeVisible()
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '게시글을 수정했습니다.',
+    )
+    expect(screen.getByTestId('navigation')).toHaveTextContent(
+      '/posts/701:REPLACE',
+    )
+    expect(api.updated).toEqual([
+      { id: 701, title: '  고친 제목  ', content: '\n  고친 본문\n' },
+    ])
+  })
+
+  it.each([
+    ['INACTIVE 작성자', { ...BASE, status: 'INACTIVE' as const }],
+    ['ADMIN 작성자', { ...BASE, role: 'ADMIN' as const }],
+  ])('%s도 자기 글 수정 폼을 연다', async (_label, me) => {
+    auth.me = me
+    api.post = { ...EXISTING, author: { id: me.id, name: me.name } }
+
+    renderForm('/posts/701/edit')
+
+    expect(await screen.findByLabelText('제목')).toHaveValue(EXISTING.title)
+    expect(screen.getByRole('button', { name: '수정' })).toBeEnabled()
+  })
+
+  it.each([
+    ['다른 USER', { ...BASE }, { id: 99, name: '권승원66' }],
+    [
+      '다른 ADMIN',
+      { ...BASE, role: 'ADMIN' as const },
+      { id: 99, name: '권승원66' },
+    ],
+    ['탈퇴한 작성자', { ...BASE }, { id: null, name: '탈퇴한 회원' }],
+  ])('%s는 제목·본문 폼을 볼 수 없다', async (_label, me, author) => {
+    auth.me = me
+    api.post = { ...EXISTING, author }
+
+    renderForm('/posts/701/edit')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '본인이 쓴 게시글만 수정할 수 있습니다.',
+    )
+    expect(screen.queryByLabelText('제목')).toBeNull()
+    expect(screen.queryByLabelText('내용')).toBeNull()
+    expect(screen.queryByDisplayValue(EXISTING.content)).toBeNull()
+    expect(api.updated).toEqual([])
+  })
+
+  it.each([
+    ['비로그인', null, '로그인'],
+    [
+      'PENDING',
+      { ...BASE, status: 'PENDING' as const, approvedAt: null },
+      '승인 대기 중',
+    ],
+    ['SUSPENDED', { ...BASE, status: 'SUSPENDED' as const }, '로그인'],
+  ])('%s는 직접 수정 URL에서도 가드가 막는다', async (_label, me, heading) => {
+    auth.me = me
+
+    renderForm('/posts/701/edit')
+
+    expect(await screen.findByRole('heading', { name: heading })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '게시글 수정' })).toBeNull()
+    expect(api.fetched).toBe(0)
+  })
+
+  it('기존 글을 읽는 동안 폼을 노출하지 않는다', async () => {
+    api.getImpl = () => new Promise(() => undefined)
+
+    renderForm('/posts/701/edit')
+
+    await screen.findByRole('heading', { name: '게시글 수정' })
+    const surface = document.querySelector('[data-detail-surface="post-form"]')
+    if (!(surface instanceof HTMLElement)) {
+      throw new Error('게시글 폼 surface가 없다')
+    }
+    expect(within(surface).getByText('불러오는 중')).toBeVisible()
+    expect(screen.queryByLabelText('제목')).toBeNull()
+    expect(screen.queryByLabelText('내용')).toBeNull()
+  })
+
+  it('없는 글이면 폼 대신 NOT_FOUND 안내를 보여준다', async () => {
+    api.post = null
+
+    renderForm('/posts/999999/edit')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '게시글을 찾을 수 없습니다.',
+    )
+    expect(screen.queryByLabelText('제목')).toBeNull()
+  })
+
+  it('확정된 4xx 실패는 서버 사유를 알리고 입력과 수정 화면을 지킨다', async () => {
+    api.failWith = new ApiError(
+      'FORBIDDEN',
+      403,
+      '본인이 쓴 글만 수정할 수 있습니다.',
+    )
+    renderForm('/posts/701/edit')
+    await screen.findByLabelText('제목')
+
+    fireEvent.click(screen.getByRole('button', { name: '수정' }))
+
+    const error = await screen.findByRole('alert')
+    expect(error).toHaveTextContent('게시글을 수정하지 못했습니다.')
+    expect(error).toHaveTextContent('본인이 쓴 글만 수정할 수 있습니다.')
+    expect(screen.getByLabelText('제목')).toHaveValue(EXISTING.title)
+    expect(screen.getByTestId('navigation')).toHaveTextContent(
+      '/posts/701/edit',
+    )
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it.each([
+    [new ApiError('NETWORK_ERROR', 0, '서버에 연결하지 못했습니다.')],
+    [new ApiError('INVALID_RESPONSE', 500, '서버 오류가 발생했습니다.')],
+  ])(
+    '네트워크·5xx는 수정 결과가 불확정임을 알리고 이동하지 않는다',
+    async (error) => {
+      api.failWith = error
+      renderForm('/posts/701/edit')
+      await screen.findByLabelText('제목')
+
+      fireEvent.click(screen.getByRole('button', { name: '수정' }))
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('게시글 수정 결과를 확인할 수 없습니다')
+      expect(alert).toHaveTextContent('수정이 반영되었을 수 있으니')
+      expect(alert).toHaveTextContent('게시글 상세에서 확인')
+      expect(screen.getByTestId('navigation')).toHaveTextContent(
+        '/posts/701/edit',
+      )
+      expect(screen.queryByRole('status')).toBeNull()
+    },
+  )
+
+  it('확인을 빠르게 두 번 실행해도 PATCH는 한 번만 보낸다', async () => {
+    let finish!: (post: import('@/api/posts').PostDetail) => void
+    api.updateImpl = () =>
+      new Promise((resolve) => {
+        finish = resolve
+      })
+    renderForm('/posts/701/edit')
+    await screen.findByLabelText('제목')
+    const action = screen.getByRole('button', { name: '수정' })
+
+    fireEvent.click(action)
+    fireEvent.click(action)
+
+    expect(api.updated).toHaveLength(1)
+    finish({ ...EXISTING, title: '고친 제목' })
+    await screen.findByRole('heading', { name: '게시글 상세' })
+  })
+
+  it('세션 전이 오류는 공통 처리에 맡기고 성공 알림을 만들지 않는다', async () => {
+    api.failWith = new ApiError('SUSPENDED', 403, '정지된 계정입니다.')
+    renderForm('/posts/701/edit')
+    await screen.findByLabelText('제목')
+
+    fireEvent.click(screen.getByRole('button', { name: '수정' }))
+
+    expect(await screen.findByRole('heading', { name: '로그인' })).toBeVisible()
+    expect(screen.queryByRole('status')).toBeNull()
   })
 })
