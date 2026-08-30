@@ -218,7 +218,8 @@ class NoteUploadIntegrationTest extends AbstractIntegrationTest {
             .perform(jsonPost(me, NOTES, createBody(key, "정리본.pdf")))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.uploader.id").value(me.getId()))
-            .andExpect(jsonPath("$.uploader.name").value("김부원"))
+            // 표시 이름이라 학번 끝 두 자리가 붙는다 (#301, 3-2 §3-2-2).
+            .andExpect(jsonPath("$.uploader.name").value("김부원01"))
             .andExpect(jsonPath("$.files[0].originalName").value("정리본.pdf"))
             .andExpect(jsonPath("$.files[0].sizeBytes").value(2048))
             .andReturn()

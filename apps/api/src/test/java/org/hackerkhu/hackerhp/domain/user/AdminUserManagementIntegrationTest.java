@@ -420,7 +420,8 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
     mockMvc
         .perform(sessions.as(admin, get("/api/v1/notices/" + noticeId)))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.authorName").value("김부원"));
+        // 표시 이름이라 학번 끝 두 자리가 붙는다 (#301, 3-2 §3-2-2).
+        .andExpect(jsonPath("$.authorName").value("김부원02"));
 
     mockMvc.perform(removeRequest(admin, member.getId())).andExpect(status().isNoContent());
 
