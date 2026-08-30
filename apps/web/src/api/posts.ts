@@ -1,6 +1,7 @@
 import { request, toQuery } from './client'
 import {
   fixtureCreatePost,
+  fixtureEditPost,
   fixturePost,
   fixturePosts,
   fixtureRemovePost,
@@ -80,8 +81,8 @@ export function get(id: number): Promise<PostDetail> {
 /**
  * 등록. **작성자는 인증 주체로만 정한다** (spec §2-1-8 MUST) — 본문으로 받지 않는다.
  *
- * **수정 함수가 없는 것은 빠뜨린 것이 아니다.** 계약에 그 경로가 없다
- * (spec §3-2-5). 삭제는 아래 관리자·작성자 공용 경로가 맡는다.
+ * 수정도 같은 본문 모양을 쓰지만 작성자 본인만 가능하다. 작성자 id는 어느 요청에도
+ * 담지 않고 서버가 인증 주체와 저장된 작성자를 비교한다 (spec §3-2-5).
  */
 export function create(body: {
   title: string
@@ -91,6 +92,19 @@ export function create(body: {
     return fixtureCreatePost(body)
   return request<PostDetail>('/posts', {
     method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+/** 작성자가 제목·본문을 보낸 값으로 통째로 바꾼다 (spec §3-2-5, #256). */
+export function update(
+  id: number,
+  body: { title: string; content: string },
+): Promise<PostDetail> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true')
+    return fixtureEditPost(id, body)
+  return request<PostDetail>(`/posts/${id}`, {
+    method: 'PATCH',
     body: JSON.stringify(body),
   })
 }

@@ -31,7 +31,8 @@ type Status = 'loading' | 'loaded' | 'notFound' | 'failed'
  * **링크 자동 변환도 넣지 않는다.** 본문의 URL을 `<a>`로 바꾸려면 `javascript:` 같은
  * 스킴을 걸러야 하는데, 그 필터를 직접 쓰는 것이 이 기능의 값을 넘는다.
  *
- * 수정은 없고, 삭제는 `ACTIVE ADMIN` 또는 `ACTIVE`·`INACTIVE` 작성자 본인에게 보인다.
+ * 수정은 세션 사용자 id와 작성자 id가 같을 때만 보이고 역할 예외는 없다. 삭제는
+ * `ACTIVE ADMIN` 또는 `ACTIVE`·`INACTIVE` 작성자 본인에게 보인다.
  * 노출 제어와 별개로 서버도 잠근 최신 계정·게시글 행으로 권한을 다시 확인한다
  * (spec §3-1-3, §3-2-5).
  */
@@ -46,9 +47,14 @@ export function PostDetailPage() {
   const [deleting, setDeleting] = useState(false)
   // React가 disabled를 다시 그리기 전의 연속 확인도 한 요청으로 접는다.
   const deletingRef = useRef(false)
+  const canEdit =
+    state.kind === 'active' &&
+    post?.author.id !== null &&
+    post?.author.id === state.user.id
   const canDelete =
     state.kind === 'active' &&
-    (state.user.role === 'ADMIN' || post?.author.id === state.user.id)
+    (state.user.role === 'ADMIN' ||
+      (post?.author.id !== null && post?.author.id === state.user.id))
 
   useEffect(() => {
     let alive = true
@@ -140,50 +146,69 @@ export function PostDetailPage() {
             {post.title}
           </h1>
 
-          <div className="mt-2 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
               {/* 작성자 이름은 절대 비지 않는다 — 제거되면 "탈퇴한 회원"이다 (§2-1-8). */}
               <span>{post.author.name}</span>
               <span aria-hidden="true">·</span>
               <time dateTime={post.createdAt}>
                 {formatDateTime(post.createdAt)}
               </time>
+              {post.updatedAt !== post.createdAt && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <time dateTime={post.updatedAt}>
+                    수정됨 {formatDateTime(post.updatedAt)}
+                  </time>
+                </>
+              )}
             </div>
 
-            {canDelete && (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    className="shrink-0"
-                    disabled={deleting}
-                  >
-                    삭제
+            {(canEdit || canDelete) && (
+              <div className="flex shrink-0 items-center gap-2">
+                {canEdit && (
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to={`/posts/${post.id}/edit`}>수정</Link>
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>게시글을 삭제할까요?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      「{post.title}」을(를) 완전히 삭제합니다. 되돌릴 수
-                      없습니다.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={deleting}>
-                      취소
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      variant="destructive"
-                      disabled={deleting}
-                      onClick={handleDelete}
-                    >
-                      삭제
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+                )}
+                {canDelete && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="shrink-0"
+                        disabled={deleting}
+                      >
+                        삭제
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          게시글을 삭제할까요?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          「{post.title}」을(를) 완전히 삭제합니다. 되돌릴 수
+                          없습니다.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel disabled={deleting}>
+                          취소
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                          variant="destructive"
+                          disabled={deleting}
+                          onClick={handleDelete}
+                        >
+                          삭제
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+              </div>
             )}
           </div>
 

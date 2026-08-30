@@ -38,10 +38,7 @@ public class Post {
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
 
-  /**
-   * 수정 기능은 아직 없다 (3-3 결정 16). 그래도 열을 두는 것은 다른 테이블과 모양을 맞추기 위해서다 — 등록 시 {@code createdAt}과 같은 값이
-   * 들어가고, 수정이 들어오면(#256) 그때부터 움직인다.
-   */
+  /** 등록 시 {@code createdAt}과 같은 값이 들어가고, 수정하면(#256, {@link #edit}) 그때부터 움직인다. */
   @Column(name = "updated_at", nullable = false)
   private Instant updatedAt;
 
@@ -60,6 +57,16 @@ public class Post {
     post.createdAt = now;
     post.updatedAt = now;
     return post;
+  }
+
+  /**
+   * 수정 (#256). <b>보낸 것으로 통째로 바꾼다</b> — 자료 수정(#54)과 같은 판단이다. {@code authorId}는 건드리지 않는다: 소유자 검증은 저장
+   * 전 서비스가 이미 끝냈고, 이 메서드는 그 결과를 반영할 뿐이다.
+   */
+  public void edit(String title, String content, Instant now) {
+    this.title = title;
+    this.content = content;
+    this.updatedAt = now;
   }
 
   public Long getId() {

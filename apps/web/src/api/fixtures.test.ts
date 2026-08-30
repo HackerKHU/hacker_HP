@@ -1460,6 +1460,83 @@ describe('게시판 픽스처', () => {
     await expect(fixturePost(other.id)).resolves.toBeTruthy()
   })
 
+  it('작성자가 수정하면 제목·본문을 통째로 바꾸고 작성자·등록일을 보존한다', async () => {
+    const { fixtureEditPost, fixturePost, fixturePosts } =
+      await loadFixtures('user')
+    const page = await fixturePosts({ size: 100 })
+    const mine = page.content.find((post) => post.author.id === 1)
+    if (!mine) throw new Error('일반 부원 작성 글 fixture가 없다')
+    const before = await fixturePost(mine.id)
+    const beforeAuthor = { ...before.author }
+    const beforeCreatedAt = before.createdAt
+    const beforeUpdatedAt = before.updatedAt
+
+    const edited = await fixtureEditPost(mine.id, {
+      title: '  고친 제목  ',
+      content: '\n  들여쓴 고친 본문\n',
+    })
+
+    expect(edited.title).toBe('고친 제목')
+    expect(edited.content).toBe('\n  들여쓴 고친 본문\n')
+    expect(edited.author).toEqual(beforeAuthor)
+    expect(edited.createdAt).toBe(beforeCreatedAt)
+    expect(edited.updatedAt).not.toBe(beforeUpdatedAt)
+    await expect(fixturePost(mine.id)).resolves.toMatchObject({
+      title: '고친 제목',
+      content: '\n  들여쓴 고친 본문\n',
+    })
+  })
+
+  it.each([
+    ['user', '남의 글', 99],
+    ['admin', '관리자도 남의 글', 99],
+    ['user', '탈퇴한 회원의 글', null],
+  ])(
+    '%s 시나리오는 %s을 수정할 수 없다',
+    async (scenario, _label, authorId) => {
+      const { fixtureEditPost, fixturePosts, ApiError } =
+        await loadFixtures(scenario)
+      const page = await fixturePosts({ size: 100 })
+      const target = page.content.find((post) => post.author.id === authorId)
+      if (!target) throw new Error('권한 검사용 게시글 fixture가 없다')
+
+      const error = await fixtureEditPost(target.id, {
+        title: '가로챈 제목',
+        content: '가로챈 본문',
+      }).catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(ApiError)
+      expect((error as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+    },
+  )
+
+  it('관리자도 자기 글은 작성자 자격으로 수정한다', async () => {
+    const { fixtureCreatePost, fixtureEditPost } = await loadFixtures('admin')
+    const mine = await fixtureCreatePost({
+      title: '관리자가 쓴 글',
+      content: '본문',
+    })
+
+    await expect(
+      fixtureEditPost(mine.id, { title: '관리자 수정', content: '본문' }),
+    ).resolves.toMatchObject({
+      title: '관리자 수정',
+      author: { id: 2 },
+    })
+  })
+
+  it('없는 글 수정은 NOT_FOUND다', async () => {
+    const { fixtureEditPost, ApiError } = await loadFixtures('user')
+
+    const error = await fixtureEditPost(999_999, {
+      title: '제목',
+      content: '본문',
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe('NOT_FOUND')
+  })
+
   it('관리자 권한을 회수하면 옛 admin 시나리오로 남의 글을 삭제할 수 없다', async () => {
     const {
       fixturePosts,
@@ -1600,9 +1677,14 @@ describe('비활동 시나리오 픽스처', () => {
    * 매트릭스의 `USER (INACTIVE)` 열에서 자료 네 행만 `X`이고 **나머지 열여덟은 `ACTIVE`와
    * 같다** (3-1 §3-1-3). 그중 화면이 실제로 부르는 것들을 여기서 확인한다.
    */
-  it('공지·활동사진·게시판 조회와 게시판 작성은 그대로 된다', async () => {
-    const { fixtureNotices, fixturePhotos, fixturePosts, fixtureCreatePost } =
-      await loadFixtures('inactive')
+  it('공지·활동사진·게시판 조회와 게시판 작성·수정은 그대로 된다', async () => {
+    const {
+      fixtureNotices,
+      fixturePhotos,
+      fixturePosts,
+      fixtureCreatePost,
+      fixtureEditPost,
+    } = await loadFixtures('inactive')
 
     await expect(fixtureNotices()).resolves.toBeTruthy()
     await expect(fixturePhotos()).resolves.toBeTruthy()
@@ -1613,6 +1695,12 @@ describe('비활동 시나리오 픽스처', () => {
       content: '자료만 막힌다 (3-1 §3-1-2).',
     })
     expect(written.title).toBe('비활동 부원도 글을 쓴다')
+    await expect(
+      fixtureEditPost(written.id, {
+        title: '비활동 중 고친 글',
+        content: '수정도 자료 기능이 아니다.',
+      }),
+    ).resolves.toMatchObject({ title: '비활동 중 고친 글' })
   })
 
   /*

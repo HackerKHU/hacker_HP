@@ -32,6 +32,22 @@ vi.mock('./api/notices', () => ({
   togglePin: () => Promise.reject(new Error('이 파일에서는 쓰지 않는다')),
 }))
 
+vi.mock('./api/posts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./api/posts')>()
+  return {
+    ...actual,
+    get: (id: number) =>
+      Promise.resolve({
+        id,
+        title: '내 게시글',
+        content: '내 본문',
+        author: { id: BASE.id, name: BASE.name },
+        createdAt: '2026-08-01T09:00:00Z',
+        updatedAt: '2026-08-01T09:00:00Z',
+      }),
+  }
+})
+
 const BASE: User = {
   id: 1,
   email: 'member@khu.ac.kr',
@@ -105,6 +121,18 @@ async function openAccountMenu() {
 }
 
 describe('라우트 가드', () => {
+  it('작성자는 실제 /posts/:id/edit 라우트에서 수정 폼을 연다', async () => {
+    auth.me = () => Promise.resolve(BASE)
+
+    renderAt('/posts/701/edit')
+
+    expect(
+      await screen.findByRole('heading', { name: '게시글 수정' }),
+    ).toBeVisible()
+    expect(await screen.findByLabelText('제목')).toHaveValue('내 게시글')
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/posts/701/edit')
+  })
+
   it('PENDING 사용자가 보호 라우트에 가면 대기중 안내로 되돌린다', async () => {
     auth.me = () =>
       Promise.resolve({ ...BASE, status: 'PENDING', approvedAt: null })

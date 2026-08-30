@@ -1999,6 +1999,62 @@ export function fixturePost(id: number): Promise<PostDetail> {
   return Promise.resolve(found)
 }
 
+function validatePost(body: {
+  title: string
+  content: string
+}): ApiError | null {
+  /* 서버의 @NotBlank·@CodePointSize와 같이 다듬기 전 원문을 검사한다. */
+  if (body.title.trim() === '' || body.content.trim() === '') {
+    return new ApiError('VALIDATION_ERROR', 400, '제목과 내용을 입력해 주세요.')
+  }
+  if ([...body.title].length > 200) {
+    return new ApiError(
+      'VALIDATION_ERROR',
+      400,
+      '제목은 200자까지 쓸 수 있습니다.',
+    )
+  }
+  if ([...body.content].length > 10000) {
+    return new ApiError(
+      'VALIDATION_ERROR',
+      400,
+      '내용은 10,000자까지 쓸 수 있습니다.',
+    )
+  }
+  return null
+}
+
+/** 작성자 본인이 제목·본문을 통째로 바꾼다. 관리자 역할도 남의 글 수정 권한을 주지 않는다. */
+export function fixtureEditPost(
+  id: number,
+  body: { title: string; content: string },
+): Promise<PostDetail> {
+  const found = POSTS.find((post) => post.id === id)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '게시글을 찾을 수 없습니다.'),
+    )
+  }
+
+  const me = viewer()
+  if (found.author.id === null || found.author.id !== me.id) {
+    return Promise.reject(
+      new ApiError('FORBIDDEN', 403, '본인이 쓴 글만 수정할 수 있습니다.'),
+    )
+  }
+
+  const invalid = validatePost(body)
+  if (invalid) return Promise.reject(invalid)
+
+  found.title = body.title.trim()
+  found.content = body.content
+  /* 새 글을 즉시 고쳐도 createdAt과 달라지도록 최소 1ms 뒤로 단조 증가시킨다. */
+  found.updatedAt = new Date(
+    Math.max(Date.now(), Date.parse(found.updatedAt) + 1),
+  ).toISOString()
+  return Promise.resolve(found)
+}
+
 /** 게시글 완전 삭제는 활성 관리자 또는 ACTIVE·INACTIVE 작성자 본인만 가능하다. */
 export function fixtureRemovePost(id: number): Promise<void> {
   if (SCENARIO === 'guest') {
@@ -2065,29 +2121,8 @@ export function fixtureCreatePost(body: {
   title: string
   content: string
 }): Promise<PostDetail> {
-  /*
-   * **검사는 원문에 건다.** 서버의 `@NotBlank`·`@CodePointSize`도 다듬기 전 값에 걸린다 —
-   * 화면이 다듬은 뒤 재면 상한 언저리에서 판정이 갈린다.
-   */
-  if (body.title.trim() === '' || body.content.trim() === '') {
-    return Promise.reject(
-      new ApiError('VALIDATION_ERROR', 400, '제목과 내용을 입력해 주세요.'),
-    )
-  }
-  if ([...body.title].length > 200) {
-    return Promise.reject(
-      new ApiError('VALIDATION_ERROR', 400, '제목은 200자까지 쓸 수 있습니다.'),
-    )
-  }
-  if ([...body.content].length > 10000) {
-    return Promise.reject(
-      new ApiError(
-        'VALIDATION_ERROR',
-        400,
-        '내용은 10,000자까지 쓸 수 있습니다.',
-      ),
-    )
-  }
+  const invalid = validatePost(body)
+  if (invalid) return Promise.reject(invalid)
 
   const me = SCENARIO === 'admin' ? USERS.admin : USERS.user
   /*

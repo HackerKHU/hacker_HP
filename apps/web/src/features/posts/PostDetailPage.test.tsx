@@ -89,6 +89,7 @@ function renderDetail() {
         <SessionProbe />
         <Routes>
           <Route path="/posts/:id" element={<PostDetailPage />} />
+          <Route path="/posts/:id/edit" element={<h1>게시글 수정</h1>} />
           <Route path="/posts" element={<h1>자유게시판</h1>} />
         </Routes>
       </SessionProvider>
@@ -121,6 +122,18 @@ describe('게시글 상세', () => {
     ).toBeVisible()
     expect(screen.getByText(/매주 수요일 저녁 7시입니다/)).toBeVisible()
     expect(screen.getByText('권승원66')).toBeVisible()
+    expect(screen.queryByText(/수정됨/)).toBeNull()
+  })
+
+  it('수정 시각이 등록 시각과 다르면 수정됨과 시각을 표시한다', async () => {
+    api.post = { ...POST, updatedAt: '2026-08-02T10:30:00Z' }
+
+    renderDetail()
+
+    const marker = await screen.findByText(/수정됨/)
+    expect(marker).toBeVisible()
+    expect(marker.tagName).toBe('TIME')
+    expect(marker).toHaveAttribute('datetime', api.post.updatedAt)
   })
 
   it('본문의 HTML을 실행하지 않고 글자 그대로 보여준다', async () => {
@@ -165,6 +178,55 @@ describe('게시글 상세', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '게시글을 찾을 수 없습니다',
     )
+  })
+})
+
+describe('작성자 게시글 수정 진입점', () => {
+  it.each([
+    ['ACTIVE USER', { ...BASE }],
+    ['INACTIVE USER', { ...BASE, status: 'INACTIVE' as const }],
+    ['ACTIVE ADMIN', { ...BASE, role: 'ADMIN' as const }],
+  ])('%s 작성자에게 수정이 보인다', async (_label, me) => {
+    auth.me = me
+    api.post = { ...POST, author: { id: me.id, name: me.name } }
+
+    renderDetail()
+
+    const edit = await screen.findByRole('link', { name: '수정' })
+    expect(edit).toHaveAttribute('href', `/posts/${POST.id}/edit`)
+  })
+
+  it.each([
+    ['다른 USER', { ...BASE }],
+    ['다른 ADMIN', { ...BASE, role: 'ADMIN' as const }],
+  ])('%s에게 남의 글 수정은 보이지 않는다', async (_label, me) => {
+    auth.me = me
+    api.post = { ...POST, author: { id: 99, name: '권승원66' } }
+
+    renderDetail()
+    await screen.findByRole('heading', { name: POST.title })
+
+    expect(screen.queryByRole('link', { name: '수정' })).toBeNull()
+  })
+
+  it('탈퇴한 회원의 글에는 누구에게도 수정이 보이지 않는다', async () => {
+    auth.me = { ...BASE }
+    api.post = { ...POST, author: { id: null, name: '탈퇴한 회원' } }
+
+    renderDetail()
+    await screen.findByRole('heading', { name: POST.title })
+
+    expect(screen.queryByRole('link', { name: '수정' })).toBeNull()
+  })
+
+  it('관리자가 작성자인 글에는 수정과 삭제가 함께 보인다', async () => {
+    auth.me = { ...BASE, role: 'ADMIN' }
+    api.post = { ...POST, author: { id: BASE.id, name: BASE.name } }
+
+    renderDetail()
+
+    expect(await screen.findByRole('link', { name: '수정' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '삭제' })).toBeVisible()
   })
 })
 

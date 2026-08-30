@@ -29,7 +29,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 자유 게시판 (spec 2-1 §2-1-8, 3-2 §3-2-5, 3-3 결정 16·17).
+ * 자유 게시판 (spec 2-1 §2-1-8, 3-2 §3-2-5, 3-3 결정 16·17·18).
  *
  * <p><b>본문을 건드리지 않는다.</b> 받은 문자열을 그대로 저장하고 그대로 내보낸다 — 마크다운으로 해석하지도, HTML을 정화하지도 않는다. 이스케이프는 화면이 텍스트
  * 노드로 그리면서 한다. <b>서버가 정화를 시작하면 그 규칙이 어디까지인지 아무도 모르게 된다.</b>
@@ -122,6 +122,39 @@ public class PostService {
      */
     log.info("게시글 등록: postId={} authorId={}", saved.getId(), authorId);
     return PostDetailResponse.of(saved, authorOf(saved, authors(List.of(saved))));
+  }
+
+  /**
+   * 수정 (#256). <b>작성자 본인만</b> 할 수 있다 — 관리자 역할도 예외를 만들지 않는다(D1, 결정 21). 보낸 것으로 통째로 바꾼다(D2, 자료 수정
+   * #54와 같은 판단). 수정 기한은 두지 않는다(D4) — 오타는 나중에 발견된다.
+   */
+  @Transactional
+  public PostDetailResponse edit(Long requesterId, Long id, PostCreateRequest request) {
+    /*
+     * 저장 직전에 요청자를 잠그고 다시 본다 (3-1 §3-1-7 MUST, write()와 같은 이유).
+     * 인가를 지난 뒤 정지되면 그 요청은 여기서 끊겨야 한다.
+     */
+    User requester = users.findByIdForUpdate(requesterId).orElse(null);
+    RequesterCheck.requireActive(requester, requesterId);
+
+    /* 삭제와 같은 계정 → 게시글 순서로 잠가 수정·삭제 경쟁을 한 줄로 세운다. */
+    Post post =
+        posts
+            .findByIdForUpdate(id)
+            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "게시글을 찾을 수 없습니다."));
+    if (!requesterId.equals(post.getAuthorId())) {
+      /*
+       * 작성자 본인만 고칠 수 있다 — 관리자도 예외가 아니다 (#256 D1). 작성자가 나간
+       * 글(authorId == null)은 아무도 고칠 수 없다 — "본인"이 성립하지 않는다.
+       */
+      log.info("남의 글을 고치려 했다: requesterId={} postId={}", requesterId, id);
+      throw new BusinessException(ErrorCode.FORBIDDEN, "본인이 쓴 글만 수정할 수 있습니다.");
+    }
+
+    // 제목은 자르고 본문은 그대로 둔다 — write()와 같은 규칙이다 (§3-2-5).
+    post.edit(request.title().trim(), request.content(), Instant.now());
+    log.info("게시글 수정: postId={} authorId={}", id, requesterId);
+    return PostDetailResponse.of(post, authorOf(post, authors(List.of(post))));
   }
 
   /**

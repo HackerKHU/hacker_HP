@@ -167,11 +167,11 @@
 
 그래서 `posts.author_id`는 **`ON DELETE SET NULL`이어야 한다** (MUST). 빠뜨리면 **글을 한 번이라도 쓴 회원은 삭제 자체가 FK 위반으로 실패한다** — `notices.author_id`가 정확히 그 상태로 만들어져 뒤늦게 마이그레이션으로 고쳤다 (#58).
 
-### 삭제는 관리자 또는 작성자 본인, 수정은 아직 없다
+### 수정은 작성자만, 삭제는 관리자 또는 작성자 본인
+
+**작성자 본인은 게시글 상세 화면에서 제목·본문을 통째로 고칠 수 있다** ([3-3 결정 21](3-3-DESIGN-DECISIONS.md#3-3-22-결정-21--작성자가-자유-게시판-글을-수정할-수-있다), [#256](https://github.com/HackerKHU/hacker_HP/issues/256), [#279](https://github.com/HackerKHU/hacker_HP/issues/279)). **관리자도 남의 글은 고칠 수 없다** — 관리자 자신이 쓴 글만 작성자 자격으로 수정한다. 수정 기한은 없다. `updated_at`이 `created_at`과 달라지면 상세가 "수정됨"을 표시하며 별도 표시 컬럼은 두지 않는다.
 
 **관리자는 모든 게시글을, 작성자는 자기 게시글을 상세 화면에서 완전히 지울 수 있다** ([3-3 결정 20](3-3-DESIGN-DECISIONS.md#3-3-21-결정-20--관리자와-작성자가-자유-게시판-글을-삭제할-수-있다), [#238](https://github.com/HackerKHU/hacker_HP/issues/238), [#278](https://github.com/HackerKHU/hacker_HP/issues/278)). `ACTIVE`·`INACTIVE` 작성자에게 열고 `PENDING`·`SUSPENDED` 및 탈퇴·제거되어 작성자 관계가 끊긴 계정에는 열지 않는다. 감춤이 아니라 완전 삭제이며 되돌릴 수 없으므로 제목과 결과를 명시한 확인 창을 먼저 거친다.
-
-**수정은 이번 범위에 없다** ([3-3 결정 16](3-3-DESIGN-DECISIONS.md#3-3-17-결정-16--자유-게시판은-평문불변으로-시작한다), [#256](https://github.com/HackerKHU/hacker_HP/issues/256)). 오타 하나도 고칠 수 없고, 다시 쓰려면 잘못된 글이 남은 채 새 글이 하나 더 생긴다.
 
 댓글·좋아요·첨부파일·카테고리·검색도 범위 밖이다.
 
