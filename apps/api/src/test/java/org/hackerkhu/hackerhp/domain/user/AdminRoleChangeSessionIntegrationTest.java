@@ -7,9 +7,17 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
+import org.hackerkhu.hackerhp.domain.audit.entity.AdminAction;
+import org.hackerkhu.hackerhp.domain.audit.entity.AdminActionLog;
+import org.hackerkhu.hackerhp.domain.audit.repository.AdminActionLogRepository;
+import org.hackerkhu.hackerhp.domain.user.entity.Role;
+import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.domain.user.service.AdminSuspensionPolicy;
+import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.testsupport.auth.TestSessions.SignedIn;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
@@ -21,6 +29,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.session.Session;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -40,6 +49,7 @@ class AdminRoleChangeSessionIntegrationTest extends AbstractIntegrationTest {
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository userRepository;
+  @Autowired private AdminActionLogRepository actions;
   @Autowired private JdbcTemplate jdbcTemplate;
 
   private User requester;
@@ -63,6 +73,12 @@ class AdminRoleChangeSessionIntegrationTest extends AbstractIntegrationTest {
 
   private String role(String value) {
     return "{\"role\":\"" + value + "\"}";
+  }
+
+  private List<AdminAction> historyOf(User user) {
+    return actions.findByTargetIdOrderByIdAsc(user.getId()).stream()
+        .map(AdminActionLog::getAction)
+        .toList();
   }
 
   /**
@@ -112,6 +128,60 @@ class AdminRoleChangeSessionIntegrationTest extends AbstractIntegrationTest {
         .andExpect(status().isOk());
 
     mockMvc.perform(memberSession.on(get(BASE))).andExpect(status().isOk());
+  }
+
+  /** #296 완료 흐름. 직접 정지는 아무것도 남기지 않고 거절되며, 권한 회수와 후속 정지는 각각 세션에 반영되고 감사 두 행으로 남는다. */
+  @Test
+  void revokingThenSuspendingLeavesTwoAuditsAndBothSessionEffects() throws Exception {
+    SignedIn targetSession = sessions.signIn(target);
+
+    mockMvc
+        .perform(
+            Csrf.with(
+                requesterSession
+                    .on(patch(BASE + "/" + target.getId() + "/status"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"status\":\"SUSPENDED\"}")))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("FORBIDDEN"))
+        .andExpect(jsonPath("$.message").value(AdminSuspensionPolicy.MESSAGE));
+    assertThat(historyOf(target)).isEmpty();
+
+    mockMvc
+        .perform(
+            Csrf.with(
+                requesterSession
+                    .on(patch(BASE + "/" + target.getId() + "/role"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(role("USER"))))
+        .andExpect(status().isOk());
+
+    mockMvc
+        .perform(targetSession.on(get(BASE)))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+    mockMvc
+        .perform(
+            Csrf.with(
+                requesterSession
+                    .on(patch(BASE + "/" + target.getId() + "/status"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"status\":\"SUSPENDED\"}")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.role").value("USER"))
+        .andExpect(jsonPath("$.status").value("SUSPENDED"));
+
+    mockMvc
+        .perform(targetSession.on(get(BASE)))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("SUSPENDED"));
+    assertThat(targetSession.storedInRepository()).as("정지는 세션을 지우지 않는다").isTrue();
+
+    Session stored = targetSession.repository().findById(targetSession.id());
+    assertThat(stored.<Role>getAttribute(AuthSession.ROLE)).isEqualTo(Role.USER);
+    assertThat(stored.<Status>getAttribute(AuthSession.STATUS)).isEqualTo(Status.SUSPENDED);
+    assertThat(historyOf(target)).containsExactly(AdminAction.REVOKE_ADMIN, AdminAction.SUSPEND);
   }
 
   /**

@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.domain.user.service.AdminSuspensionPolicy;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.junit.jupiter.api.AfterEach;
@@ -221,6 +222,21 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.components.schemas.ErrorResponse.properties.message").exists());
   }
 
+  /** #296. 상태 PATCH 명세도 관리자 권한 회수 선행과 정확한 거절 문구를 설명한다. */
+  @Test
+  void statusPatchDocumentsAdminRevocationBeforeSuspension() throws Exception {
+    String operation = "$.paths['/api/v1/admin/users/{id}/status'].patch";
+
+    mockMvc
+        .perform(signedIn(get(API_DOCS)))
+        .andExpect(
+            jsonPath(operation + ".description")
+                .value(org.hamcrest.Matchers.containsString(AdminSuspensionPolicy.MESSAGE)))
+        .andExpect(
+            jsonPath(operation + ".responses['403'].description")
+                .value(org.hamcrest.Matchers.containsString("관리자 권한을 먼저 회수")));
+  }
+
   /** #295. 선택 비활성화의 optional 본문·상한·부분 실패 reason이 생성된 계약에 드러난다. */
   @Test
   void selectedDeactivationContractAppearsInOpenApi() throws Exception {
@@ -241,5 +257,51 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
         .andExpect(
             jsonPath("$.components.schemas.DeactivateFailure.properties.reason.enum")
                 .value(org.hamcrest.Matchers.hasItems("NOT_FOUND", "NOT_ACTIVE_USER")));
+  }
+
+  /** #313. 일괄 활성화·정지의 required 본문·상한·응답·실패 reason을 생성 명세에서 검증한다. */
+  @Test
+  void bulkStatusChangeContractAppearsInOpenApi() throws Exception {
+    String operation = "$.paths['/api/v1/admin/users/status'].patch";
+
+    mockMvc
+        .perform(signedIn(get(API_DOCS)))
+        .andExpect(jsonPath(operation + ".requestBody.required").value(true))
+        .andExpect(
+            jsonPath(operation + ".requestBody.content['application/json'].schema.$ref")
+                .value("#/components/schemas/BulkStatusChangeRequest"))
+        .andExpect(
+            jsonPath("$.components.schemas.BulkStatusChangeRequest.required")
+                .value(org.hamcrest.Matchers.hasItems("userIds", "status")))
+        .andExpect(
+            jsonPath("$.components.schemas.BulkStatusChangeRequest.properties.userIds.minItems")
+                .value(1))
+        .andExpect(
+            jsonPath("$.components.schemas.BulkStatusChangeRequest.properties.userIds.maxItems")
+                .value(100))
+        .andExpect(
+            jsonPath(
+                    "$.components.schemas.BulkStatusChangeRequest.properties.userIds.items.minimum")
+                .value(1))
+        .andExpect(
+            jsonPath("$.components.schemas.BulkStatusChangeRequest.properties.status.enum")
+                .value(org.hamcrest.Matchers.contains("ACTIVE", "SUSPENDED")))
+        .andExpect(
+            jsonPath(operation + ".responses['200'].content['application/json'].schema.$ref")
+                .value("#/components/schemas/BulkStatusChangeResponse"))
+        .andExpect(
+            jsonPath("$.components.schemas.BulkStatusChangeResponse.required")
+                .value(org.hamcrest.Matchers.hasItems("targetStatus", "processed", "failed")))
+        .andExpect(
+            jsonPath("$.components.schemas.BulkStatusChangeFailure.properties.reason.enum")
+                .value(
+                    org.hamcrest.Matchers.hasItems(
+                        "NOT_FOUND",
+                        "NOT_APPLIED",
+                        "PENDING_NOT_ALLOWED",
+                        "ADMIN_SUSPEND_REQUIRES_ROLE_REVOCATION")))
+        .andExpect(
+            jsonPath(operation + ".responses['500'].description")
+                .value(org.hamcrest.Matchers.containsString("커밋")));
   }
 }

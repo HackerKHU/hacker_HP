@@ -115,6 +115,8 @@ erDiagram
 
 신규 신청은 `department`를 **필수**로 받는다 (MUST) — 관리자가 승인 심사에서 실제로 참고하는 값이다. 다만 **컬럼 자체는 `NULL`을 허용한다**: 이 필드가 생기기 전에 이미 승인된 기존 회원은 값이 없고, 일괄 채우지 않는다 — 잘못 추정한 기본값을 넣느니 비워 두고 개별적으로 보완하는 쪽을 택했다. 그래서 "필수"는 DB 제약이 아니라 `POST /auth/application`의 검증이 담당한다 (아래).
 
+**`role = 'ADMIN' AND status = 'SUSPENDED'`를 막는 CHECK 제약은 두지 않는다** (MUST, #296). 기존 데이터와 회원 제거·본인 탈퇴의 내부 선행 정지가 이 조합을 가질 수 있다. 배포가 기존 행을 자동으로 `USER`로 바꾸지도 않는다 — 권한 회수 감사와 운영 판단을 조작하기 때문이다. 일반 상태 PATCH의 서비스 정책이 새 직접 정지만 막는다.
+
 **승인 대상은 `status = 'PENDING' AND applied_at IS NOT NULL`이다** (MUST). 구글 로그인만 하고 신청하지 않은 계정을 관리자의 승인 목록에서 제외한다.
 
 **`deactivated_at`은 되돌리기의 근거다** (MUST, 2026-08-28 리뷰 #228). 비활성화가 조건으로 실행되므로 *"방금 누가 내려갔나"* 는 응답에만 담기는데, **응답은 잃을 수 있다** — 세션 반영이 실패해 `500`이 나가거나, 브라우저가 닫히거나, 연결이 끊긴다. 그러면 관리자는 **원래 비활동이던 사람과 방금 내려간 사람을 가르지 못해** 되돌릴 수 없다. 이력은 대안이 되지 못한다: 이력은 세션 반영보다 **뒤에** 남기고 실패를 삼키므로([2-2 §2-2-7](2-2-OPERATOR-REQUIREMENTS.md#2-2-7-안전장치) MUST) 정확히 그 실패 경로에서 비어 있다.
@@ -816,7 +818,8 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 | POST | `/admin/users/reject` | ADMIN | 일괄 거부 — body: `{ "userIds": [1,2,3] }` |
 | POST | `/admin/users/deactivate` | ADMIN | **학기 전환 일괄 비활성화 — 조건 전원 또는 `userIds` 선택** |
 | POST | `/admin/users/reactivate` | ADMIN | 학기 복구 — body: `{ "userIds": [1,2,3] }` |
-| PATCH | `/admin/users/{id}/status` | ADMIN | `ACTIVE` ↔ `SUSPENDED`, `INACTIVE` → `SUSPENDED` (본인을 `SUSPENDED`로: 마지막 활성 관리자면 차단) |
+| PATCH | `/admin/users/status` | ADMIN | 선택 회원 일괄 활성화·정지 — body: `{ "userIds": [1,2,3], "status": "ACTIVE" }` |
+| PATCH | `/admin/users/{id}/status` | ADMIN | 일반 회원의 `ACTIVE` ↔ `SUSPENDED`, `INACTIVE` → `SUSPENDED`. `ADMIN`은 먼저 `USER`로 권한 회수 |
 | PATCH | `/admin/users/{id}/role` | ADMIN | 권한 부여/회수 (본인 대상: 마지막 활성 관리자면 차단) |
 | GET | `/admin/users/{id}/content-summary` | ADMIN | 제거 확인 창이 쓰는 건수 — 그 회원이 남길 자료·공지·사진·게시글 |
 | DELETE | `/admin/users/{id}` | ADMIN | 회원 제거 (본인 대상: 마지막 활성 관리자면 차단) |
@@ -883,17 +886,63 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 
 | 요청 | |
 |---|---|
+| **desired가 `SUSPENDED`이고 잠금 후 대상 role이 `ADMIN`** | `403 FORBIDDEN`. 자기/타인, 활성 관리자 수, 대상 status와 무관하다. 메시지는 **"관리자 계정은 바로 정지할 수 없습니다. 먼저 관리자 권한을 회수한 뒤 정지해 주세요."** |
 | `ACTIVE` → `SUSPENDED`, `SUSPENDED` → `ACTIVE` | 허용 |
 | **`INACTIVE` → `SUSPENDED`** | 허용 (2026-08-26, #228). 비활동 부원도 곧바로 정지할 수 있어야 한다 — 복구부터 하라고 하면 **안전 조치가 두 단계가 된다** |
 | **대상이 `INACTIVE`인데 `ACTIVE`를 보냄** | `400 VALIDATION_ERROR` (MUST, 2026-08-26 리뷰). 비활성화·복구가 **한 짝이라 경로도 하나여야 한다** — 여기서 받으면 이력이 `ACTIVATE`(정지 해제)로 남아 학기 복구와 섞이고, 학기 전환 규칙을 거치지 않은 개별 복구가 생긴다. 한 명만 올려야 하면 `reactivate`에 그 한 명을 넣는다 |
-| **이미 그 상태** | 아무것도 하지 않고 `200` + 현재 상태. 확인 창을 두 번 지나거나 낡은 목록에서 눌러도 오류가 아니다. **`INACTIVE` 대상에 `INACTIVE`를 보내는 것은 여기가 아니라 아래 `400`이다** |
+| **이미 그 상태** | 일반 회원은 아무것도 하지 않고 `200` + 현재 상태. 확인 창을 두 번 지나거나 낡은 목록에서 눌러도 오류가 아니다. 단, `ADMIN` + desired `SUSPENDED`는 기존 `SUSPENDED ADMIN`이어도 위 `403`이 먼저다. **`INACTIVE` 대상에 `INACTIVE`를 보내는 것은 여기가 아니라 아래 `400`이다** |
 | **대상이 `PENDING`** | `400 VALIDATION_ERROR`. 이 경로로 승인시키면 승인일시가 기록되지 않고 신청 여부도 확인하지 않는다 |
 | **`status`로 `INACTIVE`를 보냄** | `400 VALIDATION_ERROR` (MUST, #228). 비활성화·복구는 학기 전환 경로의 몫이다 ([2-2 §2-2-3](2-2-OPERATOR-REQUIREMENTS.md#학기-전환--일괄-비활성화와-복구)) — **여기서도 받으면 전이 규칙이 두 곳에 생긴다** |
 | `status`가 `ACTIVE`·`SUSPENDED`가 아님 | `400 VALIDATION_ERROR` |
 | 없는 `id` | `404 NOT_FOUND` |
-| **정지 뒤 활성 관리자가 0명이 됨** | `403 FORBIDDEN` ([§2-2-7](2-2-OPERATOR-REQUIREMENTS.md) MUST). 자기 대상인지와 무관하다 |
 
 **`SUSPENDED` 해제는 언제나 `ACTIVE`다** — 정지 전이 `INACTIVE`였어도 그렇다 ([2-2 §2-2-3](2-2-OPERATOR-REQUIREMENTS.md#2-2-3-회원-상태-변경)).
+
+**서비스 트랜잭션의 판정 순서도 계약이다** (MUST, #296). 요청자·대상과 필요한 활성 관리자 행을 id 오름차순으로 잠그고, 잠긴 요청자가 여전히 활성 관리자인지 먼저 재검증한다. 그다음 없는 대상은 기존대로 `404`, 존재하면 위 관리자 직접 정지 정책을 다른 상태 전이 검사보다 먼저 적용한다. 그래서 기다리는 사이 정지·강등된 요청자의 코드는 대상 role보다 우선하고, `PENDING`·`INACTIVE`·이미 `SUSPENDED`인 관리자도 같은 직접 정지 거절을 받는다.
+
+권한을 `USER`로 회수한 뒤 별도 정지는 성공한다. 서버가 두 조작을 자동으로 묶지 않으며 `REVOKE_ADMIN`·`SUSPEND` 감사와 세션 반영이 각각 남는다. 직접 정지 거절에는 role·status·세션·감사 변화가 없다.
+
+**회원 제거와 본인 탈퇴의 내부 선행 정지는 이 PATCH 정책의 대상이 아니다** (MUST). 계정 삭제 뒤 세션 폐기에 실패해도 접근을 차단하는 §2-2-4 안전 절차다. 공통 정책은 서비스 계층의 작은 컴포넌트로 두어 일괄 상태 변경(#313)이 대상별 잠금 후 재사용하되, User 엔티티나 DB CHECK에는 넣지 않는다.
+
+### 선택 회원 일괄 활성화·정지 (2026-08-30 확정, #313)
+
+```json
+요청  PATCH /admin/users/status
+      { "userIds": [41, 7, 41, 999], "status": "ACTIVE" }
+응답  200
+      { "targetStatus": "ACTIVE", "processed": [41, 7],
+        "failed": [{ "userId": 999, "reason": "NOT_FOUND" }] }
+```
+
+`status`는 `ACTIVE`·`SUSPENDED` 둘뿐이고 `INACTIVE`는 받지 않는다. 비활성화는 학기 전환 API의 몫이며, 여기에 더하면 `SUSPENDED → INACTIVE` 우회가 생긴다.
+
+**본문과 두 필드는 모두 필수다** (MUST). 본문 없음·JSON 최상위 `null`·`userIds` 누락·`null`·빈 배열·원본 101개 이상·요소 `null`·0·음수·`status` 누락·`null`·잘못된 값은 `400 VALIDATION_ERROR`다. 원본 100개는 허용한다. **상한을 중복 제거 전에 검증한다** — 같은 id 101개도 거절한다.
+
+검증 뒤 중복 id는 첫 등장만 남긴다. `processed`와 `failed`는 각자 원본의 첫 등장 상대 순서를 유지하고, 모든 id는 둘 중 하나에 한 번만 들어간다. **`processed`는 실제로 바뀐 id와 이미 목표 상태였던 멱등 id를 모두 담는다.** 혼합 부분 실패는 `200`이고 성공분을 되돌리지 않는다.
+
+| `reason` | 조건 |
+|---|---|
+| `NOT_FOUND` | 잠금할 대상 행이 없다 |
+| `NOT_APPLIED` | `ACTIVE` 요청의 `PENDING`이고 `applied_at IS NULL` |
+| `PENDING_NOT_ALLOWED` | `SUSPENDED` 요청의 모든 `PENDING` |
+| `ADMIN_SUSPEND_REQUIRES_ROLE_REVOCATION` | `SUSPENDED` 요청의 모든 `ADMIN` |
+
+`ADMIN` 정지 정책은 멱등 판정보다 먼저다. `ADMIN`/`SUSPENDED`도 마지막 reason으로 실패한다. 반면 `USER`/`SUSPENDED → SUSPENDED`와 모든 role의 `ACTIVE → ACTIVE`는 멱등 성공이다. 단건 `PATCH /admin/users/{id}/status`는 관리자 직접 정지에 계속 `403 FORBIDDEN`을 쓴다.
+
+| 목표 | 잠금 후 상태 | 처리 | 이력 |
+|---|---|---|---|
+| `ACTIVE` | 신청 완료 `PENDING` | 승인하고 `approved_at` 기록 | `APPROVE` |
+| `ACTIVE` | `INACTIVE` | 복구하고 `deactivated_at=NULL` | `REACTIVATE` |
+| `ACTIVE` | `SUSPENDED` | 정지 해제해 `ACTIVE` | `ACTIVATE` |
+| `SUSPENDED` | `USER` `ACTIVE`/`INACTIVE` | 정지하고 `deactivated_at=NULL` | `SUSPEND` |
+
+요청자 id와 선택 id의 합집합을 id 오름차순으로 잠그고, **잠긴 요청자가 여전히 활성 관리자인지를 대상 존재·상태·role 판정보다 먼저 재검증한다** (MUST). 잠긴 최신 값으로 처리하고 성공분을 한 `TransactionTemplate` 트랜잭션에 커밋한다. 항목별 업무 실패는 예외가 아니지만 DB·잠금 오류는 전체를 롤백한다.
+
+성공 전이만 대상별로 이력 한 행을 남긴다. 멱등·실패는 남기지 않는다. 한 요청의 모든 성공 전이는 잠금 안에서 잡은 같은 `occurredAt`을 쓰며, 응답 순서와 무관하게 target id 오름차순으로 한 번에 best-effort 저장한다.
+
+세션 반영은 커밋과 커넥션 반납 뒤에 `processed` 전체에 수행한다. `ACTIVE`는 전원을 끝까지 시도하고 실패를 기록하되 `200`을 유지한다. `SUSPENDED`는 `refreshReporting`으로 전원을 시도한 뒤 하나라도 실패하면 **상태와 성공 이력은 커밋한 채** `500 INTERNAL_ERROR`를 반환한다. 같은 요청을 재시도하면 이미 정지된 `USER`도 세션을 다시 맞추고 이력을 늘리지 않는다.
+
+기존 일괄 승인·학기 복구·단건 상태 변경의 요청·응답은 바뀌지 않는다. 새 서비스는 그 서비스들을 차례로 호출하지 않고, 엔티티 전이·관리자 정지 정책·세션 동기화·요청자 재검증만 재사용한다.
 
 ### 가입 거부 (2026-08-22 확정, #58)
 
@@ -1027,7 +1076,7 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 
 **이미 그 상태인 요청도 세션을 다시 맞춘다** (MUST). 세션 갱신 실패는 예외로 올리지 않으므로 같은 요청을 다시 보내는 것이 유일한 복구 수단인데, 일찍 돌아가 버리면 그 재시도가 아무 일도 하지 않는다 — 정지된 사람이 만료까지 계속 쓴다.
 
-**활성 관리자 수 확인과 변경은 한 연산이다** (§2-2-7 MUST). 관련된 행을 잠근 뒤에 세므로, 동시에 들어온 다른 정지는 그 잠금을 기다렸다가 줄어든 수를 보고 막힌다 — 각자 자기 자신을 정지하든 **서로를 정지하든** 마찬가지다 ([5-TESTING T-15](5-TESTING.md#5-2-필수-테스트-사례)).
+**활성 관리자 수 확인과 변경은 한 연산이다** (§2-2-7 MUST). 일반 상태 PATCH는 모든 관리자 직접 정지를 먼저 막지만, 권한 회수·회원 제거·탈퇴의 내부 선행 정지는 여전히 활성 관리자를 0명으로 만들 수 있다. 관련 행을 잠근 뒤 세어 동시 요청에서도 한 명은 남긴다 ([5-TESTING T-15](5-TESTING.md#5-2-필수-테스트-사례)).
 
 **요청자의 권한을 잠근 뒤 다시 확인한다** (MUST). 인가는 세션 값으로 이루어지므로 요청이 인증을 통과한 뒤에도 다른 관리자가 그 사람을 정지하거나 권한을 회수할 수 있다 — 확인하지 않으면 **이미 정지된 관리자의 대기 중 요청이 그대로 커밋된다.** 이때의 코드는 필터가 막았을 때와 같다(`SUSPENDED`·`PENDING_APPROVAL`·`FORBIDDEN`, §3-2-7).
 
@@ -1050,7 +1099,7 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 | 403 | `PENDING_APPROVAL` | `PENDING` 사용자의 일반 API 접근 |
 | 403 | `SUSPENDED` | **정지된 계정의 보호 API 접근.** 이용 중 정지된 세션의 다음 요청이 이 코드다 ([2-2 §2-2-3](2-2-OPERATOR-REQUIREMENTS.md) MUST — 정지는 세션을 지우지 않고 갱신한다). 로그인 시도가 막히는 경우는 이 코드가 아니라 §3-2-3의 `/login?error=suspended` 리다이렉트다 |
 | 403 | `INACTIVE` | **비활동 부원의 자료 API 접근** ([3-1 §3-1-2](3-1-DESIGN-ARCHITECTURE.md), #228). `SUSPENDED`도 `FORBIDDEN`도 아니다 — 셋 다 `403`이라 **화면이 "정지"·"권한 없음"·"이번 학기 비활동"을 가르는 근거는 코드뿐이다.** 자료 경로에서만 나온다 |
-| 403 | `FORBIDDEN` | 권한 부족 / 마지막 활성 관리자의 본인 권한 회수·삭제·정지 시도 / 허용 도메인이 아닌 구글 계정의 로그인 / **`ACTIVE` 계정의 `POST /auth/application` 호출** ([3-1 §3-1-6](3-1-DESIGN-ARCHITECTURE.md) MUST) |
+| 403 | `FORBIDDEN` | 권한 부족 / **`ADMIN` 계정 직접 정지(먼저 `USER`로 권한 회수)** / 마지막 활성 관리자를 없애는 권한 회수·삭제 시도 / 허용 도메인이 아닌 구글 계정의 로그인 / **`ACTIVE` 계정의 `POST /auth/application` 호출** ([3-1 §3-1-6](3-1-DESIGN-ARCHITECTURE.md) MUST) |
 | 404 | `NOT_FOUND` | 리소스 없음 |
 | 409 | `DUPLICATE_STUDENT_NO` | 신청서의 학번이 다른 계정에 이미 쓰이고 있음 |
 | 409 | `CONCURRENT_CHANGE` | **다른 관리자가 그 사이에 같은 회원을 바꿨다.** 회원 제거는 정지를 먼저 확정하는데([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거) MUST), 그 사이에 대상이 다시 `ACTIVE`가 되면 전제가 무너지므로 지우지 않고 멈춘다. 화면은 목록을 새로고침하고 다시 시도하게 안내한다 |
