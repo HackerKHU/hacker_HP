@@ -123,7 +123,12 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
     User applicant =
         userRepository.saveAndFlush(Accounts.applied("sub-a", "a@khu.ac.kr", "20250001"));
     Long originalId = applicant.getId();
-    var originalCreatedAt = applicant.getCreatedAt();
+    /*
+     * PostgreSQL TIMESTAMP는 마이크로초 정밀도로 저장한다. Linux의 Instant.now()는 나노초까지
+     * 가질 수 있으므로 saveAndFlush가 돌려준 저장 전 객체와 재조회 값을 비교하면 CI에서만
+     * 끝 세 자리가 달라진다. 거부가 바꾸면 안 되는 것은 DB에 저장된 생성 시각이다.
+     */
+    var originalCreatedAt = reload(applicant).getCreatedAt();
     SignedIn applicantSession = sessions.signIn(applicant);
 
     mockMvc
