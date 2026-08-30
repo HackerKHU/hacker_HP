@@ -1425,20 +1425,39 @@ describe('게시판 픽스처', () => {
     expect((error as InstanceType<typeof ApiError>).code).toBe('NOT_FOUND')
   })
 
-  it('일반 부원은 자기 글도 삭제할 수 없다', async () => {
+  it.each(['user', 'inactive'] as const)(
+    '%s 작성자는 자기 글을 삭제할 수 있다',
+    async (scenario) => {
+      const { fixturePost, fixturePosts, fixtureRemovePost, ApiError } =
+        await loadFixtures(scenario)
+      const page = await fixturePosts({ size: 100 })
+      const mine = page.content.find((post) => post.author.id === 1)
+      if (!mine) throw new Error('일반 부원 작성 글 fixture가 없다')
+
+      await fixtureRemovePost(mine.id)
+      const error = await fixturePost(mine.id).catch(
+        (caught: unknown) => caught,
+      )
+
+      expect(error).toBeInstanceOf(ApiError)
+      expect((error as InstanceType<typeof ApiError>).code).toBe('NOT_FOUND')
+    },
+  )
+
+  it('일반 부원은 남의 글을 삭제할 수 없다', async () => {
     const { fixturePost, fixturePosts, fixtureRemovePost, ApiError } =
       await loadFixtures('user')
     const page = await fixturePosts({ size: 100 })
-    const mine = page.content.find((post) => post.author.id === 1)
-    if (!mine) throw new Error('일반 부원 작성 글 fixture가 없다')
+    const other = page.content.find((post) => post.author.id === 99)
+    if (!other) throw new Error('다른 부원 작성 글 fixture가 없다')
 
-    const error = await fixtureRemovePost(mine.id).catch(
+    const error = await fixtureRemovePost(other.id).catch(
       (caught: unknown) => caught,
     )
 
     expect(error).toBeInstanceOf(ApiError)
     expect((error as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
-    await expect(fixturePost(mine.id)).resolves.toBeTruthy()
+    await expect(fixturePost(other.id)).resolves.toBeTruthy()
   })
 
   /* 서버가 거부할 것을 픽스처도 거부한다 — 통과시키면 오류 화면을 만들 수 없다. */

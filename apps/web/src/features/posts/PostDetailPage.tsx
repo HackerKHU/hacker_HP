@@ -31,21 +31,24 @@ type Status = 'loading' | 'loaded' | 'notFound' | 'failed'
  * **링크 자동 변환도 넣지 않는다.** 본문의 URL을 `<a>`로 바꾸려면 `javascript:` 같은
  * 스킴을 걸러야 하는데, 그 필터를 직접 쓰는 것이 이 기능의 값을 넘는다.
  *
- * 수정은 없고, 삭제는 `ACTIVE ADMIN`에게만 보인다. 노출 제어와 별개로 서버도
- * `hasRole('ADMIN')`으로 권한을 다시 확인한다 (spec §3-1-3, §3-2-5).
+ * 수정은 없고, 삭제는 `ACTIVE ADMIN` 또는 `ACTIVE`·`INACTIVE` 작성자 본인에게 보인다.
+ * 노출 제어와 별개로 서버도 잠근 최신 계정·게시글 행으로 권한을 다시 확인한다
+ * (spec §3-1-3, §3-2-5).
  */
 export function PostDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { state, reportApiError } = useSession()
   const alert = useLiveAlert()
-  const isAdmin = state.kind === 'active' && state.user.role === 'ADMIN'
 
   const [post, setPost] = useState<PostDetail | null>(null)
   const [status, setStatus] = useState<Status>('loading')
   const [deleting, setDeleting] = useState(false)
   // React가 disabled를 다시 그리기 전의 연속 확인도 한 요청으로 접는다.
   const deletingRef = useRef(false)
+  const canDelete =
+    state.kind === 'active' &&
+    (state.user.role === 'ADMIN' || post?.author.id === state.user.id)
 
   useEffect(() => {
     let alive = true
@@ -147,7 +150,7 @@ export function PostDetailPage() {
               </time>
             </div>
 
-            {isAdmin && (
+            {canDelete && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button

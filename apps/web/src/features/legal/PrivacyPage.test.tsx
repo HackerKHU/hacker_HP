@@ -131,22 +131,19 @@ describe('개인정보처리방침', () => {
     // 자료·공지뿐 아니라 게시글 본문도 같은 대상이다 (#235).
     expect(section).toHaveTextContent('게시글 내용')
     // 계정이 제거된 뒤에는 본인이 지울 수 없다는 것도 알려야 한다.
-    expect(section).toHaveTextContent('로그인하실 수 없어')
+    expect(section).toHaveTextContent('로그인하실 수 없고')
   })
 
-  /*
-   * 게시판은 작성자 삭제는 없고 운영진 완전 삭제만 있다 (spec 3-3 결정 20).
-   *
-   * 바로 위 문단이 "남기고 싶지 않은 것은 직접 삭제하시라"고 안내하는데,
-   * 게시글에는 그 길이 없다. 구분해 적지 않으면 이용자는 계정을 유지하는
-   * 동안에는 스스로 지울 수 있다고 읽는다 — 사실과 다른 안내다.
-   */
-  it('게시글은 직접 지울 수 없고 운영진에게 완전 삭제를 요청할 수 있다고 알린다', async () => {
+  /** 게시판 작성자 본인과 운영진의 완전 삭제 경계를 그대로 알린다 (결정 20). */
+  it('게시글은 직접 완전 삭제할 수 있고 계정 제거 뒤에는 운영진에게 요청한다고 알린다', async () => {
     await openPrivacy()
     const section = retentionSection()
 
     expect(section).toHaveTextContent(
-      '자유 게시판에 올리신 글은 계정을 유지하고 계셔도 직접 지우실 수 없습니다',
+      '자유 게시판에 올리신 글은 상세 화면에서 직접 완전히 삭제할 수 있습니다',
+    )
+    expect(section).toHaveTextContent(
+      '작성자 관계도 끊겨 직접 지울 수 없으므로',
     )
     expect(section).toHaveTextContent('문의처로 알려 주시기')
     expect(section).toHaveTextContent('운영진이 관리 화면에서 완전히 삭제')

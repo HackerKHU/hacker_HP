@@ -168,13 +168,36 @@ describe('게시글 상세', () => {
   })
 })
 
-describe('관리자 게시글 삭제', () => {
-  it('ACTIVE ADMIN에게만 작성자와 무관하게 destructive 삭제가 보인다', async () => {
+describe('관리자·작성자 게시글 삭제', () => {
+  it.each([
+    [
+      '남의 글을 보는 ACTIVE ADMIN',
+      { ...BASE, role: 'ADMIN' as const },
+      POST.author,
+    ],
+    [
+      '자기 글을 보는 ACTIVE ADMIN',
+      { ...BASE, role: 'ADMIN' as const },
+      { id: BASE.id, name: BASE.name },
+    ],
+    [
+      '자기 글을 보는 ACTIVE USER',
+      { ...BASE },
+      { id: BASE.id, name: BASE.name },
+    ],
+    [
+      '자기 글을 보는 INACTIVE USER',
+      { ...BASE, status: 'INACTIVE' as const },
+      { id: BASE.id, name: BASE.name },
+    ],
+  ])('%s에게 destructive 삭제가 보인다', async (_label, me, author) => {
+    auth.me = me
+    api.post = { ...POST, author }
     renderDetail()
 
     await waitFor(() =>
       expect(screen.getByTestId('session-kind')).toHaveTextContent(
-        'active:ADMIN',
+        `active:${me.role}`,
       ),
     )
     const trigger = await screen.findByRole('button', { name: '삭제' })
@@ -182,22 +205,50 @@ describe('관리자 게시글 삭제', () => {
   })
 
   it.each([
-    ['작성자인 ACTIVE USER', { ...BASE }, 'active:USER'],
-    ['INACTIVE USER', { ...BASE, status: 'INACTIVE' as const }, 'active:USER'],
-    ['PENDING', { ...BASE, status: 'PENDING' as const }, 'pending'],
-    ['SUSPENDED', { ...BASE, status: 'SUSPENDED' as const }, 'suspended'],
-    ['비로그인', null, 'guest'],
-  ])('%s에게는 삭제가 보이지 않는다', async (_label, me, expectedState) => {
-    auth.me = me
-    api.post = { ...POST, author: { id: BASE.id, name: BASE.name } }
+    ['남의 글을 보는 ACTIVE USER', { ...BASE }, POST.author, 'active:USER'],
+    [
+      '남의 글을 보는 INACTIVE USER',
+      { ...BASE, status: 'INACTIVE' as const },
+      POST.author,
+      'active:USER',
+    ],
+    [
+      '작성자인 PENDING',
+      { ...BASE, status: 'PENDING' as const },
+      { id: BASE.id, name: BASE.name },
+      'pending',
+    ],
+    [
+      '작성자인 SUSPENDED',
+      { ...BASE, status: 'SUSPENDED' as const },
+      { id: BASE.id, name: BASE.name },
+      'suspended',
+    ],
+    ['비로그인', null, { id: BASE.id, name: BASE.name }, 'guest'],
+  ])(
+    '%s에게는 삭제가 보이지 않는다',
+    async (_label, me, author, expectedState) => {
+      auth.me = me
+      api.post = { ...POST, author }
+
+      renderDetail()
+      await screen.findByRole('heading', { name: POST.title })
+      await waitFor(() =>
+        expect(screen.getByTestId('session-kind')).toHaveTextContent(
+          expectedState,
+        ),
+      )
+
+      expect(screen.queryByRole('button', { name: '삭제' })).toBeNull()
+    },
+  )
+
+  it('탈퇴·제거되어 작성자 id가 끊긴 글은 일반 부원에게 삭제가 보이지 않는다', async () => {
+    auth.me = { ...BASE }
+    api.post = { ...POST, author: { id: null, name: '탈퇴한 회원' } }
 
     renderDetail()
     await screen.findByRole('heading', { name: POST.title })
-    await waitFor(() =>
-      expect(screen.getByTestId('session-kind')).toHaveTextContent(
-        expectedState,
-      ),
-    )
 
     expect(screen.queryByRole('button', { name: '삭제' })).toBeNull()
   })
@@ -259,7 +310,7 @@ describe('관리자 게시글 삭제', () => {
   })
 
   it.each([
-    [new ApiError('FORBIDDEN', 403, '관리자만 삭제할 수 있습니다.')],
+    [new ApiError('FORBIDDEN', 403, '본인이 쓴 게시글만 삭제할 수 있습니다.')],
     [new ApiError('NOT_FOUND', 404, '게시글을 찾을 수 없습니다.')],
   ])('확정된 4xx 실패는 서버 사유를 알리고 상세에 남는다', async (error) => {
     api.remove.mockRejectedValue(error)

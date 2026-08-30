@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
+import org.hackerkhu.hackerhp.domain.post.entity.Post;
 import org.hackerkhu.hackerhp.domain.post.repository.PostRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
@@ -532,10 +533,37 @@ class PostIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.content.length()").value(0));
   }
 
-  /** T-464 — <b>작성자 본인도 지울 수 없다</b> (MUST). 관리자 전용이다 — 예외가 없다. */
+  /** T-464 — <b>ACTIVE 작성자 본인은 자기 글을 완전히 지울 수 있다</b> (MUST). */
   @Test
-  void theAuthorCannotDeleteTheirOwnPost() throws Exception {
+  void theAuthorDeletesTheirOwnPost() throws Exception {
     long id = write(member, "내가 쓴 글", "본문");
+
+    mockMvc
+        .perform(Csrf.with(sessions.as(member, delete(POSTS + "/" + id))))
+        .andExpect(status().isNoContent());
+
+    assertThat(posts.existsById(id)).isFalse();
+  }
+
+  /** T-464 — 비활동 부원은 자료 외 기능을 그대로 쓰므로 자기 글도 지울 수 있다. */
+  @Test
+  void anInactiveAuthorDeletesTheirOwnPost() throws Exception {
+    long id = write(member, "비활동 중 지울 글", "본문");
+    User inactive = userRepository.findById(member.getId()).orElseThrow();
+    inactive.deactivate(Instant.now());
+    userRepository.saveAndFlush(inactive);
+
+    mockMvc
+        .perform(Csrf.with(sessions.as(inactive, delete(POSTS + "/" + id))))
+        .andExpect(status().isNoContent());
+
+    assertThat(posts.existsById(id)).isFalse();
+  }
+
+  /** T-464 — 일반 부원은 남의 글을 지울 수 없다. */
+  @Test
+  void aMemberCannotDeleteSomeoneElsesPost() throws Exception {
+    long id = write(admin, "관리자가 쓴 글", "본문");
 
     mockMvc
         .perform(Csrf.with(sessions.as(member, delete(POSTS + "/" + id))))
@@ -543,6 +571,33 @@ class PostIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
     assertThat(posts.existsById(id)).isTrue();
+  }
+
+  /** T-464 — 관리자가 자신이 쓴 글을 지울 때도 같은 완전 삭제 경로를 쓴다. */
+  @Test
+  void anAdminDeletesTheirOwnPost() throws Exception {
+    long id = write(admin, "관리자 본인 글", "본문");
+
+    mockMvc
+        .perform(Csrf.with(sessions.as(admin, delete(POSTS + "/" + id))))
+        .andExpect(status().isNoContent());
+
+    assertThat(posts.existsById(id)).isFalse();
+  }
+
+  /** T-476 — 승인 대기 상태는 작성자 id가 같아도 필터에서 삭제를 거부한다. */
+  @Test
+  void aPendingAuthorCannotDelete() throws Exception {
+    User pending =
+        userRepository.saveAndFlush(Accounts.applied("sub-p", "p@khu.ac.kr", "20250003"));
+    Post post = posts.saveAndFlush(Post.write("신청자 글", "본문", pending.getId(), Instant.now()));
+
+    mockMvc
+        .perform(Csrf.with(sessions.as(pending, delete(POSTS + "/" + post.getId()))))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("PENDING_APPROVAL"));
+
+    assertThat(posts.existsById(post.getId())).isTrue();
   }
 
   /**
@@ -579,7 +634,41 @@ class PostIntegrationTest extends AbstractIntegrationTest {
     mockMvc
         .perform(Csrf.with(staleAdminSession.on(delete(POSTS + "/" + id))))
         .andExpect(status().isForbidden())
-        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        .andExpect(jsonPath("$.code").value("SUSPENDED"));
+
+    assertThat(posts.existsById(id)).isTrue();
+  }
+
+  /** T-476 — 작성자도 인가 뒤 정지됐다면 잠근 최신 계정 상태가 삭제를 막는다. */
+  @Test
+  void anAuthorSuspendedAfterAuthorizationCannotDelete() throws Exception {
+    long id = write(member, "남아야 할 작성자 글", "본문");
+    SignedIn staleAuthorSession = sessions.signIn(member);
+    User storedAuthor = userRepository.findById(member.getId()).orElseThrow();
+    storedAuthor.suspend();
+    userRepository.saveAndFlush(storedAuthor);
+
+    mockMvc
+        .perform(Csrf.with(staleAuthorSession.on(delete(POSTS + "/" + id))))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("SUSPENDED"));
+
+    assertThat(posts.existsById(id)).isTrue();
+  }
+
+  /** T-476 — 제거된 작성자는 옛 세션이 남아 있어도 작성자 관계가 끊겨 자기 글을 지울 수 없다. */
+  @Test
+  void aRemovedAuthorCannotDeleteWithAStaleSession() throws Exception {
+    long id = write(member, "남아야 할 탈퇴 작성자 글", "본문");
+    SignedIn staleAuthorSession = sessions.signIn(member);
+    userRepository.deleteById(member.getId());
+    userRepository.flush();
+
+    assertThat(posts.findById(id).orElseThrow().getAuthorId()).isNull();
+    mockMvc
+        .perform(Csrf.with(staleAuthorSession.on(delete(POSTS + "/" + id))))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
 
     assertThat(posts.existsById(id)).isTrue();
   }

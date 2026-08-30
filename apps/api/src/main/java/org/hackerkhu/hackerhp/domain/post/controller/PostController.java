@@ -30,13 +30,12 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 자유 게시판 (spec 2-1 §2-1-8, 3-2 §3-2-5).
  *
- * <p><b>조회·등록은 {@code isAuthenticated()}, 삭제는 {@code hasRole('ADMIN')}만 적는다.</b> 매트릭스의 {@code
- * ACTIVE} 조건은 {@code AccountStatusFilter}가 인가보다 먼저 보장한다 — 같은 규칙을 두 곳에 두면 한쪽만 고쳐진다 ({@code
- * NoteController}·{@code NoticeController}와 같은 관례).
+ * <p><b>조회·등록·삭제는 {@code isAuthenticated()}를 적는다.</b> 삭제의 관리자/작성자 판정은 저장된 글을 읽어야 하므로 서비스가 잠근 최신
+ * 계정·게시글 행으로 한다. 승인 대기·정지는 {@code AccountStatusFilter}가 먼저 막는다.
  *
- * <p><b>수정은 아직 없다</b> (3-3 결정 16). 작성자 수정은 #256이다. 삭제는 관리자 전용이고 작성자 본인 삭제는 없다 (#238).
+ * <p><b>수정은 아직 없다</b> (3-3 결정 16). 작성자 수정은 #256이다. 삭제는 활성 관리자 또는 작성자 본인에게 열린다 (#238·#278).
  */
-@Tag(name = "자유 게시판", description = "부원끼리 글을 올리고 읽는다. ACTIVE 전용")
+@Tag(name = "자유 게시판", description = "승인된 부원끼리 글을 올리고 읽는다. SUSPENDED는 제외한다")
 @RestController
 @RequestMapping("/api/v1/posts")
 public class PostController {
@@ -133,8 +132,7 @@ public class PostController {
           그대로 남는다 — 전 부원이 쓰는 자리라 서식을 허용하면 그 입력이 다른 부원의
           브라우저에서 실행될 수 있는 표면이 된다 (3-3 결정 16).
 
-          **수정은 아직 없다.** 삭제는 관리자만 할 수 있다 — 작성자 본인도 자기 글을
-          지울 수 없다.
+          **수정은 아직 없다.** 삭제는 관리자 또는 작성자 본인이 할 수 있다.
           """)
   @ApiResponse(responseCode = "201", description = "등록됨. 본문은 저장된 글이다")
   @ApiResponse(
@@ -169,20 +167,30 @@ public class PostController {
   /**
    * 글 삭제 (#238).
    *
-   * <p><b>관리자 전용이다.</b> 작성자 본인 삭제는 없다 — 필요해지면 별도 이슈로 다룬다. <b>완전 삭제</b>이며 되돌릴 수 없다.
+   * <p><b>활성 관리자 또는 작성자 본인</b>이 할 수 있다. <b>완전 삭제</b>이며 되돌릴 수 없다.
    */
   @Operation(
       summary = "게시글 삭제",
       description =
           """
-          **관리자만** 지울 수 있다. 작성자 본인도 예외가 아니다.
+          **활성 관리자 또는 작성자 본인**이 지울 수 있다. 비활동 부원도 자기 글은
+          지울 수 있지만, 승인 대기·정지 계정과 탈퇴·제거되어 작성자 관계가 끊긴 계정은
+          지울 수 없다.
 
           **완전 삭제다.** 감추는 것이 아니라 행 자체가 사라지며, 되돌릴 수 없다.
           """)
   @ApiResponse(responseCode = "204", description = "삭제됨")
   @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 하며, 요청 중 계정이 제거된 경우도 포함한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
       responseCode = "403",
-      description = "`FORBIDDEN` — `ADMIN`이 아니다",
+      description =
+          "`FORBIDDEN` — 활성 관리자가 아니고 본인이 쓴 글도 아니다 · CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL`",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -196,8 +204,8 @@ public class PostController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @DeleteMapping("/{id}")
   @ResponseStatus(HttpStatus.NO_CONTENT)
-  @PreAuthorize("hasRole('ADMIN')")
-  public void delete(@AuthenticationPrincipal Long adminId, @PathVariable Long id) {
-    postService.delete(adminId, id);
+  @PreAuthorize("isAuthenticated()")
+  public void delete(@AuthenticationPrincipal Long requesterId, @PathVariable Long id) {
+    postService.delete(requesterId, id);
   }
 }

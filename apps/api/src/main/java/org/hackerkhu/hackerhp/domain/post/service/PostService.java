@@ -125,7 +125,7 @@ public class PostService {
   }
 
   /**
-   * 삭제 (관리자 전용, #238).
+   * 삭제 (관리자 또는 작성자 본인, #238·#278).
    *
    * <p><b>완전 삭제다.</b> 감춤을 쓰지 않는다 — 감추면 "지웠는데 DB에 남아 있다"를 개인정보처리방침에 고지해야 하는데, 그 값을 하지 않는다 (공지 삭제와 같은
    * 판단).
@@ -135,28 +135,36 @@ public class PostService {
    */
   @Transactional
   public void delete(Long requesterId, Long id) {
-    requireActiveAdmin(requesterId);
+    /*
+     * 잠금 순서는 계정 → 게시글로 고정한다. 세션 인가 뒤 권한 회수·정지·탈퇴가 끝났거나
+     * 작성자 관계가 ON DELETE SET NULL로 끊긴 요청이 옛 값으로 삭제를 커밋하면 안 된다.
+     */
+    User requester = users.findByIdForUpdate(requesterId).orElse(null);
+    RequesterCheck.requireActive(requester, requesterId);
     Post post =
         posts
-            .findById(id)
+            .findByIdForUpdate(id)
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "게시글을 찾을 수 없습니다."));
+    requireOwnerOrActiveAdmin(requester, post, requesterId);
     posts.delete(post);
-    log.info("게시글 삭제: postId={} adminId={}", id, requesterId);
+    log.info("게시글 삭제: postId={} requesterId={}", id, requesterId);
   }
 
   /**
-   * 요청자의 <b>현재</b> 권한을 행을 잠근 채 확인한다 (3-1 §3-1-4 MUST, {@code PhotoService}와 같은 이유).
-   * {@code @PreAuthorize}는 세션에 담긴 값을 볼 뿐이라, 인가를 지난 뒤 다른 관리자가 이 계정을 강등·정지해도 그 요청은 여기까지 그대로 온다 — 되돌릴
-   * 수 없는 삭제이므로 커밋 직전에 다시 본다.
+   * <b>활성 관리자 또는 작성자 본인</b>이어야 한다. 비활동 부원은 자료 외 기능을 그대로 쓰므로 자기 글을 지울 수 있다.
+   *
+   * <p>탈퇴·제거된 작성자의 {@code authorId}는 {@code null}이라 본인 관계가 성립하지 않는다. 요청자와 게시글을 모두 잠근 뒤 판정하므로 인가 뒤
+   * 권한·상태·작성자 관계가 바뀌어도 옛 세션 값으로 삭제를 커밋하지 않는다 (3-1 §3-1-4 MUST).
    */
-  private void requireActiveAdmin(Long requesterId) {
-    User requester =
-        users
-            .findByIdForUpdate(requesterId)
-            .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHENTICATED));
-    if (requester.getRole() != Role.ADMIN || requester.getStatus() != Status.ACTIVE) {
-      throw new BusinessException(ErrorCode.FORBIDDEN);
+  private void requireOwnerOrActiveAdmin(User requester, Post post, Long requesterId) {
+    if (requester.getRole() == Role.ADMIN && requester.getStatus() == Status.ACTIVE) {
+      return;
     }
+    if (requesterId.equals(post.getAuthorId())) {
+      return;
+    }
+    log.info("남의 게시글을 삭제하려 했다: requesterId={} postId={}", requesterId, post.getId());
+    throw new BusinessException(ErrorCode.FORBIDDEN, "본인이 쓴 게시글만 삭제할 수 있습니다.");
   }
 
   /**
