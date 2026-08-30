@@ -12,6 +12,8 @@ import org.hackerkhu.hackerhp.domain.post.dto.PostDetailResponse;
 import org.hackerkhu.hackerhp.domain.post.dto.PostSummaryResponse;
 import org.hackerkhu.hackerhp.domain.post.entity.Post;
 import org.hackerkhu.hackerhp.domain.post.repository.PostRepository;
+import org.hackerkhu.hackerhp.domain.user.entity.Role;
+import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.domain.user.service.RequesterCheck;
@@ -27,7 +29,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 자유 게시판 (spec 2-1 §2-1-8, 3-2 §3-2-5, 3-3 결정 16).
+ * 자유 게시판 (spec 2-1 §2-1-8, 3-2 §3-2-5, 3-3 결정 16·17).
  *
  * <p><b>본문을 건드리지 않는다.</b> 받은 문자열을 그대로 저장하고 그대로 내보낸다 — 마크다운으로 해석하지도, HTML을 정화하지도 않는다. 이스케이프는 화면이 텍스트
  * 노드로 그리면서 한다. <b>서버가 정화를 시작하면 그 규칙이 어디까지인지 아무도 모르게 된다.</b>
@@ -120,6 +122,49 @@ public class PostService {
      */
     log.info("게시글 등록: postId={} authorId={}", saved.getId(), authorId);
     return PostDetailResponse.of(saved, authorOf(saved, authors(List.of(saved))));
+  }
+
+  /**
+   * 삭제 (관리자 또는 작성자 본인, #238·#278).
+   *
+   * <p><b>완전 삭제다.</b> 감춤을 쓰지 않는다 — 감추면 "지웠는데 DB에 남아 있다"를 개인정보처리방침에 고지해야 하는데, 그 값을 하지 않는다 (공지 삭제와 같은
+   * 판단).
+   *
+   * <p><b>이력을 남기지 않는다.</b> {@code admin_actions}는 회원에 대한 조작 테이블이라(#143) 글 id를 넣으면 두 종류의 대상이 한 컬럼에
+   * 섞인다 — 자료 삭제(#54)도 같은 이유로 이력을 남기지 않는다.
+   */
+  @Transactional
+  public void delete(Long requesterId, Long id) {
+    /*
+     * 잠금 순서는 계정 → 게시글로 고정한다. 세션 인가 뒤 권한 회수·정지·탈퇴가 끝났거나
+     * 작성자 관계가 ON DELETE SET NULL로 끊긴 요청이 옛 값으로 삭제를 커밋하면 안 된다.
+     */
+    User requester = users.findByIdForUpdate(requesterId).orElse(null);
+    RequesterCheck.requireActive(requester, requesterId);
+    Post post =
+        posts
+            .findByIdForUpdate(id)
+            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "게시글을 찾을 수 없습니다."));
+    requireOwnerOrActiveAdmin(requester, post, requesterId);
+    posts.delete(post);
+    log.info("게시글 삭제: postId={} requesterId={}", id, requesterId);
+  }
+
+  /**
+   * <b>활성 관리자 또는 작성자 본인</b>이어야 한다. 비활동 부원은 자료 외 기능을 그대로 쓰므로 자기 글을 지울 수 있다.
+   *
+   * <p>탈퇴·제거된 작성자의 {@code authorId}는 {@code null}이라 본인 관계가 성립하지 않는다. 요청자와 게시글을 모두 잠근 뒤 판정하므로 인가 뒤
+   * 권한·상태·작성자 관계가 바뀌어도 옛 세션 값으로 삭제를 커밋하지 않는다 (3-1 §3-1-4 MUST).
+   */
+  private void requireOwnerOrActiveAdmin(User requester, Post post, Long requesterId) {
+    if (requester.getRole() == Role.ADMIN && requester.getStatus() == Status.ACTIVE) {
+      return;
+    }
+    if (requesterId.equals(post.getAuthorId())) {
+      return;
+    }
+    log.info("남의 게시글을 삭제하려 했다: requesterId={} postId={}", requesterId, post.getId());
+    throw new BusinessException(ErrorCode.FORBIDDEN, "본인이 쓴 게시글만 삭제할 수 있습니다.");
   }
 
   /**

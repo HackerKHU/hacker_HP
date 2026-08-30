@@ -103,6 +103,7 @@
 | 활동사진 업로드·삭제 | X | X | X | X | O |
 | 게시판 조회 | X | X | O | O | O |
 | 게시판 작성 | X | X | O | O | O |
+| 게시판 삭제 | X | X | 본인 것만 | 본인 것만 | O |
 | 회원 관리 | X | X | X | X | O |
 | API 문서 (`/v3/api-docs`, Swagger UI) | X | X | O | O | O |
 

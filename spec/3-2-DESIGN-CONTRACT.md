@@ -725,6 +725,7 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 | GET | `/posts` | ACTIVE | 자유 게시판 목록 (최신순 고정) |
 | GET | `/posts/{id}` | ACTIVE | 게시글 상세 |
 | POST | `/posts` | ACTIVE | 게시글 등록 |
+| DELETE | `/posts/{id}` | ACTIVE·INACTIVE 작성자 본인 / ACTIVE ADMIN | 게시글 삭제 (완전 삭제, #238) |
 
 ### `POST /photos` — 업로드 경로 (확정, [1-BACKGROUND §1-5](1-BACKGROUND.md) #5)
 
@@ -774,15 +775,18 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 
 공지 응답은 **`authorId`(`null` 가능)와 `authorName`(`null` 아님)을 함께 담는다** (MUST, #58) — 규칙은 [§3-2-2 "작성자를 내려주는 규칙"](#작성자를-내려주는-규칙)과 같다. 작성자가 제거되어 `author_id`가 `NULL`이면 서버가 `authorName`에 `"탈퇴한 회원"`을 넣는다.
 
-### 자유 게시판 (2026-08-23 확정, #235)
+### 자유 게시판 (2026-08-23 확정, #235 · 삭제는 #238)
 
 | Method | Path | 권한 | 설명 |
 |---|---|---|---|
 | GET | `/posts` | ACTIVE | 목록 (최신순 고정) |
 | GET | `/posts/{id}` | ACTIVE | 상세 |
 | POST | `/posts` | ACTIVE | 등록 |
+| DELETE | `/posts/{id}` | ACTIVE·INACTIVE 작성자 본인 / ACTIVE ADMIN | 삭제 |
 
-**수정·삭제는 없다.** 관리자 삭제는 후속이다 ([#238](https://github.com/HackerKHU/hacker_HP/issues/238)).
+**수정은 아직 없다** ([#256](https://github.com/HackerKHU/hacker_HP/issues/256)). 삭제는 `ACTIVE ADMIN`이면 모든 글, `ACTIVE`·`INACTIVE` 작성자면 자기 글에 허용한다 ([3-3 결정 20](3-3-DESIGN-DECISIONS.md#3-3-21-결정-20--관리자와-작성자가-자유-게시판-글을-삭제할-수-있다)).
+
+**`DELETE /posts/{id}`는 완전 삭제다.** 감추는 것이 아니라 행 자체가 사라지며 되돌릴 수 없다. 성공 시 본문 없이 `204`, 없는 글이면 `404 NOT_FOUND`, 활성 관리자가 아니면서 작성자 본인도 아니면 `403 FORBIDDEN`이다. `PENDING`·`SUSPENDED`와 삭제된 계정은 거부한다. 요청자 계정과 게시글을 잠근 최신 DB 행으로 이 권한을 커밋 직전에 다시 확인한다. **삭제 이력은 남기지 않는다** — 이유는 [3-3 결정 20](3-3-DESIGN-DECISIONS.md#3-3-21-결정-20--관리자와-작성자가-자유-게시판-글을-삭제할-수-있다)에 있다.
 
 **정렬 파라미터를 받지 않는다** (MUST). `created_at DESC, id DESC` 고정이다 — 이유는 [2-1 §2-1-8](2-1-USER-STORIES.md#2-1-8-자유-게시판)에 있다. 페이지 파라미터는 [§3-2-8](#3-2-8-공통-페이지-응답)의 공통 규약을 따른다.
 

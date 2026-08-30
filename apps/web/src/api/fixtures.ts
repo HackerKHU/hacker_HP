@@ -1999,6 +1999,57 @@ export function fixturePost(id: number): Promise<PostDetail> {
   return Promise.resolve(found)
 }
 
+/** 게시글 완전 삭제는 활성 관리자 또는 ACTIVE·INACTIVE 작성자 본인만 가능하다. */
+export function fixtureRemovePost(id: number): Promise<void> {
+  if (SCENARIO === 'guest') {
+    return Promise.reject(
+      new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
+    )
+  }
+  if (PENDING_SCENARIOS.includes(SCENARIO)) {
+    return Promise.reject(
+      new ApiError('PENDING_APPROVAL', 403, '가입 승인 대기 중입니다.'),
+    )
+  }
+
+  /*
+   * 관리자 시나리오는 불변 USERS.admin이 아니라 회원 관리 조작이 바꾸는 명부를 다시 본다.
+   * 권한 회수·정지·제거 뒤에도 옛 시나리오 문자열만 보고 타인 글을 지우면 실제 서버의
+   * 커밋 직전 DB 재검증과 정반대가 된다 (결정 20, T-476).
+   */
+  const requester =
+    SCENARIO === 'admin'
+      ? MEMBERS.find((member) => member.id === SELF_ID)
+      : viewer()
+  if (!requester) {
+    return Promise.reject(
+      new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
+    )
+  }
+  if (requester.status === 'SUSPENDED') {
+    return Promise.reject(new ApiError('SUSPENDED', 403, '정지된 계정입니다.'))
+  }
+
+  const index = POSTS.findIndex((post) => post.id === id)
+  if (index === -1) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '게시글을 찾을 수 없습니다.'),
+    )
+  }
+  const activeAdmin =
+    requester.role === 'ADMIN' && requester.status === 'ACTIVE'
+  const owner =
+    (requester.status === 'ACTIVE' || requester.status === 'INACTIVE') &&
+    POSTS[index].author.id === requester.id
+  if (!activeAdmin && !owner) {
+    return Promise.reject(
+      new ApiError('FORBIDDEN', 403, '본인이 쓴 게시글만 삭제할 수 있습니다.'),
+    )
+  }
+  POSTS.splice(index, 1)
+  return Promise.resolve()
+}
+
 let nextPostId = 801
 
 /**
