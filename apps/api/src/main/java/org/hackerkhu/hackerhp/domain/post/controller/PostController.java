@@ -34,7 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
  * ACTIVE} 조건은 {@code AccountStatusFilter}가 인가보다 먼저 보장한다 — 같은 규칙을 두 곳에 두면 한쪽만 고쳐진다 ({@code
  * NoteController}·{@code NoticeController}와 같은 관례).
  *
- * <p><b>수정은 아직 없다</b> (3-3 결정 17). 작성자 수정은 #256이다. 삭제는 관리자 전용이고 작성자 본인 삭제는 없다 (#238).
+ * <p><b>수정은 아직 없다</b> (3-3 결정 16). 작성자 수정은 #256이다. 삭제는 관리자 전용이고 작성자 본인 삭제는 없다 (#238).
  */
 @Tag(name = "자유 게시판", description = "부원끼리 글을 올리고 읽는다. ACTIVE 전용")
 @RestController

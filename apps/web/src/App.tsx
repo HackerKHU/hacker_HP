@@ -102,8 +102,8 @@ function App() {
             자유 게시판. **`/admin` 아래가 아니다** — 조회·작성 모두 `ACTIVE`면 할 수 있다
             (spec §3-1-3 매트릭스).
 
-            **수정·삭제 라우트가 없다.** 빠뜨린 것이 아니라 API에 그 경로가 없다
-            (spec §3-2-5). 관리자 삭제는 후속이다 (#238).
+            **수정 라우트는 아직 없다** (#256). 삭제는 별도 라우트를 늘리지 않고 상세 화면에서
+            ADMIN에게만 연다 (spec §3-2-5, #238·#278).
           */}
           <Route path="/posts" element={<PostListPage />} />
           <Route path="/posts/new" element={<PostFormPage />} />

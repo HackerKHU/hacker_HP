@@ -17,6 +17,7 @@ import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.post.repository.PostRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.testsupport.auth.TestSessions.SignedIn;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
@@ -32,7 +33,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
- * 자유 게시판 (#236·#238, spec 2-1 §2-1-8, 3-2 §3-2-5, 3-3 결정 17).
+ * 자유 게시판 (#236·#238, spec 2-1 §2-1-8, 3-2 §3-2-5, 3-3 결정 16·20).
  *
  * <p><b>이 저장소에서 일반 부원이 자유 서술을 남기는 첫 기능이다.</b> 지금까지 텍스트를 남기는 길은 공지({@code ADMIN} 전용)와 자료 메타데이터뿐이었다 —
  * 승인된 모든 부원이 쓰는 입력이라 지금까지 없던 표면이 함께 생긴다.
@@ -538,6 +539,45 @@ class PostIntegrationTest extends AbstractIntegrationTest {
 
     mockMvc
         .perform(Csrf.with(sessions.as(member, delete(POSTS + "/" + id))))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+    assertThat(posts.existsById(id)).isTrue();
+  }
+
+  /**
+   * T-476 — 세션이 아직 {@code ADMIN}이어도 DB에서 권한이 회수됐으면 삭제할 수 없다.
+   *
+   * <p>{@code @PreAuthorize}는 로그인 때 저장한 role을 보므로 이 요청은 컨트롤러까지 들어간다. 서비스가 잠근 최신 사용자 행을 다시 확인해야 되돌릴
+   * 수 없는 삭제를 막는다.
+   */
+  @Test
+  void anAdminWhoseRoleWasRevokedAfterAuthorizationCannotDelete() throws Exception {
+    long id = write(member, "남아야 할 글", "본문");
+    SignedIn staleAdminSession = sessions.signIn(admin);
+    User storedAdmin = userRepository.findById(admin.getId()).orElseThrow();
+    storedAdmin.demoteToUser();
+    userRepository.saveAndFlush(storedAdmin);
+
+    mockMvc
+        .perform(Csrf.with(staleAdminSession.on(delete(POSTS + "/" + id))))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+    assertThat(posts.existsById(id)).isTrue();
+  }
+
+  /** T-476 — 세션이 아직 {@code ACTIVE}여도 DB에서 정지됐으면 같은 최신 상태 재검증이 삭제를 막는다. */
+  @Test
+  void anAdminWhoWasSuspendedAfterAuthorizationCannotDelete() throws Exception {
+    long id = write(member, "남아야 할 글", "본문");
+    SignedIn staleAdminSession = sessions.signIn(admin);
+    User storedAdmin = userRepository.findById(admin.getId()).orElseThrow();
+    storedAdmin.suspend();
+    userRepository.saveAndFlush(storedAdmin);
+
+    mockMvc
+        .perform(Csrf.with(staleAdminSession.on(delete(POSTS + "/" + id))))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
