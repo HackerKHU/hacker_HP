@@ -1,5 +1,11 @@
+import type { ContentSummary } from './adminUsers'
 import { apiPath, request } from './client'
-import { fixtureApplication, fixtureMe } from './fixtures'
+import {
+  fixtureApplication,
+  fixtureMe,
+  fixtureMyContentSummary,
+  fixtureWithdraw,
+} from './fixtures'
 import type { User } from './types'
 
 /*
@@ -25,7 +31,8 @@ export interface ApplicationRequest {
   studentNo: string
   /**
    * 정해진 목록에서 고른 값 (spec §3-2-3 MUST). 서버가 목록에 없는 값을
-   * `400 VALIDATION_ERROR`로 거부한다 — 목록은 `features/auth/departments.ts`에 있다.
+   * `400 VALIDATION_ERROR`로 거부한다 — 목록은 `GET /departments`가 내려준다
+   * (`api/departments.ts`, #166).
    */
   department: string
 }
@@ -69,4 +76,40 @@ export function logout(): Promise<void> {
 export function getMe(): Promise<User | null> {
   if (import.meta.env.VITE_USE_FIXTURES === 'true') return fixtureMe()
   return request<User | undefined>('/auth/me').then((me) => me ?? null)
+}
+
+/**
+ * 탈퇴하면 무엇이 남는지 (spec §3-2-3 `GET /auth/me/content-summary`, #226).
+ *
+ * **모양은 관리자용 `GET /admin/users/{id}/content-summary`와 같다** (MUST) — 그래서 타입도
+ * 같은 것을 쓴다. 대상이 언제나 요청자 자신이라 이쪽만 `{id}`를 받지 않는다: 받으면 일반
+ * 부원이 **남의 콘텐츠 건수를 세어 볼 수 있다.**
+ *
+ * **네 값이 항상 담긴다.** `0`이 빠지면 화면이 "없음"과 "모름"을 가르지 못하는데, 그 둘을
+ * 가르는 것이 탈퇴 확인 창의 존재 이유다.
+ *
+ * `PENDING`도 부를 수 있다 — 건수는 전부 `0`이지만 확인 창이 상태에 따라 갈리지 않는다.
+ */
+export function myContentSummary(): Promise<ContentSummary> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true')
+    return fixtureMyContentSummary()
+  return request<ContentSummary>('/auth/me/content-summary')
+}
+
+/**
+ * 회원 탈퇴 (spec §3-2-3 `DELETE /auth/me`, 2-2 §2-2-4). **되돌릴 수 없다.**
+ *
+ * 자료·공지·활동사진·게시글은 남고 작성자 표시가 "탈퇴한 회원"이 된다. 즐겨찾기는 함께
+ * 사라진다. 같은 구글 계정으로 다시 가입할 수 있다 — 계정 레코드를 지우므로 붙잡는 행이
+ * 남지 않는다.
+ *
+ * **화면이 처리 순서를 흉내 내지 않는다.** 정지 선행·세션 폐기·쿠키 정리는 전부 서버 몫이다
+ * (MUST) — 여기서 로그아웃을 덧붙이면 이미 끝난 세션에 한 번 더 요청을 보내게 된다.
+ *
+ * **마지막 활성 관리자는 `403 FORBIDDEN`이다** (2-2 §2-2-7 MUST). 계정은 그대로 남으므로
+ * 호출부는 세션도 화면도 건드리지 않고 사유만 보여준다.
+ */
+export function withdraw(): Promise<void> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true') return fixtureWithdraw()
+  return request('/auth/me', { method: 'DELETE' })
 }

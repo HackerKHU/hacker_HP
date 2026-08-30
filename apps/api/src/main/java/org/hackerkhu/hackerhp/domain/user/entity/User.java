@@ -60,6 +60,21 @@ public class User {
   private Instant approvedAt;
 
   /**
+   * 학기 전환으로 내려간 시각 (#228 #230). <b>{@link Status#INACTIVE}일 때만 값이 있다.</b>
+   *
+   * <p>비활성화는 조건으로 실행되므로 "방금 누가 내려갔나"가 응답에만 담기는데, <b>그 응답은 잃을 수 있다</b> — 세션 반영이 실패해 {@code 500}이
+   * 나가거나, 브라우저가 닫히거나, 연결이 끊긴다. 재요청은 "이미 전원 {@code INACTIVE}"라 빈 목록을 주므로 그 뒤로는 <b>원래 비활동이던 사람과 방금
+   * 내려간 사람을 영영 가르지 못한다.</b>
+   *
+   * <p><b>한 배치는 같은 값을 갖는다</b> — 그래야 "직전 배치"를 고를 수 있다.
+   *
+   * <p><b>이전 상태를 기억하는 열이 아니다.</b> {@code SUSPENDED}가 된 사람에게서도 지워지므로 정지 해제가 {@code INACTIVE}로 돌아가는
+   * 근거로 쓸 수 없다 (2-2 §2-2-3 — "해제는 언제나 {@code ACTIVE}다").
+   */
+  @Column(name = "deactivated_at")
+  private Instant deactivatedAt;
+
+  /**
    * 낙관적 잠금 — spec/3-1-DESIGN-ARCHITECTURE.md §3-1-4의 직렬화 요구.
    *
    * <p>아래 상태 검사들은 <b>각 트랜잭션이 읽어둔 인메모리 값</b>만 본다. 신청서 제출과 관리자 승인이 같은 행을 동시에 읽으면 둘 다 통과하고, 나중에
@@ -117,6 +132,30 @@ public class User {
   }
 
   /**
+   * 가입 신청 거부 — 계정은 유지하고 다시 신청할 수 있는 미승인 상태로 되돌린다.
+   *
+   * <p><b>신청서가 받은 학번·학과·제출 시각 세 필드만 지운다.</b> 신원 필드뿐 아니라 role/status와 승인·비활성화 시각도 이 메서드가 정규화하지 않는다.
+   * 같은 계정과 세션으로 다시 {@link #submitApplication(String, String)}을 호출하는 것이 재신청 경로다 (spec 2-2 §2-2-2).
+   *
+   * <p>{@code PENDING}이 아닌 계정은 거부할 수 없다. 서비스에서도 검사하지만 도메인 경계에도 남겨, 회원 제거를 우회해 활동 계정을 초기화하는 호출자가 생기지
+   * 않게 한다.
+   *
+   * @return 신청 데이터 세 필드 중 하나라도 값이 있어 초기화했으면 {@code true}, 셋 다 비어 있었으면 {@code false}
+   */
+  public boolean resetApplicationAfterRejection() {
+    if (this.status != Status.PENDING) {
+      throw new IllegalStateException("PENDING 상태에서만 가입 신청을 거부할 수 있습니다: " + this.status);
+    }
+
+    boolean hadApplication =
+        this.studentNo != null || this.department != null || this.appliedAt != null;
+    this.studentNo = null;
+    this.department = null;
+    this.appliedAt = null;
+    return hadApplication;
+  }
+
+  /**
    * 공백은 신청서로 인정하지 않는다 — spec/3-2 §3-2-3, T-52.
    *
    * <p>DB의 {@code NOT NULL}·{@code UNIQUE}는 빈 문자열을 거르지 않는다. 여기서 막지 않으면 {@code ""}를 낸 계정이 {@code
@@ -154,9 +193,15 @@ public class User {
     this.approvedAt = Instant.now();
   }
 
-  /** ADM-03 회원 상태 변경 — 정지. */
+  /**
+   * ADM-03 회원 상태 변경 — 정지.
+   *
+   * <p>{@code INACTIVE}에서 정지할 수 있다 (2-2 §2-2-3). 그때 {@link #deactivatedAt}을 지운다 — 남겨 두면 지금 비활동이 아닌
+   * 사람이 "직전 배치"에 섞여 <b>되돌리기가 엉뚱한 사람을 올린다.</b>
+   */
   public void suspend() {
     this.status = Status.SUSPENDED;
+    this.deactivatedAt = null;
   }
 
   /** ADM-03 회원 상태 변경 — 정지 해제. SUSPENDED 상태에서만 허용한다. */
@@ -167,6 +212,34 @@ public class User {
     this.status = Status.ACTIVE;
   }
 
+  /**
+   * 학기 전환 — 비활성화 (#228). {@code ACTIVE} 또는 관리자가 명시적으로 고른 {@code SUSPENDED}에서 내려간다.
+   *
+   * <p>{@code PENDING}은 승인 절차를 건너뛰므로 받지 않는다. {@code SUSPENDED} → {@code INACTIVE}는 선택 비활성화에서만 호출하며,
+   * 관리자가 제재를 비활동으로 바꾸겠다고 대상을 명시한 경우다 (2-2 §2-2-3 MUST).
+   */
+  public void deactivate(Instant at) {
+    if (this.status != Status.ACTIVE && this.status != Status.SUSPENDED) {
+      throw new IllegalStateException("ACTIVE 또는 SUSPENDED 상태에서만 비활성화할 수 있습니다: " + this.status);
+    }
+    this.status = Status.INACTIVE;
+    this.deactivatedAt = at;
+  }
+
+  /**
+   * 학기 전환 — 복구 (#228). {@code INACTIVE}에서만 올라온다.
+   *
+   * <p>{@link #reactivate()}(정지 해제)와 가른다. 도착지는 같지만 <b>이력에 남는 값이 다르고</b>({@code ACTIVATE} vs {@code
+   * REACTIVATE}), 뭉치면 이력을 읽어도 무엇이 있었는지 알 수 없다.
+   */
+  public void restore() {
+    if (this.status != Status.INACTIVE) {
+      throw new IllegalStateException("INACTIVE 상태에서만 복구할 수 있습니다: " + this.status);
+    }
+    this.status = Status.ACTIVE;
+    this.deactivatedAt = null;
+  }
+
   /** ADM-05 권한 부여. */
   public void promoteToAdmin() {
     this.role = Role.ADMIN;
@@ -175,6 +248,10 @@ public class User {
   /** ADM-05 권한 회수. */
   public void demoteToUser() {
     this.role = Role.USER;
+  }
+
+  public Instant getDeactivatedAt() {
+    return deactivatedAt;
   }
 
   public Long getId() {

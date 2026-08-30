@@ -1,5 +1,10 @@
 import { request, toQuery } from './client'
-import { fixtureCreatePost, fixturePost, fixturePosts } from './fixtures'
+import {
+  fixtureCreatePost,
+  fixturePost,
+  fixturePosts,
+  fixtureRemovePost,
+} from './fixtures'
 import type { Page } from './types'
 
 /**
@@ -75,8 +80,8 @@ export function get(id: number): Promise<PostDetail> {
 /**
  * 등록. **작성자는 인증 주체로만 정한다** (spec §2-1-8 MUST) — 본문으로 받지 않는다.
  *
- * **수정·삭제 함수가 없는 것은 빠뜨린 것이 아니다.** 계약에 그 경로가 없다
- * (spec §3-2-5 — "수정·삭제는 없다"). 관리자 삭제는 후속이다 (#238).
+ * **수정 함수가 없는 것은 빠뜨린 것이 아니다.** 계약에 그 경로가 없다
+ * (spec §3-2-5). 삭제는 아래 관리자 전용 경로만 제공한다.
  */
 export function create(body: {
   title: string
@@ -88,4 +93,10 @@ export function create(body: {
     method: 'POST',
     body: JSON.stringify(body),
   })
+}
+
+/** 관리자가 게시글을 완전히 삭제한다. 작성자 본인도 예외가 없다 (spec §3-2-5). */
+export function remove(id: number): Promise<void> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true') return fixtureRemovePost(id)
+  return request(`/posts/${id}`, { method: 'DELETE' })
 }

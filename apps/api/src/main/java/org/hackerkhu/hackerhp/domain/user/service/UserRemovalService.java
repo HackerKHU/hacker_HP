@@ -22,7 +22,15 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 회원 제거 (spec 2-2 §2-2-4).
+ * 계정을 지우는 두 경로 (spec 2-2 §2-2-4).
+ *
+ * <ul>
+ *   <li>{@link #remove} — 관리자가 회원을 제거한다 (#58)
+ *   <li>{@link #withdraw} — 본인이 탈퇴한다 (#223, #225)
+ * </ul>
+ *
+ * <p><b>이름에 {@code Admin}을 붙이지 않는다.</b> 두 경로의 처리가 같아야 하는데(§2-2-4 MUST), 관리자 전용으로 읽히면 다음 사람이 일반 부원용을
+ * 하나 더 만든다 — <b>그러면 계정을 지우는 규칙이 두 벌이 되고 한쪽만 고쳐진다.</b>
  *
  * <p><b>정지를 먼저 확정하고 나서 지운다</b> (MUST). 세션 폐기는 계정이 사라진 <b>뒤에</b> 일어나므로 실패할 수 있고, 실패해도 되돌릴 방법이 없다 —
  * 계정이 이미 없으니 트랜잭션을 물릴 수도, 같은 요청을 다시 보내 복구할 수도 없다. 그러면 {@code ACTIVE}·{@code ADMIN} 세션이 만료까지 그대로 인증에
@@ -41,9 +49,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>정지 경로는 이미 즉시 차단이 보장된다 (§2-2-3 MUST) — <b>새 장치를 만드는 것이 아니라 검증된 차단을 앞에 세우는 것</b>이다.
  */
 @Service
-public class AdminUserRemovalService {
+public class UserRemovalService {
 
-  private static final Logger log = LoggerFactory.getLogger(AdminUserRemovalService.class);
+  private static final Logger log = LoggerFactory.getLogger(UserRemovalService.class);
 
   private final UserRepository userRepository;
   private final AdminUserStatusService statusService;
@@ -51,7 +59,7 @@ public class AdminUserRemovalService {
   private final AdminActionRecorder recorder;
   private final TransactionTemplate transaction;
 
-  public AdminUserRemovalService(
+  public UserRemovalService(
       UserRepository userRepository,
       AdminUserStatusService statusService,
       SessionSynchronizer sessionSynchronizer,
@@ -116,10 +124,96 @@ public class AdminUserRemovalService {
   }
 
   /**
+   * 본인 탈퇴 — {@code DELETE /auth/me} (spec 2-2 §2-2-4 "본인 탈퇴", #223).
+   *
+   * <p><b>처리는 {@link #remove}와 같다.</b> 정지 확정 → 세션 반영 확인 → 삭제 → 폐기 순서, 남기는 것과 지우는 것, {@code 409}
+   * 재확인이 전부 그쪽 규칙이다. 여기서 다시 정의하지 않는다 — 두 벌이 되면 한쪽만 고쳐지고, 그 한쪽이 계정을 지우는 경로다.
+   *
+   * <p>다른 것은 셋이다.
+   *
+   * <ul>
+   *   <li><b>요청자와 대상이 언제나 같다.</b> 선행 정지가 관리자 자격을 요구하지 않고({@link
+   *       AdminUserStatusService#suspendSelf}), 삭제 직전의 요청자 재확인도 건너뛴다 — 방금 자기 손으로 만든 상태에 걸려 영영 실패한다.
+   *   <li><b>이력은 {@code WITHDRAW}다.</b> {@code REMOVE}와 가른다 (§3-2-2).
+   *   <li><b>정지만 남고 끝나면 본인은 이어갈 수 없다.</b> 아래 참고.
+   * </ul>
+   *
+   * <p>부르는 쪽은 <b>언제나</b> 지금 요청의 세션과 토큰을 함께 버린다 — 본인 제거이므로 {@link #remove}의 {@code true} 갈래와 같다.
+   */
+  public void withdraw(Long userId) {
+    try {
+      boolean pending = !suspendFirstSelf(userId);
+
+      /*
+       * PENDING은 정지를 밟지 않았으므로 이 확인이 그 갈래를 덮는다 — remove와 같은 이유다.
+       * 정지를 밟은 갈래는 suspendSelf가 이미 확인했지만, 한 번 더 보는 비용이 "지우기 전에
+       * 세션이 정리됐다"를 이 메서드 안에서 성립시키는 값보다 싸다.
+       */
+      if (!sessionSynchronizer.refreshReporting(userId)) {
+        throw SessionSynchronizer.notReflected(pending ? "탈퇴" : "정지", userId);
+      }
+
+      Instant removedAt = transaction.execute(ignored -> delete(userId, userId));
+      sessionSynchronizer.refresh(List.of(userId));
+      recorder.record(userId, userId, AdminAction.WITHDRAW, removedAt);
+      log.warn("회원 탈퇴: userId={}", userId);
+    } catch (RuntimeException e) {
+      warnIfLeftSuspended(userId, e);
+      throw e;
+    }
+  }
+
+  /**
+   * <b>정지만 남고 끝났는지</b>를 상태로 판단해 로그에 남긴다 (spec 3-2 "정지만 남고 끝나면" MUST).
+   *
+   * <p>여기까지 온 실패는 세 갈래다 — 정지가 커밋된 뒤 <b>세션 반영</b>이 실패했거나, <b>삭제</b>가 실패했거나, 애초에 아무것도 바뀌지 않았거나. 앞의 둘은
+   * 계정을 {@code SUSPENDED}로 잠근 채 끝나는데 <b>본인은 로그인과 API 접근을 함께 잃어 재시도할 수 없다.</b> 관리자가 이어받아야 한다.
+   *
+   * <p><b>예외 종류로 가르지 않고 계정 상태를 다시 읽는다.</b> 그것이 정확히 이 조건이기 때문이다 — {@code 409 CONCURRENT_CHANGE}(대상이
+   * {@code ACTIVE}로 되살아났다)와 마지막 활성 관리자 {@code 403}(정지 전에 걸린다)은 잠기지 않았으므로 여기 걸리지 않는다. 예외를 나열하면 새 실패가
+   * 늘 때마다 조용히 빠진다.
+   *
+   * <p>실패 경로에서만 도는 읽기 하나다. 운영자가 이 줄로 그 계정을 찾는다 ({@code docs/ops/runbook.md}).
+   */
+  private void warnIfLeftSuspended(Long userId, RuntimeException cause) {
+    userRepository
+        .findById(userId)
+        .filter(user -> user.getStatus() == Status.SUSPENDED)
+        .ifPresent(
+            user ->
+                log.error(
+                    "탈퇴 중 정지만 남았다 — 운영자가 이어받아야 한다 (docs/ops/runbook.md): userId={}",
+                    userId,
+                    cause));
+  }
+
+  /**
+   * 본인 탈퇴의 선행 정지.
+   *
+   * <p>{@code PENDING}이면 밟지 않는다 — {@code PENDING} → {@code SUSPENDED}는 §2-2-3에 없는 전이라 <b>시도하는 순간
+   * 탈퇴가 그 자리에서 실패한다.</b> 건너뛰어도 안전한 이유는 {@code PENDING} 계정이 콘텐츠를 남길 수 없고 세션의 {@code status}가 보호 API를
+   * 열지 못하기 때문이다.
+   *
+   * @return 정지를 밟았으면 {@code true}
+   */
+  private boolean suspendFirstSelf(Long userId) {
+    User user =
+        userRepository
+            .findById(userId)
+            // 세션은 살아 있는데 계정이 사라졌다. 인증이 성립할 수 없는 상태다.
+            .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHENTICATED));
+    if (user.getStatus() == Status.PENDING) {
+      return false;
+    }
+    statusService.suspendSelf(userId);
+    return true;
+  }
+
+  /**
    * 지우기 전에 정지를 확정한다.
    *
    * <p>대상이 {@code PENDING}이면 정지 경로를 탈 수 없다 (§2-2-3의 전이는 {@code ACTIVE} ↔ {@code SUSPENDED}뿐이다). 그
-   * 계정은 <b>남긴 것이 없고 세션도 보호 API를 열지 못하므로</b> 그대로 지운다 — 가입 거부와 같은 상태다.
+   * 계정은 <b>남긴 것이 없고 세션도 보호 API를 열지 못하므로</b> 그대로 지운다.
    */
   private void suspendFirst(Long requesterId, Long targetId) {
     User target =
@@ -129,10 +223,7 @@ public class AdminUserRemovalService {
     if (target.getStatus() == Status.PENDING) {
       return;
     }
-    statusService.change(
-        requesterId,
-        targetId,
-        org.hackerkhu.hackerhp.domain.user.dto.StatusChangeRequest.Target.SUSPENDED);
+    statusService.suspendForRemoval(requesterId, targetId);
   }
 
   private Instant delete(Long requesterId, Long targetId) {

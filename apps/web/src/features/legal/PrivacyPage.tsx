@@ -1,11 +1,10 @@
-import { Link } from 'react-router-dom'
-import { CLUB } from '@/features/landing/content'
+import { LegalBackLink } from './LegalBackLink'
 import { PRIVACY_SECTIONS, PRIVACY_UPDATED } from './privacyContent'
 
 /**
  * 개인정보처리방침. **가드를 붙이지 않는다** — 랜딩과 같은 공개 페이지다.
  *
- * 랜딩은 한 페이지 규칙(spec §2-1-9)이 있지만 이건 랜딩 섹션이 아니라 **별도 법적 문서**라
+ * 랜딩은 한 페이지 규칙(spec §2-1-10)이 있지만 이건 랜딩 섹션이 아니라 **별도 법적 문서**라
  * 자기 라우트를 가진다. 앵커로 넣지 않는다.
  */
 export function PrivacyPage() {
@@ -21,12 +20,7 @@ export function PrivacyPage() {
        * 문단 사이는 여백(`space-y-*`)으로만 벌린다.
        */}
       <div className="mx-auto w-full max-w-3xl px-6 py-20">
-        <Link
-          to="/"
-          className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          ← {CLUB.name}
-        </Link>
+        <LegalBackLink />
 
         <h1 className="mt-8 text-3xl font-semibold tracking-tight">
           개인정보처리방침

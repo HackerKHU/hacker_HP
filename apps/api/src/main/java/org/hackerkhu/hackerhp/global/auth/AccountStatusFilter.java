@@ -47,7 +47,7 @@ public class AccountStatusFilter extends OncePerRequestFilter {
    *   <li>{@code /actuator/**} — ALB 헬스체크가 막혀 태스크가 무한 재시작한다
    * </ul>
    *
-   * <p>신청 API는 여기 없다. <b>상태와 무관하게 열면 안 되기 때문이다</b> — {@link #PENDING_ONLY}를 보라.
+   * <p>신청 API는 여기 없다. <b>상태와 무관하게 열면 안 되기 때문이다</b> — {@link #PENDING_ALLOWED}를 보라.
    */
   private static final RequestMatcher ALWAYS_OPEN =
       new OrRequestMatcher(
@@ -68,21 +68,59 @@ public class AccountStatusFilter extends OncePerRequestFilter {
                * 최초 관리자 승격 (3-3 결정 11). PENDING이 불러야 하는 경로다 — 최초 관리자는
                * 신청서까지 낸 PENDING 상태로 이것을 부른다.
                *
-               * PENDING_ONLY가 아니라 여기 두는 이유는, 이 경로가 마지막 관리자 사고의 복구
+               * PENDING_ALLOWED가 아니라 여기 두는 이유는, 이 경로가 마지막 관리자 사고의 복구
                * 경로도 겸해 ACTIVE도 부를 수 있기 때문이다 (2-2 §2-2-7). SUSPENDED까지 핸들러에
                * 닿지만 서비스가 거절한다 — 거절 사유를 가르지 않는 것이 이 경로의 규칙이다.
                */
               matcher(HttpMethod.POST, "/api/v1/auth/bootstrap-admin")));
 
   /**
-   * {@code PENDING}에게만 여는 경로.
+   * {@code PENDING}에게도 여는 경로.
+   *
+   * <p><b>"{@code PENDING} 전용"이 아니다</b> (#225). 여기 담긴 경로가 통과시키는 상태는 {@code PENDING}·{@code
+   * ACTIVE}·{@code INACTIVE}이고, {@code SUSPENDED}만 위에서 걸러진다 — 이 목록은 <b>{@code PENDING}이 걸리지 않게 하는
+   * 예외</b>이지 다른 상태를 막는 장치가 아니다. 이름이 조건을 정확히 말해야 다음 사람이 목록을 잘못 읽지 않는다 (3-3 결정 17).
    *
    * <p>신청 API를 막으면 <b>아무도 신청서를 낼 수 없다</b> — 신청 전 계정도 {@code PENDING}이다 (§3-1-2 MUST). 그렇다고 {@link
    * #ALWAYS_OPEN}에 두면 <b>정지된 사람이 제출했을 때 {@code FORBIDDEN}이 나간다</b> — 인가 규칙({@code
    * hasAuthority("STATUS_PENDING")})이 거절하기 때문이다. 그러면 화면은 정지를 알아채지 못하고 "권한이 없습니다"만 띄운 채 남는다 (T-116).
    */
-  private static final RequestMatcher PENDING_ONLY =
-      matcher(HttpMethod.POST, "/api/v1/auth/application");
+  private static final RequestMatcher PENDING_ALLOWED =
+      new OrRequestMatcher(
+          List.of(
+              matcher(HttpMethod.POST, "/api/v1/auth/application"),
+              /*
+               * 회원 탈퇴와 그 확인 창의 건수 (#223, #225). PENDING도 나갈 수 있어야 한다 —
+               * 막으면 구글 로그인만 해보고 신청서를 내지 않은 사람이 자기 계정을 지울 방법이
+               * 없다. 그 계정은 승인 목록(status=PENDING&applied=true)에 뜨지 않아 관리자
+               * 눈에도 띄지 않는다 (§3-1-2 MUST).
+               *
+               * 둘이 한 벌이다. 탈퇴만 넣으면 확인 창이 건수를 읽지 못해 흐름이 그 앞에서
+               * 막힌다 (T-392).
+               *
+               * ALWAYS_OPEN이 아니라 여기 두는 이유는 SUSPENDED다. 저쪽에 두면 정지된 사람이
+               * 탈퇴한 뒤 재가입으로 정지를 지운다 — 여기 두면 위의 SUSPENDED 분기가 먼저
+               * 걸러내고, ACTIVE·INACTIVE는 아래로 흘러 통과한다.
+               */
+              matcher(HttpMethod.GET, "/api/v1/auth/me/content-summary"),
+              matcher(HttpMethod.DELETE, "/api/v1/auth/me")));
+
+  /**
+   * {@code INACTIVE}에게 막히는 경로 — <b>자료 갈래 전체</b> (#228, #229).
+   *
+   * <p>이 상태는 <b>경로마다 다르게 작용하는 첫 사례다</b> (3-3 결정 17). {@code PENDING}·{@code SUSPENDED}는 경로와 무관하게
+   * 막히지만 {@code INACTIVE}는 여기 걸리는 경로에서만 막힌다.
+   *
+   * <p><b>경로를 하나씩 열거하지 않고 접두사로 막는다</b> (2026-08-28, #229). 결정 17이 트레이드오프로 적어 둔 위험이 <i>"목록은 기본이
+   * 열림이라, 새 자료 API를 넣는 것을 잊으면 비활동 부원에게 열린다"</i>였다. 접두사로 하면 <b>기본이 닫힘으로 뒤집힌다</b> — 자료 갈래에 무엇이 늘어도
+   * 자동으로 막히고, 열어야 할 것이 생기면 그때 예외를 적는 것이 결정이 된다.
+   *
+   * <p>계약이 세는 열한 경로(§3-2-4)가 전부 이 둘 아래에 있다. 그것이 실제로 그러한지는 T-338이 <b>표를 그대로 옮긴 목록으로</b> 순회해 확인한다 —
+   * 접두사가 맞다는 것을 접두사로 재면 아무것도 재지 않는 것과 같다.
+   */
+  private static final RequestMatcher NOTES_AND_BOOKMARKS =
+      new OrRequestMatcher(
+          List.of(matcher(null, "/api/v1/notes/**"), matcher(null, "/api/v1/bookmarks/**")));
 
   private final ErrorResponseWriter errorResponseWriter;
 
@@ -130,9 +168,19 @@ public class AccountStatusFilter extends OncePerRequestFilter {
       return Optional.of(ErrorCode.SUSPENDED);
     }
     if (hasStatus(authentication, Status.PENDING)) {
-      return PENDING_ONLY.matches(request)
+      return PENDING_ALLOWED.matches(request)
           ? Optional.empty()
           : Optional.of(ErrorCode.PENDING_APPROVAL);
+    }
+    /*
+     * 비활동 부원은 자료 갈래에서만 막힌다 (#228). 공지·활동사진·게시판·마이페이지는 ACTIVE와
+     * 같으므로 여기서 걸러지지 않는다 — 그 사실 자체가 이 상태의 정의다.
+     *
+     * 코드를 SUSPENDED나 FORBIDDEN으로 뭉개지 않는다. 셋 다 403이라 화면이 "정지"·"권한 없음"·
+     * "이번 학기 비활동"을 가르는 근거는 코드뿐이다 (§3-2-7).
+     */
+    if (hasStatus(authentication, Status.INACTIVE) && NOTES_AND_BOOKMARKS.matches(request)) {
+      return Optional.of(ErrorCode.INACTIVE);
     }
     return Optional.empty();
   }

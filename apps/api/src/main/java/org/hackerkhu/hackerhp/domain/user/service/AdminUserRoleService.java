@@ -25,7 +25,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * 관리자 권한 부여·회수 (spec 2-2 §2-2-5).
  *
- * <p><b>Role만 바꾼다. Status는 건드리지 않는다</b> (§2-2-5). 권한을 회수한다고 정지되는 것이 아니고, 그 반대도 아니다.
+ * <p>권한 회수는 {@code ACTIVE USER}로 끝난다. 권한 부여는 비활동·정지 일반 회원도 같은 트랜잭션에서 {@code ACTIVE ADMIN}으로 정규화한다
+ * (§2-2-5). 중간 {@code INACTIVE ADMIN}/{@code SUSPENDED ADMIN} 상태는 커밋하거나 세션에 반영하지 않는다.
  *
  * <p><b>회수 뒤에 활성 관리자가 남는지 본다</b> (§2-2-7 MUST). 자기 대상인지와 무관하다 — 활성 관리자가 둘일 때 서로의 권한을 동시에 회수하면 두 요청
  * 모두 "남을 회수하는 것"이라 자기 검사에 걸리지 않고, 각자 다른 행만 잠근 채 커밋해 <b>0명이 된다.</b>
@@ -121,6 +122,11 @@ public class AdminUserRoleService {
     Instant occurredAt = Instant.now();
     if (changed) {
       if (desired == Role.ADMIN) {
+        if (user.getStatus() == Status.INACTIVE) {
+          user.restore();
+        } else if (user.getStatus() == Status.SUSPENDED) {
+          user.reactivate();
+        }
         user.promoteToAdmin();
       } else {
         user.demoteToUser();

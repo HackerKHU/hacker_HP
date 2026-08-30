@@ -68,8 +68,8 @@ public class PostService {
     Page<Post> page =
         posts.findAll(
             PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST));
-    Map<Long, String> names = authorNames(page.getContent());
-    return page.map(post -> PostSummaryResponse.of(post, authorOf(post, names)));
+    Map<Long, User> found = authors(page.getContent());
+    return page.map(post -> PostSummaryResponse.of(post, authorOf(post, found)));
   }
 
   @Transactional(readOnly = true)
@@ -78,7 +78,7 @@ public class PostService {
         posts
             .findById(id)
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "게시글을 찾을 수 없습니다."));
-    return PostDetailResponse.of(post, authorOf(post, authorNames(List.of(post))));
+    return PostDetailResponse.of(post, authorOf(post, authors(List.of(post))));
   }
 
   /**
@@ -121,7 +121,7 @@ public class PostService {
      * 이 줄이 남아 있어야 한다 — 실제 분포를 추측이 아니라 로그에서 본다.
      */
     log.info("게시글 등록: postId={} authorId={}", saved.getId(), authorId);
-    return PostDetailResponse.of(saved, authorOf(saved, authorNames(List.of(saved))));
+    return PostDetailResponse.of(saved, authorOf(saved, authors(List.of(saved))));
   }
 
   /**
@@ -164,18 +164,18 @@ public class PostService {
    *
    * <p><b>계정이 사라진 글은 여기 없다.</b> 그래서 {@link PostAuthor#of}가 그 자리를 "탈퇴한 회원"으로 채운다 (2-2 §2-2-4).
    */
-  private Map<Long, String> authorNames(List<Post> found) {
+  private Map<Long, User> authors(List<Post> found) {
     Set<Long> ids =
         found.stream().map(Post::getAuthorId).filter(Objects::nonNull).collect(Collectors.toSet());
     if (ids.isEmpty()) {
       return Map.of();
     }
     return users.findAllById(ids).stream()
-        .collect(Collectors.toMap(User::getId, User::getName, (first, second) -> first));
+        .collect(Collectors.toMap(User::getId, user -> user, (first, second) -> first));
   }
 
-  private PostAuthor authorOf(Post post, Map<Long, String> names) {
+  private PostAuthor authorOf(Post post, Map<Long, User> found) {
     Long authorId = post.getAuthorId();
-    return PostAuthor.of(authorId, authorId == null ? null : names.get(authorId));
+    return PostAuthor.of(authorId == null ? null : found.get(authorId));
   }
 }

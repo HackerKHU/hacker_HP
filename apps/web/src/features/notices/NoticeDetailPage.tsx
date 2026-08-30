@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '@/api/client'
 import { get, type Notice, remove } from '@/api/notices'
 import { useSession } from '@/auth/session'
+import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,11 +34,11 @@ export function NoticeDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { state, reportApiError } = useSession()
+  const alert = useLiveAlert()
   const isAdmin = state.kind === 'active' && state.user.role === 'ADMIN'
   const [notice, setNotice] = useState<Notice | null>(null)
   const [status, setStatus] = useState<Status>('loading')
   const [deleting, setDeleting] = useState(false)
-  const [deleteFailed, setDeleteFailed] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -67,14 +68,15 @@ export function NoticeDetailPage() {
   /** 삭제는 되돌릴 수 없다. 확인 단계를 거친 뒤에만 여기 도달한다. */
   async function handleDelete() {
     setDeleting(true)
-    setDeleteFailed(false)
     try {
       await remove(Number(id))
+      alert.success('공지를 삭제했습니다.', { persistOnNavigation: true })
       // 지운 글의 상세에 남아 있으면 다음 조회가 404다. 목록으로 보내고 기록도 대체한다.
       navigate('/notices', { replace: true })
     } catch (error: unknown) {
-      reportApiError(error)
-      setDeleteFailed(true)
+      if (!reportApiError(error)) {
+        alert.error('공지를 삭제하지 못했습니다. 다시 시도해 주세요.')
+      }
     } finally {
       setDeleting(false)
     }
@@ -91,7 +93,7 @@ export function NoticeDetailPage() {
      * 672px에서는 글이 왼쪽에 쪼그라들고 오른쪽 480px이 빈 채 남는다. 화면을 직접 보고
      * 답답하다는 판단이 나와 되돌렸다 (2026-08-11). 규칙은 `apps/web/README.md`에 있다.
      */
-    <article>
+    <article className="min-h-[32rem]" data-detail-surface="notice">
       {/* 목록으로 돌아가는 진입점. 뒤로가기만 믿지 않는다. */}
       <Link
         to="/notices"
@@ -174,11 +176,6 @@ export function NoticeDetailPage() {
             )}
           </div>
 
-          {deleteFailed && (
-            <p role="alert" className="mt-4 text-sm text-muted-foreground">
-              공지를 삭제하지 못했습니다. 다시 시도해 주세요.
-            </p>
-          )}
           {/* 본문은 평문이다. 리치 텍스트는 범위 밖이고, 줄바꿈만 보존한다. */}
           <div className="mt-8 whitespace-pre-wrap border-t border-border pt-8 text-sm leading-7">
             {notice.content}

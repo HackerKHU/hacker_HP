@@ -1,9 +1,9 @@
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ApiError } from '@/api/client'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter } from '@/test/TestRouter'
 
 vi.mock('@/api/auth', () => ({
   getMe: () =>
@@ -36,6 +36,10 @@ async function openPrivacy() {
 /** 항목은 `dt`/`dd` 짝이라 heading이 아니다. 제목을 감싼 블록을 집는다. */
 function retentionSection() {
   return screen.getByText('5. 보관과 파기').parentElement as HTMLElement
+}
+
+function purposeSection() {
+  return screen.getByText('2. 수집·이용 목적').parentElement as HTMLElement
 }
 
 describe('개인정보처리방침', () => {
@@ -96,6 +100,24 @@ describe('개인정보처리방침', () => {
     expect(section).toHaveTextContent('즐겨찾기')
   })
 
+  it('가입 거부 때 신청 정보만 지우고 계정 식별정보와 재신청 경로는 유지한다고 알린다', async () => {
+    await openPrivacy()
+    const section = retentionSection()
+
+    expect(section).toHaveTextContent(
+      '학번과 학과, 가입 신청일시는 즉시 삭제합니다',
+    )
+    expect(section).toHaveTextContent(
+      '구글 계정 식별자와 이메일 주소, 이름, 계정 생성일시는 미승인 계정 기록으로 유지',
+    )
+    expect(section).toHaveTextContent(
+      '같은 계정으로 로그인해 다시 신청서를 제출',
+    )
+    expect(section).not.toHaveTextContent(
+      '가입 신청이 거부되면 계정 기록을 삭제',
+    )
+  })
+
   /*
    * 익명화라고 읽히면 안 된다. 자료 본문이나 파일 이름, 사진에 담긴
    * 정보는 그대로 남으므로 "표시까지"라는 범위를 화면이 말해야 한다.
@@ -113,20 +135,21 @@ describe('개인정보처리방침', () => {
   })
 
   /*
-   * 게시판에는 삭제 기능이 자체가 없다 (spec 3-3 결정 16, #235).
+   * 게시판은 작성자 삭제는 없고 운영진 완전 삭제만 있다 (spec 3-3 결정 20).
    *
    * 바로 위 문단이 "남기고 싶지 않은 것은 직접 삭제하시라"고 안내하는데,
    * 게시글에는 그 길이 없다. 구분해 적지 않으면 이용자는 계정을 유지하는
    * 동안에는 스스로 지울 수 있다고 읽는다 — 사실과 다른 안내다.
    */
-  it('게시글은 직접 지울 수 없다는 것을 따로 알린다', async () => {
+  it('게시글은 직접 지울 수 없고 운영진에게 완전 삭제를 요청할 수 있다고 알린다', async () => {
     await openPrivacy()
     const section = retentionSection()
 
     expect(section).toHaveTextContent(
-      '자유 게시판에 올리신 글은 직접 지우실 수 없습니다',
+      '자유 게시판에 올리신 글은 계정을 유지하고 계셔도 직접 지우실 수 없습니다',
     )
     expect(section).toHaveTextContent('문의처로 알려 주시기')
+    expect(section).toHaveTextContent('운영진이 관리 화면에서 완전히 삭제')
   })
 
   /*
@@ -135,6 +158,26 @@ describe('개인정보처리방침', () => {
    *
    * 학번만 보면 신청서에서 받는 두 값 중 하나가 빠져도 통과하므로 둘을 함께 본다.
    */
+  /*
+   * T-435 — **학번 뒷자리 노출을 고지한다** (#300 결정 18, #301).
+   *
+   * 결정 18은 이 고지를 **조건으로** 걸었다. 나머지 사례는 전부 서버가 만드는 표시 이름만
+   * 보므로, 이것이 없으면 **표시 이름만 배포해도 전부 통과한다** — 고지 없이 노출된다.
+   *
+   * 노출되지 **않는** 것까지 함께 본다. "학번을 보여준다"로만 적으면 다음 사람이 범위를
+   * 넓혀도 이 사례가 잡지 못한다.
+   */
+  it('학번 뒷자리가 다른 부원에게 보인다는 것을 알린다', async () => {
+    await openPrivacy()
+    const section = purposeSection()
+
+    expect(section).toHaveTextContent('학번 끝 두 자리')
+    expect(section).toHaveTextContent('다른 부원에게도 보입니다')
+    expect(section).toHaveTextContent(
+      '학번 전체나 학과, 이메일 주소는 다른 부원에게 보이지 않습니다',
+    )
+  })
+
   it('신청서에서 받는 학번과 학과를 모두 수집 항목에 적는다', async () => {
     await openPrivacy()
     const section = screen.getByText('1. 수집하는 개인정보')
@@ -145,11 +188,13 @@ describe('개인정보처리방침', () => {
   })
 
   /*
-   * **없는 화면을 정정 경로로 안내하지 않는다.** 마이페이지는 존재한 적이 없다.
+   * **방침이 안내하는 길이 실제 화면과 같아야 한다.** 없는 화면을 적으면 이용자가 찾아
+   * 헤매고, 있는 길을 빼면 스스로 할 수 있는 것을 문의처로 떠넘긴다. 둘 다 권리 행사
+   * 절차를 잘못 알린 것이다.
    *
-   * 실제 경로는 셋으로 갈린다 — 이름은 구글 계정 값 고정(#224), 학번·학과는 승인
-   * 대기 중 신청서 재제출, 그 밖에는 문의처. 이걸 뭉뚱그리면 이용자가 고칠 수 있는
-   * 것을 못 고치거나, 없는 화면을 찾아 헤맨다. 셋을 각각 고정한다.
+   * 경로는 넷으로 갈린다: 열람은 마이페이지(#178), 탈퇴는 마이페이지와 신청·대기
+   * 화면(#226), 이름은 구글 계정 값 고정(#224), 학번·학과는 승인 대기 중 신청서 재제출.
+   * 승인된 뒤의 정정만 문의처다. 뭉뚱그리면 그 구분이 사라진다.
    */
   /*
    * **본문에 줄표를 쓰지 않는다.** 줄표 뒤에 있던 것은 곁가지가 아니라 조건이었고,
@@ -187,12 +232,20 @@ describe('개인정보처리방침', () => {
     const section = screen.getByText('6. 이용자의 권리')
       .parentElement as HTMLElement
 
-    expect(section).not.toHaveTextContent('마이페이지')
-    // ① 이름 — 구글 계정에서 바꾼다
+    // ① 열람은 마이페이지에서 직접 (#178)
+    expect(section).toHaveTextContent('마이페이지에서 바로')
+    // ② 이름은 구글 계정에서 바꾼다
     expect(section).toHaveTextContent('구글 계정에 저장된 값')
-    // ② 학번·학과 — 승인 대기 중에만 신청서 재제출로
+    // ③ 학번·학과는 승인 대기 중에만 신청서 재제출로
     expect(section).toHaveTextContent('신청서를 다시 제출해')
-    // ③ 승인된 뒤에는 화면에 길이 없다
+    // ④ 승인된 뒤의 정정만 문의처다
     expect(section).toHaveTextContent('화면에서 고치는 길이 없으니')
+    /*
+     * ⑤ 탈퇴는 본인이 직접 한다 (#226). 문의처로만 안내하면 **스스로 할 수 있는 것을
+     * 못 하는 줄 알고 기다리게 된다** — 방침 §6이 고지하는 "삭제를 요구할 수 있다"를
+     * 본인이 실행하는 경로가 실제로 생겼다.
+     */
+    expect(section).toHaveTextContent('마이페이지의 회원 탈퇴로 직접')
+    expect(section).toHaveTextContent('신청·대기 화면에서 하실 수 있습니다')
   })
 })

@@ -1,6 +1,13 @@
 export type Role = 'USER' | 'ADMIN'
 
-export type UserStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED'
+/**
+ * 계정 상태. 원본은 spec/3-1-DESIGN-ARCHITECTURE.md §3-1-2 표다.
+ *
+ * `INACTIVE`는 **이번 학기에 활동하지 않는 부원**이다 (#228). 로그인도 되고 공지·게시판·
+ * 갤러리·마이페이지도 그대로 쓴다 — **자료 갈래에서만** 막힌다. 그래서 화면에서 이 값은
+ * `SUSPENDED`가 아니라 `ACTIVE` 쪽에 붙는다 (`auth/session.tsx`).
+ */
+export type UserStatus = 'PENDING' | 'ACTIVE' | 'INACTIVE' | 'SUSPENDED'
 
 export interface User {
   id: number
@@ -19,6 +26,13 @@ export interface User {
   /** 신청서 제출 시각. PENDING 사용자에게 신청 폼과 대기 안내 중 무엇을 보일지 가른다. */
   appliedAt: string | null
   approvedAt: string | null
+  /**
+   * 비활성화 배치 시각. 관리자 목록 응답은 이 필드를 내리며 `INACTIVE`는
+   * non-null, 다른 상태는 `null`이다. 같은 `User`를 쓰는 `/auth/me`는 현재 이
+   * 관리 메타데이터를 응답하지 않으므로 optional이다. 필드 부재를 `null`로
+   * 추론하지 않는다.
+   */
+  deactivatedAt?: string | null
 }
 
 /** 목록 API 공통 응답. 형태는 spec/3-2-DESIGN-CONTRACT.md §3-2-8(Spring Data `PagedModel`)이 원본이다. */
@@ -43,6 +57,7 @@ export const ERROR_CODES = [
   'UNAUTHENTICATED',
   'PENDING_APPROVAL',
   'SUSPENDED',
+  'INACTIVE',
   'FORBIDDEN',
   'NOT_FOUND',
   'DUPLICATE_STUDENT_NO',

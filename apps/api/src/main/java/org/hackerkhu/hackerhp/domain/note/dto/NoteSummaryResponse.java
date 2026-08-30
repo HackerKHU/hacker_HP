@@ -28,6 +28,7 @@ public record NoteSummaryResponse(
     Uploader uploader,
     @Schema(description = "딸린 파일 개수") int fileCount,
     @Schema(description = "내가 즐겨찾기했는지") boolean bookmarked,
+    @Schema(description = "상세를 연 횟수. **목록을 여는 것은 세지 않는다**") long viewCount,
     Instant createdAt) {
 
   public static NoteSummaryResponse of(
@@ -44,6 +45,7 @@ public record NoteSummaryResponse(
         uploader,
         fileCount,
         bookmarked,
+        note.getViewCount(),
         note.getCreatedAt());
   }
 }

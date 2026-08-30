@@ -122,7 +122,8 @@ class PostIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.content[0].id").value(id))
         .andExpect(jsonPath("$.content[0].title").value("이번 학기 스터디 모집합니다"))
         .andExpect(jsonPath("$.content[0].author.id").value(member.getId()))
-        .andExpect(jsonPath("$.content[0].author.name").value("김부원"));
+        // 표시 이름이라 학번 끝 두 자리가 붙는다 (#301, 3-2 §3-2-2).
+        .andExpect(jsonPath("$.content[0].author.name").value("김부원01"));
 
     mockMvc
         .perform(sessions.as(member, get(POSTS + "/" + id)))
@@ -210,7 +211,8 @@ class PostIntegrationTest extends AbstractIntegrationTest {
                         .formatted(other.getId(), other.getId())))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.author.id").value(member.getId()))
-        .andExpect(jsonPath("$.author.name").value("김부원"));
+        // 표시 이름이라 학번 끝 두 자리가 붙는다 (#301, 3-2 §3-2-2).
+        .andExpect(jsonPath("$.author.name").value("김부원01"));
   }
 
   /** 쓰기에는 CSRF 토큰이 필요하다 (§3-2-3). */
@@ -510,7 +512,7 @@ class PostIntegrationTest extends AbstractIntegrationTest {
   /* ------------------------------------------------------------------ 삭제 (#238) */
 
   /**
-   * T-337 — <b>관리자가 글을 완전히 지운다</b> (MUST).
+   * T-463 — <b>관리자가 글을 완전히 지운다</b> (MUST).
    *
    * <p>목록·상세 어디서도 다시 보이지 않는다 — 감춤이 아니라 행 자체가 사라진다.
    */
@@ -529,7 +531,7 @@ class PostIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.content.length()").value(0));
   }
 
-  /** T-338 — <b>작성자 본인도 지울 수 없다</b> (MUST). 관리자 전용이다 — 예외가 없다. */
+  /** T-464 — <b>작성자 본인도 지울 수 없다</b> (MUST). 관리자 전용이다 — 예외가 없다. */
   @Test
   void theAuthorCannotDeleteTheirOwnPost() throws Exception {
     long id = write(member, "내가 쓴 글", "본문");

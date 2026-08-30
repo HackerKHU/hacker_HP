@@ -27,6 +27,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *   <li>둘 다 있으나 사용자가 다르다 — 거부하고 <b>양쪽을 폐기한다</b> (T-29)
  * </ul>
  *
+ * <p>대조를 통과하면 <b>토큰을 다시 발급한다</b> (#299) — {@link #renew}에 이유가 있다.
+ *
  * <p><b>{@code SecurityContext}를 세션에서 복원하지 않는다.</b> 복원하면 세션만으로 인증이 성립해 T-31이 새고, 이 필터의 대조가 무의미해진다.
  * {@code SecurityConfig}가 저장소를 비워 둔 이유다.
  *
@@ -93,6 +95,28 @@ public class JwtSessionAuthenticationFilter extends OncePerRequestFilter {
         .setAuthentication(
             UsernamePasswordAuthenticationToken.authenticated(
                 sessionUserId.get(), null, authorities(role.get(), status.get())));
+    renew(response, sessionUserId.get());
+  }
+
+  /**
+   * 토큰을 <b>다시 발급한다</b> (spec 3-1 §3-1-5 MUST, #299).
+   *
+   * <p><b>이것이 없으면 쓰는 도중에 로그아웃된다.</b> 세션은 요청마다 유휴 시계가 리셋되는데 토큰은 발급 시각 + 수명에 브라우저가 버린다 — 설정에서 둘을 같은
+   * 값으로 두어도 한쪽만 밀리므로 <b>세션은 유휴 30분, 토큰은 절대 30분</b>이 된다. 로그인 뒤 계속 쓰고 있어도 30분이 되는 순간 {@code 401}이었다.
+   *
+   * <p><b>여기가 유일하게 발급해도 되는 자리다.</b> 위의 이른 반환들이 폐기해야 할 조합을 이미 걸러냈다 — 세션 없는 토큰(T-30)과 주인이 다른
+   * 조합(T-29)에서 발급하면 <b>거부해야 할 자격을 오히려 갱신해 준다.</b>
+   *
+   * <p><b>매 요청 발급한다.</b> "남은 수명이 절반 아래일 때만"으로 아끼면 만료 시각을 읽는 경로와 그것을 재는 시계 조작이 따라붙는데, 여기서 아끼는 것은 응답당
+   * 서명 한 번과 헤더 몇 백 바이트다.
+   *
+   * <p><b>로그아웃·탈퇴 응답에도 이 헤더가 함께 실린다.</b> 그 경로들은 뒤에서 {@code clear}를 붙이고, 같은 이름의 {@code Set-Cookie}는
+   * 나중 것이 이긴다 — 결과는 폐기다. 순서에 기대는 동작이라 T-425가 그것을 고정한다.
+   *
+   * <p>{@code chain.doFilter} <b>앞에서</b> 부른다. 응답이 커밋된 뒤에는 헤더를 더할 수 없다.
+   */
+  private void renew(HttpServletResponse response, Long userId) {
+    accessTokenCookie.write(response, jwtProvider.issue(userId), jwtProvider.expiry());
   }
 
   /**

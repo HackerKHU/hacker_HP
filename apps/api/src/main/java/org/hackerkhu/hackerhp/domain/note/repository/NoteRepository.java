@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -40,6 +41,24 @@ public interface NoteRepository extends JpaRepository<Note, Long>, JpaSpecificat
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("select n from Note n where n.id = :id")
   Optional<Note> findByIdForUpdate(@Param("id") Long id);
+
+  /**
+   * 조회수를 1 올린다 (#245, 3-2 §3-2-4 MUST).
+   *
+   * <p><b>읽고 더해서 쓰지 않는다</b> (MUST). {@code SELECT → +1 → UPDATE}로 짜면 동시에 들어온 요청들이 <b>같은 값을 읽고 같은 값을
+   * 쓴다</b> — 열 명이 동시에 열면 1만 오른다. 가장 많이 열린 자료가 가장 많이 잃는다. 더하기를 DB 안에서 끝내면 그 창이 없다.
+   *
+   * <p><b>{@code updated_at}을 건드리지 않는다</b> (MUST). 그래서 엔티티가 아니라 이 문장으로 올린다 — 엔티티를 읽어 고치면 수정 시각이 함께
+   * 바뀌어 아무도 손대지 않은 자료의 수정일이 오늘이 된다.
+   *
+   * <p><b>{@code clearAutomatically}·{@code flushAutomatically}를 켜지 않는다.</b> 이 문장은 조회가 끝난 뒤 <b>별도
+   * 트랜잭션</b>에서 돌고(3-2 §3-2-4 MUST), 부르는 쪽은 이미 읽어 둔 값에 1을 더해 응답을 만든다 — 영속성 컨텍스트를 비울 이유가 없다.
+   *
+   * @return 바뀐 행 수. 없는 자료면 {@code 0}이다
+   */
+  @Modifying
+  @Query(value = "UPDATE notes SET view_count = view_count + 1 WHERE id = :id", nativeQuery = true)
+  int increaseViewCount(@Param("id") Long id);
 
   /*
    * 필터 옵션은 실제 등록된 값에서 만든다 (2-1 §2-1-1 MUST). 목록에 없는 과목을 고를 수

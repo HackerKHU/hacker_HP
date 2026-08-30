@@ -175,8 +175,13 @@ public class SecurityConfig {
                    */
                   .requestMatchers(HttpMethod.POST, "/api/v1/auth/application")
                   .hasAuthority("STATUS_PENDING")
+                  /*
+                   * API 문서는 로그인해야 본다 (#23). PENDING·SUSPENDED는 AccountStatusFilter가
+                   * 앞에서 막으므로 여기 남는 것은 ACTIVE와 INACTIVE다 — 문서는 자료가 아니라
+                   * 비활동 부원에게 막을 이유가 없다 (3-1 §3-1-3, #229).
+                   */
                   .requestMatchers(API_DOCS_PATHS)
-                  .hasAuthority("STATUS_ACTIVE")
+                  .authenticated()
                   /*
                    * 관리자 영역은 접두사로도 막는다. 컨트롤러의 @PreAuthorize와 겹쳐 보이지만
                    * 둘 다 필요하다 — MVC는 메서드를 부르기 전에 본문을 역직렬화하고 @Valid를

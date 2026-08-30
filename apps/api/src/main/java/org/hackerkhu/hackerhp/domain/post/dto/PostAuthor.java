@@ -1,7 +1,8 @@
 package org.hackerkhu.hackerhp.domain.post.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import org.hackerkhu.hackerhp.domain.user.dto.WithdrawnMember;
+import org.hackerkhu.hackerhp.domain.user.dto.DisplayName;
+import org.hackerkhu.hackerhp.domain.user.entity.User;
 
 /**
  * 응답에 담는 작성자 (spec 3-2 §3-2-2 "작성자를 내려주는 규칙").
@@ -16,9 +17,12 @@ public record PostAuthor(
     @Schema(description = "탈퇴했으면 `null`") Long id,
     @Schema(description = "탈퇴했으면 `\"탈퇴한 회원\"`") String name) {
 
-  public static PostAuthor of(Long id, String name) {
-    return (id == null || name == null)
-        ? new PostAuthor(null, WithdrawnMember.NAME)
-        : new PostAuthor(id, name);
+  /**
+   * <b>계정을 통째로 받는다</b> (MUST, #301) — 이유는 {@link DisplayName}에 있다.
+   *
+   * @param user 탈퇴했으면 {@code null}
+   */
+  public static PostAuthor of(User user) {
+    return new PostAuthor(user == null ? null : user.getId(), DisplayName.of(user));
   }
 }

@@ -217,7 +217,7 @@ public class NoteEditService {
 
   private User lockRequester(Long requesterId) {
     User requester = users.findByIdForUpdate(requesterId).orElse(null);
-    RequesterCheck.requireActive(requester, requesterId);
+    RequesterCheck.requireNoteAccess(requester, requesterId);
     return requester;
   }
 
@@ -249,7 +249,7 @@ public class NoteEditService {
    * <p>업로더가 비어 있는 자료(탈퇴한 회원의 것)는 {@code ADMIN}만 손댈 수 있다 — 주인이 없으므로 "본인"이 성립하지 않는다.
    */
   private void requireOwnerOrAdmin(User requester, Note note, Long requesterId) {
-    RequesterCheck.requireActive(requester, requesterId);
+    RequesterCheck.requireNoteAccess(requester, requesterId);
     if (requester.getRole() == Role.ADMIN) {
       return;
     }
@@ -283,13 +283,14 @@ public class NoteEditService {
         policy.maxFileCount());
   }
 
+  /** <b>수정은 조회가 아니다</b> (#245) — 조회수를 올리지 않고 지금 값을 그대로 싣는다. */
   private NoteDetailResponse detailOf(Note note, Long viewerId) {
     Long uploaderId = note.getUploaderId();
-    String name =
-        uploaderId == null ? null : users.findById(uploaderId).map(User::getName).orElse(null);
+    User uploader = uploaderId == null ? null : users.findById(uploaderId).orElse(null);
     return NoteDetailResponse.of(
         note,
-        Uploader.of(uploaderId, name),
-        bookmarks.existsByUserIdAndNoteId(viewerId, note.getId()));
+        Uploader.of(uploader),
+        bookmarks.existsByUserIdAndNoteId(viewerId, note.getId()),
+        note.getViewCount());
   }
 }

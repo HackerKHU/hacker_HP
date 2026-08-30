@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter, useLocation } from '@/test/TestRouter'
 import App from './App'
 import { ApiError } from './api/client'
 import type { User } from './api/types'
@@ -88,6 +88,22 @@ function menuLabels() {
     .map((link) => link.textContent)
 }
 
+/**
+ * 계정 메뉴를 연다. **마이페이지와 로그아웃은 이제 그 안에 있다** (#178).
+ *
+ * Radix 메뉴는 `pointerdown`으로 열린다 — `click`만 쏘면 안 열린다. `user-event`를 들이면
+ * 한 줄이지만 이 검사 때문에 의존성을 늘리지 않는다. jsdom에 `PointerEvent`가 없어
+ * `MouseEvent`로 대신 만든다 (`MemberListPage.test.tsx`가 같은 방식을 쓴다).
+ */
+async function openAccountMenu() {
+  const trigger = await screen.findByRole('button', { name: '계정 메뉴' })
+  fireEvent.pointerDown(
+    trigger,
+    new MouseEvent('pointerdown', { bubbles: true, button: 0 }),
+  )
+  await screen.findByRole('menu')
+}
+
 describe('라우트 가드', () => {
   it('PENDING 사용자가 보호 라우트에 가면 대기중 안내로 되돌린다', async () => {
     auth.me = () =>
@@ -124,7 +140,7 @@ describe('라우트 가드', () => {
   })
 
   /*
-   * 회귀 — 가입도 구글 버튼 하나로 하므로 `/signup`은 없다(2-1 §2-1-9, 3-3 결정 13).
+   * 회귀 — 가입도 구글 버튼 하나로 하므로 `/signup`은 없다(2-1 §2-1-10, 3-3 결정 13).
    * **저장된 링크로 들어오면 로그인으로 보낸다.** wildcard에 맡기면 랜딩으로 가는데,
    * 가입하러 온 사람이 길을 다시 찾아야 한다.
    */
@@ -164,6 +180,47 @@ describe('라우트 가드', () => {
       await screen.findByRole('heading', { name: '로그인' }),
     ).toBeInTheDocument()
   })
+
+  /*
+   * #231 — **비활동 부원은 자료를 뺀 나머지 화면을 그대로 쓴다** (spec §3-1-2 매트릭스의
+   * `USER (INACTIVE)` 열). 새 상태를 `ACTIVE`가 아닌 쪽에 두면 **공지도 마이페이지도 못 보고
+   * 모든 보호 화면에서 튕긴다** — 자료만 막는다는 이 상태의 뜻이 화면에서 사라진다.
+   */
+  it('INACTIVE 사용자는 보호 라우트를 그대로 통과한다', async () => {
+    auth.me = () => Promise.resolve({ ...BASE, status: 'INACTIVE' })
+
+    renderAt('/notices')
+
+    expect(
+      await screen.findByRole('heading', { name: '공지사항' }),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/notices')
+  })
+
+  /*
+   * #231 회귀 — `403 INACTIVE`를 `SUSPENDED`처럼 다루면 자료를 한 번 눌렀다고 로그인
+   * 화면으로 튕긴다. **세션을 `INACTIVE`로 정리하되 내보내지 않는다** (spec §3-1-5 표).
+   */
+  it('보호 API가 403 INACTIVE를 주면 세션을 지키고 보던 화면에 남는다', async () => {
+    auth.me = () => Promise.resolve({ ...BASE, status: 'INACTIVE' })
+
+    renderAt(
+      '/notices',
+      <ReportError
+        error={new ApiError('INACTIVE', 403, '이번 학기 활동 부원이 아닙니다.')}
+      />,
+    )
+
+    await screen.findByRole('heading', { name: '공지사항' })
+
+    fireEvent.click(screen.getByRole('button', { name: '오류 발생' }))
+
+    expect(
+      await screen.findByRole('heading', { name: '공지사항' }),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/notices')
+    expect(screen.queryByRole('heading', { name: '로그인' })).toBeNull()
+  })
 })
 
 /**
@@ -180,6 +237,13 @@ describe('로그인 후 도착 경로', () => {
   it.each([
     ['ADMIN', { ...BASE, role: 'ADMIN' as const }, '/notices', '공지사항'],
     ['USER', BASE, '/notices', '공지사항'],
+    // 비활동 부원의 홈도 공지 목록이다 — 자료 말고는 `ACTIVE`와 같다 (#231).
+    [
+      'INACTIVE',
+      { ...BASE, status: 'INACTIVE' as const },
+      '/notices',
+      '공지사항',
+    ],
     [
       'PENDING',
       { ...BASE, status: 'PENDING' as const, approvedAt: null },
@@ -232,7 +296,7 @@ describe('헤더 메뉴 노출', () => {
       '회원 관리',
     ])
     /*
-     * 목록형 "공지 관리" 화면은 없다 (spec §2-1-9). 라우트도 메뉴도 두지 않는다 —
+     * 목록형 "공지 관리" 화면은 없다 (spec §2-1-10). 라우트도 메뉴도 두지 않는다 —
      * 작성·수정은 /admin/notices/new·/edit이 맡고 고정 토글은 공지 목록에 있다.
      * 무심코 되살리면 여기서 잡힌다.
      */
@@ -283,7 +347,28 @@ describe('헤더 메뉴 노출', () => {
     expect(menuLabels()).not.toContain('회원 관리')
   })
 
-  it('PENDING에게는 메뉴가 없고 로그아웃만 있다', async () => {
+  /*
+   * #231 — **자료 메뉴를 감추지 않는다.** 감추면 사라진 이유를 설명할 자리마저 없어진다 —
+   * 눌러서 사유를 보는 편이 낫고, 진짜 차단은 서버가 한다 (spec §3-1-7).
+   *
+   * 헤더에 비활동 표시는 두지 않는다 — 아무 일도 하지 않는 사람에게 상태를 계속 알리는
+   * 값이 작다. 자료에 들어갔을 때 뜨는 `403 INACTIVE` 사유가 그 자리를 대신한다.
+   */
+  it('INACTIVE에게도 부원 메뉴가 그대로 보인다', async () => {
+    auth.me = () => Promise.resolve({ ...BASE, status: 'INACTIVE' })
+
+    renderAt('/notices')
+    await screen.findByRole('heading', { name: '공지사항' })
+
+    expect(menuLabels()).toEqual([
+      '공지사항',
+      '자료게시판',
+      '자유게시판',
+      '갤러리',
+    ])
+  })
+
+  it('PENDING에게는 메뉴가 없고 계정 메뉴에 로그아웃만 있다', async () => {
     auth.me = () =>
       Promise.resolve({ ...BASE, status: 'PENDING', approvedAt: null })
 
@@ -291,7 +376,17 @@ describe('헤더 메뉴 노출', () => {
     await screen.findByRole('heading', { name: '승인 대기 중' })
 
     expect(menuLabels()).toEqual([])
-    expect(screen.getByRole('button', { name: '로그아웃' })).toBeInTheDocument()
+    /*
+     * 계정 메뉴는 `PENDING`에게도 있다 — 로그아웃이 그 안에 있고, 매트릭스에서 로그아웃은
+     * `PENDING`도 `O`다. 마이페이지 항목만 빠진다: 띄워봤자 눌러도 가드가 되돌린다.
+     */
+    await openAccountMenu()
+    expect(
+      screen.getByRole('menuitem', { name: '로그아웃' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('menuitem', { name: '마이페이지' }),
+    ).not.toBeInTheDocument()
   })
 })
 
@@ -300,7 +395,8 @@ describe('로그아웃', () => {
     auth.me = () => Promise.resolve(BASE)
 
     renderAt('/notices')
-    fireEvent.click(await screen.findByRole('button', { name: '로그아웃' }))
+    await openAccountMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: '로그아웃' }))
 
     expect(
       await screen.findByRole('heading', { name: '로그인' }),
@@ -317,8 +413,13 @@ describe('로그아웃', () => {
       )
 
     renderAt('/notices')
-    fireEvent.click(await screen.findByRole('button', { name: '로그아웃' }))
+    await openAccountMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: '로그아웃' }))
 
+    /*
+     * **실패 문구는 메뉴 밖에 그린다.** 항목을 고르면 메뉴가 닫히므로 안에 두면 사유가
+     * 함께 사라지고, 사용자는 로그아웃된 줄 안다.
+     */
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '로그아웃하지 못했습니다',
     )

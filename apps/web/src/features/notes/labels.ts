@@ -1,5 +1,5 @@
 import type { Category, ExamType, NoteSummary, Semester } from '@/api/notes'
-import type { ActiveUser } from '@/auth/session'
+import type { SessionUser } from '@/auth/session'
 
 /**
  * 화면 낱말. **enum 값과 표시 문구를 한 곳에서 잇는다** — 화면마다 따로 적으면 목록의
@@ -12,7 +12,15 @@ export const CATEGORY_LABEL: Record<Category, string> = {
 
 export const SEMESTER_LABEL: Record<Semester, string> = {
   SPRING: '1학기',
+  SUMMER: '여름학기',
   FALL: '2학기',
+  WINTER: '겨울학기',
+}
+
+/** 주소의 `semester`를 계약의 enum으로 좁힌다. 모르는 값은 필터에서 제거한다. */
+export function semesterFromParam(raw: string | null): Semester | undefined {
+  if (raw === null || !Object.hasOwn(SEMESTER_LABEL, raw)) return undefined
+  return raw as Semester
 }
 
 export const EXAM_TYPE_LABEL: Record<ExamType, string> = {
@@ -76,8 +84,24 @@ export function formatSize(bytes: number): string {
  */
 export function canEdit(
   note: Pick<NoteSummary, 'uploader'>,
-  user: ActiveUser,
+  user: SessionUser,
 ): boolean {
   if (user.role === 'ADMIN') return true
   return note.uploader.id !== null && note.uploader.id === user.id
+}
+
+/**
+ * 자료를 불러오지 못했을 때의 문구. **세 자료 화면이 같이 쓴다** (목록·상세·등록/수정).
+ *
+ * **`403 INACTIVE`는 사유를 말해준다** (#231, spec 3-1 §3-1-2). 비활동 부원에게 "잠시 후
+ * 다시 시도해 주세요"라고 하면 **이번 학기 내내 다시 시도한다** — 그 사람은 같은 답만 받는다.
+ * 로그인 화면으로 튕기지 않는 대신 왜 막혔는지가 화면에 있어야 한다 (spec 3-1 §3-1-5).
+ *
+ * 자료 화면 전체를 비활동 부원에게 어떻게 보여줄지는 #59가 맡는다. 여기는 그 화면이
+ * 없는 동안 사용자가 영문을 모르지 않게 하는 최소한이다.
+ */
+export function noteErrorText(inactive: boolean): string {
+  return inactive
+    ? '이번 학기 비활동 부원은 자료를 이용할 수 없습니다. 운영진에게 문의해 주세요.'
+    : '자료를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.'
 }

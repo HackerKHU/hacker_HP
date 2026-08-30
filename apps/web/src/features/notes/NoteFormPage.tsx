@@ -13,7 +13,8 @@ import {
   update,
   uploadAll,
 } from '@/api/notes'
-import { useSession } from '@/auth/session'
+import { isInactive, useSession } from '@/auth/session'
+import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import { SELECT_CLASS, SelectArrow } from '@/components/native-select'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,6 +26,7 @@ import {
   categoryPath,
   EXAM_TYPE_LABEL,
   formatSize,
+  noteErrorText,
   SEMESTER_LABEL,
 } from './labels'
 
@@ -92,7 +94,9 @@ export function NoteFormPage() {
   const editing = id !== undefined
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { state, reportApiError } = useSession()
+  const session = useSession()
+  const { state, reportApiError } = session
+  const alert = useLiveAlert()
 
   /*
    * 어느 목록에서 왔는지 `?category=`로 받아 첫 값으로 쓴다. 시험 정리본 목록에서 눌렀는데
@@ -120,7 +124,11 @@ export function NoteFormPage() {
   const [loading, setLoading] = useState<Loading>(editing ? 'loading' : 'ready')
   const [saving, setSaving] = useState(false)
   const [progress, setProgress] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<{
+    title?: string
+    subject?: string
+    files?: string
+  }>({})
 
   useEffect(() => {
     if (!editing) return
@@ -178,21 +186,23 @@ export function NoteFormPage() {
     for (const file of chosen) {
       const extension = file.name.split('.').pop()?.toLowerCase() ?? ''
       if (!(ALLOWED_EXTENSIONS as readonly string[]).includes(extension)) {
-        setError(
-          `${file.name}은(는) 올릴 수 없는 형식입니다. ${ALLOWED_EXTENSIONS.join(', ')}만 됩니다.`,
-        )
+        setFieldErrors({
+          files: `${file.name}은(는) 올릴 수 없는 형식입니다. ${ALLOWED_EXTENSIONS.join(', ')}만 됩니다.`,
+        })
         return
       }
       if (file.size > MAX_FILE_BYTES) {
-        setError(`${file.name}이(가) 20MB를 넘습니다.`)
+        setFieldErrors({ files: `${file.name}이(가) 20MB를 넘습니다.` })
         return
       }
     }
     if (totalFiles + chosen.length > MAX_FILES) {
-      setError(`파일은 최대 ${MAX_FILES}개까지 올릴 수 있습니다.`)
+      setFieldErrors({
+        files: `파일은 최대 ${MAX_FILES}개까지 올릴 수 있습니다.`,
+      })
       return
     }
-    setError(null)
+    setFieldErrors({})
     setAdded((current) => [...current, ...chosen])
   }
 
@@ -200,8 +210,14 @@ export function NoteFormPage() {
     event.preventDefault()
     if (saving) return
 
-    if (title.trim() === '' || subjectName.trim() === '') {
-      setError('제목과 과목명을 입력해주세요.')
+    const requiredErrors = {
+      ...(title.trim() === '' ? { title: '제목을 입력해주세요.' } : {}),
+      ...(subjectName.trim() === ''
+        ? { subject: '과목명을 입력해주세요.' }
+        : {}),
+    }
+    if (Object.keys(requiredErrors).length > 0) {
+      setFieldErrors(requiredErrors)
       return
     }
     /*
@@ -209,12 +225,12 @@ export function NoteFormPage() {
      * 마찬가지다: 계약이 "하나도 남기지 않을 수는 없다"고 못 박았다.
      */
     if (totalFiles === 0) {
-      setError('파일을 하나 이상 올려주세요.')
+      setFieldErrors({ files: '파일을 하나 이상 올려주세요.' })
       return
     }
 
     setSaving(true)
-    setError(null)
+    setFieldErrors({})
     try {
       /*
        * ①② 발급 → S3 직접 업로드. **여기서만 파일 바이트가 움직이고, 목적지는 S3다.**
@@ -261,15 +277,18 @@ export function NoteFormPage() {
           })
         : await create({ ...metadata, files: uploaded })
 
+      alert.success(editing ? '자료를 수정했습니다.' : '자료를 등록했습니다.', {
+        persistOnNavigation: true,
+      })
       // 저장 결과를 볼 수 있는 곳으로 보낸다. `replace`로 뒤로가기가 폼에 돌아오지 않게 한다.
       navigate(`/notes/${saved.id}`, { replace: true })
     } catch (caught: unknown) {
-      reportApiError(caught)
+      if (reportApiError(caught)) return
       /*
        * **실패했는데 성공한 것처럼 보이면 안 된다.** 이동하지 않고 입력을 그대로 둔 채
        * 서버가 준 메시지를 보여준다 — `413`·`415`·`403`은 무엇을 고쳐야 하는지 서버가 안다.
        */
-      setError(
+      alert.error(
         caught instanceof ApiError
           ? caught.message
           : '저장하지 못했습니다. 잠시 후 다시 시도해 주세요.',
@@ -283,7 +302,7 @@ export function NoteFormPage() {
   const backTo = editing ? `/notes/${id}` : categoryPath(category)
 
   return (
-    <section>
+    <section className="min-h-[32rem]" data-detail-surface="note-form">
       <Link
         to={backTo}
         className="text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -307,7 +326,7 @@ export function NoteFormPage() {
 
       {loading === 'failed' && (
         <p role="alert" className="mt-8 text-sm text-muted-foreground">
-          자료를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+          {noteErrorText(isInactive(session))}
         </p>
       )}
 
@@ -377,8 +396,15 @@ export function NoteFormPage() {
               id="note-title"
               value={title}
               maxLength={TITLE_MAX}
-              onChange={(event) => setTitle(event.target.value)}
+              onChange={(event) => {
+                setTitle(event.target.value)
+                setFieldErrors((current) => ({ ...current, title: undefined }))
+              }}
               placeholder="예) 운영체제 중간고사 정리본"
+              aria-invalid={fieldErrors.title !== undefined}
+              aria-describedby={
+                fieldErrors.title ? 'note-title-error' : undefined
+              }
             />
           </div>
 
@@ -389,8 +415,18 @@ export function NoteFormPage() {
                 id="note-subject"
                 value={subjectName}
                 maxLength={SUBJECT_MAX}
-                onChange={(event) => setSubjectName(event.target.value)}
+                onChange={(event) => {
+                  setSubjectName(event.target.value)
+                  setFieldErrors((current) => ({
+                    ...current,
+                    subject: undefined,
+                  }))
+                }}
                 placeholder="예) 운영체제"
+                aria-invalid={fieldErrors.subject !== undefined}
+                aria-describedby={
+                  fieldErrors.subject ? 'note-subject-error' : undefined
+                }
               />
             </div>
             <div className="space-y-2">
@@ -456,6 +492,10 @@ export function NoteFormPage() {
               multiple
               accept={ACCEPT}
               onChange={(event) => addFiles(event.target.files)}
+              aria-invalid={fieldErrors.files !== undefined}
+              aria-describedby={
+                fieldErrors.files ? 'note-files-error' : undefined
+              }
               className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:border-input file:bg-transparent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground hover:file:bg-accent"
             />
             <p className="text-xs text-muted-foreground">
@@ -532,17 +572,43 @@ export function NoteFormPage() {
             )}
           </div>
 
-          {progress && (
-            <p role="status" className="text-sm text-muted-foreground">
-              {progress}
-            </p>
-          )}
-
-          {error && (
-            <p role="alert" className="text-sm text-muted-foreground">
-              {error}
-            </p>
-          )}
+          <div
+            className="min-h-16 space-y-1"
+            data-upload-feedback-slot="true"
+            role={
+              Object.values(fieldErrors).some(Boolean) ? 'alert' : undefined
+            }
+          >
+            {progress && (
+              <p role="status" className="text-sm text-muted-foreground">
+                {progress}
+              </p>
+            )}
+            {fieldErrors.title && (
+              <p
+                id="note-title-error"
+                className="text-sm text-muted-foreground"
+              >
+                {fieldErrors.title}
+              </p>
+            )}
+            {fieldErrors.subject && (
+              <p
+                id="note-subject-error"
+                className="text-sm text-muted-foreground"
+              >
+                {fieldErrors.subject}
+              </p>
+            )}
+            {fieldErrors.files && (
+              <p
+                id="note-files-error"
+                className="text-sm text-muted-foreground"
+              >
+                {fieldErrors.files}
+              </p>
+            )}
+          </div>
 
           {/* 오른쪽 정렬 + 주 동작이 맨 끝 (`apps/web/README.md` "폼 버튼"). */}
           <div className="flex justify-end gap-2">

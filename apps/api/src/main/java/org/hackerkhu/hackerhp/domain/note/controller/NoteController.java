@@ -22,6 +22,7 @@ import org.hackerkhu.hackerhp.domain.note.service.NoteDownloadService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteEditService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteQueryService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteUploadUrlService;
+import org.hackerkhu.hackerhp.domain.note.service.NoteViewService;
 import org.hackerkhu.hackerhp.global.error.ErrorResponse;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
@@ -60,6 +61,7 @@ public class NoteController {
   private final NoteCreateService noteCreateService;
   private final NoteDownloadService noteDownloadService;
   private final NoteEditService noteEditService;
+  private final NoteViewService noteViewService;
 
   public NoteController(
       NoteQueryService noteQueryService,
@@ -67,7 +69,9 @@ public class NoteController {
       NoteUploadUrlService noteUploadUrlService,
       NoteCreateService noteCreateService,
       NoteDownloadService noteDownloadService,
-      NoteEditService noteEditService) {
+      NoteEditService noteEditService,
+      NoteViewService noteViewService) {
+    this.noteViewService = noteViewService;
     this.noteQueryService = noteQueryService;
     this.bookmarkService = bookmarkService;
     this.noteUploadUrlService = noteUploadUrlService;
@@ -111,7 +115,8 @@ public class NoteController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @ApiResponse(
       responseCode = "403",
-      description = "CSRF 토큰이 없다 · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
+      description =
+          "CSRF 토큰이 없다 · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정 · `INACTIVE` — **이번 학기 비활동 부원**",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -174,7 +179,7 @@ public class NoteController {
   @ApiResponse(
       responseCode = "403",
       description =
-          "`FORBIDDEN` — **남이 올린 파일 키다** 또는 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL`",
+          "`FORBIDDEN` — **남이 올린 파일 키다** 또는 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL` · `INACTIVE`",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -209,8 +214,13 @@ public class NoteController {
           **검색어와 필터는 AND로 함께 걸린다.** `q`는 제목·과목명·교수명을 한 번에 찾는
           부분 일치이며 대소문자를 가리지 않는다.
 
-          `sort`는 `latest`(기본)와 `title`만 받는다. 그 밖의 값은 기본값으로 본다 —
+          `sort`는 `latest`(기본)·`title`·`views`만 받는다. 그 밖의 값은 기본값으로 본다 —
           화면이 조합해 보내는 값이라 `400`으로 막지 않는다.
+
+          `views`는 조회수 많은 순이다. **조회수는 같은 값이 흔해서**(새 자료는 전부 0)
+          마지막 기준으로 `id`가 붙는다 — 없으면 페이지마다 배치가 달라진다.
+
+          **목록을 여는 것은 조회수를 올리지 않는다** (#245). 세는 것은 상세뿐이다.
 
           `category=SUBJECT&examType=MIDTERM`처럼 있을 수 없는 조합은 **오류가 아니라
           결과 0건**이다. 필터를 조합하는 순간마다 `400`을 받게 하지 않는다.
@@ -249,11 +259,17 @@ public class NoteController {
           목록과 달리 **딸린 파일 목록**을 함께 준다. 각 파일의 `id`로 다운로드 URL을 요청한다 (#55).
 
           **S3 키는 담지 않는다** — 버킷이 비공개라 키를 알아도 열 수 없다.
+
+          **이 요청이 조회수를 1 올린다** (#245). 목록을 여는 것은 세지 않고, 같은 사람이
+          다시 열면 다시 센다. 응답의 `viewCount`는 **이 조회를 반영한 값**이다.
+
+          **세지 못해도 자료는 나온다.** 조회수 증가가 실패해도 `200`이고, 그때
+          `viewCount`는 증가 전 값이다.
           """)
   @ApiResponse(responseCode = "200", description = "조회 성공")
   @ApiResponse(
       responseCode = "404",
-      description = "`NOT_FOUND` — 없는 자료",
+      description = "`NOT_FOUND` — 없는 자료. **조회수는 오르지 않는다**",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -261,7 +277,7 @@ public class NoteController {
   @GetMapping("/{id}")
   @PreAuthorize("isAuthenticated()")
   public NoteDetailResponse get(@AuthenticationPrincipal Long viewerId, @PathVariable Long id) {
-    return noteQueryService.get(viewerId, id);
+    return noteViewService.read(viewerId, id);
   }
 
   /**
@@ -302,7 +318,7 @@ public class NoteController {
   @ApiResponse(
       responseCode = "403",
       description =
-          "`FORBIDDEN` — **남의 자료다** 또는 남이 올린 파일 키다 또는 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL`",
+          "`FORBIDDEN` — **남의 자료다** 또는 남이 올린 파일 키다 또는 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL` · `INACTIVE`",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -364,7 +380,8 @@ public class NoteController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @ApiResponse(
       responseCode = "403",
-      description = "`FORBIDDEN` — **남의 자료다** 또는 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL`",
+      description =
+          "`FORBIDDEN` — **남의 자료다** 또는 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL` · `INACTIVE`",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -413,7 +430,8 @@ public class NoteController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @ApiResponse(
       responseCode = "403",
-      description = "`SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
+      description =
+          "`SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정 · `INACTIVE` — **이번 학기 비활동 부원**",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,

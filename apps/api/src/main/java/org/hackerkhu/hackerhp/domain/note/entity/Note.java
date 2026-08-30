@@ -62,6 +62,18 @@ public class Note {
   @Column(name = "uploader_id")
   private Long uploaderId;
 
+  /**
+   * 상세를 연 횟수 (#245, 3-2 §3-2-4).
+   *
+   * <p><b>이 필드로 올리지 않는다</b> (MUST). 엔티티를 읽어 고치면 {@link #updatedAt}이 함께 바뀌어 <b>아무도 손대지 않은 자료의 수정일이
+   * 오늘이 된다</b> — 수정 메서드가 그 값을 채우기 때문이다. 게다가 읽고 더해서 쓰면 동시에 연 조회를 잃는다. 올리는 것은 {@code view_count}만 더하는
+   * 한 문장이다 ({@code NoteRepository.increaseViewCount}).
+   *
+   * <p>여기 있는 것은 <b>읽어 온 값</b>이다. 응답에 실을 숫자를 만드는 데만 쓴다.
+   */
+  @Column(name = "view_count", nullable = false)
+  private long viewCount;
+
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
 
@@ -193,6 +205,10 @@ public class Note {
 
   public Long getUploaderId() {
     return uploaderId;
+  }
+
+  public long getViewCount() {
+    return viewCount;
   }
 
   public Instant getCreatedAt() {
