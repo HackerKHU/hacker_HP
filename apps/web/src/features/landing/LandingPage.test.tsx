@@ -289,7 +289,7 @@ describe('랜딩 헤더 상태별 진입점', () => {
       hidden: true,
     })
     expect(login.className).toContain('hidden')
-    expect(login.className).toContain('md:inline-flex')
+    expect(login.className).toContain('lg:inline-flex')
 
     /*
      * **지원은 이 사이트에서 받는다** (#194). 외부 모집 폼을 두지 않으므로 잠긴 버튼도
@@ -454,24 +454,33 @@ describe('랜딩 헤더 상태별 진입점', () => {
     )
     expect(logo.className).toContain('h-8')
     expect(logo.className).toContain('w-[27px]')
-    expect(logo.className).toContain('md:w-auto')
+    expect(logo.className).toContain('lg:w-auto')
 
     const source = logo.closest('picture')?.querySelector('source')
-    expect(source).toHaveAttribute('media', '(max-width: 767px)')
+    expect(source).toHaveAttribute('media', '(max-width: 1023px)')
     expect(source).toHaveAttribute('srcset', '/brand/mark-white-512.png')
+    expect(logo.closest('a')?.className).toContain('size-11')
   })
 
   it('햄버거가 섹션 메뉴를 열고 항목을 누르면 닫는다', async () => {
     renderLanding()
 
     const toggle = await screen.findByRole('button', { name: '메뉴 열기' })
+    const desktopNavigation = screen.getByRole('navigation', {
+      name: '섹션 이동',
+    })
+    expect(desktopNavigation.parentElement?.className).toContain('lg:flex')
+    expect(desktopNavigation.parentElement?.className).not.toContain('md:flex')
     expect(toggle.className).toContain('size-11')
+    expect(toggle.className).toContain('lg:hidden')
     expect(toggle).toHaveAttribute('aria-controls', 'public-mobile-menu')
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
 
     fireEvent.click(toggle)
     const menu = document.getElementById('public-mobile-menu')
     expect(menu).not.toBeNull()
+    expect(menu?.className).toContain('lg:hidden')
+    expect(menu?.className).not.toContain('md:hidden')
     expect(screen.getByRole('button', { name: '메뉴 닫기' })).toHaveAttribute(
       'aria-expanded',
       'true',
@@ -479,6 +488,9 @@ describe('랜딩 헤더 상태별 진입점', () => {
     expect(
       within(menu as HTMLElement).getByRole('link', { name: '로그인' }),
     ).toHaveAttribute('href', '/login')
+    for (const link of within(menu as HTMLElement).getAllByRole('link')) {
+      expect(link.className).toContain('min-h-11')
+    }
 
     fireEvent.click(
       within(menu as HTMLElement).getByRole('link', { name: '소개' }),

@@ -11,6 +11,7 @@ import {
   HEADER_ACTION,
   HEADER_CONTAINER,
   HEADER_LOGO,
+  HEADER_LOGO_LINK,
   HEADER_MENU_BUTTON,
   HEADER_NAV_DIVIDER,
   HEADER_NAV_DIVIDER_STACKED,
@@ -72,7 +73,7 @@ function HeaderNavigation({
           <a
             key={section.id}
             href={`#${section.id}`}
-            className={cn(NAV_ITEM, stacked && 'block')}
+            className={cn(NAV_ITEM, stacked && 'flex min-h-11 items-center')}
             onClick={onNavigate}
           >
             {section.label}
@@ -95,7 +96,7 @@ function HeaderNavigation({
           ) : null}
           <Link
             to={menu.to}
-            className={cn(NAV_ITEM, stacked && 'block')}
+            className={cn(NAV_ITEM, stacked && 'flex min-h-11 items-center')}
             onClick={onNavigate}
           >
             {menu.label}
@@ -134,18 +135,19 @@ export function PublicHeader() {
        */}
       <div className={HEADER_CONTAINER}>
         {/*
-         * 320px에서는 32px 심볼로 폭을 줄이고 `md`부터 가로 락업(심볼 + `HACKER`)을 쓴다.
-         * 데스크톱 헤더는 가로로 긴 자리라 세로 락업을 넣으면 높이가 눌려 글자가 안 읽힌다.
+         * 1024px 미만에서는 32px 심볼로 폭을 줄이고 `lg`부터 가로 락업(심볼 + `HACKER`)을
+         * 쓴다. 데스크톱 헤더는 가로로 긴 자리라 세로 락업을 넣으면 높이가 눌려 글자가
+         * 안 읽힌다.
          *
          * 랜딩은 `.dark`라 **흰 잉크**를 쓴다. 배경이 채워진 `-on-black`이 아니라
          * 투명 배경이어야 헤더의 반투명 배경 위에서 네모가 안 비친다.
          *
          * 두 자산 모두 높이를 32px로 고정하고 각 원본 비율을 지킨다.
          */}
-        <a href="#top" className="col-start-1 shrink-0">
+        <a href="#top" className={HEADER_LOGO_LINK}>
           <picture>
             <source
-              media="(max-width: 767px)"
+              media="(max-width: 1023px)"
               srcSet="/brand/mark-white-512.png"
             />
             <img
@@ -163,11 +165,11 @@ export function PublicHeader() {
          * 하나를 데스크톱과 모바일이 같이 써서 한쪽만 다른 메뉴를 보이는 일을 막는다.
          * `loading`이면 이 묶음 자체를 그리지 않아 공개 메뉴가 먼저 번쩍이지 않는다.
          *
-         * **`md` 미만에서는 통째로 접힌다.** 늘어난 링크가 좁은 화면의 한 줄을 더 밀지
-         * 않는다 — 320px 압박(#249)과 무관하게 두려는 것이다.
+         * **`lg` 미만에서는 통째로 접힌다.** ADMIN의 다섯 링크와 구분선까지 768px에서
+         * 펼쳐 한 줄을 밀지 않는다 — 태블릿 폭에서도 모든 목적지를 햄버거로 제공한다.
          */}
         {navigation.kind !== 'hidden' && (
-          <div className="hidden items-center gap-1 md:flex">
+          <div className="hidden items-center gap-1 lg:flex">
             <HeaderNavigation navigation={navigation} />
           </div>
         )}
@@ -179,7 +181,7 @@ export function PublicHeader() {
          * 탭 뒤로 숨기지 않는다.
          */}
         {session.state.kind !== 'loading' && (
-          <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-2 md:col-auto md:row-auto md:ml-auto">
+          <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-2 lg:col-auto lg:row-auto lg:ml-auto">
             {session.state.kind === 'guest' ||
             session.state.kind === 'suspended' ? (
               <>
@@ -208,7 +210,7 @@ export function PublicHeader() {
                   variant="outline"
                   className={cn(
                     HEADER_ACTION,
-                    session.state.kind === 'guest' && 'hidden md:inline-flex',
+                    session.state.kind === 'guest' && 'hidden lg:inline-flex',
                   )}
                 >
                   <Link to="/login">로그인</Link>
@@ -294,7 +296,7 @@ export function PublicHeader() {
       {navigation.kind !== 'hidden' && mobileMenu.open && (
         <div
           id="public-mobile-menu"
-          className="border-t border-border px-6 pb-4 pt-2 md:hidden"
+          className="border-t border-border px-6 pb-4 pt-2 lg:hidden"
         >
           <HeaderNavigation
             navigation={navigation}
@@ -307,7 +309,7 @@ export function PublicHeader() {
               <nav aria-label="계정">
                 <Link
                   to="/login"
-                  className={cn(NAV_ITEM, 'block')}
+                  className={cn(NAV_ITEM, 'flex min-h-11 items-center')}
                   onClick={mobileMenu.close}
                 >
                   로그인

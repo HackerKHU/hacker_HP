@@ -90,10 +90,10 @@ describe('AppHeader', () => {
     )
     expect(logo.className).toContain('h-8')
     expect(logo.className).toContain('w-[27px]')
-    expect(logo.className).toContain('md:w-auto')
+    expect(logo.className).toContain('lg:w-auto')
 
     const source = logo.closest('picture')?.querySelector('source')
-    expect(source).toHaveAttribute('media', '(max-width: 767px)')
+    expect(source).toHaveAttribute('media', '(max-width: 1023px)')
     expect(source).toHaveAttribute('srcset', '/brand/mark-black-256.png')
   })
 
@@ -101,7 +101,11 @@ describe('AppHeader', () => {
     renderHeader()
 
     const logo = await screen.findByAltText(CLUB.name)
-    expect(logo.closest('a')).toHaveAttribute('href', '/')
+    const link = logo.closest('a')
+    expect(link).toHaveAttribute('href', '/')
+    expect(link?.className).toContain('size-11')
+    expect(link?.className).toContain('lg:h-auto')
+    expect(link?.className).toContain('lg:w-auto')
   })
 
   it('모바일의 계정과 메뉴 버튼이 모두 44px 터치 영역을 쓴다', async () => {
@@ -110,8 +114,25 @@ describe('AppHeader', () => {
     const account = await screen.findByRole('button', { name: '계정 메뉴' })
     const navigation = screen.getByRole('button', { name: '메뉴 열기' })
     expect(account.className).toContain('size-11')
-    expect(account.className).toContain('md:size-9')
+    expect(account.className).toContain('lg:size-9')
     expect(navigation.className).toContain('size-11')
+    expect(navigation.className).toContain('lg:hidden')
+  })
+
+  it('1024px부터만 데스크톱 nav로 전환한다', async () => {
+    renderHeader()
+
+    const navigation = await screen.findByRole('navigation', {
+      name: '주요 메뉴',
+    })
+    expect(navigation.parentElement?.className).toContain('hidden')
+    expect(navigation.parentElement?.className).toContain('lg:flex')
+    expect(navigation.parentElement?.className).not.toContain('md:flex')
+
+    fireEvent.click(screen.getByRole('button', { name: '메뉴 열기' }))
+    const mobileMenu = document.getElementById('app-mobile-menu')
+    expect(mobileMenu?.className).toContain('lg:hidden')
+    expect(mobileMenu?.className).not.toContain('md:hidden')
   })
 
   it.each([
@@ -141,6 +162,9 @@ describe('AppHeader', () => {
           .getAllByRole('link')
           .map((link) => [link.textContent, link.getAttribute('href')]),
       ).toEqual(links)
+      for (const link of within(navigation).getAllByRole('link')) {
+        expect(link.className).toContain('min-h-11')
+      }
     },
   )
 

@@ -5,6 +5,7 @@ import { useSession } from '@/auth/session'
 import {
   HEADER_CONTAINER,
   HEADER_LOGO,
+  HEADER_LOGO_LINK,
   HEADER_MENU_BUTTON,
   HEADER_NAV_DIVIDER,
   HEADER_NAV_DIVIDER_STACKED,
@@ -46,7 +47,7 @@ function AppNavigation({
             className={({ isActive }) =>
               cn(
                 HEADER_NAV_ITEM,
-                stacked && 'block',
+                stacked && 'flex min-h-11 items-center',
                 isActive ? 'text-foreground' : 'text-muted-foreground',
               )
             }
@@ -76,14 +77,14 @@ export function AppHeader() {
     <header className="border-b border-border bg-background">
       <div className={HEADER_CONTAINER}>
         {/*
-         * 320px에서는 32px 심볼을 써서 워드마크의 157px 폭을 강요하지 않는다. `md`부터는
-         * 기존 가로 락업으로 돌아가므로 데스크톱의 브랜드 모양은 바뀌지 않는다. 두 자산은
-         * 같은 원본에서 만든 배포 사본이고 잉크만 라이트 배경에 맞는 검정이다.
+         * 1024px 미만에서는 32px 심볼을 써서 워드마크의 157px 폭을 강요하지 않는다.
+         * `lg`부터 기존 가로 락업으로 돌아가므로 데스크톱의 브랜드 모양은 바뀌지 않는다.
+         * 두 자산은 같은 원본에서 만든 배포 사본이고 잉크만 라이트 배경에 맞는 검정이다.
          */}
-        <Link to="/" className="col-start-1 shrink-0">
+        <Link to="/" className={HEADER_LOGO_LINK}>
           <picture>
             <source
-              media="(max-width: 767px)"
+              media="(max-width: 1023px)"
               srcSet="/brand/mark-black-256.png"
             />
             <img
@@ -97,11 +98,11 @@ export function AppHeader() {
         </Link>
 
         {/* 데스크톱은 기존 한 줄 메뉴와 현재 위치 표시를 유지한다. */}
-        <div className="hidden items-center gap-1 md:flex">
+        <div className="hidden items-center gap-1 lg:flex">
           <AppNavigation menus={menus} />
         </div>
 
-        <div className="col-start-3 row-start-1 ml-auto flex items-center gap-2 md:ml-auto md:gap-3">
+        <div className="col-start-3 row-start-1 ml-auto flex items-center gap-2 lg:ml-auto lg:gap-3">
           {/*
            * 계정 메뉴는 PENDING에서도 로그아웃을 제공하므로 기존처럼 항상 남긴다.
            * 보호 화면에서는 로그아웃 뒤 `/login`으로 이동한다.
@@ -135,7 +136,7 @@ export function AppHeader() {
       {menus.length > 0 && mobileMenu.open ? (
         <div
           id="app-mobile-menu"
-          className="border-t border-border px-6 pb-4 pt-2 md:hidden"
+          className="border-t border-border px-6 pb-4 pt-2 lg:hidden"
         >
           <AppNavigation menus={menus} stacked onNavigate={mobileMenu.close} />
         </div>

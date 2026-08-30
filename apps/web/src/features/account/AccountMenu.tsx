@@ -82,7 +82,7 @@ export function AccountMenu({
           <Button
             variant="ghost"
             size="icon"
-            className="size-11 md:size-9"
+            className="size-11 lg:size-9"
             aria-label="계정 메뉴"
           >
             <UserRound />

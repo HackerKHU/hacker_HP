@@ -13,8 +13,9 @@ import { lookup } from '@/lib/lookup'
  * 맞지만, 헤더는 손이 아니라 눈이 먼저 닿는 자리라 기준이 다르다. 화면을 직접 보고 내린
  * 판단이 규칙의 일관성보다 우선한다.
  *
- * 두 헤더 모두 `md` 미만에서는 메뉴 묶음을 햄버거 뒤로 접는다 (#249). 이 값은 펼친
- * 세로 메뉴에서도 그대로 써서 데스크톱과 모바일의 글씨 크기·터치 영역이 갈리지 않는다.
+ * 두 헤더 모두 `lg` 미만에서는 메뉴 묶음을 햄버거 뒤로 접는다 (#249). ADMIN의 다섯
+ * 메뉴와 구분선까지 한 줄에 놓아도 안전한 1024px부터만 데스크톱 nav를 쓴다. 이 값은
+ * 펼친 세로 메뉴에서도 그대로 써서 데스크톱과 모바일의 글씨 크기·터치 영역이 갈리지 않는다.
  *
  * **색은 각자 붙인다.** 앱은 현재 위치를 `text-foreground`로 드러내야 하고 랜딩은 그런
  * 구분이 없다 — 여기에 색까지 넣으면 그 차이가 조건문으로 되돌아온다.
@@ -33,7 +34,7 @@ export const HEADER_NAV_ITEM =
  *
  * 색과 테두리는 각자 `variant`가 정한다 — 여기는 크기만 맞춘다.
  */
-export const HEADER_ACTION = 'h-11 px-3 text-base md:h-9 md:px-4'
+export const HEADER_ACTION = 'h-11 px-3 text-base lg:h-9 lg:px-4'
 
 /**
  * 헤더 메뉴 한 칸.
@@ -125,18 +126,24 @@ export const HEADER_NAV_DIVIDER_STACKED = 'my-2 h-px bg-border'
 
 /**
  * 두 헤더의 안쪽 컨테이너. 모바일에서는 심볼·상태 조작·메뉴 버튼을 세 열로 받고,
- * 데스크톱에서는 기존 한 줄 flex로 돌아간다.
+ * 1024px부터 기존 한 줄 flex로 돌아간다. 768px에서 전환하면 ACTIVE ADMIN의 다섯 메뉴와
+ * 구분선·계정 조작이 768~약 816px의 실제 가용 폭을 넘어 서로 겹친다 (#319 검수).
  *
  * 320px 뷰포트의 고정 스크롤바 환경은 실제 콘텐츠 폭이 305px뿐이다. `gap-x-2`면
- * `px-6` 안의 257px에 27px 심볼·44px 메뉴 버튼·상태 조작이 함께 들어간다. `px-6`은
- * 랜딩 본문·푸터와 같은 정렬선이라 좁은 화면에서도 줄이지 않는다 (#247, #249).
+ * `px-6` 안의 257px에 44px 로고 링크·44px 메뉴 버튼·상태 조작이 함께 들어간다. 심볼은
+ * 링크 안에서 27px 폭을 유지한다. `px-6`은 랜딩 본문·푸터와 같은 정렬선이라 좁은
+ * 화면에서도 줄이지 않는다 (#247, #249).
  */
 export const HEADER_CONTAINER =
-  'mx-auto grid h-20 w-full max-w-[1152px] grid-cols-[auto_1fr_auto] items-center gap-x-2 px-6 md:flex md:flex-nowrap md:gap-8'
+  'mx-auto grid h-20 w-full max-w-[1152px] grid-cols-[auto_1fr_auto] items-center gap-x-2 px-6 lg:flex lg:flex-nowrap lg:gap-8'
 
-/** 320px에서는 심볼, `md` 이상에서는 기존 가로 락업을 쓸 때의 공통 크기다. */
-export const HEADER_LOGO = 'h-8 w-[27px] md:w-auto'
+/** 1024px 미만에서는 심볼, 그 이상에서는 기존 가로 락업을 쓸 때의 공통 크기다. */
+export const HEADER_LOGO = 'h-8 w-[27px] lg:w-auto'
+
+/** 심볼 자체는 27×32px지만 홈 링크의 모바일 터치 영역은 44×44px로 넓힌다. */
+export const HEADER_LOGO_LINK =
+  'col-start-1 inline-flex size-11 shrink-0 items-center lg:h-auto lg:w-auto'
 
 /** 아이콘 하나인 모바일 메뉴 버튼도 44×44px 터치 영역과 보이는 포커스를 갖는다. */
 export const HEADER_MENU_BUTTON =
-  'inline-flex size-11 shrink-0 items-center justify-center p-0 md:hidden'
+  'inline-flex size-11 shrink-0 items-center justify-center p-0 lg:hidden'
