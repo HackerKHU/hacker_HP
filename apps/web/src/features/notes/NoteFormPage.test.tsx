@@ -5,7 +5,6 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   FileRef,
@@ -15,6 +14,7 @@ import type {
 } from '@/api/notes'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, Route, Routes } from '@/test/TestRouter'
 import { NoteFormPage } from './NoteFormPage'
 
 /**
@@ -187,6 +187,10 @@ describe('자료 등록', () => {
     await waitFor(() => {
       expect(api.created).toHaveLength(1)
     })
+    expect(
+      await screen.findByRole('heading', { name: '자료 상세' }),
+    ).toBeVisible()
+    expect(screen.getByRole('status')).toHaveTextContent('자료를 등록했습니다.')
     expect(api.uploaded).toEqual(['정리본.pdf'])
     expect(api.created[0].files).toEqual([
       { key: 'notes/uploads/1/정리본.pdf', originalName: '정리본.pdf' },
@@ -212,6 +216,17 @@ describe('자료 등록', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '파일을 하나 이상 올려주세요',
     )
+    expect(screen.getByLabelText('첨부파일')).toHaveAttribute(
+      'aria-describedby',
+      'note-files-error',
+    )
+    expect(screen.getByLabelText('첨부파일')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    )
+    expect(
+      document.querySelector('[data-upload-feedback-slot="true"]'),
+    ).toBeInTheDocument()
     expect(api.created).toEqual([])
   })
 
@@ -227,6 +242,10 @@ describe('자료 등록', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '올릴 수 없는 형식입니다',
+    )
+    expect(screen.getByLabelText('첨부파일')).toHaveAttribute(
+      'aria-describedby',
+      'note-files-error',
     )
   })
 

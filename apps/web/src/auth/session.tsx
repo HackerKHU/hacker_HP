@@ -59,7 +59,7 @@ interface Session {
    * 화면의 catch에서 호출한다. 서버가 알려준 상태로 세션을 정리한다.
    * 403은 PENDING_APPROVAL·SUSPENDED·FORBIDDEN이 모두 쓰므로 status가 아니라 code로 가른다.
    */
-  reportApiError: (error: unknown) => void
+  reportApiError: (error: unknown) => boolean
   /**
    * 서버에서 사용자 정보를 다시 읽어 세션을 갱신한다.
    *
@@ -171,7 +171,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const reportApiError = useCallback((error: unknown) => {
     const next = fromApiError(error)
-    if (next) setState(next)
+    if (!next) return false
+    setState(next)
+    return true
   }, [])
 
   const refresh = useCallback(

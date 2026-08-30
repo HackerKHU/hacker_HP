@@ -13,6 +13,7 @@ import org.hackerkhu.hackerhp.domain.photo.dto.PhotoResponse;
 import org.hackerkhu.hackerhp.domain.photo.dto.PhotoUploadUrlResponse;
 import org.hackerkhu.hackerhp.domain.photo.entity.Photo;
 import org.hackerkhu.hackerhp.domain.photo.repository.PhotoRepository;
+import org.hackerkhu.hackerhp.domain.user.dto.DisplayName;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
@@ -270,7 +271,12 @@ public class PhotoService {
 
   private PhotoResponse toResponse(Photo photo) {
     User uploader = photo.getUploader();
-    String uploaderName = uploader == null ? "탈퇴한 회원" : uploader.getName();
+    /*
+     * 표시 이름은 DisplayName 한 곳에서만 만든다 (3-2 §3-2-2 MUST, #301). 예전에는 여기서
+     * 문구를 직접 적었는데, 그래서 다른 셋에 학번 뒷자리를 붙이면 갤러리만 어긋날 뻔했다 —
+     * 같은 사람이 자료에서는 "권승원66", 갤러리에서는 "권승원"으로 나온다 (T-431).
+     */
+    String uploaderName = DisplayName.of(uploader);
     Long uploaderId = uploader == null ? null : uploader.getId();
     String url = storageService.presignGet(photo.getStoredPath());
     String thumbnailUrl = storageService.presignGet(thumbnailKeyOf(photo.getStoredPath()));

@@ -14,14 +14,19 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
+import org.hackerkhu.hackerhp.domain.audit.repository.AdminActionLogRepository;
 import org.hackerkhu.hackerhp.domain.user.dto.StatusChangeRequest.Target;
+import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.domain.user.service.AdminSuspensionPolicy;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserStatusService;
+import org.hackerkhu.hackerhp.global.auth.AuthSession;
 import org.hackerkhu.hackerhp.global.auth.JwtProvider;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
+import org.hackerkhu.testsupport.auth.TestSessions.SignedIn;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
@@ -31,6 +36,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.session.Session;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -48,6 +54,7 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository userRepository;
+  @Autowired private AdminActionLogRepository actions;
   @Autowired private JwtProvider jwtProvider;
   @Autowired private AdminUserStatusService statusService;
 
@@ -58,6 +65,7 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
 
   @BeforeEach
   void createAccounts() {
+    actions.deleteAll();
     userRepository.deleteAll();
 
     admin = userRepository.saveAndFlush(Accounts.admin("sub-ad", "admin@khu.ac.kr", "20200001"));
@@ -74,6 +82,7 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
 
   @AfterEach
   void clear() {
+    actions.deleteAll();
     userRepository.deleteAll();
   }
 
@@ -183,25 +192,39 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
         .perform(change(admin.getId(), "SUSPENDED"))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("FORBIDDEN"))
-        .andExpect(jsonPath("$.message").value("마지막 활성 관리자는 자기 자신을 정지할 수 없습니다."));
+        .andExpect(jsonPath("$.message").value(AdminSuspensionPolicy.MESSAGE));
 
     assertThat(statusOf(admin)).isEqualTo(Status.ACTIVE);
+    assertThat(actions.findByTargetIdOrderByIdAsc(admin.getId())).isEmpty();
   }
 
-  /** 막아야 하는 것은 "마지막 1명이 사라지는 것"이지 "자기 자신을 건드리는 것"이 아니다 (§2-2-7). */
+  /** 관리자 수가 둘 이상이어도 직접 정지는 막힌다. 상태·role·세션·감사에 변화가 없어야 한다. */
   @Test
-  void adminCanSuspendThemselvesWhenAnotherAdminRemains() throws Exception {
-    userRepository.saveAndFlush(Accounts.admin("sub-ad2", "admin2@khu.ac.kr", "20200002"));
+  void anAdminCannotDirectlySuspendAnotherAdminAndNothingChanges() throws Exception {
+    User other =
+        userRepository.saveAndFlush(Accounts.admin("sub-ad2", "admin2@khu.ac.kr", "20200002"));
+    SignedIn existingSession = sessions.signIn(other);
 
     mockMvc
-        .perform(change(admin.getId(), "SUSPENDED"))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.status").value("SUSPENDED"));
+        .perform(change(other.getId(), "SUSPENDED"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("FORBIDDEN"))
+        .andExpect(jsonPath("$.message").value(AdminSuspensionPolicy.MESSAGE));
+
+    User unchanged = userRepository.findById(other.getId()).orElseThrow();
+    assertThat(unchanged.getRole()).isEqualTo(Role.ADMIN);
+    assertThat(unchanged.getStatus()).isEqualTo(Status.ACTIVE);
+    assertThat(actions.findByTargetIdOrderByIdAsc(other.getId())).isEmpty();
+
+    Session session = existingSession.repository().findById(existingSession.id());
+    assertThat(session).isNotNull();
+    assertThat(session.<Role>getAttribute(AuthSession.ROLE)).isEqualTo(Role.ADMIN);
+    assertThat(session.<Status>getAttribute(AuthSession.STATUS)).isEqualTo(Status.ACTIVE);
   }
 
   /** 정지된 관리자는 세지 않는다 (MUST). 로그인할 수 없으므로 DB에 role만 남아 있어도 운영을 보장하지 못한다. */
   @Test
-  void suspendedAdminDoesNotCountAsAGuard() throws Exception {
+  void suspendedAdminIsRejectedByTheSamePolicy() throws Exception {
     User inactive = Accounts.admin("sub-ad3", "admin3@khu.ac.kr", "20200003");
     inactive.suspend();
     userRepository.saveAndFlush(inactive);
@@ -209,7 +232,50 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
     mockMvc
         .perform(change(admin.getId(), "SUSPENDED"))
         .andExpect(status().isForbidden())
-        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        .andExpect(jsonPath("$.code").value("FORBIDDEN"))
+        .andExpect(jsonPath("$.message").value(AdminSuspensionPolicy.MESSAGE));
+  }
+
+  /** 과거·비정상 ADMIN 조합도 자동 보정하지 않고 같은 정책으로 거절한다. */
+  @Test
+  void everyAdminStatusIsRejectedWithoutMutationOrAudit() throws Exception {
+    User pendingAdmin = Accounts.applied("sub-pa", "pa@khu.ac.kr", "20200011");
+    pendingAdmin.promoteToAdmin();
+    pendingAdmin = userRepository.saveAndFlush(pendingAdmin);
+
+    User inactiveAdmin = Accounts.inactive("sub-ia", "ia@khu.ac.kr", "20200012");
+    inactiveAdmin.promoteToAdmin();
+    inactiveAdmin = userRepository.saveAndFlush(inactiveAdmin);
+
+    User suspendedAdmin =
+        userRepository.saveAndFlush(Accounts.suspendedAdmin("sub-sa", "sa@khu.ac.kr", "20200013"));
+
+    for (User target : List.of(pendingAdmin, inactiveAdmin, suspendedAdmin)) {
+      Status before = target.getStatus();
+      mockMvc
+          .perform(change(target.getId(), "SUSPENDED"))
+          .andExpect(status().isForbidden())
+          .andExpect(jsonPath("$.code").value("FORBIDDEN"))
+          .andExpect(jsonPath("$.message").value(AdminSuspensionPolicy.MESSAGE));
+
+      User unchanged = userRepository.findById(target.getId()).orElseThrow();
+      assertThat(unchanged.getRole()).isEqualTo(Role.ADMIN);
+      assertThat(unchanged.getStatus()).isEqualTo(before);
+      assertThat(actions.findByTargetIdOrderByIdAsc(target.getId())).isEmpty();
+    }
+  }
+
+  /** 기존 SUSPENDED ADMIN은 자동 보정하지 않으며, 해제하여 복구하는 기존 길도 유지한다. */
+  @Test
+  void aSuspendedAdminCanStillBeReactivated() throws Exception {
+    User target =
+        userRepository.saveAndFlush(Accounts.suspendedAdmin("sub-ar", "ar@khu.ac.kr", "20200014"));
+
+    mockMvc
+        .perform(change(target.getId(), "ACTIVE"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.role").value("ADMIN"))
+        .andExpect(jsonPath("$.status").value("ACTIVE"));
   }
 
   /**
@@ -219,7 +285,7 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
    * 된다.</b>
    */
   @Test
-  void twoAdminsSuspendingEachOtherAtOnceCannotBothSucceed() throws Exception {
+  void concurrentAdminSuspensionsOfEachOtherAreBothRejected() throws Exception {
     User other = userRepository.saveAndFlush(Accounts.admin("sub-ad5", "a5@khu.ac.kr", "20200005"));
 
     CyclicBarrier ready = new CyclicBarrier(2);
@@ -233,38 +299,29 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
                   suspend(other.getId(), admin.getId(), ready)));
 
       assertThat(results.stream().filter(AdminUserStatusIntegrationTest::succeeded).count())
-          .isLessThanOrEqualTo(1);
+          .isZero();
     } finally {
       pool.shutdownNow();
       pool.awaitTermination(10, TimeUnit.SECONDS);
     }
 
-    assertThat(
-            userRepository.findAll().stream().filter(AdminUserStatusIntegrationTest::activeAdmin))
-        .isNotEmpty();
+    assertThat(statusOf(admin)).isEqualTo(Status.ACTIVE);
+    assertThat(statusOf(other)).isEqualTo(Status.ACTIVE);
+    assertThat(actions.findAll()).isEmpty();
   }
 
-  /**
-   * 사유 문구가 자기 정지와 갈린다. 화면이 서버 문구를 그대로 보여주므로(T-80) 상황에 맞아야 한다.
-   *
-   * <p>관리자 둘 중 하나를 먼저 정지시켜 "남은 활성 관리자가 한 명"인 상태를 만들고, 남은 관리자가 <b>자기가 아닌</b> 그 한 명을 정지하려 한다.
-   */
+  /** 마지막 관리자 여부나 자기/타인 여부보다 직접 정지 정책이 우선한다. */
   @Test
-  void suspendingTheOnlyRemainingActiveAdminIsBlocked() throws Exception {
+  void theSamePolicyAppliesToTheLastAndNonLastAdmin() throws Exception {
     User other = userRepository.saveAndFlush(Accounts.admin("sub-ad7", "a7@khu.ac.kr", "20200007"));
-    suspendDirectly(admin);
-
-    assertThatThrownBy(() -> statusService.change(other.getId(), other.getId(), Target.SUSPENDED))
-        .isInstanceOf(BusinessException.class)
-        .hasMessageContaining("자기 자신을 정지할 수 없습니다");
-
-    // 남을 대상으로 하는 문구는 관리자가 둘 이상이어야 재현되므로 정지를 되돌린 뒤 확인한다.
-    statusService.change(other.getId(), admin.getId(), Target.ACTIVE);
     suspendDirectly(other);
 
     assertThatThrownBy(() -> statusService.change(admin.getId(), admin.getId(), Target.SUSPENDED))
         .isInstanceOf(BusinessException.class)
-        .hasMessageContaining("자기 자신을 정지할 수 없습니다");
+        .hasMessage(AdminSuspensionPolicy.MESSAGE);
+    assertThatThrownBy(() -> statusService.change(admin.getId(), other.getId(), Target.SUSPENDED))
+        .isInstanceOf(BusinessException.class)
+        .hasMessage(AdminSuspensionPolicy.MESSAGE);
   }
 
   /* --------------------------------------------------------- 요청자 재검증 */
@@ -279,23 +336,25 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
     User other = userRepository.saveAndFlush(Accounts.admin("sub-ad6", "a6@khu.ac.kr", "20200006"));
     suspendDirectly(other);
 
-    assertThatThrownBy(() -> statusService.change(other.getId(), member.getId(), Target.SUSPENDED))
+    assertThatThrownBy(() -> statusService.change(other.getId(), admin.getId(), Target.SUSPENDED))
         .isInstanceOf(BusinessException.class)
+        .hasMessage(ErrorCode.SUSPENDED.getMessage())
         .satisfies(
             e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.SUSPENDED));
 
-    assertThat(statusOf(member)).isEqualTo(Status.ACTIVE);
+    assertThat(statusOf(admin)).isEqualTo(Status.ACTIVE);
   }
 
   /** 권한이 회수된 경우도 같다. 사유는 상태가 아니라 권한이므로 코드가 다르다 (§3-2-7). */
   @Test
   void demotedRequesterCannotFinishAPendingWrite() {
-    assertThatThrownBy(() -> statusService.change(member.getId(), suspended.getId(), Target.ACTIVE))
+    assertThatThrownBy(() -> statusService.change(member.getId(), admin.getId(), Target.SUSPENDED))
         .isInstanceOf(BusinessException.class)
+        .hasMessage(ErrorCode.FORBIDDEN.getMessage())
         .satisfies(
             e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FORBIDDEN));
 
-    assertThat(statusOf(suspended)).isEqualTo(Status.SUSPENDED);
+    assertThat(statusOf(admin)).isEqualTo(Status.ACTIVE);
   }
 
   private void suspendDirectly(User user) {
@@ -310,7 +369,7 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
    * <p>세는 것과 바꾸는 것이 한 연산이 아니면 둘 다 "관리자 2명"을 보고 통과해 <b>0명이 된다.</b> 최소 한쪽은 실패해야 한다 (§2-2-7 MUST).
    */
   @Test
-  void twoAdminsSuspendingThemselvesAtOnceCannotBothSucceed() throws Exception {
+  void concurrentSelfSuspensionsAreBothRejected() throws Exception {
     User other = userRepository.saveAndFlush(Accounts.admin("sub-ad4", "a4@khu.ac.kr", "20200004"));
 
     CyclicBarrier ready = new CyclicBarrier(2);
@@ -323,16 +382,15 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
                   suspend(other.getId(), other.getId(), ready)));
 
       long succeeded = results.stream().filter(AdminUserStatusIntegrationTest::succeeded).count();
-      assertThat(succeeded).isLessThanOrEqualTo(1);
+      assertThat(succeeded).isZero();
     } finally {
       pool.shutdownNow();
       pool.awaitTermination(10, TimeUnit.SECONDS);
     }
 
-    // 무엇보다 중요한 것 — 활성 관리자가 남아 있어야 한다.
-    assertThat(
-            userRepository.findAll().stream().filter(AdminUserStatusIntegrationTest::activeAdmin))
-        .isNotEmpty();
+    assertThat(statusOf(admin)).isEqualTo(Status.ACTIVE);
+    assertThat(statusOf(other)).isEqualTo(Status.ACTIVE);
+    assertThat(actions.findAll()).isEmpty();
   }
 
   private Callable<Boolean> suspend(Long requesterId, Long targetId, CyclicBarrier ready) {
@@ -349,11 +407,6 @@ class AdminUserStatusIntegrationTest extends AbstractIntegrationTest {
     } catch (Exception e) {
       return false;
     }
-  }
-
-  private static boolean activeAdmin(User user) {
-    return user.getRole() == org.hackerkhu.hackerhp.domain.user.entity.Role.ADMIN
-        && user.getStatus() == Status.ACTIVE;
   }
 
   /* ---------------------------------------------------------------- 권한 */

@@ -5,7 +5,6 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { GOOGLE_LOGIN_PATH } from '@/api/auth'
@@ -13,6 +12,7 @@ import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
 import { CLUB } from '@/features/landing/content'
+import { MemoryRouter, useLocation } from '@/test/TestRouter'
 
 /**
  * 로그인 화면 (#37).

@@ -29,6 +29,8 @@
 import type {
   AdminUserQuery,
   ApproveResult,
+  BulkStatusResult,
+  BulkStatusTarget,
   ContentSummary,
   DeactivateResult,
   ReactivateResult,
@@ -631,12 +633,12 @@ export function fixtureRemoveNotice(id: number): Promise<void> {
  * 회원 명부. 위 `USERS`(`/auth/me`용 단일 사용자)와 다른 목적이라 따로 둔다 —
  * 그쪽은 "지금 로그인한 사람"이고 이쪽은 "관리자가 보는 명단"이다.
  *
- * 신청 전(`appliedAt: null`) 계정을 일부러 섞어 뒀다. 승인 대상은 신청서를 낸 계정으로
- * 한정되므로(계약 §3-2-6 MUST) **그 계정이 화면에서 선택되지 않는 것**이 이 화면의 핵심
- * 규칙인데, 명단에 그런 계정이 없으면 규칙이 지켜지는지 화면에서 확인할 수가 없다.
+ * 신청 전(`appliedAt: null`) 계정을 일부러 섞어 뒀다. 행 메뉴 승인은 신청서를 낸 계정으로
+ * 한정되지만(#297), 선택 상태 조작은 모든 행을 고른 뒤 서버 결과로 전이 가능 여부를
+ * 알려야 한다. 명단에 이런 계정이 있어야 두 경로가 갈리는지 화면에서 확인할 수 있다.
  *
- * 활성 관리자도 둘 이상 둔다. 한 명뿐이면 마지막 관리자 자기 정지 차단(§2-2-7)만 보이고
- * 정상적으로 정지되는 경로를 볼 수 없다.
+ * 활성 관리자도 둘 이상 둔다. 관리자는 선택할 수 있지만 정지 결과에서 권한을 먼저
+ * 회수하라는 항목별 실패가 보여야 한다(#296).
  */
 const MEMBERS: User[] = []
 
@@ -721,6 +723,7 @@ for (const [index, name] of MEMBER_NAMES.entries()) {
     createdAt: daysAgo(60 - index),
     appliedAt: applied ? daysAgo(60 - index - APPLY_DELAY[index % 6]) : null,
     approvedAt: pending ? null : daysAgo(40 - index),
+    deactivatedAt: inactive ? daysAgo(5) : null,
   })
 }
 
@@ -834,10 +837,10 @@ export function fixtureApproveUsers(userIds: number[]): Promise<ApproveResult> {
 }
 
 /**
- * 일괄 거부 (2-2 §2-2-2). `PENDING` 계정을 지운다.
+ * 일괄 거부 (2-2 §2-2-2). 계정은 유지하고 `PENDING` 신청 정보를 초기화한다.
  *
- * **`PENDING`이 아니면 거부하지 않는다** (§3-2-6). 이 경로로 이용 중인 회원을 지울 수
- * 없다 — 그것은 "제거"이고 세션 폐기·정지 선행 같은 규칙이 따로 붙는다 (§2-2-4).
+ * **`PENDING`이 아니면 거부하지 않는다** (§3-2-6). 이 경로로 이용 중인 회원의 신청
+ * 정보를 초기화할 수 없다 — 회원 제거·정지는 별도 규칙을 따른다 (§2-2-4).
  * 픽스처가 통과시키면 화면이 그 구분을 잃는다.
  */
 export function fixtureRejectUsers(userIds: number[]): Promise<RejectResult> {
@@ -847,42 +850,129 @@ export function fixtureRejectUsers(userIds: number[]): Promise<RejectResult> {
   const result: RejectResult = { rejected: [], failed: [] }
   // 승인과 같이 중복을 먼저 지운다 — 그대로 두면 실제로는 나올 수 없는 부분 실패가 생긴다.
   for (const id of [...new Set(userIds)]) {
-    const index = MEMBERS.findIndex((user) => user.id === id)
-    if (index < 0) {
+    const user = MEMBERS.find((candidate) => candidate.id === id)
+    if (!user) {
       result.failed.push({ userId: id, reason: 'NOT_FOUND' })
       continue
     }
-    if (MEMBERS[index].status !== 'PENDING') {
+    if (user.status !== 'PENDING') {
       result.failed.push({ userId: id, reason: 'NOT_PENDING' })
       continue
     }
-    MEMBERS.splice(index, 1)
+    user.studentNo = null
+    user.department = null
+    user.appliedAt = null
     result.rejected.push(id)
   }
   return Promise.resolve(result)
 }
 
 /**
- * 학기 전환 — 일괄 비활성화 (2-2 §2-2-3, 계약 §3-2-6).
- *
- * **대상을 서버가 고른다.** `ACTIVE`인 일반 부원 전원이고, `ADMIN`·`SUSPENDED`·`PENDING`은
- * 휩쓸리지 않는다 (MUST). 픽스처가 이 셋 중 하나라도 함께 내리면 **화면이 확인 창에 적은
- * "제외됩니다"가 거짓이 되는데 아무도 알아채지 못한다.**
- *
- * **실제로 바뀐 id만 담는다** — 이미 `INACTIVE`였던 사람은 빠진다. 그래서 두 번째 호출은
- * 빈 배열이다(멱등).
+ * 선택 회원 비활성화 (#295). `ACTIVE`/`SUSPENDED USER`만 바꾸고 나머지는
+ * 항목별 실패로 남긴다. 정지 회원을 내릴 때도 되돌릴 근거인 `deactivatedAt`을
+ * 상태와 함께 세운다.
+ * 중복은 첫 등장만 처리하며 두 결과 배열도 입력 순서를 지킨다.
  */
-export function fixtureDeactivateUsers(): Promise<DeactivateResult> {
+export function fixtureDeactivateUsers(
+  userIds: number[],
+): Promise<DeactivateResult> {
   const denied = requireAdmin()
   if (denied) return Promise.reject(denied)
 
-  const deactivated: number[] = []
-  for (const user of MEMBERS) {
-    if (user.role !== 'USER' || user.status !== 'ACTIVE') continue
+  const invalid = validateBulkIds(userIds)
+  if (invalid) return Promise.reject(invalid)
+
+  const result: DeactivateResult = { deactivated: [], failed: [] }
+  const deactivatedAt = new Date().toISOString()
+  for (const id of [...new Set(userIds)]) {
+    const user = MEMBERS.find((candidate) => candidate.id === id)
+    if (!user) {
+      result.failed.push({ userId: id, reason: 'NOT_FOUND' })
+      continue
+    }
+    if (
+      user.role !== 'USER' ||
+      (user.status !== 'ACTIVE' && user.status !== 'SUSPENDED')
+    ) {
+      result.failed.push({ userId: id, reason: 'NOT_ACTIVE_USER' })
+      continue
+    }
     user.status = 'INACTIVE'
-    deactivated.push(user.id)
+    user.deactivatedAt = deactivatedAt
+    result.deactivated.push(user.id)
   }
-  return Promise.resolve({ deactivated })
+  return Promise.resolve(result)
+}
+
+/** #295·#313 선택 요청이 공유하는 원본 배열 검증. 중복 제거보다 먼저 적용한다. */
+function validateBulkIds(userIds: number[]): ApiError | null {
+  if (
+    userIds.length === 0 ||
+    userIds.length > 100 ||
+    userIds.some((id) => !Number.isInteger(id) || id <= 0)
+  ) {
+    return new ApiError(
+      'VALIDATION_ERROR',
+      400,
+      '상태를 바꿀 회원은 1명 이상 100명 이하여야 합니다.',
+    )
+  }
+  return null
+}
+
+/** 선택 회원 일괄 활성화·정지 (#313). 처리 결과는 입력의 첫 등장 순서를 지킨다. */
+export function fixtureBulkUpdateUserStatus(
+  userIds: number[],
+  status: BulkStatusTarget,
+): Promise<BulkStatusResult> {
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const invalid = validateBulkIds(userIds)
+  if (invalid) return Promise.reject(invalid)
+
+  const result: BulkStatusResult = {
+    targetStatus: status,
+    processed: [],
+    failed: [],
+  }
+  for (const id of [...new Set(userIds)]) {
+    const user = MEMBERS.find((candidate) => candidate.id === id)
+    if (!user) {
+      result.failed.push({ userId: id, reason: 'NOT_FOUND' })
+      continue
+    }
+
+    if (status === 'ACTIVE') {
+      if (user.status === 'PENDING' && user.appliedAt === null) {
+        result.failed.push({ userId: id, reason: 'NOT_APPLIED' })
+        continue
+      }
+      if (user.status === 'PENDING') {
+        user.approvedAt = new Date().toISOString()
+      }
+      user.status = 'ACTIVE'
+      user.deactivatedAt = null
+      result.processed.push(id)
+      continue
+    }
+
+    if (user.role === 'ADMIN') {
+      result.failed.push({
+        userId: id,
+        reason: 'ADMIN_SUSPEND_REQUIRES_ROLE_REVOCATION',
+      })
+      continue
+    }
+    if (user.status === 'PENDING') {
+      result.failed.push({ userId: id, reason: 'PENDING_NOT_ALLOWED' })
+      continue
+    }
+    user.status = 'SUSPENDED'
+    user.deactivatedAt = null
+    result.processed.push(id)
+  }
+  return Promise.resolve(result)
 }
 
 /**
@@ -911,6 +1001,7 @@ export function fixtureReactivateUsers(
       continue
     }
     found.status = 'ACTIVE'
+    found.deactivatedAt = null
     result.reactivated.push(id)
   }
   return Promise.resolve(result)
@@ -1024,12 +1115,17 @@ export function fixtureUpdateUserRole(id: number, role: Role): Promise<User> {
     )
   }
 
+  if (role === 'ADMIN') {
+    // 비활동·정지 ADMIN이 순간이라도 남지 않도록 한 조작의 최종값을 세운다.
+    found.status = 'ACTIVE'
+    found.deactivatedAt = null
+  }
   found.role = role
   return Promise.resolve(found)
 }
 
 /**
- * 상태 전환. **마지막 활성 관리자가 자기를 정지시키는 것을 막는다** (2-2 §2-2-7 MUST).
+ * 상태 전환. 관리자는 권한을 회수한 뒤에만 정지할 수 있다 (#296).
  *
  * 화면은 활성 관리자가 몇 명인지 모르므로 이 판단을 하지 않는다. 픽스처가 서버처럼
  * 거부해야 그 실패 화면을 만들 수 있다.
@@ -1048,26 +1144,18 @@ export function fixtureUpdateUserStatus(
     )
   }
 
-  const activeAdmins = MEMBERS.filter(
-    (user) => user.role === 'ADMIN' && user.status === 'ACTIVE',
-  )
-  const isSelf = id === SELF_ID
-  if (
-    status === 'SUSPENDED' &&
-    isSelf &&
-    activeAdmins.length === 1 &&
-    activeAdmins[0].id === id
-  ) {
+  if (status === 'SUSPENDED' && found.role === 'ADMIN') {
     return Promise.reject(
       new ApiError(
         'FORBIDDEN',
         403,
-        '마지막 활성 관리자는 자기 자신을 정지할 수 없습니다.',
+        '관리자 계정은 바로 정지할 수 없습니다. 먼저 관리자 권한을 회수한 뒤 정지해 주세요.',
       ),
     )
   }
 
   found.status = status
+  found.deactivatedAt = null
   return Promise.resolve(found)
 }
 
@@ -1768,7 +1856,8 @@ let nextPhotoId = 601
  * 등록.
  *
  * **일부가 실패해도 성공 응답이다** (계약 §3-2-5). 픽스처도 그래야 화면이 `registered`와
- * `failed`를 함께 읽는지 확인할 수 있다 — **마지막 한 장을 일부러 실패시킨다**(2장 이상일 때).
+ * `failed`를 함께 읽는지 확인할 수 있다. 2장이면 마지막 한 장, 3장 이상이면 마지막 두
+ * 장을 서로 다른 사유로 실패시켜 파일명-사유 매핑과 긴 실패 목록을 브라우저에서 확인한다.
  * 전부 성공시키면 실패 안내를 화면에서 만들 수 없다.
  */
 export function fixtureRegisterPhotos(
@@ -1786,8 +1875,16 @@ export function fixtureRegisterPhotos(
   const registered: Photo[] = []
   const failed: PhotoRegisterResult['failed'] = []
   photos.forEach((item, index) => {
-    // 2장 이상이면 마지막 한 장이 실패한다 — 부분 실패 화면을 볼 수 있어야 한다.
-    if (photos.length > 1 && index === photos.length - 1) {
+    // 여러 key를 서로 다른 사유에 연결하는 화면까지 볼 수 있게 마지막 두 장을 가른다.
+    if (photos.length >= 3 && index === photos.length - 2) {
+      failed.push({ key: item.key, reason: 'FILE_TOO_LARGE' })
+      return
+    }
+    if (photos.length >= 3 && index === photos.length - 1) {
+      failed.push({ key: item.key, reason: 'UNSUPPORTED_FILE_TYPE' })
+      return
+    }
+    if (photos.length === 2 && index === photos.length - 1) {
       failed.push({ key: item.key, reason: 'NOT_FOUND' })
       return
     }

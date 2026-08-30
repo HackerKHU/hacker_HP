@@ -2,7 +2,7 @@ package org.hackerkhu.hackerhp.domain.notice.dto;
 
 import java.time.Instant;
 import org.hackerkhu.hackerhp.domain.notice.entity.Notice;
-import org.hackerkhu.hackerhp.domain.user.dto.WithdrawnMember;
+import org.hackerkhu.hackerhp.domain.user.dto.DisplayName;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 
 /**
@@ -34,7 +34,7 @@ public record NoticeResponse(
         notice.getContent(),
         notice.isPinned(),
         author == null ? null : author.getId(),
-        author == null ? WithdrawnMember.NAME : author.getName(),
+        DisplayName.of(author),
         notice.getCreatedAt(),
         notice.getUpdatedAt());
   }

@@ -4,6 +4,7 @@ import type { ContentSummary } from '@/api/adminUsers'
 import { myContentSummary, withdraw } from '@/api/auth'
 import { ApiError } from '@/api/client'
 import { useSession } from '@/auth/session'
+import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,6 +51,7 @@ function total(summary: ContentSummary): number {
 export function WithdrawButton({ className }: { className?: string }) {
   const { setUser, reportApiError } = useSession()
   const navigate = useNavigate()
+  const alert = useLiveAlert()
 
   const [open, setOpen] = useState(false)
   /**
@@ -58,7 +60,6 @@ export function WithdrawButton({ className }: { className?: string }) {
    */
   const [summary, setSummary] = useState<ContentSummary | 'failed' | null>(null)
   const [working, setWorking] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   /**
    * 이 창을 연 조회의 세대. 닫았다 다시 열면 값이 달라진다 — 없으면 취소된 조회의 응답이
@@ -70,7 +71,6 @@ export function WithdrawButton({ className }: { className?: string }) {
     const token = generation.current + 1
     generation.current = token
     setSummary(null)
-    setError(null)
     setOpen(true)
     myContentSummary().then(
       (next) => {
@@ -93,7 +93,6 @@ export function WithdrawButton({ className }: { className?: string }) {
 
   async function run() {
     setWorking(true)
-    setError(null)
     try {
       await withdraw()
       /*
@@ -127,12 +126,13 @@ export function WithdrawButton({ className }: { className?: string }) {
        * 코드는 세션 계층에도 넘긴다 (T-116). `FORBIDDEN`·`CONCURRENT_CHANGE`는 세션을
        * 바꾸지 않고, 그 사이에 정지당한 경우(`403 SUSPENDED`)만 정지 안내로 넘어간다.
        */
-      reportApiError(caught)
-      setError(
-        caught instanceof ApiError
-          ? caught.message
-          : '탈퇴하지 못했습니다. 잠시 후 다시 시도해 주세요.',
-      )
+      if (!reportApiError(caught)) {
+        alert.error(
+          caught instanceof ApiError
+            ? caught.message
+            : '탈퇴하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        )
+      }
     } finally {
       setWorking(false)
     }
@@ -145,17 +145,11 @@ export function WithdrawButton({ className }: { className?: string }) {
         지우기 직전에 되살아난 것(`409`)인지는 서버가 안다 — 화면이 지어내면 둘이 같은
         말로 뭉개진다. 확인 창이 닫힌 뒤에도 남으므로 사유를 읽고 다시 누를 수 있다.
       */}
-      {error && (
-        <p role="alert" className="text-sm text-muted-foreground">
-          {error}
-        </p>
-      )}
       <AlertDialog
         open={open}
         onOpenChange={(next) => {
           if (next) return
           setOpen(false)
-          setError(null)
         }}
       >
         <AlertDialogTrigger asChild>

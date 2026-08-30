@@ -2,6 +2,7 @@ import { request, toQuery } from './client'
 import {
   fixtureAdminUsers,
   fixtureApproveUsers,
+  fixtureBulkUpdateUserStatus,
   fixtureContentSummary,
   fixtureDeactivateUsers,
   fixtureReactivateUsers,
@@ -81,12 +82,12 @@ export interface RejectResult {
 /**
  * 거부 실패 사유 (§3-2-6).
  *
- * **`NOT_PENDING`을 "이미 처리됨"으로 뭉개지 않는다.** 이 경로로는 이용 중인 회원을 지울
- * 수 없다 — 그것은 "제거"이고 세션 폐기·정지 선행 같은 규칙이 따로 붙는다 (2-2 §2-2-4).
+ * **`NOT_PENDING`을 "이미 처리됨"으로 뭉개지 않는다.** 이 경로로는 이용 중인 회원의 신청
+ * 정보를 초기화할 수 없다. 회원 제거·정지는 별도 규칙을 따른다 (2-2 §2-2-4).
  */
 export type RejectFailureReason = 'NOT_FOUND' | 'NOT_PENDING'
 
-/** 일괄 거부. 남긴 것이 없는 `PENDING` 계정을 지운다 (2-2 §2-2-2). */
+/** 일괄 거부. 계정은 유지하고 `PENDING` 신청 정보를 비워 미승인으로 되돌린다 (2-2 §2-2-2). */
 export function reject(userIds: number[]): Promise<RejectResult> {
   if (import.meta.env.VITE_USE_FIXTURES === 'true') {
     return fixtureRejectUsers(userIds)
@@ -98,32 +99,61 @@ export function reject(userIds: number[]): Promise<RejectResult> {
 }
 
 /**
- * 학기 전환 — 일괄 비활성화 결과 (계약 §3-2-6, #228).
- *
- * **실패 배열이 없다** (MUST). 승인·거부와 다른 점이다 — 대상을 서버가 골랐으므로
- * *"이 사람은 대상이 아니었다"* 가 성립하지 않는다.
+ * 선택 회원 비활성화 결과 (계약 §3-2-6, #295).
  */
 export interface DeactivateResult {
   /** 실제로 `INACTIVE`가 된 id. 이미 비활동이던 사람은 들어가지 않는다. */
   deactivated: number[]
+  /** 선택 경로에서 바뀌지 않은 id와 사유. */
+  failed: { userId: number; reason: DeactivateFailureReason }[]
 }
 
 /**
- * 학기 전환 — 일괄 비활성화 (2-2 §2-2-3).
- *
- * **본문을 보내지 않는다** (계약 §3-2-6 MUST). 대상은 `role = 'USER' AND status = 'ACTIVE'`인
- * 전원으로 **서버가 정한다** — id를 보내면 100개 상한에 걸려 학기 전환이 페이지 수만큼
- * 쪼개지고, **한 페이지를 빠뜨려도 아무도 모른다.**
- *
- * 대상 건수는 목록을 같은 조건으로 조회해 얻는다(`status=ACTIVE&role=USER&size=1`) —
- * 미리보기 전용 API를 두지 않는다.
+ * `NOT_ACTIVE_USER`는 하위 호환을 위해 유지한 서버 코드다. 현재는 `ACTIVE`/
+ * `SUSPENDED USER`가 모두 대상이므로, 실제 의미는 "비활성화할 수 없는 상태·권한"이다.
  */
-export function deactivateAll(): Promise<DeactivateResult> {
+export type DeactivateFailureReason = 'NOT_FOUND' | 'NOT_ACTIVE_USER'
+
+/**
+ * 선택 회원 비활성화 (#295). 본문 없는 전원 경로와 달리 고른 id만 처리한다.
+ */
+export function deactivate(userIds: number[]): Promise<DeactivateResult> {
   if (import.meta.env.VITE_USE_FIXTURES === 'true') {
-    return fixtureDeactivateUsers()
+    return fixtureDeactivateUsers(userIds)
   }
   return request<DeactivateResult>('/admin/users/deactivate', {
     method: 'POST',
+    body: JSON.stringify({ userIds }),
+  })
+}
+
+export type BulkStatusTarget = 'ACTIVE' | 'SUSPENDED'
+
+export type BulkStatusFailureReason =
+  | 'NOT_FOUND'
+  | 'NOT_APPLIED'
+  | 'PENDING_NOT_ALLOWED'
+  | 'ADMIN_SUSPEND_REQUIRES_ROLE_REVOCATION'
+
+export interface BulkStatusResult {
+  targetStatus: BulkStatusTarget
+  /** 실제 변경과 이미 목표 상태였던 멱등 성공을 입력 순서대로 담는다. */
+  processed: number[]
+  /** 처리하지 못한 id와 사유를 입력 순서대로 담는다. */
+  failed: { userId: number; reason: BulkStatusFailureReason }[]
+}
+
+/** 선택 회원 일괄 활성화·정지 (#313). 단건 API를 병렬 호출하지 않는다. */
+export function bulkUpdateStatus(
+  userIds: number[],
+  status: BulkStatusTarget,
+): Promise<BulkStatusResult> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true') {
+    return fixtureBulkUpdateUserStatus(userIds, status)
+  }
+  return request<BulkStatusResult>('/admin/users/status', {
+    method: 'PATCH',
+    body: JSON.stringify({ userIds, status }),
   })
 }
 
@@ -195,8 +225,9 @@ export function remove(id: number): Promise<void> {
 /**
  * 권한 부여·회수 (spec 2-2 §2-2-5).
  *
- * **마지막 활성 관리자인지는 화면이 판단하지 않는다** — 서버가 잠금을 걸고 원자적으로 센다
- * (§2-2-7 MUST). 화면은 거부 사유를 그대로 보여준다.
+ * **마지막 활성 관리자인지는 화면이 판단하지 않는다** — 서버가 잠금을 걸고 원자적으로 센다.
+ * `ADMIN`으로 올리면 기존 상태와 무관하게 최종 응답은 `ACTIVE ADMIN`이며, 화면은
+ * 중간 `INACTIVE ADMIN`/`SUSPENDED ADMIN`을 만들기 위한 별도 상태 요청을 보내지 않는다.
  */
 export function updateRole(id: number, role: Role): Promise<User> {
   if (import.meta.env.VITE_USE_FIXTURES === 'true') {

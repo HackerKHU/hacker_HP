@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Photo } from '@/api/photos'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, useLocation } from '@/test/TestRouter'
 import { PhotoGalleryPage } from './PhotoGalleryPage'
 
 /**
@@ -19,6 +19,8 @@ const api = vi.hoisted(() => ({
   removed: [] as number[],
   total: 0,
   totalPages: 1,
+  removeError: null as unknown,
+  listError: null as unknown,
 }))
 
 function photo(id: number, caption: string | null): Photo {
@@ -35,6 +37,7 @@ function photo(id: number, caption: string | null): Photo {
 
 vi.mock('@/api/photos', () => ({
   list: (query: { page?: number; size?: number }) => {
+    if (api.listError) return Promise.reject(api.listError)
     api.calls.push(query)
     return Promise.resolve({
       content: api.rows,
@@ -47,6 +50,7 @@ vi.mock('@/api/photos', () => ({
     })
   },
   remove: (id: number) => {
+    if (api.removeError) return Promise.reject(api.removeError)
     api.removed.push(id)
     api.rows = api.rows.filter((row) => row.id !== id)
     api.total -= 1
@@ -74,11 +78,17 @@ vi.mock('@/api/auth', () => ({
   logout: () => Promise.resolve(),
 }))
 
+function LocationProbe() {
+  const { search } = useLocation()
+  return <div data-testid="search">{search}</div>
+}
+
 function renderGallery(path = '/photos') {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <SessionProvider>
         <PhotoGalleryPage />
+        <LocationProbe />
       </SessionProvider>
     </MemoryRouter>,
   )
@@ -112,10 +122,44 @@ beforeEach(() => {
   api.removed = []
   api.total = 2
   api.totalPages = 1
+  api.removeError = null
+  api.listError = null
   auth.me = BASE
 })
 
 describe('활동사진 갤러리', () => {
+  it('조회 상태와 무관하게 그리드 surface와 pager 자리를 유지한다', async () => {
+    renderGallery()
+    expect(
+      document.querySelector('[data-list-surface="photos"]'),
+    ).toBeInTheDocument()
+    expect(
+      document.querySelector('[data-pager-slot="true"]'),
+    ).toBeInTheDocument()
+    await screen.findAllByRole('button', { name: /크게 보기/ })
+    expect(
+      document.querySelector('[data-list-surface="photos"]'),
+    ).toBeInTheDocument()
+  })
+
+  it('조회 실패 surface에서 재시도해 그리드를 복구한다', async () => {
+    api.listError = new Error('network')
+    renderGallery()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '사진을 불러오지 못했습니다',
+    )
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(
+      document.querySelector('[data-live-alert-viewport="true"]'),
+    ).not.toBeInTheDocument()
+    api.listError = null
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }))
+    expect(await screen.findByText('2026 신입생 환영회')).toBeVisible()
+    expect(
+      document.querySelector('[data-pager-slot="true"]'),
+    ).toBeInTheDocument()
+  })
   /*
    * 화면 이름은 **갤러리**다 (2026-08-23). 담고 있는 것은 여전히 활동사진이고(spec §2-1-7)
    * 라우트도 `/photos`지만, 사용자에게 보이는 이름은 헤더 메뉴·제목·돌아가기 링크에서
@@ -189,14 +233,65 @@ describe('활동사진 갤러리', () => {
     expect(Object.keys(api.calls[0])).toEqual(['page', 'size'])
   })
 
-  /* 주소의 페이지를 그대로 조회에 싣는다 — 새로고침·링크 공유에 살아남아야 한다. */
-  it('주소의 page를 조회에 싣는다', async () => {
-    api.totalPages = 3
+  it('페이지 번호를 직접 누르면 1-based 표시와 0-based URL·조회를 함께 바꾼다', async () => {
+    api.totalPages = 20
 
-    renderGallery('/photos?page=2')
+    renderGallery('/photos?page=9')
 
     await screen.findByText('2026 신입생 환영회')
-    expect(api.calls[0].page).toBe(2)
+    expect(
+      screen.getByRole('link', { name: '10페이지로 이동', current: 'page' }),
+    ).toBeInTheDocument()
+    expect(
+      document.querySelectorAll(
+        '[data-pager-mobile-visible="true"] [data-slot="pagination-ellipsis"]',
+      ),
+    ).toHaveLength(2)
+    expect(
+      document.querySelectorAll(
+        '[data-pager-desktop-visible="true"] [data-slot="pagination-ellipsis"]',
+      ),
+    ).toHaveLength(2)
+    fireEvent.click(screen.getByRole('link', { name: '12페이지로 이동' }))
+
+    await waitFor(() => expect(api.calls.at(-1)?.page).toBe(11))
+    expect(screen.getByTestId('search')).toHaveTextContent('?page=11')
+    expect(
+      screen.getByRole('link', { name: '12페이지로 이동', current: 'page' }),
+    ).toBeInTheDocument()
+  })
+
+  it.each([
+    ['/photos', 0, '이전 페이지로 이동'],
+    ['/photos?page=19', 19, '다음 페이지로 이동'],
+  ] as const)(
+    '경계 %s에서 비활성 방향 링크를 눌러도 URL과 조회를 바꾸지 않는다',
+    async (path, page, label) => {
+      api.totalPages = 20
+      renderGallery(path)
+      await screen.findByText('2026 신입생 환영회')
+      const calls = [...api.calls]
+      const search = screen.getByTestId('search').textContent
+
+      const boundary = screen.getByRole('link', { name: label })
+      expect(boundary).toHaveAttribute('aria-disabled', 'true')
+      fireEvent.click(boundary)
+
+      expect(screen.getByTestId('search').textContent).toBe(search)
+      expect(api.calls).toEqual(calls)
+      expect(api.calls.at(-1)?.page).toBe(page)
+    },
+  )
+
+  it('1페이지 번호는 page 파라미터를 지운다', async () => {
+    api.totalPages = 3
+    renderGallery('/photos?page=2')
+    await screen.findByText('2026 신입생 환영회')
+
+    fireEvent.click(screen.getByRole('link', { name: '1페이지로 이동' }))
+
+    await waitFor(() => expect(api.calls.at(-1)?.page).toBe(0))
+    expect(screen.getByTestId('search')).toHaveTextContent('')
   })
 
   /*
@@ -241,6 +336,24 @@ describe('활동사진 갤러리', () => {
     await waitFor(() => {
       expect(api.removed).toEqual([501])
     })
+    expect(screen.getByRole('status')).toHaveTextContent('사진을 삭제했습니다.')
+  })
+
+  it('삭제 실패는 fixed error alert로 알리고 사진을 유지한다', async () => {
+    auth.me = { ...BASE, role: 'ADMIN' }
+    api.removeError = new Error('network')
+    renderGallery()
+    await screen.findByText('2026 신입생 환영회')
+
+    fireEvent.click(
+      screen.getByRole('button', { name: '2026 신입생 환영회 삭제' }),
+    )
+    fireEvent.click(await screen.findByRole('button', { name: '삭제' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('사진을 삭제하지 못했습니다')
+    expect(alert.closest('[data-live-alert-viewport="true"]')).not.toBeNull()
+    expect(screen.getByText('2026 신입생 환영회')).toBeVisible()
   })
 
   /*

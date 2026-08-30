@@ -5,13 +5,13 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ApiError } from '@/api/client'
 import type { Notice } from '@/api/notices'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, useLocation } from '@/test/TestRouter'
 
 /**
  * 관리자 진입점과 삭제 (#41).
@@ -199,6 +199,7 @@ describe('공지 삭제', () => {
     await waitFor(() => {
       expect(pathname()).toBe('/notices')
     })
+    expect(screen.getByRole('status')).toHaveTextContent('공지를 삭제했습니다.')
     expect(api.removed).toEqual([1])
   })
 
@@ -211,9 +212,9 @@ describe('공지 삭제', () => {
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: '삭제' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '공지를 삭제하지 못했습니다',
-    )
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('공지를 삭제하지 못했습니다')
+    expect(alert.closest('[data-live-alert-viewport="true"]')).not.toBeNull()
     expect(pathname()).toBe('/notices/1')
   })
 })

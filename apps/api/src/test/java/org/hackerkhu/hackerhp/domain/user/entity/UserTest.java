@@ -3,9 +3,11 @@ package org.hackerkhu.hackerhp.domain.user.entity;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Instant;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class UserTest {
 
@@ -65,6 +67,71 @@ class UserTest {
     assertThat(user.getDepartment()).isEqualTo("인공지능학과");
     // 다시 내도 이름은 그대로다.
     assertThat(user.getName()).isEqualTo("구글이름");
+  }
+
+  @Test
+  void rejectionResetsOnlyApplicationDataAndKeepsTheAccountIdentity() {
+    User user = applied();
+    String googleSub = user.getGoogleSub();
+    String email = user.getEmail();
+    String name = user.getName();
+
+    boolean changed = user.resetApplicationAfterRejection();
+
+    assertThat(changed).isTrue();
+    assertThat(user.getGoogleSub()).isEqualTo(googleSub);
+    assertThat(user.getEmail()).isEqualTo(email);
+    assertThat(user.getName()).isEqualTo(name);
+    assertThat(user.getStudentNo()).isNull();
+    assertThat(user.getDepartment()).isNull();
+    assertThat(user.getAppliedAt()).isNull();
+    assertThat(user.getApprovedAt()).isNull();
+    assertThat(user.getDeactivatedAt()).isNull();
+    assertThat(user.getRole()).isEqualTo(Role.USER);
+    assertThat(user.getStatus()).isEqualTo(Status.PENDING);
+  }
+
+  @Test
+  void rejectingAnAlreadyUnappliedAccountIsIdempotent() {
+    User user = loggedInWithGoogle();
+
+    assertThat(user.resetApplicationAfterRejection()).isFalse();
+    assertThat(user.getStatus()).isEqualTo(Status.PENDING);
+    assertThat(user.getAppliedAt()).isNull();
+  }
+
+  @Test
+  void rejectionClearsLegacyApplicationFieldsWithoutNormalizingOtherFields() {
+    User user = loggedInWithGoogle();
+    Instant approvedAt = Instant.parse("2026-08-01T00:00:00Z");
+    Instant deactivatedAt = Instant.parse("2026-08-02T00:00:00Z");
+    ReflectionTestUtils.setField(user, "studentNo", "legacy-student-no");
+    ReflectionTestUtils.setField(user, "department", "컴퓨터공학과");
+    ReflectionTestUtils.setField(user, "approvedAt", approvedAt);
+    ReflectionTestUtils.setField(user, "deactivatedAt", deactivatedAt);
+    ReflectionTestUtils.setField(user, "role", Role.ADMIN);
+
+    boolean changed = user.resetApplicationAfterRejection();
+
+    assertThat(changed).isTrue();
+    assertThat(user.getStudentNo()).isNull();
+    assertThat(user.getDepartment()).isNull();
+    assertThat(user.getAppliedAt()).isNull();
+    assertThat(user.getApprovedAt()).isEqualTo(approvedAt);
+    assertThat(user.getDeactivatedAt()).isEqualTo(deactivatedAt);
+    assertThat(user.getRole()).isEqualTo(Role.ADMIN);
+    assertThat(user.getStatus()).isEqualTo(Status.PENDING);
+  }
+
+  @Test
+  void rejectionCannotResetAnActiveMember() {
+    User user = applied();
+    user.approve();
+
+    assertThatThrownBy(user::resetApplicationAfterRejection)
+        .isInstanceOf(IllegalStateException.class);
+    assertThat(user.getStatus()).isEqualTo(Status.ACTIVE);
+    assertThat(user.getStudentNo()).isEqualTo("20240003");
   }
 
   /*

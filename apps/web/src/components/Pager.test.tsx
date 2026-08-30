@@ -1,5 +1,140 @@
-import { describe, expect, it } from 'vitest'
-import { parsePage, writePage } from './Pager'
+import { render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  KOREAN_PAGER_LABELS,
+  Pager,
+  pageWindow,
+  parsePage,
+  writePage,
+} from './Pager'
+
+describe('페이지 번호 창', () => {
+  it.each([0, 1, 2, 5])('%d페이지 이하는 모두 표시한다', (totalPages) => {
+    expect(pageWindow(0, totalPages)).toEqual(
+      Array.from({ length: totalPages }, (_, index) => index),
+    )
+  })
+
+  it.each([
+    [0, [0, 1, 2, 3, 5]],
+    [1, [0, 1, 2, 3, 5]],
+    [2, [0, 1, 2, 3, 5]],
+    [3, [0, 2, 3, 4, 5]],
+    [4, [0, 2, 3, 4, 5]],
+    [5, [0, 2, 3, 4, 5]],
+  ] as const)(
+    '6페이지부터 현재 0-based %d의 가장자리·가운데 창을 만든다',
+    (page, expected) => {
+      expect(pageWindow(page, 6)).toEqual(expected)
+    },
+  )
+
+  it('큰 목록 가운데는 첫·현재±1·마지막만 중복 없이 표시한다', () => {
+    expect(pageWindow(9, 20)).toEqual([0, 8, 9, 10, 19])
+  })
+
+  it('PC 창은 10페이지까지 모두 보이고 그보다 많으면 숫자 10개를 유지한다', () => {
+    expect(pageWindow(0, 10, 10)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+    expect(pageWindow(5, 11, 10)).toEqual([0, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    expect(pageWindow(9, 20, 10)).toEqual([0, 6, 7, 8, 9, 10, 11, 12, 13, 19])
+  })
+
+  it('어느 위치에서도 모바일 5개·PC 10개 숫자 상한을 넘지 않는다', () => {
+    for (let page = 0; page < 100; page += 1) {
+      expect(pageWindow(page, 100, 5).length).toBeLessThanOrEqual(5)
+      expect(pageWindow(page, 100, 10).length).toBeLessThanOrEqual(10)
+    }
+  })
+})
+
+describe('반응형 Pager', () => {
+  it('한 페이지만 감춰도 모바일에 실제 gap을 표시하고 PC에는 모두 보인다', () => {
+    const { container } = render(
+      <Pager
+        page={0}
+        totalPages={6}
+        hrefFor={(page) => `/items?page=${page}`}
+        onGo={vi.fn()}
+        labels={KOREAN_PAGER_LABELS}
+      />,
+    )
+
+    expect(
+      container.querySelectorAll(
+        '[data-pager-page][data-pager-mobile-visible="true"]',
+      ),
+    ).toHaveLength(5)
+    expect(
+      container.querySelectorAll(
+        '[data-pager-page][data-pager-desktop-visible="true"]',
+      ),
+    ).toHaveLength(6)
+    expect(
+      container.querySelectorAll(
+        '[data-pager-mobile-visible="true"] [data-slot="pagination-ellipsis"]',
+      ),
+    ).toHaveLength(1)
+    expect(
+      container.querySelectorAll(
+        '[data-pager-desktop-visible="true"] [data-slot="pagination-ellipsis"]',
+      ),
+    ).toHaveLength(0)
+  })
+
+  it('링크를 한 트리로 렌더하고 767/768px 표시 계약과 현재 페이지를 구분한다', () => {
+    const { container } = render(
+      <Pager
+        page={9}
+        totalPages={20}
+        hrefFor={(page) => `/items?page=${page}`}
+        onGo={vi.fn()}
+        labels={KOREAN_PAGER_LABELS}
+      />,
+    )
+
+    const mobilePages = [
+      ...container.querySelectorAll(
+        '[data-pager-page][data-pager-mobile-visible="true"]',
+      ),
+    ].map((item) => Number(item.getAttribute('data-pager-page')))
+    const desktopPages = [
+      ...container.querySelectorAll(
+        '[data-pager-page][data-pager-desktop-visible="true"]',
+      ),
+    ].map((item) => Number(item.getAttribute('data-pager-page')))
+
+    expect(mobilePages).toEqual([1, 9, 10, 11, 20])
+    expect(desktopPages).toEqual([1, 7, 8, 9, 10, 11, 12, 13, 14, 20])
+    expect(container.querySelector('[data-pager-page="7"]')).toHaveClass(
+      'hidden',
+      'md:list-item',
+    )
+    expect(
+      container.querySelectorAll(
+        '[data-pager-mobile-visible="true"] [data-slot="pagination-ellipsis"]',
+      ),
+    ).toHaveLength(2)
+    expect(
+      container.querySelectorAll(
+        '[data-pager-desktop-visible="true"] [data-slot="pagination-ellipsis"]',
+      ),
+    ).toHaveLength(2)
+    expect(screen.getAllByRole('link', { current: 'page' })).toHaveLength(1)
+    expect(
+      screen.getByRole('navigation', { name: '페이지네이션' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: '10페이지로 이동', current: 'page' }),
+    ).toBeInTheDocument()
+
+    const previous = screen.getByRole('link', { name: '이전 페이지로 이동' })
+    const next = screen.getByRole('link', { name: '다음 페이지로 이동' })
+    expect(previous).toHaveTextContent('이전')
+    expect(next).toHaveTextContent('다음')
+    expect(previous.querySelector('span')).toHaveClass('hidden', 'md:block')
+    expect(next.querySelector('span')).toHaveClass('hidden', 'md:block')
+  })
+})
 
 /**
  * `page` 파라미터의 읽기·쓰기 규약 (#283).

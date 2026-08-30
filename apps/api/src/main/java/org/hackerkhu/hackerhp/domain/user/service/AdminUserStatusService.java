@@ -30,16 +30,19 @@ public class AdminUserStatusService {
   private static final Logger log = LoggerFactory.getLogger(AdminUserStatusService.class);
 
   private final UserRepository userRepository;
+  private final AdminSuspensionPolicy suspensionPolicy;
   private final SessionSynchronizer sessionSynchronizer;
   private final AdminActionRecorder recorder;
   private final TransactionTemplate transaction;
 
   public AdminUserStatusService(
       UserRepository userRepository,
+      AdminSuspensionPolicy suspensionPolicy,
       SessionSynchronizer sessionSynchronizer,
       AdminActionRecorder recorder,
       PlatformTransactionManager transactionManager) {
     this.userRepository = userRepository;
+    this.suspensionPolicy = suspensionPolicy;
     this.sessionSynchronizer = sessionSynchronizer;
     this.recorder = recorder;
     this.transaction = new TransactionTemplate(transactionManager);
@@ -54,7 +57,17 @@ public class AdminUserStatusService {
    * @param requesterId 요청한 관리자. <b>잠근 뒤 다시 확인한다</b> — 인가는 세션 값으로 이루어지므로 그 사이에 이 사람이 정지됐을 수 있다
    */
   public AdminUserResponse change(Long requesterId, Long targetId, Target target) {
-    return run(requesterId, targetId, target, Authority.ADMIN);
+    return run(requesterId, targetId, target, Authority.ADMIN, true);
+  }
+
+  /**
+   * 관리자 회원 제거가 삭제 전에 확정하는 내부 정지 (spec 2-2 §2-2-4).
+   *
+   * <p>직접 정지 정책을 적용하지 않는다. 계정 삭제 뒤 세션 폐기가 실패해도 이미 {@code SUSPENDED}여야 접근이 차단되기 때문이다. 외부 상태 PATCH나
+   * 일괄 상태 변경에서 이 메서드를 사용하면 안 된다.
+   */
+  void suspendForRemoval(Long requesterId, Long targetId) {
+    run(requesterId, targetId, Target.SUSPENDED, Authority.ADMIN, false);
   }
 
   /**
@@ -67,7 +80,7 @@ public class AdminUserStatusService {
    * 성립한다.
    */
   public void suspendSelf(Long userId) {
-    run(userId, userId, Target.SUSPENDED, Authority.SELF);
+    run(userId, userId, Target.SUSPENDED, Authority.SELF, false);
   }
 
   /**
@@ -83,9 +96,15 @@ public class AdminUserStatusService {
   }
 
   private AdminUserResponse run(
-      Long requesterId, Long targetId, Target target, Authority authority) {
+      Long requesterId,
+      Long targetId,
+      Target target,
+      Authority authority,
+      boolean enforceDirectSuspensionPolicy) {
     Applied applied =
-        transaction.execute(ignored -> apply(requesterId, targetId, target, authority));
+        transaction.execute(
+            ignored ->
+                apply(requesterId, targetId, target, authority, enforceDirectSuspensionPolicy));
     AdminUserResponse changed = applied.response();
 
     /*
@@ -141,9 +160,15 @@ public class AdminUserStatusService {
    */
   private record Applied(AdminUserResponse response, boolean changed, Instant occurredAt) {}
 
-  private Applied apply(Long requesterId, Long targetId, Target target, Authority authority) {
+  private Applied apply(
+      Long requesterId,
+      Long targetId,
+      Target target,
+      Authority authority,
+      boolean enforceDirectSuspensionPolicy) {
     Status desired = target == Target.SUSPENDED ? Status.SUSPENDED : Status.ACTIVE;
-    Map<Long, User> locked = lockRowsInIdOrder(requesterId, targetId, desired);
+    Map<Long, User> locked =
+        lockRowsInIdOrder(requesterId, targetId, desired, enforceDirectSuspensionPolicy);
 
     if (authority == Authority.ADMIN) {
       RequesterCheck.requireActiveAdmin(locked.get(requesterId), requesterId);
@@ -154,6 +179,17 @@ public class AdminUserStatusService {
 
     User user =
         locked.containsKey(targetId) ? locked.get(targetId) : orElseNotFound(); // 잠글 때 없던 행이다.
+
+    /*
+     * 요청자 재검증과 대상 존재 확인 뒤, 다른 상태 전이 검사와 마지막 활성 관리자 검사보다
+     * 먼저 본다 (#296). 대상이 ADMIN이면 자기/타인, 현재 상태, 활성 관리자 수와 무관하게
+     * 같은 FORBIDDEN이다. 잠금 후 값을 쓰므로 권한 회수와 엇갈려도 당시 최신 role로 판단한다.
+     *
+     * 삭제·탈퇴의 내부 선행 정지는 세션 폐기 실패를 안전하게 막는 절차라 이 정책을 타지 않는다.
+     */
+    if (enforceDirectSuspensionPolicy) {
+      suspensionPolicy.requireDirectSuspensionAllowed(user, desired);
+    }
 
     /*
      * 승인 대기 계정은 이 경로의 대상이 아니다. 계약이 정한 전이는 ACTIVE ↔ SUSPENDED뿐이고
@@ -207,12 +243,13 @@ public class AdminUserStatusService {
    * <p><b>순서가 저장소 전체에서 하나여야 한다.</b> 일괄 승인도 대상들을 id 순으로 잠근다 — 한쪽이 범위째(예: 활성 관리자 전부) 먼저 잠그면 두 트랜잭션이
    * 엇갈린 순서로 같은 행들을 원하게 되어 교착한다. 승인 목록에 회원 M과 관리자 A가 함께 있고 M의 id가 더 작을 때가 그런 경우다.
    *
-   * <p>잠그는 것은 셋이다 — <b>요청자</b>(권한을 다시 확인해야 한다), <b>대상</b>, 그리고 정지일 때 <b>활성 관리자 전부</b>(수를 세는 동안 바뀌면
-   * 안 된다).
+   * <p>외부 상태 PATCH는 요청자와 대상만 잠근다. 대상이 {@code ADMIN}이면 정책에서 거절되고, {@code USER}이면 활성 관리자 수가 바뀌지 않기
+   * 때문이다. 삭제·탈퇴의 내부 선행 정지만 <b>활성 관리자 전부</b>를 더해 수를 세는 동안 바뀌지 않게 한다.
    */
-  private Map<Long, User> lockRowsInIdOrder(Long requesterId, Long targetId, Status desired) {
+  private Map<Long, User> lockRowsInIdOrder(
+      Long requesterId, Long targetId, Status desired, boolean enforceDirectSuspensionPolicy) {
     SortedSet<Long> ids = new TreeSet<>(List.of(requesterId, targetId));
-    if (desired == Status.SUSPENDED) {
+    if (desired == Status.SUSPENDED && !enforceDirectSuspensionPolicy) {
       ids.addAll(userRepository.findIdsByRoleAndStatus(Role.ADMIN, Status.ACTIVE));
     }
     Map<Long, User> locked = new LinkedHashMap<>();
