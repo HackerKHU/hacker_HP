@@ -24,6 +24,7 @@ const api = vi.hoisted(() => ({
   togglePinError: null as unknown,
   togglePinCalls: [] as number[],
   togglePinAttempts: [] as number[],
+  totalPages: 2,
 }))
 
 /**
@@ -81,12 +82,14 @@ vi.mock('@/api/notices', () => ({
     api.calls.push(page)
     const index = page ?? 0
     // 실제 서버는 범위를 넘은 page에도 유효한 PagedModel을 준다 — content만 비어 있다.
-    return Promise.resolve(
-      PAGES[index] ?? {
-        content: [],
-        page: { size: 10, number: index, totalElements: 12, totalPages: 2 },
-      },
-    )
+    const result = PAGES[index] ?? {
+      content: [],
+      page: { size: 10, number: index, totalElements: 12, totalPages: 2 },
+    }
+    return Promise.resolve({
+      ...result,
+      page: { ...result.page, totalPages: api.totalPages },
+    })
   },
   /*
    * **서버처럼 상태를 바꾼다.** 고정하면 그 글이 맨 앞으로 올라가는 것이 이 기능의 전부라,
@@ -174,6 +177,7 @@ beforeEach(() => {
   api.togglePinError = null
   api.togglePinCalls = []
   api.togglePinAttempts = []
+  api.totalPages = 2
 })
 
 describe('공지 목록', () => {
@@ -257,18 +261,76 @@ describe('공지 목록', () => {
   })
 
   it('페이지를 옮기면 URL이 바뀌고 목록을 다시 불러온다', async () => {
-    renderList()
-    await screen.findByRole('link', { name: /고정된 공지/ })
-    expect(screen.getByTestId('search')).toHaveTextContent('')
+    api.totalPages = 20
+    renderList('/notices?page=9')
+    await screen.findByRole('link', {
+      name: '10페이지로 이동',
+      current: 'page',
+    })
 
     // 링크 라벨은 사람이 읽는 1-기반, URL과 API 파라미터는 0-기반이다 (spec §3-2-8).
-    fireEvent.click(screen.getByRole('link', { name: '2' }))
+    fireEvent.click(screen.getByRole('link', { name: '12페이지로 이동' }))
 
     expect(
-      await screen.findByRole('link', { name: /둘째 장 공지/ }),
+      await screen.findByRole('link', {
+        name: '12페이지로 이동',
+        current: 'page',
+      }),
     ).toBeInTheDocument()
-    expect(screen.getByTestId('search')).toHaveTextContent('page=1')
-    expect(api.calls).toEqual([0, 1])
+    expect(screen.getByTestId('search')).toHaveTextContent('page=11')
+    expect(api.calls).toEqual([9, 11])
+    expect(
+      document.querySelectorAll(
+        '[data-pager-mobile-visible="true"] [data-slot="pagination-ellipsis"]',
+      ),
+    ).toHaveLength(2)
+    expect(
+      document.querySelectorAll(
+        '[data-pager-desktop-visible="true"] [data-slot="pagination-ellipsis"]',
+      ),
+    ).toHaveLength(2)
+  })
+
+  it.each([
+    ['/notices', 0, '이전 페이지로 이동'],
+    ['/notices?page=19', 19, '다음 페이지로 이동'],
+  ] as const)(
+    '경계 링크 %s를 눌러도 URL과 조회를 바꾸지 않는다',
+    async (path, page, label) => {
+      api.totalPages = 20
+      renderList(path)
+      await screen.findByRole('link', {
+        name: `${page + 1}페이지로 이동`,
+        current: 'page',
+      })
+      const calls = [...api.calls]
+      const search = screen.getByTestId('search').textContent
+
+      const boundary = screen.getByRole('link', { name: label })
+      expect(boundary).toHaveAttribute('aria-disabled', 'true')
+      fireEvent.click(boundary)
+
+      expect(screen.getByTestId('search').textContent).toBe(search)
+      expect(api.calls).toEqual(calls)
+      expect(api.calls.at(-1)).toBe(page)
+    },
+  )
+
+  it('1페이지 번호는 page 파라미터를 지운다', async () => {
+    renderList('/notices?page=1')
+    await screen.findByRole('link', {
+      name: '2페이지로 이동',
+      current: 'page',
+    })
+
+    fireEvent.click(screen.getByRole('link', { name: '1페이지로 이동' }))
+
+    await screen.findByRole('link', {
+      name: '1페이지로 이동',
+      current: 'page',
+    })
+    expect(screen.getByTestId('search').textContent).toBe('')
+    expect(api.calls.at(-1)).toBe(0)
   })
 
   // 회귀 — 소수는 API 정수 계약을 깨고, 범위 초과는 공지가 있는데도 없다고 말한다.
@@ -281,7 +343,10 @@ describe('공지 목록', () => {
     ).toBeInTheDocument()
     expect(api.calls).toEqual([1])
     expect(
-      screen.getByRole('link', { name: '2', current: 'page' }),
+      screen.getByRole('link', {
+        name: '2페이지로 이동',
+        current: 'page',
+      }),
     ).toBeInTheDocument()
 
     cleanup()

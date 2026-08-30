@@ -1,9 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PostSummary } from '@/api/posts'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
-import { MemoryRouter } from '@/test/TestRouter'
+import { MemoryRouter, useLocation } from '@/test/TestRouter'
 import { PostListPage } from './PostListPage'
 
 /**
@@ -62,11 +62,17 @@ vi.mock('@/api/auth', () => ({
   logout: () => Promise.resolve(),
 }))
 
+function LocationProbe() {
+  const { search } = useLocation()
+  return <div data-testid="search">{search}</div>
+}
+
 function renderList(path = '/posts') {
   render(
     <MemoryRouter initialEntries={[path]}>
       <SessionProvider>
         <PostListPage />
+        <LocationProbe />
       </SessionProvider>
     </MemoryRouter>,
   )
@@ -167,14 +173,65 @@ describe('자유 게시판 목록', () => {
     )
   })
 
-  /* 주소의 페이지를 그대로 조회에 싣는다 — 새로고침·링크 공유에 살아남아야 한다. */
-  it('주소의 page를 조회에 싣는다', async () => {
-    api.totalPages = 3
+  it('페이지 번호를 직접 누르면 1-based 표시와 0-based URL·조회를 함께 바꾼다', async () => {
+    api.totalPages = 20
 
-    renderList('/posts?page=2')
+    renderList('/posts?page=9')
 
     await screen.findByText(POST.title)
-    expect(api.calls[0].page).toBe(2)
+    expect(
+      screen.getByRole('link', { name: '10페이지로 이동', current: 'page' }),
+    ).toBeInTheDocument()
+    expect(
+      document.querySelectorAll(
+        '[data-pager-mobile-visible="true"] [data-slot="pagination-ellipsis"]',
+      ),
+    ).toHaveLength(2)
+    expect(
+      document.querySelectorAll(
+        '[data-pager-desktop-visible="true"] [data-slot="pagination-ellipsis"]',
+      ),
+    ).toHaveLength(2)
+    fireEvent.click(screen.getByRole('link', { name: '12페이지로 이동' }))
+
+    await waitFor(() => expect(api.calls.at(-1)?.page).toBe(11))
+    expect(screen.getByTestId('search')).toHaveTextContent('?page=11')
+    expect(
+      screen.getByRole('link', { name: '12페이지로 이동', current: 'page' }),
+    ).toBeInTheDocument()
+  })
+
+  it.each([
+    ['/posts', 0, '이전 페이지로 이동'],
+    ['/posts?page=19', 19, '다음 페이지로 이동'],
+  ] as const)(
+    '경계 %s에서 비활성 방향 링크를 눌러도 URL과 조회를 바꾸지 않는다',
+    async (path, page, label) => {
+      api.totalPages = 20
+      renderList(path)
+      await screen.findByText(POST.title)
+      const calls = [...api.calls]
+      const search = screen.getByTestId('search').textContent
+
+      const boundary = screen.getByRole('link', { name: label })
+      expect(boundary).toHaveAttribute('aria-disabled', 'true')
+      fireEvent.click(boundary)
+
+      expect(screen.getByTestId('search').textContent).toBe(search)
+      expect(api.calls).toEqual(calls)
+      expect(api.calls.at(-1)?.page).toBe(page)
+    },
+  )
+
+  it('1페이지 번호는 page 파라미터를 지운다', async () => {
+    api.totalPages = 3
+    renderList('/posts?page=2')
+    await screen.findByText(POST.title)
+
+    fireEvent.click(screen.getByRole('link', { name: '1페이지로 이동' }))
+
+    await waitFor(() => expect(api.calls.at(-1)?.page).toBe(0))
+    expect(screen.getByTestId('search')).toHaveTextContent('')
   })
 
   it('글이 없으면 안내가 뜬다', async () => {

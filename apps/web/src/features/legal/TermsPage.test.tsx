@@ -61,6 +61,15 @@ describe('이용약관', () => {
     expect(screen.getByText(/부터 시행합니다/)).toBeInTheDocument()
   })
 
+  it('가입 거부 뒤 같은 미승인 계정으로 다시 신청할 수 있다고 밝힌다', async () => {
+    await openTerms()
+
+    expect(
+      screen.getByText(/신청서 정보는 지우고 계정은 미승인 상태로 유지/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/같은 계정으로 다시 신청/)).toBeInTheDocument()
+  })
+
   /*
    * **약관이 권한 매트릭스보다 넓게 적히면 안 된다** (3-1 §3-1-3). 자유 게시판에는
    * 삭제 기능 자체가 없으므로(3-3 결정 16) "운영진이 지운다"로 뭉뚱그리면 거짓이다.

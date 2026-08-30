@@ -6,7 +6,12 @@ import { list, type Photo, remove } from '@/api/photos'
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
 import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
-import { Pager, parsePage, writePage } from '@/components/Pager'
+import {
+  KOREAN_PAGER_LABELS,
+  Pager,
+  parsePage,
+  writePage,
+} from '@/components/Pager'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -287,6 +292,7 @@ export function PhotoGalleryPage() {
         totalPages={data?.page.totalPages ?? 0}
         hrefFor={pageHref}
         onGo={(next) => setSearchParams(pageParams(next))}
+        labels={KOREAN_PAGER_LABELS}
       />
     </section>
   )

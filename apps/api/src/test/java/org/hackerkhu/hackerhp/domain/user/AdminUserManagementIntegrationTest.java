@@ -24,6 +24,8 @@ import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserRoleService;
+import org.hackerkhu.hackerhp.domain.user.service.GoogleAccountService;
+import org.hackerkhu.testsupport.auth.TestSessions.SignedIn;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
@@ -54,6 +56,7 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
   @Autowired private AdminActionLogRepository actions;
   @Autowired private JdbcTemplate jdbcTemplate;
   @Autowired private AdminUserRoleService roleService;
+  @Autowired private GoogleAccountService googleAccountService;
 
   private User admin;
 
@@ -114,11 +117,14 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
 
   /* ------------------------------------------------------------------ 거부 */
 
-  /** 거부는 <b>계정 레코드를 지운다.</b> 별도 상태를 두지 않아야 같은 이메일로 재신청할 수 있다 (§2-2-2). */
+  /** 거부는 계정을 유지한 채 신청 정보를 지우고, 같은 id와 세션으로 다시 신청할 수 있게 한다 (§2-2-2). */
   @Test
-  void rejectDeletesTheAccountSoTheEmailIsFreeAgain() throws Exception {
+  void rejectResetsTheApplicationAndKeepsTheAccountSessionForResubmission() throws Exception {
     User applicant =
         userRepository.saveAndFlush(Accounts.applied("sub-a", "a@khu.ac.kr", "20250001"));
+    Long originalId = applicant.getId();
+    var originalCreatedAt = applicant.getCreatedAt();
+    SignedIn applicantSession = sessions.signIn(applicant);
 
     mockMvc
         .perform(rejectRequest(admin, List.of(applicant.getId())))
@@ -126,9 +132,85 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.rejected[0]").value(applicant.getId()))
         .andExpect(jsonPath("$.failed").isEmpty());
 
-    assertThat(exists(applicant)).isFalse();
-    // 같은 이메일·같은 구글 계정으로 다시 가입할 수 있다.
-    assertThat(userRepository.save(Accounts.signedIn("sub-a", "a@khu.ac.kr")).getId()).isNotNull();
+    User reset = reload(applicant);
+    assertThat(reset.getId()).isEqualTo(originalId);
+    assertThat(reset.getGoogleSub()).isEqualTo("sub-a");
+    assertThat(reset.getEmail()).isEqualTo("a@khu.ac.kr");
+    assertThat(reset.getName()).isEqualTo(applicant.getName());
+    assertThat(reset.getCreatedAt()).isEqualTo(originalCreatedAt);
+    assertThat(reset.getStatus()).isEqualTo(Status.PENDING);
+    assertThat(reset.getRole()).isEqualTo(Role.USER);
+    assertThat(reset.getAppliedAt()).isNull();
+    assertThat(reset.getStudentNo()).isNull();
+    assertThat(reset.getDepartment()).isNull();
+    assertThat(reset.getApprovedAt()).isNull();
+    assertThat(reset.getDeactivatedAt()).isNull();
+    assertThat(applicantSession.storedInRepository()).isTrue();
+
+    User loggedBackIn = googleAccountService.login("sub-a", "a@khu.ac.kr", "바뀌어도덮지않는구글이름");
+    assertThat(loggedBackIn.getId()).isEqualTo(originalId);
+    assertThat(userRepository.count()).isEqualTo(2);
+
+    mockMvc
+        .perform(applicantSession.on(get("/api/v1/auth/me")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id").value(originalId))
+        .andExpect(jsonPath("$.status").value("PENDING"))
+        .andExpect(jsonPath("$.appliedAt").doesNotExist())
+        .andExpect(jsonPath("$.studentNo").doesNotExist())
+        .andExpect(jsonPath("$.department").doesNotExist());
+
+    mockMvc
+        .perform(
+            Csrf.with(applicantSession.on(post("/api/v1/auth/application")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"studentNo\":\"20259999\",\"department\":\"인공지능학과\"}"))
+        .andExpect(status().isNoContent());
+
+    User resubmitted = reload(applicant);
+    assertThat(resubmitted.getId()).isEqualTo(originalId);
+    assertThat(resubmitted.getStudentNo()).isEqualTo("20259999");
+    assertThat(resubmitted.getDepartment()).isEqualTo("인공지능학과");
+    assertThat(resubmitted.getAppliedAt()).isNotNull();
+    assertThat(applicantSession.storedInRepository()).isTrue();
+    assertThat(historyOf(applicant)).containsExactly(AdminAction.REJECT);
+  }
+
+  /** 이미 미신청이면 목표 상태이므로 성공 응답에는 포함하지만, 실제 변경과 감사 이력은 반복하지 않는다. */
+  @Test
+  void rejectingAnAlreadyUnappliedAccountIsIdempotentWithoutAnotherAuditRow() throws Exception {
+    User applicant =
+        userRepository.saveAndFlush(Accounts.applied("sub-a", "a@khu.ac.kr", "20250001"));
+
+    mockMvc.perform(rejectRequest(admin, List.of(applicant.getId()))).andExpect(status().isOk());
+    mockMvc
+        .perform(rejectRequest(admin, List.of(applicant.getId())))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.rejected[0]").value(applicant.getId()))
+        .andExpect(jsonPath("$.failed").isEmpty());
+
+    assertThat(exists(applicant)).isTrue();
+    assertThat(reload(applicant).getAppliedAt()).isNull();
+    assertThat(historyOf(applicant)).containsExactly(AdminAction.REJECT);
+  }
+
+  /** 거부로 신청서 학번을 비우므로, 다른 미승인 계정이 그 학번을 새 신청에 사용할 수 있다. */
+  @Test
+  void rejectionReleasesTheStudentNumberForAnotherApplication() throws Exception {
+    User applicant =
+        userRepository.saveAndFlush(Accounts.applied("sub-a", "a@khu.ac.kr", "20250001"));
+    User other = userRepository.saveAndFlush(Accounts.signedIn("sub-other", "other@khu.ac.kr"));
+
+    mockMvc.perform(rejectRequest(admin, List.of(applicant.getId()))).andExpect(status().isOk());
+    mockMvc
+        .perform(
+            Csrf.with(sessions.as(other, post("/api/v1/auth/application")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"studentNo\":\"20250001\",\"department\":\"컴퓨터공학과\"}"))
+        .andExpect(status().isNoContent());
+
+    assertThat(reload(other).getStudentNo()).isEqualTo("20250001");
+    assertThat(reload(applicant).getStudentNo()).isNull();
   }
 
   /**
@@ -148,6 +230,41 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.failed[0].reason").value("NOT_PENDING"));
 
     assertThat(exists(member)).isTrue();
+    assertThat(reload(member).getStatus()).isEqualTo(Status.ACTIVE);
+    assertThat(reload(member).getStudentNo()).isEqualTo("20250002");
+  }
+
+  /** 활동·비활동·정지 회원과 없는 id는 혼합 요청에서도 모두 실패로 남고 어느 계정도 바뀌지 않는다. */
+  @Test
+  void rejectReportsEveryNonPendingStateAndMissingIdWithoutMutation() throws Exception {
+    User active =
+        userRepository.saveAndFlush(
+            Accounts.approved("sub-active", "active@khu.ac.kr", "20251001"));
+    User inactive =
+        userRepository.saveAndFlush(
+            Accounts.inactive("sub-inactive", "inactive@khu.ac.kr", "20251002"));
+    User suspended =
+        userRepository.saveAndFlush(
+            Accounts.suspended("sub-suspended", "suspended@khu.ac.kr", "20251003"));
+
+    mockMvc
+        .perform(
+            rejectRequest(
+                admin, List.of(active.getId(), inactive.getId(), suspended.getId(), 999_999L)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.rejected").isEmpty())
+        .andExpect(jsonPath("$.failed[0].reason").value("NOT_PENDING"))
+        .andExpect(jsonPath("$.failed[1].reason").value("NOT_PENDING"))
+        .andExpect(jsonPath("$.failed[2].reason").value("NOT_PENDING"))
+        .andExpect(jsonPath("$.failed[3].reason").value("NOT_FOUND"));
+
+    assertThat(reload(active).getStatus()).isEqualTo(Status.ACTIVE);
+    assertThat(reload(inactive).getStatus()).isEqualTo(Status.INACTIVE);
+    assertThat(reload(inactive).getDeactivatedAt()).isNotNull();
+    assertThat(reload(suspended).getStatus()).isEqualTo(Status.SUSPENDED);
+    assertThat(historyOf(active)).isEmpty();
+    assertThat(historyOf(inactive)).isEmpty();
+    assertThat(historyOf(suspended)).isEmpty();
   }
 
   /** 일부가 실패해도 성공한 건은 살아남는다. 한 건 때문에 되돌리면 나머지까지 사라진다. */
@@ -162,7 +279,9 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.rejected.length()").value(1))
         .andExpect(jsonPath("$.failed[0].reason").value("NOT_FOUND"));
 
-    assertThat(exists(applicant)).isFalse();
+    assertThat(exists(applicant)).isTrue();
+    assertThat(reload(applicant).getAppliedAt()).isNull();
+    assertThat(historyOf(applicant)).containsExactly(AdminAction.REJECT);
   }
 
   /* -------------------------------------------------------------- 권한 변경 */
@@ -373,6 +492,20 @@ class AdminUserManagementIntegrationTest extends AbstractIntegrationTest {
 
     assertThat(exists(applicant)).isFalse();
     assertThat(historyOf(applicant)).containsExactly(AdminAction.REMOVE);
+  }
+
+  /** 신청서를 내지 않은 승인 전 계정도 같은 제거 경로를 쓰며, 남아 있는 세션과 계정을 함께 지운다. */
+  @Test
+  void removeWorksForAPendingAccountThatNeverApplied() throws Exception {
+    User pending = userRepository.saveAndFlush(Accounts.signedIn("sub-u", "unapplied@khu.ac.kr"));
+    SignedIn pendingSession = sessions.signIn(pending);
+    assertThat(pending.getAppliedAt()).isNull();
+
+    mockMvc.perform(removeRequest(admin, pending.getId())).andExpect(status().isNoContent());
+
+    assertThat(exists(pending)).isFalse();
+    assertThat(pendingSession.storedInRepository()).isFalse();
+    assertThat(historyOf(pending)).containsExactly(AdminAction.REMOVE);
   }
 
   /** 없는 회원은 {@code 404}다. */

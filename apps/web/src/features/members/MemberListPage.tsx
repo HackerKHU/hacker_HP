@@ -4,17 +4,18 @@ import { useSearchParams } from 'react-router-dom'
 import {
   type ApproveFailureReason,
   approve,
+  type BulkStatusFailureReason,
+  type BulkStatusTarget,
+  bulkUpdateStatus,
   type ContentSummary,
   contentSummary,
-  deactivateAll,
+  type DeactivateFailureReason,
+  deactivate,
   list,
-  type ReactivateFailureReason,
   type RejectFailureReason,
-  reactivate,
   reject,
   remove,
   updateRole,
-  updateStatus,
 } from '@/api/adminUsers'
 import { ApiError } from '@/api/client'
 import type { Page, Role, User, UserStatus } from '@/api/types'
@@ -22,7 +23,12 @@ import { useSession } from '@/auth/session'
 import { clampedOutOfRange } from '@/components/clampPage'
 import { ListSurface } from '@/components/ListSurface'
 import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
-import { parsePage, writePage } from '@/components/Pager'
+import {
+  KOREAN_PAGER_LABELS,
+  Pager,
+  parsePage,
+  writePage,
+} from '@/components/Pager'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -87,9 +93,17 @@ const REJECT_FAILURE_TEXT: Record<RejectFailureReason, string> = {
  * **`NOT_INACTIVE`에 정지된 계정이 섞여 있다.** "이미 활동 중"으로만 옮기면 관리자는
  * 정지된 사람이 올라온 줄 알고 자리를 뜬다 — 그 사람은 복구되지도, 정지가 풀리지도 않았다.
  */
-const REACTIVATE_FAILURE_TEXT: Record<ReactivateFailureReason, string> = {
-  NOT_INACTIVE: '비활동이 아닌 계정 (이미 활동 중이거나 정지됨)',
+const DEACTIVATE_FAILURE_TEXT: Record<DeactivateFailureReason, string> = {
+  NOT_ACTIVE_USER: '비활성화할 수 없는 상태·권한의 계정',
   NOT_FOUND: '찾을 수 없는 계정',
+}
+
+const BULK_STATUS_FAILURE_TEXT: Record<BulkStatusFailureReason, string> = {
+  NOT_FOUND: '찾을 수 없는 계정',
+  NOT_APPLIED: '신청서를 내지 않은 계정',
+  PENDING_NOT_ALLOWED: '승인 대기 상태라 정지할 수 없는 계정',
+  ADMIN_SUSPEND_REQUIRES_ROLE_REVOCATION:
+    '관리자 권한을 먼저 회수해야 하는 계정',
 }
 
 const FAILURE_ORDER: ApproveFailureReason[] = [
@@ -126,20 +140,17 @@ function describeFailures(
 /** 확인 창을 거쳐야 하는 조작. 승인은 한 명이든 여럿이든 같은 모양이다. */
 type PendingAction =
   | { kind: 'approve'; ids: number[] }
-  /** 학기 전환 — 일괄 복구. 승인과 같은 모양이다 (2-2 §2-2-3). */
-  | { kind: 'reactivate'; ids: number[] }
-  /*
-   * 학기 전환 — 일괄 비활성화. **대상을 고르지 않으므로 ids가 없다** (계약 §3-2-6 MUST).
-   * 대신 몇 명이 바뀌는지를 들고 있는다 — 관리자는 목록에서 누가 바뀌는지 볼 수 없으므로
-   * **최소한 몇 명인지는 보고 눌러야 한다** (2-2 §2-2-3 MUST).
-   *
-   * `null`이면 아직 세는 중, `'failed'`면 못 셌다. **세는 중에는 누를 수 없고**(위 MUST),
-   * **못 셌으면 누를 수 있다** — 그때는 셀 수 없다는 것까지 보여준 상태이고, 건수는 확인
-   * 창을 여는 시점의 참고치이지 실행의 조건이 아니다 (§2-2-3). 셋을 가르지 않으면 둘 중
-   * 하나가 반드시 어긋난다.
-   */
-  | { kind: 'deactivate'; count: number | 'failed' | null; token: number }
-  | { kind: 'status'; user: User; next: 'ACTIVE' | 'SUSPENDED' }
+  | {
+      kind: 'bulk-status'
+      ids: number[]
+      target: BulkStatusTarget
+    }
+  | { kind: 'bulk-deactivate'; ids: number[] }
+  | {
+      kind: 'row-status'
+      user: User
+      action: 'ACTIVATE' | 'DEACTIVATE' | 'SUSPEND'
+    }
   | { kind: 'role'; user: User; next: Role }
   | { kind: 'reject'; ids: number[] }
   /*
@@ -280,23 +291,6 @@ function isApprovable(user: User): boolean {
   return user.status === 'PENDING' && user.appliedAt !== null
 }
 
-/** **복구 대상인가.** `INACTIVE`만이다 (계약 §3-2-6 — 정지된 계정을 이 경로로 풀 수 없다). */
-function isReactivatable(user: User): boolean {
-  return user.status === 'INACTIVE'
-}
-
-/**
- * 체크박스로 고를 수 있는가.
- *
- * **두 일괄 조작이 체크박스 한 벌을 나눠 쓴다.** "전체" 필터에서는 한 페이지에 승인 대상과
- * 복구 대상이 섞여 있는데, 한쪽만 고를 수 있게 하면 나머지 한쪽은 **필터를 먼저 걸 줄
- * 아는 사람에게만** 보인다. 골라 놓고 나서 무엇을 할지는 아래 버튼이 각자의 몫만
- * 가져가 정한다.
- */
-function isSelectable(user: User): boolean {
-  return isApprovable(user) || isReactivatable(user)
-}
-
 /**
  * 날짜 표시. **"가입 신청일"은 `appliedAt`이다** (2-2 §2-2-1 MUST) — `createdAt`(첫 구글
  * 로그인)이 아니다. 둘은 며칠 차이가 나므로 여기서 바꿔 쓰면 운영자가 다른 날짜를 보고
@@ -345,18 +339,12 @@ export function MemberListPage() {
     selectedRef.current = next
     setSelected(next)
   }
-  /**
-   * 확인을 기다리는 조작. **되돌릴 수 없는 것은 전부 여기를 지난다** — 일괄 승인, 행 단위
-   * 승인, 정지·해제. 정지는 즉시 로그인을 막으므로(2-2 §2-2-3 MUST) 승인만 확인받고
-   * 정지는 그냥 나가면 앞뒤가 안 맞는다.
-   */
+  /** 상태·권한·계정을 바꾸는 조작은 모두 이 확인 단계를 지난다. */
   const [pending, setPending] = useState<PendingAction | null>(null)
   /** 조회 조건이 바뀔 때 "확인창이 열려 있었는지"를 읽으려고 둔다. `selectedRef`와 같은 이유다. */
   const pendingRef = useRef<PendingAction | null>(null)
   /** 제거 확인 창의 건수 요청 세대. 늦게 도착한 응답을 가려낸다. */
   const removeToken = useRef(0)
-  /** 학기 전환 확인 창의 대상 건수 요청 세대. 같은 이유다. */
-  const deactivateToken = useRef(0)
 
   function setConfirm(next: PendingAction | null) {
     pendingRef.current = next
@@ -388,6 +376,25 @@ export function MemberListPage() {
     setConfirm(next)
   }
   const [working, setWorking] = useState(false)
+  /**
+   * React state가 다시 그려지기 전 같은 변경 확인이 연속 실행되는 틈을
+   * 막는다. 선택 승인·거부·상태 조작과 행 단건 상태 조작이 공유해야
+   * 한 요청이 끝나기 전 다른 선택 변경을 보내지 않는다. `working`은 화면
+   * disabled용이고, 이 ref가 이벤트 핸들러의 동기 잠금이다.
+   */
+  const mutationWorkingRef = useRef(false)
+
+  function startMutation(): boolean {
+    if (mutationWorkingRef.current) return false
+    mutationWorkingRef.current = true
+    setWorking(true)
+    return true
+  }
+
+  function finishMutation() {
+    mutationWorkingRef.current = false
+    setWorking(false)
+  }
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey는 본문에서 읽지 않고 재조회 트리거로만 쓴다.
   useEffect(() => {
@@ -412,6 +419,13 @@ export function MemberListPage() {
         if (clampedOutOfRange(result, page, searchParams, setSearchParams))
           return
         setData(result)
+        const visibleIds = new Set(result.content.map((user) => user.id))
+        const visibleSelection = selectedRef.current.filter((id) =>
+          visibleIds.has(id),
+        )
+        if (visibleSelection.length !== selectedRef.current.length) {
+          setSelection(visibleSelection)
+        }
       })
       .catch((error: unknown) => {
         if (!alive) return
@@ -529,27 +543,11 @@ export function MemberListPage() {
   }
 
   const rows = data?.content ?? []
-  /** **이 페이지에서** 승인할 수 있는 사람. */
-  const approvableHere = rows.filter(isApprovable)
-  /** **이 페이지에서** 복구할 수 있는 사람. */
-  const reactivatableHere = rows.filter(isReactivatable)
-  /** 전체 선택의 범위. 승인 대상과 복구 대상을 합친 것이다. */
-  const selectableHere = rows.filter(isSelectable)
+  /** 전체 선택은 status·role과 무관하게 현재 페이지의 모든 행이다 (#297). */
+  const selectableHere = rows
   const allSelected =
     selectableHere.length > 0 &&
     selectableHere.every((user) => selected.includes(user.id))
-
-  /*
-   * **고른 사람을 조작별로 가른다.** 버튼은 각자 자기 몫만 보내고 자기 몫의 수만 말한다 —
-   * 합계를 적으면 "선택한 5명 승인"을 눌렀는데 3명만 승인되고, 관리자는 나머지 둘이
-   * 어디로 갔는지 알 수 없다.
-   */
-  const selectedApprovable = selected.filter((id) =>
-    approvableHere.some((user) => user.id === id),
-  )
-  const selectedReactivatable = selected.filter((id) =>
-    reactivatableHere.some((user) => user.id === id),
-  )
 
   /** 확인 창이 물어볼 문장. 무엇을 누구에게 하는지 드러나야 한다. */
   function describe(action: PendingAction): { title: string; body: string } {
@@ -560,42 +558,32 @@ export function MemberListPage() {
         .join(', ')
       return {
         title: '선택한 회원을 승인할까요?',
-        body: `${action.ids.length}명을 승인합니다: ${names}`,
+        body: `${action.ids.length}명을 승인합니다: ${names}. 신청서를 내지 않았거나 이미 처리된 회원은 실패할 수 있습니다.`,
       }
     }
-    if (action.kind === 'reactivate') {
+    if (action.kind === 'bulk-status') {
+      const names = action.ids
+        .map((id) => rows.find((user) => user.id === id)?.name)
+        .filter(Boolean)
+        .join(', ')
+      const activating = action.target === 'ACTIVE'
+      return {
+        title: activating
+          ? '선택한 회원을 활성화할까요?'
+          : '선택한 회원을 정지할까요?',
+        body: activating
+          ? `${action.ids.length}명을 활성화합니다: ${names}. 신청서를 내지 않은 승인 대기 계정은 실패할 수 있고, 이미 활동 중인 계정은 멱등 처리됩니다.`
+          : `${action.ids.length}명을 정지합니다: ${names}. 승인 대기 계정과 관리자 계정은 실패할 수 있고, 비활동 회원은 정지 뒤 해제해도 활동 상태로 돌아옵니다.`,
+      }
+    }
+    if (action.kind === 'bulk-deactivate') {
       const names = action.ids
         .map((id) => rows.find((user) => user.id === id)?.name)
         .filter(Boolean)
         .join(', ')
       return {
-        title: '선택한 회원을 복구할까요?',
-        body: `${action.ids.length}명을 이번 학기 활동 부원으로 되돌립니다: ${names}`,
-      }
-    }
-    if (action.kind === 'deactivate') {
-      /*
-       * **대상 건수를 보여준다** (2-2 §2-2-3 MUST). 조건으로 고르므로 관리자는 목록에서
-       * 누가 바뀌는지 볼 수 없다 — 최소한 몇 명인지는 보고 눌러야 한다.
-       *
-       * 못 세도 진행할 수 있다는 것을 문구가 말한다. 건수는 **참고치이지 실행의 조건이
-       * 아니다** — 확인 창을 여는 사이 누가 승인을 받아 늘어나도 전환은 그대로 진행한다.
-       */
-      const target =
-        action.count === null
-          ? '대상 인원수를 확인하는 중입니다.'
-          : action.count === 'failed'
-            ? '대상 인원수를 불러오지 못했습니다. 그래도 전환은 진행할 수 있습니다.'
-            : `지금 활동 중인 일반 부원 ${action.count}명이 비활동이 됩니다.`
-      return {
-        title: '활동 부원 전원을 비활동으로 바꿀까요?',
-        /*
-         * **무엇이 대상이 아닌지도 말한다** (#228 D4). 셋을 적지 않으면 관리자는 "전원"을
-         * 글자 그대로 믿고, 관리자인 자기 계정까지 내려가는 줄 안다.
-         */
-        body:
-          `${target} 관리자·정지된 회원·승인 대기 계정은 바뀌지 않습니다.` +
-          ' 되돌리려면 상태 필터에서 "비활동"을 골라 복구합니다.',
+        title: '선택한 회원을 비활성화할까요?',
+        body: `${action.ids.length}명을 비활성화합니다: ${names}. 활동 중이거나 정지된 일반 부원만 바뀌며, 관리자·승인 대기·이미 비활동인 계정은 실패할 수 있습니다.`,
       }
     }
     if (action.kind === 'reject') {
@@ -605,7 +593,7 @@ export function MemberListPage() {
         .join(', ')
       return {
         title: '선택한 신청을 거부할까요?',
-        body: `${action.ids.length}명의 신청을 거부하고 계정을 지웁니다: ${names}`,
+        body: `${action.ids.length}명의 신청을 미승인 상태로 되돌립니다: ${names}. 계정은 유지되어 다시 신청할 수 있습니다. 승인 대기 상태가 아닌 회원은 실패할 수 있습니다.`,
       }
     }
     if (action.kind === 'remove') {
@@ -628,18 +616,27 @@ export function MemberListPage() {
     if (action.kind === 'role') {
       const granting = action.next === 'ADMIN'
       return {
-        title: granting ? '관리자 권한을 줄까요?' : '관리자 권한을 회수할까요?',
+        title: granting
+          ? '활동 관리자로 전환할까요?'
+          : '관리자 권한을 회수할까요?',
         body: granting
-          ? `${action.user.name} 회원이 회원 승인과 공지 작성을 할 수 있게 됩니다.`
+          ? `${action.user.name} 회원을 활성화하고 관리자로 지정해 활동 관리자로 전환합니다.`
           : `${action.user.name} 회원의 관리자 권한을 회수합니다.`,
       }
     }
-    const suspending = action.next === 'SUSPENDED'
     return {
-      title: suspending ? '회원을 정지할까요?' : '정지를 해제할까요?',
-      body: suspending
-        ? `${action.user.name} 회원을 정지합니다. 정지되면 즉시 로그인할 수 없습니다.`
-        : `${action.user.name} 회원의 정지를 해제합니다.`,
+      title:
+        action.action === 'ACTIVATE'
+          ? '회원을 활성화할까요?'
+          : action.action === 'DEACTIVATE'
+            ? '회원을 비활성화할까요?'
+            : '회원을 정지할까요?',
+      body:
+        action.action === 'ACTIVATE'
+          ? `${action.user.name} 회원을 활성화합니다.`
+          : action.action === 'DEACTIVATE'
+            ? `${action.user.name} 회원을 비활성화합니다.`
+            : `${action.user.name} 회원을 정지합니다. 정지되면 즉시 로그인할 수 없습니다.`,
     }
   }
 
@@ -657,16 +654,17 @@ export function MemberListPage() {
 
   function run(action: PendingAction) {
     if (action.kind === 'approve') return runApprove(action.ids)
-    if (action.kind === 'reactivate') return runReactivate(action.ids)
-    if (action.kind === 'deactivate') return runDeactivate()
+    if (action.kind === 'bulk-status')
+      return runBulkStatus(action.ids, action.target)
+    if (action.kind === 'bulk-deactivate') return runBulkDeactivate(action.ids)
     if (action.kind === 'reject') return runReject(action.ids)
     if (action.kind === 'remove') return runRemove(action.user)
     if (action.kind === 'role') return runRole(action.user, action.next)
-    return runStatus(action.user, action.next)
+    return runRowStatus(action.user, action.action)
   }
 
   async function runApprove(ids: number[]) {
-    setWorking(true)
+    if (!startMutation()) return
     try {
       const result = await approve(ids)
       /*
@@ -680,46 +678,27 @@ export function MemberListPage() {
             ` ${describeFailures(result.failed, rows)}`
       if (result.failed.length === 0) alert.success(message)
       else alert.error(message)
-      /*
-       * **보낸 사람만 선택에서 뺀다. 전체를 비우지 않는다.**
-       *
-       * 행 승인은 한 명만 처리하는데 선택 전체를 비우면, 조회 조건이 바뀌지도 않았고
-       * 여전히 승인 대상인 다른 선택이 안내 없이 사라진다 — 조건 변경 때 지적받은 것과
-       * 같은 일이 다른 경로에서 다시 일어난다.
-       *
-       * **실패한 사람도 뺀다.** 세 사유 모두 재조회 뒤에는 승인 대상이 아니다
-       * (`isApprovable`) — 체크박스가 잠기거나 행이 아예 사라진다. 선택에만 남으면
-       * 관리자는 그것을 **해제할 수도 없는데** 버튼은 계속 "선택한 N명 승인"으로 살아
-       * 있어, 언제나 실패하는 요청을 다시 보내게 된다. 누가 왜 실패했는지는 위 안내가
-       * 이미 말했고, 다시 보내려면 다시 고르면 된다.
-       */
+      // 행별 승인은 그 한 명의 선택만 정리하고, 무관한 선택은 그대로 둔다.
       const settled = [
         ...result.approved,
         ...result.failed.map(({ userId }) => userId),
       ]
       setSelection(selectedRef.current.filter((id) => !settled.includes(id)))
-      setReloadKey((key) => key + 1)
     } catch (error: unknown) {
       if (reportApiError(error)) return
       // 실패했는데 성공한 것처럼 보이면 안 된다. 선택도 그대로 두어 다시 시도할 수 있게 한다.
       alert.error(
-        error instanceof ApiError
+        isDefinitiveClientError(error)
           ? `승인하지 못했습니다. ${error.message}`
-          : '승인하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+          : uncertainFailure('승인', error, '일부 승인이'),
       )
     } finally {
-      setWorking(false)
+      setReloadKey((key) => key + 1)
+      finishMutation()
       setConfirm(null)
     }
   }
 
-  /**
-   * 정지·해제.
-   *
-   * **마지막 활성 관리자인지 화면은 판단하지 않는다** (2-2 §2-2-7 — 검사는 서버에서 한다).
-   * 화면은 활성 관리자가 몇 명인지 모른다. 서버가 403으로 거부하면 그 메시지를 그대로
-   * 보여준다 — 막힌 것을 성공처럼 보이게 하면 관리자가 정지된 줄 알고 자리를 뜬다.
-   */
   /*
    * 확인 창을 **먼저 열고** 건수를 뒤이어 채운다. 다 받고 나서 열면 누른 뒤 아무 반응이
    * 없는 구간이 생겨 두 번 누르게 된다. 그동안 창은 "확인하는 중"이라고 말한다.
@@ -759,129 +738,96 @@ export function MemberListPage() {
     }
   }
 
-  /**
-   * 일괄 복구 (2-2 §2-2-3). **승인과 같은 규칙으로 움직인다** — 부분 실패도 `200`이고,
-   * 성공·실패 건수를 안내하며, 보낸 사람만 선택에서 뺀다.
-   */
-  async function runReactivate(ids: number[]) {
-    setWorking(true)
+  function memberName(id: number): string {
+    return rows.find((user) => user.id === id)?.name ?? `#${id}`
+  }
+
+  function uncertainFailure(
+    action: string,
+    error: unknown,
+    effectSubject = '일부 상태 변경이',
+  ): string {
+    const detail = error instanceof ApiError ? ` ${error.message}` : ''
+    return `${action} 요청 결과를 확정할 수 없습니다.${detail} ${effectSubject} 반영되었을 수 있습니다. 다시 불러온 목록에서 상태와 선택 대상을 확인한 뒤 재시도해 주세요.`
+  }
+
+  function isDefinitiveClientError(error: unknown): error is ApiError {
+    return (
+      error instanceof ApiError && error.status >= 400 && error.status < 500
+    )
+  }
+
+  async function runBulkStatus(ids: number[], target: BulkStatusTarget) {
+    if (!startMutation()) return
+    const action = target === 'ACTIVE' ? '활성화' : '정지'
     try {
-      const result = await reactivate(ids)
-      /*
-       * **누가 왜 실패했는지 말한다.** 건수만으로는 조치할 수 없고, 특히 `NOT_INACTIVE`에는
-       * 정지된 계정이 섞여 있다 — 그 사람은 복구되지도 정지가 풀리지도 않았다.
-       */
+      const result = await bulkUpdateStatus(ids, target)
       const failures = result.failed
-        .map(({ userId, reason }) => {
-          const who =
-            rows.find((user) => user.id === userId)?.name ?? `#${userId}`
-          return `${REACTIVATE_FAILURE_TEXT[reason]}: ${who}`
-        })
+        .map(
+          ({ userId, reason }) =>
+            `${memberName(userId)}: ${BULK_STATUS_FAILURE_TEXT[reason]}`,
+        )
         .join(' / ')
-      const message = failures
-        ? `${result.reactivated.length}명을 복구했습니다. ${result.failed.length}명은 복구하지 못했습니다 — ${failures}`
-        : `${result.reactivated.length}명을 복구했습니다.`
+      const processed = result.processed.map(memberName).join(', ')
+      const message =
+        `${result.processed.length}명을 ${action} 처리했습니다(이미 목표 상태인 멱등 결과 포함)` +
+        (processed ? `: ${processed}.` : '.') +
+        (failures
+          ? ` ${result.failed.length}명은 처리하지 못했습니다 — ${failures}`
+          : '')
       if (failures) alert.error(message)
       else alert.success(message)
-      /*
-       * **보낸 사람만 뺀다** (T-161, 승인과 같은 규칙) — 그리고 **응답을 받았을 때만** 뺀다.
-       *
-       * 요청 자체가 실패하면(네트워크·5xx) 그 사람들은 여전히 `INACTIVE`이고 여전히 복구
-       * 대상이다. 거기서 선택까지 풀어 버리면 관리자는 **방금 고른 명단을 처음부터 다시
-       * 골라야 한다** — 실패했으니 다시 시도하라고 해 놓고 다시 시도할 수단을 치우는 셈이다.
-       * 승인이 성공 경로에서만 선택을 정리하는 것과 같은 이유다.
-       */
-      setSelection(selectedRef.current.filter((id) => !ids.includes(id)))
-      setReloadKey((key) => key + 1)
+      setSelection([])
     } catch (error: unknown) {
       if (reportApiError(error)) return
-      // 선택은 그대로 둔다 — 위 주석 참고. 다시 누르면 같은 명단이 그대로 나간다.
       alert.error(
-        error instanceof ApiError
-          ? `복구하지 못했습니다. ${error.message}`
-          : '복구하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        isDefinitiveClientError(error)
+          ? `${action}하지 못했습니다. ${error.message}`
+          : uncertainFailure(action, error),
       )
     } finally {
-      setWorking(false)
+      setReloadKey((key) => key + 1)
+      finishMutation()
       setConfirm(null)
     }
   }
 
-  /**
-   * 학기 전환 확인 창을 연다. **대상 건수는 목록을 같은 조건으로 조회해 얻는다**
-   * (2-2 §2-2-3 — 미리보기 전용 API를 두지 않는다).
-   *
-   * **`size=1`로 부른다.** 필요한 것은 `page.totalElements` 하나이고, 20명을 받아 와도
-   * 화면에 쓰지 않는다. **현재 페이지의 행 수를 세지 않는다** (T-356 MUST) — 그러면
-   * 관리자가 100명을 내리면서 20명으로 안다.
-   *
-   * 제거 확인 창과 같이 **먼저 열고 뒤이어 채운다.** 다 받고 나서 열면 누른 뒤 아무 반응이
-   * 없는 구간이 생겨 두 번 누르게 된다. 그동안 창은 "확인하는 중"이라고 말하고 **실행
-   * 버튼은 잠겨 있다** — 건수를 보여주기 전에 눌리면 이 창이 있는 이유가 사라진다.
-   */
-  async function openDeactivate() {
-    const token = ++deactivateToken.current
-    setConfirm({ kind: 'deactivate', count: null, token })
-
-    /** 이 응답이 아직 화면에 붙어 있는 창의 것인가. */
-    const current = () => {
-      const open = pendingRef.current
-      return open?.kind === 'deactivate' && open.token === token ? open : null
-    }
-
+  async function runBulkDeactivate(ids: number[]) {
+    if (!startMutation()) return
     try {
-      const result = await list({ status: 'ACTIVE', role: 'USER', size: 1 })
-      const open = current()
-      if (open) setConfirm({ ...open, count: result.page.totalElements })
-    } catch (error: unknown) {
-      const handled = reportApiError(error)
-      const open = current()
-      // 취소된 요청의 실패는 삼킨다 — 창을 닫은 뒤 뜨는 오류가 다른 안내를 덮지 않게.
-      if (open) {
-        setConfirm({ ...open, count: 'failed' })
-        if (!handled) alert.error('전환 대상 인원수를 불러오지 못했습니다.')
-      }
-    }
-  }
-
-  /**
-   * 일괄 비활성화 (2-2 §2-2-3).
-   *
-   * **바뀐 id를 응답에서 받아 건수로 안내한다** (계약 §3-2-6 MUST). 조건으로 실행했으므로
-   * 응답이 아니면 방금 무엇이 바뀌었는지 알 방법이 없다. **되돌리는 길은 복구 하나뿐이라**
-   * (§2-2-3 MUST) 여기에 취소를 따로 두지 않고 어디서 되돌리는지만 알려준다.
-   */
-  async function runDeactivate() {
-    setWorking(true)
-    try {
-      const result = await deactivateAll()
-      alert.success(
-        result.deactivated.length === 0
-          ? '비활동으로 바뀐 회원이 없습니다. 이미 전원이 비활동이거나 활동 중인 일반 부원이 없습니다.'
-          : `${result.deactivated.length}명을 비활동으로 바꿨습니다. 되돌리려면 상태 필터에서 "비활동"을 골라 복구하세요.`,
-      )
-      setReloadKey((key) => key + 1)
+      const result = await deactivate(ids)
+      const failures = result.failed
+        .map(
+          ({ userId, reason }) =>
+            `${memberName(userId)}: ${DEACTIVATE_FAILURE_TEXT[reason]}`,
+        )
+        .join(' / ')
+      const deactivated = result.deactivated.map(memberName).join(', ')
+      const message =
+        `${result.deactivated.length}명을 비활성화했습니다` +
+        (deactivated ? `: ${deactivated}.` : '.') +
+        (failures
+          ? ` ${result.failed.length}명은 변경하지 못했습니다 — ${failures}`
+          : '')
+      if (failures) alert.error(message)
+      else alert.success(message)
+      setSelection([])
     } catch (error: unknown) {
       if (reportApiError(error)) return
-      /*
-       * **세션 반영에 실패하면 `500`이지만 상태는 이미 바뀌었을 수 있다** (2-2 §2-2-5 MUST).
-       * "실패했으니 아무 일도 없었다"고 말하면 관리자가 다시 누르는데, 그 재요청이 실제로는
-       * 복구 수단이다 — 목록을 확인하라고 말하는 편이 정확하다.
-       */
       alert.error(
-        error instanceof ApiError
-          ? `학기 전환에 실패했습니다. ${error.message} 목록에서 상태를 확인해 주세요.`
-          : '학기 전환에 실패했습니다. 목록에서 상태를 확인해 주세요.',
+        isDefinitiveClientError(error)
+          ? `비활성화하지 못했습니다. ${error.message}`
+          : uncertainFailure('비활성화', error),
       )
-      setReloadKey((key) => key + 1)
     } finally {
-      setWorking(false)
+      setReloadKey((key) => key + 1)
+      finishMutation()
       setConfirm(null)
     }
   }
 
   async function runReject(ids: number[]) {
-    setWorking(true)
+    if (!startMutation()) return
     try {
       const result = await reject(ids)
       const failures = result.failed
@@ -892,17 +838,16 @@ export function MemberListPage() {
         })
         .join(' / ')
       const message = failures
-        ? `${result.rejected.length}명을 거부했습니다. ${result.failed.length}명은 거부하지 못했습니다 — ${failures}`
-        : `${result.rejected.length}명의 신청을 거부했습니다.`
+        ? `${result.rejected.length}명의 신청을 거부해 미승인 상태로 되돌렸습니다. ${result.failed.length}명은 거부하지 못했습니다 — ${failures}`
+        : `${result.rejected.length}명의 신청을 거부해 미승인 상태로 되돌렸습니다.`
       if (failures) alert.error(message)
       else alert.success(message)
-      setReloadKey((key) => key + 1)
     } catch (error: unknown) {
       if (reportApiError(error)) return
       alert.error(
-        error instanceof ApiError
+        isDefinitiveClientError(error)
           ? `거부하지 못했습니다. ${error.message}`
-          : '거부하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+          : `${uncertainFailure('거부', error, '일부 미승인 변경이')} 보낸 대상은 선택에서 해제했습니다.`,
       )
     } finally {
       /*
@@ -911,7 +856,8 @@ export function MemberListPage() {
        * 수 없는 선택이 남는다. 승인과 같은 규칙이다.
        */
       setSelection(selectedRef.current.filter((id) => !ids.includes(id)))
-      setWorking(false)
+      setReloadKey((key) => key + 1)
+      finishMutation()
       setConfirm(null)
     }
   }
@@ -921,11 +867,7 @@ export function MemberListPage() {
     try {
       await remove(user.id)
       alert.success(`${user.name} 회원을 제거했습니다.`)
-      /*
-       * 선택은 건드리지 않는다. 제거 대상은 비-`PENDING`이고 선택 가능한 것은 신청서를
-       * 낸 `PENDING`뿐이라, 제거 대상이 선택에 들어갈 수 없다 — 여기서 비우면 무관한
-       * 신청자 선택만 조용히 풀린다.
-       */
+      // 목록 재조회가 제거된 id만 선택에서 걷어 내고, 무관한 선택은 그대로 둔다.
       setReloadKey((key) => key + 1)
     } catch (error: unknown) {
       if (reportApiError(error)) return
@@ -949,7 +891,9 @@ export function MemberListPage() {
     try {
       await updateRole(user.id, next)
       alert.success(
-        `${user.name} 회원에게 관리자 권한을 ${next === 'ADMIN' ? '부여' : '회수'}했습니다.`,
+        next === 'ADMIN'
+          ? `${user.name} 회원을 활동 관리자로 지정했습니다.`
+          : `${user.name} 회원의 관리자 권한을 회수했습니다.`,
       )
       setReloadKey((key) => key + 1)
     } catch (error: unknown) {
@@ -965,23 +909,59 @@ export function MemberListPage() {
     }
   }
 
-  async function runStatus(user: User, next: 'ACTIVE' | 'SUSPENDED') {
-    setWorking(true)
+  async function runRowStatus(
+    user: User,
+    action: 'ACTIVATE' | 'DEACTIVATE' | 'SUSPEND',
+  ) {
+    if (!startMutation()) return
+    const actionLabel =
+      action === 'ACTIVATE'
+        ? '활성화'
+        : action === 'DEACTIVATE'
+          ? '비활성화'
+          : '정지'
     try {
-      await updateStatus(user.id, next)
-      alert.success(
-        `${user.name} 회원을 ${next === 'SUSPENDED' ? '정지' : '정지 해제'}했습니다.`,
-      )
-      setReloadKey((key) => key + 1)
+      if (action === 'ACTIVATE') {
+        const result = await bulkUpdateStatus([user.id], 'ACTIVE')
+        const failure = result.failed[0]
+        if (failure) {
+          alert.error(
+            `활성화하지 못했습니다. ${BULK_STATUS_FAILURE_TEXT[failure.reason]}`,
+          )
+        } else {
+          alert.success(`${user.name} 회원을 활성화했습니다.`)
+        }
+      } else if (action === 'DEACTIVATE') {
+        const result = await deactivate([user.id])
+        const failure = result.failed[0]
+        if (failure) {
+          alert.error(
+            `비활성화하지 못했습니다. ${DEACTIVATE_FAILURE_TEXT[failure.reason]}`,
+          )
+        } else {
+          alert.success(`${user.name} 회원을 비활성화했습니다.`)
+        }
+      } else {
+        const result = await bulkUpdateStatus([user.id], 'SUSPENDED')
+        const failure = result.failed[0]
+        if (failure) {
+          alert.error(
+            `정지하지 못했습니다. ${BULK_STATUS_FAILURE_TEXT[failure.reason]}`,
+          )
+        } else {
+          alert.success(`${user.name} 회원을 정지했습니다.`)
+        }
+      }
     } catch (error: unknown) {
       if (reportApiError(error)) return
       alert.error(
-        error instanceof ApiError
-          ? `상태를 바꾸지 못했습니다. ${error.message}`
-          : '상태를 바꾸지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        isDefinitiveClientError(error)
+          ? `${actionLabel}하지 못했습니다. ${error.message}`
+          : uncertainFailure(actionLabel, error),
       )
     } finally {
-      setWorking(false)
+      setReloadKey((key) => key + 1)
+      finishMutation()
       setConfirm(null)
     }
   }
@@ -990,23 +970,6 @@ export function MemberListPage() {
     <section>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">회원 관리</h1>
-        {/*
-         * **학기 전환은 목록의 조작이 아니라 화면의 조작이다** (2-2 §2-2-3). 대상을 서버가
-         * 고르므로 선택과 무관하고, 그래서 선택했을 때만 나오는 일괄 버튼 줄이 아니라
-         * 제목 옆에 늘 있다.
-         *
-         * **`outline`이다.** 이 화면에서 가장 자주 하는 일은 승인이라 채워진 버튼은 그쪽
-         * 몫이고, 학기마다 한 번 누르는 것이 그 옆에서 더 눈에 띄면 안 된다.
-         */}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={working}
-          onClick={openDeactivate}
-        >
-          일괄 비활동 전환
-        </Button>
       </div>
 
       <form
@@ -1101,82 +1064,103 @@ export function MemberListPage() {
 
         {data !== null && (
           <>
-            {/*
-             * **선택했을 때만 일괄 액션이 나온다** (#99). 늘 띄워 두면 "선택한 0명 승인"
-             * 이라는 뜻 없는 버튼이 화면에 남고, 진짜 눌러야 할 때와 구분이 안 된다.
-             *
-             * 요약은 항상 보인다 — 몇 명이 있고 그중 몇이 승인 대상인지는 선택과 무관하게
-             * 알아야 하는 정보다.
-             */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              {/*
-               * **선택 범위를 화면이 분명히 말한다.** 전체 선택은 이 페이지만이다 — 검색
-               * 결과 전부를 뜻하면 관리자가 3페이지째 있는 사람까지 모르고 승인한다.
-               * 범위를 말하지 않고 페이지만 선택하는 것도 관리자를 속이는 것이다.
-               */}
+            {/* 다섯 버튼은 항상 보이고, 선택이 없거나 요청 중일 때 함께 잠긴다 (#297). */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-muted-foreground">
-                이 페이지에서 {selected.length}명 선택됨 (승인 가능{' '}
-                {approvableHere.length}명 · 복구 가능 {reactivatableHere.length}
-                명 · 전체 {data.page.totalElements}명)
+                이 페이지에서 {selected.length}명 선택됨 · 검색 결과 전체{' '}
+                {data.page.totalElements}명
               </p>
-              {/*
-               * **버튼은 자기 몫이 있을 때만 나온다.** "전체" 필터에서는 승인 대상과 복구
-               * 대상이 한 선택에 섞이는데, 셋을 늘 띄워 두면 그중 둘은 늘 0명짜리다.
-               */}
-              <div className="flex items-center gap-2">
-                {selectedApprovable.length > 0 && (
-                  <>
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={working}
-                      onClick={() =>
-                        setConfirm({ kind: 'approve', ids: selectedApprovable })
-                      }
-                    >
-                      선택한 {selectedApprovable.length}명 승인
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={working}
-                      onClick={() =>
-                        setConfirm({ kind: 'reject', ids: selectedApprovable })
-                      }
-                    >
-                      선택한 {selectedApprovable.length}명 거부
-                    </Button>
-                  </>
-                )}
-                {selectedReactivatable.length > 0 && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={working}
-                    onClick={() =>
-                      setConfirm({
-                        kind: 'reactivate',
-                        ids: selectedReactivatable,
-                      })
-                    }
-                  >
-                    선택한 {selectedReactivatable.length}명 복구
-                  </Button>
-                )}
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  disabled={selected.length === 0 || working}
+                  onClick={() =>
+                    setConfirm({ kind: 'approve', ids: [...selected] })
+                  }
+                >
+                  선택한 회원 승인
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  disabled={selected.length === 0 || working}
+                  onClick={() =>
+                    setConfirm({ kind: 'reject', ids: [...selected] })
+                  }
+                >
+                  선택한 회원 거부
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  disabled={selected.length === 0 || working}
+                  onClick={() =>
+                    setConfirm({
+                      kind: 'bulk-status',
+                      ids: [...selected],
+                      target: 'ACTIVE',
+                    })
+                  }
+                >
+                  선택한 회원 활성화
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  disabled={selected.length === 0 || working}
+                  onClick={() =>
+                    setConfirm({
+                      kind: 'bulk-deactivate',
+                      ids: [...selected],
+                    })
+                  }
+                >
+                  선택한 회원 비활성화
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  disabled={selected.length === 0 || working}
+                  onClick={() =>
+                    setConfirm({
+                      kind: 'bulk-status',
+                      ids: [...selected],
+                      target: 'SUSPENDED',
+                    })
+                  }
+                >
+                  선택한 회원 정지
+                </Button>
               </div>
             </div>
 
-            <ListSurface className="mt-4">
-              <Table>
+            <ListSurface className="mt-4 overflow-x-auto">
+              <Table className="min-w-[64rem]">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-10">
                       <Checkbox
-                        checked={allSelected}
-                        disabled={selectableHere.length === 0}
+                        checked={
+                          allSelected
+                            ? true
+                            : selected.length > 0
+                              ? 'indeterminate'
+                              : false
+                        }
+                        disabled={working || selectableHere.length === 0}
                         onCheckedChange={(next) => toggleAll(next === true)}
-                        aria-label="이 페이지의 일괄 처리 대상 전체 선택"
+                        aria-label="이 페이지의 모든 회원 선택"
                       />
                     </TableHead>
                     <TableHead>이름</TableHead>
@@ -1198,7 +1182,7 @@ export function MemberListPage() {
                         <TableCell>
                           <Checkbox
                             checked={selected.includes(user.id)}
-                            disabled={!isSelectable(user)}
+                            disabled={working}
                             onCheckedChange={(next) =>
                               toggleOne(user.id, next === true)
                             }
@@ -1232,11 +1216,6 @@ export function MemberListPage() {
                         <TableCell>{formatDate(user.appliedAt)}</TableCell>
                         <TableCell>{formatDate(user.approvedAt)}</TableCell>
                         {/*
-                         * **액션은 상태마다 버튼 하나다.** 한 명만 승인하려고 체크박스를
-                         * 거치게 하지 않는다 — 여럿은 체크박스, 한 명은 이 자리다.
-                         * "미승인"(신청서를 내지 않은 계정)은 할 수 있는 것이 없어 비어 있다.
-                         */}
-                        {/*
                          * **행 액션은 버튼이 아니라 메뉴다** (#99).
                          *
                          * 버튼으로 늘어놓으면 한 행에 셋, 25행이면 75개가 화면을 채운다. 더
@@ -1244,91 +1223,145 @@ export function MemberListPage() {
                          * `정지`와 똑같이 생긴다. 메뉴로 접으면 표는 데이터만 보여주고,
                          * 위험한 조작은 한 단계 안쪽에서 `destructive`로 구분된다.
                          *
-                         * 승인만 예외로 밖에 남긴다 — 이 화면에서 가장 자주 하는 일이라
-                         * 메뉴 뒤로 숨기면 한 번 더 누르게 된다.
+                         * 신청 완료 PENDING의 승인·거부도 같은 메뉴에서 다룬다. 여럿은 상단
+                         * 선택 조작, 한 명은 이 메뉴를 쓰며 둘 다 같은 확인·결과 흐름을 지난다.
                          */}
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-2">
-                            {approvable && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                disabled={working}
-                                onClick={() =>
-                                  setConfirm({
-                                    kind: 'approve',
-                                    ids: [user.id],
-                                  })
-                                }
-                              >
-                                승인
-                              </Button>
-                            )}
-                            {user.status !== 'PENDING' && (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    disabled={working}
-                                    aria-label={`${user.name} 관리 메뉴`}
-                                  >
-                                    <MoreHorizontalIcon aria-hidden="true" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem
-                                    onSelect={() =>
-                                      confirmFromMenu(user, {
-                                        kind: 'status',
-                                        user,
-                                        next:
-                                          user.status === 'SUSPENDED'
-                                            ? 'ACTIVE'
-                                            : 'SUSPENDED',
-                                      })
-                                    }
-                                  >
-                                    {user.status === 'SUSPENDED'
-                                      ? '정지 해제'
-                                      : '정지'}
-                                  </DropdownMenuItem>
+                            {/* 행 메뉴는 비모달이다. body scroll lock으로 scrollbar 폭이 바뀌어 페이지가 밀리지 않게 한다. */}
+                            <DropdownMenu modal={false}>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={working}
+                                  aria-label={`${user.name} 관리 메뉴`}
+                                >
+                                  <MoreHorizontalIcon aria-hidden="true" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {user.status === 'PENDING' ? (
+                                  <>
+                                    {approvable && (
+                                      <>
+                                        <DropdownMenuItem
+                                          onSelect={() =>
+                                            confirmFromMenu(user, {
+                                              kind: 'approve',
+                                              ids: [user.id],
+                                            })
+                                          }
+                                        >
+                                          승인
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onSelect={() =>
+                                            confirmFromMenu(user, {
+                                              kind: 'reject',
+                                              ids: [user.id],
+                                            })
+                                          }
+                                        >
+                                          거부
+                                        </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                      </>
+                                    )}
+                                    <DropdownMenuItem
+                                      variant="destructive"
+                                      onSelect={() => {
+                                        openerRef.current = user.name
+                                        openRemove(user)
+                                      }}
+                                    >
+                                      제거
+                                    </DropdownMenuItem>
+                                  </>
+                                ) : user.role === 'ADMIN' ? (
                                   <DropdownMenuItem
                                     onSelect={() =>
                                       confirmFromMenu(user, {
                                         kind: 'role',
                                         user,
-                                        next:
-                                          user.role === 'ADMIN'
-                                            ? 'USER'
-                                            : 'ADMIN',
+                                        next: 'USER',
                                       })
                                     }
                                   >
-                                    {user.role === 'ADMIN'
-                                      ? '권한 회수'
-                                      : '관리자 지정'}
+                                    권한 회수
                                   </DropdownMenuItem>
-                                  <DropdownMenuSeparator />
-                                  {/*
-                                되돌릴 수 없는 조작만 여기 아래다. 구분선과 `destructive`가
-                                "다른 종류"임을 말한다 — 확인 창이 마지막 방어선이고, 그
-                                앞에서도 손이 미끄러지지 않게 한다.
-                              */}
-                                  <DropdownMenuItem
-                                    variant="destructive"
-                                    onSelect={() => {
-                                      openerRef.current = user.name
-                                      openRemove(user)
-                                    }}
-                                  >
-                                    제거
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            )}
+                                ) : (
+                                  <>
+                                    {user.status !== 'ACTIVE' && (
+                                      <DropdownMenuItem
+                                        onSelect={() =>
+                                          confirmFromMenu(user, {
+                                            kind: 'row-status',
+                                            user,
+                                            action: 'ACTIVATE',
+                                          })
+                                        }
+                                      >
+                                        활성화
+                                      </DropdownMenuItem>
+                                    )}
+                                    {user.status !== 'INACTIVE' && (
+                                      <DropdownMenuItem
+                                        onSelect={() =>
+                                          confirmFromMenu(user, {
+                                            kind: 'row-status',
+                                            user,
+                                            action: 'DEACTIVATE',
+                                          })
+                                        }
+                                      >
+                                        비활성화
+                                      </DropdownMenuItem>
+                                    )}
+                                    {user.status !== 'SUSPENDED' && (
+                                      <DropdownMenuItem
+                                        onSelect={() =>
+                                          confirmFromMenu(user, {
+                                            kind: 'row-status',
+                                            user,
+                                            action: 'SUSPEND',
+                                          })
+                                        }
+                                      >
+                                        정지
+                                      </DropdownMenuItem>
+                                    )}
+                                    <DropdownMenuItem
+                                      onSelect={() =>
+                                        confirmFromMenu(user, {
+                                          kind: 'role',
+                                          user,
+                                          next: 'ADMIN',
+                                        })
+                                      }
+                                    >
+                                      관리자 지정
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    {/*
+                                        구분선과 `destructive`가 되돌릴 수 없는 조작임을
+                                        말한다. PENDING은 위 status-first 분기에서 신청 여부에
+                                        맞는 구분선을 별도로 정한다.
+                                      */}
+                                    <DropdownMenuItem
+                                      variant="destructive"
+                                      onSelect={() => {
+                                        openerRef.current = user.name
+                                        openRemove(user)
+                                      }}
+                                    >
+                                      제거
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1345,40 +1378,14 @@ export function MemberListPage() {
               )}
             </ListSurface>
 
-            <div
-              className="mt-8 flex min-h-9 items-start justify-center gap-4"
-              data-pager-slot="true"
-            >
-              {data.page.totalPages > 1 && (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={page === 0}
-                    onClick={() =>
-                      setSearchParams(pageParams(searchParams, page - 1))
-                    }
-                  >
-                    이전
-                  </Button>
-                  <span className="text-sm text-muted-foreground tabular-nums">
-                    {page + 1} / {data.page.totalPages}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={page >= data.page.totalPages - 1}
-                    onClick={() =>
-                      setSearchParams(pageParams(searchParams, page + 1))
-                    }
-                  >
-                    다음
-                  </Button>
-                </>
-              )}
-            </div>
+            <Pager
+              className="mt-8"
+              page={page}
+              totalPages={data.page.totalPages}
+              hrefFor={(next) => memberPageHref(searchParams, next)}
+              onGo={(next) => setSearchParams(pageParams(searchParams, next))}
+              labels={KOREAN_PAGER_LABELS}
+            />
           </>
         )}
         {data === null && <div className="min-h-9" data-pager-slot="true" />}
@@ -1396,8 +1403,8 @@ export function MemberListPage() {
             openerRef.current = null
             if (!name) return
             /*
-             * 그 행이 아직 있으면 트리거로 돌아간다. 제거·거부처럼 행이 사라졌으면
-             * 아무것도 하지 않는다 — Radix 기본 동작에 맡긴다.
+             * 그 행이 아직 있으면 트리거로 돌아간다. 제거되었거나, 거부 뒤 현재 필터에서
+             * 빠지는 등 행이 사라졌으면 아무것도 하지 않는다 — Radix 기본 동작에 맡긴다.
              */
             const trigger = document.querySelector<HTMLElement>(
               `[aria-label="${CSS.escape(name)} 관리 메뉴"]`,
@@ -1425,18 +1432,9 @@ export function MemberListPage() {
             */}
             <AlertDialogAction
               disabled={
+                working ||
                 (pending?.kind === 'remove' &&
-                  (pending.summary === null || pending.summary === 'failed')) ||
-                /*
-                 * **세는 중에는 누를 수 없다** (2-2 §2-2-3 MUST — 누르기 전에 대상 건수를
-                 * 보여준다). 열자마자 누를 수 있게 두면 건수가 도착하기 전에 수십 명이
-                 * 바뀌는데, 그 창이 있는 이유가 정확히 그것을 막는 것이다.
-                 *
-                 * **`'failed'`는 다르다.** 그때는 셀 수 없다는 것까지 보여준 상태이고,
-                 * 건수는 참고치이지 실행의 조건이 아니다 (§2-2-3) — 여기서 막으면 건수
-                 * 조회가 실패할 때 학기 전환이 통째로 멈춘다.
-                 */
-                (pending?.kind === 'deactivate' && pending.count === null)
+                  (pending.summary === null || pending.summary === 'failed'))
               }
               onClick={() => {
                 if (pending) run(pending)
@@ -1444,10 +1442,12 @@ export function MemberListPage() {
             >
               {pending?.kind === 'approve'
                 ? '승인'
-                : pending?.kind === 'reactivate'
-                  ? '복구'
-                  : pending?.kind === 'deactivate'
-                    ? '비활동 전환'
+                : pending?.kind === 'bulk-status'
+                  ? pending.target === 'ACTIVE'
+                    ? '활성화'
+                    : '정지'
+                  : pending?.kind === 'bulk-deactivate'
+                    ? '비활성화'
                     : pending?.kind === 'reject'
                       ? '거부'
                       : pending?.kind === 'remove'
@@ -1456,9 +1456,11 @@ export function MemberListPage() {
                           ? pending.next === 'ADMIN'
                             ? '관리자 지정'
                             : '권한 회수'
-                          : pending?.next === 'SUSPENDED'
-                            ? '정지'
-                            : '정지 해제'}
+                          : pending?.action === 'ACTIVATE'
+                            ? '활성화'
+                            : pending?.action === 'DEACTIVATE'
+                              ? '비활성화'
+                              : '정지'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1472,4 +1474,10 @@ function pageParams(current: URLSearchParams, next: number): URLSearchParams {
   const params = new URLSearchParams(current)
   writePage(params, next)
   return params
+}
+
+/** 실제 링크 주소도 클릭 처리와 같은 pageParams 규약을 쓴다. */
+function memberPageHref(current: URLSearchParams, next: number): string {
+  const query = pageParams(current, next).toString()
+  return query ? `/admin/members?${query}` : '/admin/members'
 }

@@ -132,6 +132,30 @@ public class User {
   }
 
   /**
+   * 가입 신청 거부 — 계정은 유지하고 다시 신청할 수 있는 미승인 상태로 되돌린다.
+   *
+   * <p><b>신청서가 받은 학번·학과·제출 시각 세 필드만 지운다.</b> 신원 필드뿐 아니라 role/status와 승인·비활성화 시각도 이 메서드가 정규화하지 않는다.
+   * 같은 계정과 세션으로 다시 {@link #submitApplication(String, String)}을 호출하는 것이 재신청 경로다 (spec 2-2 §2-2-2).
+   *
+   * <p>{@code PENDING}이 아닌 계정은 거부할 수 없다. 서비스에서도 검사하지만 도메인 경계에도 남겨, 회원 제거를 우회해 활동 계정을 초기화하는 호출자가 생기지
+   * 않게 한다.
+   *
+   * @return 신청 데이터 세 필드 중 하나라도 값이 있어 초기화했으면 {@code true}, 셋 다 비어 있었으면 {@code false}
+   */
+  public boolean resetApplicationAfterRejection() {
+    if (this.status != Status.PENDING) {
+      throw new IllegalStateException("PENDING 상태에서만 가입 신청을 거부할 수 있습니다: " + this.status);
+    }
+
+    boolean hadApplication =
+        this.studentNo != null || this.department != null || this.appliedAt != null;
+    this.studentNo = null;
+    this.department = null;
+    this.appliedAt = null;
+    return hadApplication;
+  }
+
+  /**
    * 공백은 신청서로 인정하지 않는다 — spec/3-2 §3-2-3, T-52.
    *
    * <p>DB의 {@code NOT NULL}·{@code UNIQUE}는 빈 문자열을 거르지 않는다. 여기서 막지 않으면 {@code ""}를 낸 계정이 {@code
