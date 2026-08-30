@@ -2,6 +2,8 @@ package org.hackerkhu.hackerhp.domain.post;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -11,14 +13,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceContext;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CyclicBarrier;
+import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.post.entity.Post;
 import org.hackerkhu.hackerhp.domain.post.repository.PostRepository;
@@ -36,6 +43,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -53,9 +61,10 @@ class PostIntegrationTest extends AbstractIntegrationTest {
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository userRepository;
-  @Autowired private PostRepository posts;
+  @MockitoSpyBean private PostRepository posts;
   @Autowired private JdbcTemplate jdbcTemplate;
   @Autowired private ObjectMapper objectMapper;
+  @PersistenceContext private EntityManager entityManager;
 
   private User member;
   private User admin;
@@ -688,37 +697,145 @@ class PostIntegrationTest extends AbstractIntegrationTest {
   /**
    * T-492 — 관리자 삭제와 작성자 수정이 동시에 와도 게시글 잠금에서 직렬화된다.
    *
-   * <p>삭제가 먼저면 수정은 {@code 404}, 수정이 먼저면 수정 {@code 200} 뒤 삭제 {@code 204}다. 어느 순서든 {@code 500}·데드락 없이
-   * 최종 행은 사라져야 한다. 한 번만 경쟁시키면 우연히 순차 실행되어 잠금 누락을 놓칠 수 있어 여러 새 행에서 반복한다.
+   * <p>repository spy의 latch는 삭제가 실제 게시글 잠금을 얻은 뒤 멈추고, 수정이 같은 잠금 호출에 진입한 것을 확인한 뒤에만 삭제를 커밋시킨다.
+   * 확률·반복·sleep 없이 삭제 {@code 204} 뒤 수정 {@code 404}가 되고 {@code 500}·데드락이 없는지를 고정한다.
    */
   @Test
   void authorEditAndAdminDeleteSerializeWithoutDeadlock() throws Exception {
+    long id = write(member, "삭제와 경쟁할 제목", "본문");
+    CountDownLatch deleteHasPostLock = new CountDownLatch(1);
+    CountDownLatch editReachedPostLock = new CountDownLatch(1);
+    CountDownLatch allowDeleteToFinish = new CountDownLatch(1);
+    AtomicReference<Thread> deletingThread = new AtomicReference<>();
+    AtomicReference<Thread> editingThread = new AtomicReference<>();
+
+    doAnswer(
+            invocation -> {
+              Long lockedId = invocation.getArgument(0);
+              if (Thread.currentThread() == editingThread.get()) {
+                editReachedPostLock.countDown();
+                return Optional.ofNullable(
+                    entityManager.find(Post.class, lockedId, LockModeType.PESSIMISTIC_WRITE));
+              }
+              Object found =
+                  Optional.ofNullable(
+                      entityManager.find(Post.class, lockedId, LockModeType.PESSIMISTIC_WRITE));
+              if (Thread.currentThread() == deletingThread.get()) {
+                deleteHasPostLock.countDown();
+                if (!allowDeleteToFinish.await(5, TimeUnit.SECONDS)) {
+                  throw new IllegalStateException("삭제 잠금 해제 신호를 받지 못했다");
+                }
+              }
+              return found;
+            })
+        .when(posts)
+        .findByIdForUpdate(anyLong());
+
     ExecutorService pool = Executors.newFixedThreadPool(2);
     try {
-      for (int attempt = 0; attempt < 8; attempt++) {
-        long id = write(member, "경쟁 전 제목 " + attempt, "본문");
-        CyclicBarrier start = new CyclicBarrier(2);
-        var edit = editRequest(member, id, "경쟁 뒤 제목 " + attempt, "고친 본문");
-        var remove = Csrf.with(sessions.as(admin, delete(POSTS + "/" + id)));
+      Future<Integer> deleteStatus =
+          pool.submit(
+              () -> {
+                deletingThread.set(Thread.currentThread());
+                return mockMvc
+                    .perform(Csrf.with(sessions.as(admin, delete(POSTS + "/" + id))))
+                    .andReturn()
+                    .getResponse()
+                    .getStatus();
+              });
+      assertThat(deleteHasPostLock.await(5, TimeUnit.SECONDS)).as("삭제가 게시글 잠금을 먼저 얻는다").isTrue();
 
-        Future<Integer> editStatus =
-            pool.submit(
-                () -> {
-                  start.await(5, TimeUnit.SECONDS);
-                  return mockMvc.perform(edit).andReturn().getResponse().getStatus();
-                });
-        Future<Integer> deleteStatus =
-            pool.submit(
-                () -> {
-                  start.await(5, TimeUnit.SECONDS);
-                  return mockMvc.perform(remove).andReturn().getResponse().getStatus();
-                });
+      Future<Integer> editStatus =
+          pool.submit(
+              () -> {
+                editingThread.set(Thread.currentThread());
+                return mockMvc
+                    .perform(editRequest(member, id, "경쟁 뒤 제목", "고친 본문"))
+                    .andReturn()
+                    .getResponse()
+                    .getStatus();
+              });
+      assertThat(editReachedPostLock.await(5, TimeUnit.SECONDS))
+          .as("수정이 같은 게시글 잠금 호출까지 도착한다")
+          .isTrue();
 
-        assertThat(editStatus.get(10, TimeUnit.SECONDS)).isIn(200, 404);
-        assertThat(deleteStatus.get(10, TimeUnit.SECONDS)).isEqualTo(204);
-        assertThat(posts.existsById(id)).isFalse();
-      }
+      allowDeleteToFinish.countDown();
+      assertThat(deleteStatus.get(10, TimeUnit.SECONDS)).isEqualTo(204);
+      assertThat(editStatus.get(10, TimeUnit.SECONDS)).isEqualTo(404);
+      assertThat(posts.existsById(id)).isFalse();
     } finally {
+      allowDeleteToFinish.countDown();
+      pool.shutdownNow();
+      assertThat(pool.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+    }
+  }
+
+  /** T-492의 반대 순서 — 수정이 잠금을 먼저 얻으면 {@code 200} 뒤 삭제 {@code 204}로 끝난다. */
+  @Test
+  void authorEditFinishesBeforeWaitingAdminDelete() throws Exception {
+    long id = write(member, "수정이 먼저인 제목", "본문");
+    CountDownLatch editHasPostLock = new CountDownLatch(1);
+    CountDownLatch deleteReachedPostLock = new CountDownLatch(1);
+    CountDownLatch allowEditToFinish = new CountDownLatch(1);
+    AtomicReference<Thread> editingThread = new AtomicReference<>();
+    AtomicReference<Thread> deletingThread = new AtomicReference<>();
+
+    doAnswer(
+            invocation -> {
+              Long lockedId = invocation.getArgument(0);
+              if (Thread.currentThread() == deletingThread.get()) {
+                deleteReachedPostLock.countDown();
+                return Optional.ofNullable(
+                    entityManager.find(Post.class, lockedId, LockModeType.PESSIMISTIC_WRITE));
+              }
+              Object found =
+                  Optional.ofNullable(
+                      entityManager.find(Post.class, lockedId, LockModeType.PESSIMISTIC_WRITE));
+              if (Thread.currentThread() == editingThread.get()) {
+                editHasPostLock.countDown();
+                if (!allowEditToFinish.await(5, TimeUnit.SECONDS)) {
+                  throw new IllegalStateException("수정 잠금 해제 신호를 받지 못했다");
+                }
+              }
+              return found;
+            })
+        .when(posts)
+        .findByIdForUpdate(anyLong());
+
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      Future<Integer> editStatus =
+          pool.submit(
+              () -> {
+                editingThread.set(Thread.currentThread());
+                return mockMvc
+                    .perform(editRequest(member, id, "수정이 끝난 제목", "고친 본문"))
+                    .andReturn()
+                    .getResponse()
+                    .getStatus();
+              });
+      assertThat(editHasPostLock.await(5, TimeUnit.SECONDS)).as("수정이 게시글 잠금을 먼저 얻는다").isTrue();
+
+      Future<Integer> deleteStatus =
+          pool.submit(
+              () -> {
+                deletingThread.set(Thread.currentThread());
+                return mockMvc
+                    .perform(Csrf.with(sessions.as(admin, delete(POSTS + "/" + id))))
+                    .andReturn()
+                    .getResponse()
+                    .getStatus();
+              });
+      assertThat(deleteReachedPostLock.await(5, TimeUnit.SECONDS))
+          .as("삭제가 같은 게시글 잠금 호출까지 도착한다")
+          .isTrue();
+
+      allowEditToFinish.countDown();
+      assertThat(editStatus.get(10, TimeUnit.SECONDS)).isEqualTo(200);
+      assertThat(deleteStatus.get(10, TimeUnit.SECONDS)).isEqualTo(204);
+      assertThat(posts.existsById(id)).isFalse();
+    } finally {
+      allowEditToFinish.countDown();
       pool.shutdownNow();
       assertThat(pool.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
     }
