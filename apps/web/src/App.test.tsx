@@ -129,7 +129,7 @@ describe('라우트 가드', () => {
     expect(
       await screen.findByRole('heading', { name: '게시글 수정' }),
     ).toBeVisible()
-    expect(screen.getByLabelText('제목')).toHaveValue('내 게시글')
+    expect(await screen.findByLabelText('제목')).toHaveValue('내 게시글')
     expect(screen.getByTestId('pathname')).toHaveTextContent('/posts/701/edit')
   })
 
