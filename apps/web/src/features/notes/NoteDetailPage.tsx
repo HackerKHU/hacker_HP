@@ -1,5 +1,5 @@
 import { Download, Star } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '@/api/client'
 import {
@@ -55,11 +55,30 @@ export function NoteDetailPage() {
   const [status, setStatus] = useState<Status>('loading')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /**
+   * 한 상세 진입에서 시작한 요청. 개발 StrictMode는 effect를 setup → cleanup → setup으로
+   * 다시 검증하므로, cleanup만으로는 이미 서버에서 오른 조회수를 되돌릴 수 없다.
+   *
+   * 컴포넌트 인스턴스 안에서 같은 route id의 Promise만 공유한다. 다른 id로 이동하면 새
+   * 요청을 만들고, 목록으로 나갔다가 재진입해 새 인스턴스가 되면 ref도 새로 생긴다 — 둘 다
+   * 계약대로 새로운 조회 1회다. API 함수 자체를 전역 dedupe하지 않는 이유도 이것이다.
+   */
+  const detailRequestRef = useRef<{
+    routeId: string | undefined
+    promise: Promise<NoteDetail>
+  } | null>(null)
 
   useEffect(() => {
     let alive = true
     setStatus('loading')
-    get(Number(id))
+    const current = detailRequestRef.current
+    const request =
+      current && current.routeId === id
+        ? current
+        : { routeId: id, promise: get(Number(id)) }
+    detailRequestRef.current = request
+
+    request.promise
       .then((result) => {
         if (!alive) return
         setNote(result)
