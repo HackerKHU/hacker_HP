@@ -1,11 +1,12 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
 import { CLUB, FAQS } from './content'
+import { PublicHeader } from './PublicHeader'
 
 const auth = vi.hoisted(() => ({
   me: (): Promise<User> =>
@@ -41,6 +42,34 @@ function renderLanding() {
     <MemoryRouter initialEntries={['/']}>
       <SessionProvider>
         <App />
+      </SessionProvider>
+    </MemoryRouter>,
+  )
+}
+
+function HistoryOutsideHeader() {
+  const { pathname } = useLocation()
+  const navigate = useNavigate()
+
+  return (
+    <>
+      <output aria-label="현재 경로">{pathname}</output>
+      <button type="button" onClick={() => navigate(-1)}>
+        브라우저 뒤로
+      </button>
+      <button type="button" onClick={() => navigate(1)}>
+        브라우저 앞으로
+      </button>
+    </>
+  )
+}
+
+function renderPublicHeaderWithHistory() {
+  render(
+    <MemoryRouter initialEntries={['/previous', '/']} initialIndex={1}>
+      <SessionProvider>
+        <PublicHeader />
+        <HistoryOutsideHeader />
       </SessionProvider>
     </MemoryRouter>,
   )
@@ -255,9 +284,12 @@ describe('랜딩 헤더 상태별 진입점', () => {
     auth.me = () => Promise.reject(new Error('비로그인'))
 
     renderLanding()
-    expect(
-      await screen.findByRole('link', { name: '로그인' }),
-    ).toBeInTheDocument()
+    const login = await screen.findByRole('link', {
+      name: '로그인',
+      hidden: true,
+    })
+    expect(login.className).toContain('hidden')
+    expect(login.className).toContain('lg:inline-flex')
 
     /*
      * **지원은 이 사이트에서 받는다** (#194). 외부 모집 폼을 두지 않으므로 잠긴 버튼도
@@ -269,9 +301,19 @@ describe('랜딩 헤더 상태별 진입점', () => {
     const apply = screen.getByRole('link', { name: '지원하기' })
     expect(apply).toHaveAttribute('href', '/login')
     expect(apply).not.toHaveAttribute('target')
+    expect(apply.className).toContain('h-11')
+    expect(apply.className).toContain('px-3')
     expect(screen.queryByRole('button', { name: '지원하기' })).toBeNull()
     // 비로그인 헤더는 그대로다 — 계정 메뉴는 로그인한 사람에게만 있다.
     expect(screen.queryByRole('button', { name: '계정 메뉴' })).toBeNull()
+
+    // guest 로그인만 접고 지원하기는 가운데 열의 첫 줄에 남긴다.
+    const actions = apply.parentElement
+    expect(actions?.className).toContain('row-start-1')
+    expect(actions?.className).toContain('col-start-2')
+    expect(actions?.nextElementSibling).toBe(
+      screen.getByRole('button', { name: '메뉴 열기' }),
+    )
   })
 
   // spec §3-1-4 — PENDING 안에 두 상태가 있다. 신청도 안 한 사람에게
@@ -410,26 +452,85 @@ describe('랜딩 헤더 상태별 진입점', () => {
       'src',
       '/brand/lockup-horizontal-white-512.png',
     )
+    expect(logo.className).toContain('h-8')
+    expect(logo.className).toContain('w-[27px]')
+    expect(logo.className).toContain('lg:w-auto')
+
+    const source = logo.closest('picture')?.querySelector('source')
+    expect(source).toHaveAttribute('media', '(max-width: 1023px)')
+    expect(source).toHaveAttribute('srcset', '/brand/mark-white-512.png')
+    expect(logo.closest('a')?.className).toContain('size-11')
   })
 
   it('햄버거가 섹션 메뉴를 열고 항목을 누르면 닫는다', async () => {
     renderLanding()
 
     const toggle = await screen.findByRole('button', { name: '메뉴 열기' })
+    const desktopNavigation = screen.getByRole('navigation', {
+      name: '섹션 이동',
+    })
+    expect(desktopNavigation.parentElement?.className).toContain('lg:flex')
+    expect(desktopNavigation.parentElement?.className).not.toContain('md:flex')
+    expect(toggle.className).toContain('size-11')
+    expect(toggle.className).toContain('lg:hidden')
+    expect(toggle).toHaveAttribute('aria-controls', 'public-mobile-menu')
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
 
     fireEvent.click(toggle)
-    const menu = document.getElementById('mobile-menu')
+    const menu = document.getElementById('public-mobile-menu')
     expect(menu).not.toBeNull()
+    expect(menu?.className).toContain('lg:hidden')
+    expect(menu?.className).not.toContain('md:hidden')
     expect(screen.getByRole('button', { name: '메뉴 닫기' })).toHaveAttribute(
       'aria-expanded',
       'true',
     )
+    expect(
+      within(menu as HTMLElement).getByRole('link', { name: '로그인' }),
+    ).toHaveAttribute('href', '/login')
+    for (const link of within(menu as HTMLElement).getAllByRole('link')) {
+      expect(link.className).toContain('min-h-11')
+    }
 
     fireEvent.click(
       within(menu as HTMLElement).getByRole('link', { name: '소개' }),
     )
-    expect(document.getElementById('mobile-menu')).toBeNull()
+    expect(document.getElementById('public-mobile-menu')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '메뉴 열기' }))
+    fireEvent.click(screen.getByRole('button', { name: '메뉴 닫기' }))
+    expect(document.getElementById('public-mobile-menu')).toBeNull()
+
+    const reopen = screen.getByRole('button', { name: '메뉴 열기' })
+    fireEvent.click(reopen)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(document.getElementById('public-mobile-menu')).toBeNull()
+    expect(reopen).toHaveFocus()
+  })
+
+  it('history 이동으로 위치가 바뀌면 초점을 옮기지 않고 닫는다', async () => {
+    renderPublicHeaderWithHistory()
+
+    fireEvent.click(await screen.findByRole('button', { name: '메뉴 열기' }))
+    expect(document.getElementById('public-mobile-menu')).not.toBeNull()
+
+    const back = screen.getByRole('button', { name: '브라우저 뒤로' })
+    back.focus()
+    fireEvent.click(back)
+
+    expect(screen.getByLabelText('현재 경로')).toHaveTextContent('/previous')
+    expect(document.getElementById('public-mobile-menu')).toBeNull()
+    expect(back).toHaveFocus()
+    expect(screen.getByRole('button', { name: '메뉴 열기' })).not.toHaveFocus()
+
+    const forward = screen.getByRole('button', { name: '브라우저 앞으로' })
+    forward.focus()
+    fireEvent.click(forward)
+
+    expect(screen.getByLabelText('현재 경로')).toHaveTextContent(/^\/$/)
+    expect(document.getElementById('public-mobile-menu')).toBeNull()
+    expect(forward).toHaveFocus()
+    expect(screen.getByRole('button', { name: '메뉴 열기' })).not.toHaveFocus()
   })
 
   /*
@@ -545,7 +646,9 @@ describe('랜딩 헤더 상태별 진입점', () => {
       ).not.toBeInTheDocument()
 
       fireEvent.click(toggle)
-      const mobileMenu = document.getElementById('mobile-menu') as HTMLElement
+      const mobileMenu = document.getElementById(
+        'public-mobile-menu',
+      ) as HTMLElement
       const mobileNavigation = within(mobileMenu).getByRole('navigation', {
         name: navigationName,
       })
@@ -595,7 +698,7 @@ describe('랜딩 헤더 상태별 진입점', () => {
     await screen.findAllByRole('link', { name: '공지사항' })
 
     fireEvent.click(screen.getByRole('button', { name: '메뉴 열기' }))
-    const menu = document.getElementById('mobile-menu') as HTMLElement
+    const menu = document.getElementById('public-mobile-menu') as HTMLElement
 
     for (const [label, href] of MEMBER_LINKS) {
       expect(within(menu).getByRole('link', { name: label })).toHaveAttribute(
@@ -720,7 +823,7 @@ describe('랜딩 헤더 상태별 진입점', () => {
     auth.me = () => Promise.reject(new Error('비로그인'))
 
     renderLanding()
-    await screen.findByRole('link', { name: '로그인' })
+    await screen.findByRole('link', { name: '지원하기' })
 
     for (const [label] of MEMBER_LINKS) {
       expect(screen.queryByRole('link', { name: label })).toBeNull()
