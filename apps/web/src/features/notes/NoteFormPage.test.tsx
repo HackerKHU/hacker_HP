@@ -126,6 +126,46 @@ beforeEach(() => {
 })
 
 describe('자료 등록', () => {
+  it('학기 선택지가 네 학기를 학사 순서대로 제공한다', async () => {
+    renderForm('/notes/new')
+
+    const semester = await screen.findByLabelText('학기')
+    expect(
+      within(semester)
+        .getAllByRole('option')
+        .map((option) => [option.getAttribute('value'), option.textContent]),
+    ).toEqual([
+      ['SPRING', '1학기'],
+      ['SUMMER', '여름학기'],
+      ['FALL', '2학기'],
+      ['WINTER', '겨울학기'],
+    ])
+  })
+
+  it.each(['SUMMER', 'WINTER'] as const)(
+    '%s를 선택해 등록하면 같은 enum 값을 보낸다',
+    async (semester) => {
+      renderForm('/notes/new')
+
+      fireEvent.change(await screen.findByLabelText('제목'), {
+        target: { value: '계절학기 자료' },
+      })
+      fireEvent.change(screen.getByLabelText('과목명'), {
+        target: { value: '자료구조' },
+      })
+      fireEvent.change(screen.getByLabelText('학기'), {
+        target: { value: semester },
+      })
+      pick(`${semester}.pdf`)
+      fireEvent.click(screen.getByRole('button', { name: '저장' }))
+
+      await waitFor(() => {
+        expect(api.created).toHaveLength(1)
+      })
+      expect(api.created[0].semester).toBe(semester)
+    },
+  )
+
   /*
    * **#59 완료 조건 — "브라우저가 S3로 직접 업로드하고 서버로 파일이 흐르지 않는다."**
    *
@@ -302,6 +342,22 @@ describe('자료 등록', () => {
 })
 
 describe('자료 수정', () => {
+  it.each(['SUMMER', 'WINTER'] as const)(
+    '기존 %s 값을 선택하고 저장 요청에도 그대로 보낸다',
+    async (semester) => {
+      api.note = { ...MINE, semester }
+      renderForm('/notes/301/edit')
+
+      expect(await screen.findByLabelText('학기')).toHaveValue(semester)
+      fireEvent.click(screen.getByRole('button', { name: '저장' }))
+
+      await waitFor(() => {
+        expect(api.updated).toHaveLength(1)
+      })
+      expect(api.updated[0].semester).toBe(semester)
+    },
+  )
+
   /*
    * **보낸 것으로 통째로 바뀐다** (계약 §3-2-4). 기존 파일은 `fileId`로, 새 파일은 `key`로
    * 가리키며 **둘 중 하나만** 채운다 — 둘 다 채우면 서버가 `400`이다.

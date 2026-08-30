@@ -8,10 +8,14 @@ import {
 } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/api/client'
-import type { NoteQuery, NoteSummary } from '@/api/notes'
+import type { NoteQuery, NoteSummary, Semester } from '@/api/notes'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
-import { MemoryRouter, useSearchParams } from '@/test/TestRouter'
+import {
+  MemoryRouter,
+  useNavigationType,
+  useSearchParams,
+} from '@/test/TestRouter'
 import { NoteListPage } from './NoteListPage'
 
 /**
@@ -25,6 +29,14 @@ import { NoteListPage } from './NoteListPage'
 const api = vi.hoisted(() => ({
   /** 나간 조회 요청. 마지막 것이 지금 화면이 보고 있는 조건이다. */
   queries: [] as NoteQuery[],
+  filterCalls: 0,
+  urlRenders: [] as {
+    query: string
+    navigationType: string
+    listCalls: number
+    filterCalls: number
+  }[],
+  content: [] as NoteSummary[],
   /** `GET /bookmarks`로 나간 조회. 토글이 어느 API를 부르는지 가른다. */
   bookmarkCalls: [] as { page?: number; size?: number }[],
   bookmarked: [] as { id: number; next: boolean }[],
@@ -64,7 +76,7 @@ vi.mock('@/api/notes', () => ({
       return new Promise((resolve) => api.held.push(resolve))
     }
     return Promise.resolve({
-      content: [NOTE],
+      content: api.content,
       page: {
         size: 20,
         number: query.page ?? 0,
@@ -73,12 +85,14 @@ vi.mock('@/api/notes', () => ({
       },
     })
   },
-  filters: () =>
-    Promise.resolve({
+  filters: () => {
+    api.filterCalls += 1
+    return Promise.resolve({
       subjects: ['운영체제', '자료구조'],
       professors: ['김교수'],
       years: [2026, 2025],
-    }),
+    })
+  },
   bookmarks: (query: { page?: number; size?: number }) => {
     api.bookmarkCalls.push(query)
     return Promise.resolve({
@@ -118,7 +132,19 @@ vi.mock('@/api/auth', () => ({
 /** 지금 쿼리스트링을 드러내 조회 조건이 URL에 남는지 단언할 수 있게 한다. */
 function Address() {
   const [params] = useSearchParams()
-  return <div data-testid="query">{params.toString()}</div>
+  const navigationType = useNavigationType()
+  api.urlRenders.push({
+    query: params.toString(),
+    navigationType,
+    listCalls: api.queries.length,
+    filterCalls: api.filterCalls,
+  })
+  return (
+    <>
+      <div data-testid="query">{params.toString()}</div>
+      <div data-testid="navigation-type">{navigationType}</div>
+    </>
+  )
 }
 
 /** 갈래는 주소가 정한다 — 빠져 있으면 시험 정리본이다. */
@@ -140,6 +166,9 @@ function lastQuery(): NoteQuery {
 
 beforeEach(() => {
   api.queries = []
+  api.filterCalls = 0
+  api.urlRenders = []
+  api.content = [NOTE]
   api.bookmarkCalls = []
   api.bookmarked = []
   api.fail = false
@@ -152,6 +181,98 @@ beforeEach(() => {
 })
 
 describe('자료 목록', () => {
+  it('학기 필터가 전체와 네 학기를 학사 순서대로 제공한다', async () => {
+    renderList()
+
+    const semester = await screen.findByLabelText('학기')
+    expect(
+      within(semester)
+        .getAllByRole('option')
+        .map((option) => [option.getAttribute('value'), option.textContent]),
+    ).toEqual([
+      ['', '전체'],
+      ['SPRING', '1학기'],
+      ['SUMMER', '여름학기'],
+      ['FALL', '2학기'],
+      ['WINTER', '겨울학기'],
+    ])
+  })
+
+  it.each(['SUMMER', 'WINTER'] as const)(
+    '공유 주소의 %s를 필터와 서버 요청에 그대로 반영한다',
+    async (semester) => {
+      renderList(`/notes?semester=${semester}`)
+
+      expect(await screen.findByLabelText('학기')).toHaveValue(semester)
+      await waitFor(() => {
+        expect(api.queries).toHaveLength(1)
+        expect(api.filterCalls).toBe(1)
+      })
+      expect(lastQuery().semester).toBe(semester)
+      expect(screen.getByTestId('navigation-type')).toHaveTextContent('POP')
+    },
+  )
+
+  it('잘못된 학기는 즉시 replace하고 다른 조건을 보존한 뒤 한 번만 조회한다', async () => {
+    api.totalPages = 3
+    renderList('/notes?category=EXAM&semester=AUTUMN')
+
+    expect(api.urlRenders[0]).toEqual({
+      query: 'category=EXAM&semester=AUTUMN',
+      navigationType: 'POP',
+      listCalls: 0,
+      filterCalls: 0,
+    })
+    expect(await screen.findByLabelText('학기')).toHaveValue('')
+    await waitFor(() => {
+      expect(screen.getByTestId('query')).toHaveTextContent('category=EXAM')
+      expect(screen.getByTestId('query')).not.toHaveTextContent('semester=')
+      expect(api.queries).toHaveLength(1)
+      expect(api.filterCalls).toBe(1)
+    })
+    expect(screen.getByTestId('navigation-type')).toHaveTextContent('REPLACE')
+    expect(lastQuery()).toMatchObject({ category: 'EXAM' })
+    expect(lastQuery().semester).toBeUndefined()
+    expect(
+      screen.getByRole('link', { name: '2페이지로 이동' }),
+    ).not.toHaveAttribute('href', expect.stringContaining('semester='))
+
+    fireEvent.change(screen.getByLabelText('검색'), {
+      target: { value: '운영체제' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '검색' }))
+    await waitFor(() => {
+      expect(screen.getByTestId('query')).toHaveTextContent(
+        encodeURIComponent('운영체제'),
+      )
+    })
+    expect(screen.getByTestId('query')).not.toHaveTextContent('semester=')
+  })
+
+  it.each(['SUMMER', 'WINTER'] as const)(
+    '페이지 링크가 %s 필터를 보존한다',
+    async (semester) => {
+      api.totalPages = 3
+      renderList(`/notes?semester=${semester}`)
+
+      await screen.findByText('운영체제 중간고사 정리본')
+      const nextPage = screen.getByRole('link', { name: '2페이지로 이동' })
+      expect(nextPage).toHaveAttribute(
+        'href',
+        expect.stringContaining(`semester=${semester}`),
+      )
+      fireEvent.click(nextPage)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('query')).toHaveTextContent('page=1')
+      })
+      expect(screen.getByTestId('query')).toHaveTextContent(
+        `semester=${semester}`,
+      )
+      expect(lastQuery()).toMatchObject({ semester, page: 1 })
+    },
+  )
+
   it('조회 중과 완료 뒤에도 목록 surface와 pager 자리를 유지한다', async () => {
     renderList()
     expect(
@@ -394,19 +515,24 @@ describe('자료 목록', () => {
   })
 
   /* 조건을 바꾸면 페이지를 되돌린다 — 3페이지에서 필터를 바꾸면 빈 화면이 뜬다. */
-  it('필터를 바꾸면 page 파라미터가 빠진다', async () => {
-    renderList('/notes?page=2')
-    await screen.findByText('운영체제 중간고사 정리본')
+  it.each(['SUMMER', 'WINTER'] as const)(
+    '%s 필터로 바꾸면 page 파라미터가 빠진다',
+    async (semester) => {
+      renderList('/notes?page=2')
+      await screen.findByText('운영체제 중간고사 정리본')
 
-    fireEvent.change(screen.getByLabelText('학기'), {
-      target: { value: 'FALL' },
-    })
+      fireEvent.change(screen.getByLabelText('학기'), {
+        target: { value: semester },
+      })
 
-    await waitFor(() => {
-      expect(screen.getByTestId('query')).not.toHaveTextContent('page=')
-    })
-    expect(screen.getByTestId('query')).toHaveTextContent('semester=FALL')
-  })
+      await waitFor(() => {
+        expect(screen.getByTestId('query')).not.toHaveTextContent('page=')
+      })
+      expect(screen.getByTestId('query')).toHaveTextContent(
+        `semester=${semester}`,
+      )
+    },
+  )
 
   /*
    * 범위를 넘은 주소로 들어오면 마지막 유효 페이지로 되돌린다 — **그 자리가 0페이지여도
@@ -442,10 +568,10 @@ describe('자료 목록', () => {
 
     // 아직 응답 전이지만 필터는 그려져 있다.
     fireEvent.change(screen.getByLabelText('학기'), {
-      target: { value: 'FALL' },
+      target: { value: 'WINTER' },
     })
     await waitFor(() => {
-      expect(screen.getByTestId('query')).toHaveTextContent('semester=FALL')
+      expect(screen.getByTestId('query')).toHaveTextContent('semester=WINTER')
     })
 
     // 이제 낡은 조회(page=5)의 응답을 완료시킨다.
@@ -458,7 +584,7 @@ describe('자료 목록', () => {
       })
     })
 
-    expect(screen.getByTestId('query')).toHaveTextContent('semester=FALL')
+    expect(screen.getByTestId('query')).toHaveTextContent('semester=WINTER')
     expect(screen.getByTestId('query')).toHaveTextContent('category=EXAM')
     expect(screen.getByTestId('query')).not.toHaveTextContent('page=')
   })
@@ -497,6 +623,28 @@ describe('자료 목록', () => {
     expect(
       within(subject).getByRole('option', { name: '자료구조' }),
     ).toBeTruthy()
+  })
+
+  it('표가 네 학기 라벨을 표시하고 기존 1·2학기 문구도 유지한다', async () => {
+    const semesters: Semester[] = ['SPRING', 'SUMMER', 'FALL', 'WINTER']
+    api.content = semesters.map((semester, index) => ({
+      ...NOTE,
+      id: NOTE.id + index,
+      title: `${semester} 자료`,
+      semester,
+    }))
+
+    renderList()
+    await screen.findByText('SPRING 자료')
+
+    for (const label of [
+      '2026년 1학기 · 중간',
+      '2026년 여름학기 · 중간',
+      '2026년 2학기 · 중간',
+      '2026년 겨울학기 · 중간',
+    ]) {
+      expect(screen.getByText(label)).toBeVisible()
+    }
   })
 
   /*

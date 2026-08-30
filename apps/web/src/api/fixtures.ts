@@ -46,6 +46,7 @@ import type {
   NoteMetadata,
   NoteQuery,
   NoteSummary,
+  Semester,
   Upload,
   UploadCandidate,
   UploadedFile,
@@ -1177,6 +1178,14 @@ const NOTE_SUBJECTS = [
   { subject: '데이터베이스', professor: '최교수' },
 ]
 
+/** 자료가 네 학기에 실제로 흩어져 필터·표시·폼을 픽스처 모드에서도 확인할 수 있게 한다. */
+const NOTE_SEMESTERS: readonly Semester[] = [
+  'SPRING',
+  'SUMMER',
+  'FALL',
+  'WINTER',
+]
+
 /** 로그인한 나. `GET /auth/me`가 주는 계정과 같아야 소유 판단이 화면과 맞는다. */
 function viewer(): User {
   return SCENARIO === 'admin' ? USERS.admin : USERS.user
@@ -1209,7 +1218,7 @@ const NOTES: FixtureNote[] = Array.from({ length: 23 }, (_, index) => {
     subjectName: subject,
     professor,
     year: 2026 - (index % 3),
-    semester: index % 2 === 0 ? ('SPRING' as const) : ('FALL' as const),
+    semester: NOTE_SEMESTERS[index % NOTE_SEMESTERS.length],
     examType: isExam
       ? index % 2 === 0
         ? ('MIDTERM' as const)

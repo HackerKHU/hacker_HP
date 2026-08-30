@@ -824,6 +824,71 @@ describe('회원 관리 픽스처', () => {
  * 날까지 드러나지 않는다.
  */
 describe('자료 픽스처', () => {
+  it.each(['SPRING', 'SUMMER', 'FALL', 'WINTER'] as const)(
+    '%s 자료가 실제로 있고 학기 필터 결과에는 그 값만 남는다',
+    async (semester) => {
+      const { fixtureNotes } = await loadFixtures('user')
+
+      const page = await fixtureNotes({ semester, size: 100 })
+
+      expect(page.content.length).toBeGreaterThan(0)
+      expect(new Set(page.content.map((note) => note.semester))).toEqual(
+        new Set([semester]),
+      )
+    },
+  )
+
+  it.each(['SUMMER', 'WINTER'] as const)(
+    '등록 픽스처가 %s를 그대로 보존한다',
+    async (semester) => {
+      const { fixtureCreateNote } = await loadFixtures('user')
+
+      const created = await fixtureCreateNote({
+        category: 'SUBJECT',
+        title: `${semester} 자료`,
+        subjectName: '운영체제',
+        professor: null,
+        year: 2026,
+        semester,
+        examType: null,
+        files: [{ key: 'notes/uploads/1/a.pdf', originalName: 'a.pdf' }],
+      })
+
+      expect(created.semester).toBe(semester)
+    },
+  )
+
+  it.each(['SUMMER', 'WINTER'] as const)(
+    '수정 픽스처가 %s를 그대로 보존한다',
+    async (semester) => {
+      const { fixtureCreateNote, fixtureUpdateNote } =
+        await loadFixtures('user')
+      const created = await fixtureCreateNote({
+        category: 'SUBJECT',
+        title: '수정할 자료',
+        subjectName: '운영체제',
+        professor: null,
+        year: 2026,
+        semester: 'SPRING',
+        examType: null,
+        files: [{ key: 'notes/uploads/1/a.pdf', originalName: 'a.pdf' }],
+      })
+
+      const updated = await fixtureUpdateNote(created.id, {
+        category: created.category,
+        title: created.title,
+        subjectName: created.subjectName,
+        professor: created.professor,
+        year: created.year,
+        semester,
+        examType: created.examType,
+        files: created.files.map((file) => ({ fileId: file.id })),
+      })
+
+      expect(updated.semester).toBe(semester)
+    },
+  )
+
   /* 검색어와 필터는 AND로 함께 걸린다 (spec §2-1-1 MUST). */
   it('검색어와 필터를 함께 적용한다', async () => {
     const { fixtureNotes } = await loadFixtures('user')
