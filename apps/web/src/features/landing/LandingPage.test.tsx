@@ -1,11 +1,12 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
 import { CLUB, FAQS } from './content'
+import { PublicHeader } from './PublicHeader'
 
 const auth = vi.hoisted(() => ({
   me: (): Promise<User> =>
@@ -41,6 +42,34 @@ function renderLanding() {
     <MemoryRouter initialEntries={['/']}>
       <SessionProvider>
         <App />
+      </SessionProvider>
+    </MemoryRouter>,
+  )
+}
+
+function HistoryOutsideHeader() {
+  const { pathname } = useLocation()
+  const navigate = useNavigate()
+
+  return (
+    <>
+      <output aria-label="현재 경로">{pathname}</output>
+      <button type="button" onClick={() => navigate(-1)}>
+        브라우저 뒤로
+      </button>
+      <button type="button" onClick={() => navigate(1)}>
+        브라우저 앞으로
+      </button>
+    </>
+  )
+}
+
+function renderPublicHeaderWithHistory() {
+  render(
+    <MemoryRouter initialEntries={['/previous', '/']} initialIndex={1}>
+      <SessionProvider>
+        <PublicHeader />
+        <HistoryOutsideHeader />
       </SessionProvider>
     </MemoryRouter>,
   )
@@ -209,6 +238,30 @@ const MEMBER_LINKS: [string, string][] = [
   ['갤러리', '/photos'],
 ]
 
+const PUBLIC_LINKS: [string, string][] = [
+  ['소개', '#about'],
+  ['활동', '#activities'],
+  ['기록', '#stats'],
+  ['FAQ', '#faq'],
+  ['후원', '#support'],
+]
+
+const ADMIN_LINKS: [string, string][] = [
+  ...MEMBER_LINKS,
+  ['회원 관리', '/admin/members'],
+]
+
+function expectNavigationLinks(
+  navigation: HTMLElement,
+  expectedLinks: [string, string][],
+) {
+  expect(
+    within(navigation)
+      .getAllByRole('link')
+      .map((link) => [link.textContent, link.getAttribute('href')]),
+  ).toEqual(expectedLinks)
+}
+
 describe('랜딩 헤더 상태별 진입점', () => {
   /*
    * 정지된 계정에는 지원하기를 보이지 않는다 (#194 검수). 그 계정은 로그인이 막혀 있어
@@ -231,9 +284,12 @@ describe('랜딩 헤더 상태별 진입점', () => {
     auth.me = () => Promise.reject(new Error('비로그인'))
 
     renderLanding()
-    expect(
-      await screen.findByRole('link', { name: '로그인' }),
-    ).toBeInTheDocument()
+    const login = await screen.findByRole('link', {
+      name: '로그인',
+      hidden: true,
+    })
+    expect(login.className).toContain('hidden')
+    expect(login.className).toContain('lg:inline-flex')
 
     /*
      * **지원은 이 사이트에서 받는다** (#194). 외부 모집 폼을 두지 않으므로 잠긴 버튼도
@@ -245,9 +301,19 @@ describe('랜딩 헤더 상태별 진입점', () => {
     const apply = screen.getByRole('link', { name: '지원하기' })
     expect(apply).toHaveAttribute('href', '/login')
     expect(apply).not.toHaveAttribute('target')
+    expect(apply.className).toContain('h-11')
+    expect(apply.className).toContain('px-3')
     expect(screen.queryByRole('button', { name: '지원하기' })).toBeNull()
     // 비로그인 헤더는 그대로다 — 계정 메뉴는 로그인한 사람에게만 있다.
     expect(screen.queryByRole('button', { name: '계정 메뉴' })).toBeNull()
+
+    // guest 로그인만 접고 지원하기는 가운데 열의 첫 줄에 남긴다.
+    const actions = apply.parentElement
+    expect(actions?.className).toContain('row-start-1')
+    expect(actions?.className).toContain('col-start-2')
+    expect(actions?.nextElementSibling).toBe(
+      screen.getByRole('button', { name: '메뉴 열기' }),
+    )
   })
 
   // spec §3-1-4 — PENDING 안에 두 상태가 있다. 신청도 안 한 사람에게
@@ -386,27 +452,238 @@ describe('랜딩 헤더 상태별 진입점', () => {
       'src',
       '/brand/lockup-horizontal-white-512.png',
     )
+    expect(logo.className).toContain('h-8')
+    expect(logo.className).toContain('w-[27px]')
+    expect(logo.className).toContain('lg:w-auto')
+
+    const source = logo.closest('picture')?.querySelector('source')
+    expect(source).toHaveAttribute('media', '(max-width: 1023px)')
+    expect(source).toHaveAttribute('srcset', '/brand/mark-white-512.png')
+    expect(logo.closest('a')?.className).toContain('size-11')
   })
 
   it('햄버거가 섹션 메뉴를 열고 항목을 누르면 닫는다', async () => {
     renderLanding()
 
     const toggle = await screen.findByRole('button', { name: '메뉴 열기' })
+    const desktopNavigation = screen.getByRole('navigation', {
+      name: '섹션 이동',
+    })
+    expect(desktopNavigation.parentElement?.className).toContain('lg:flex')
+    expect(desktopNavigation.parentElement?.className).not.toContain('md:flex')
+    expect(toggle.className).toContain('size-11')
+    expect(toggle.className).toContain('lg:hidden')
+    expect(toggle).toHaveAttribute('aria-controls', 'public-mobile-menu')
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
 
     fireEvent.click(toggle)
-    const menu = document.getElementById('mobile-menu')
+    const menu = document.getElementById('public-mobile-menu')
     expect(menu).not.toBeNull()
+    expect(menu?.className).toContain('lg:hidden')
+    expect(menu?.className).not.toContain('md:hidden')
     expect(screen.getByRole('button', { name: '메뉴 닫기' })).toHaveAttribute(
       'aria-expanded',
       'true',
     )
+    expect(
+      within(menu as HTMLElement).getByRole('link', { name: '로그인' }),
+    ).toHaveAttribute('href', '/login')
+    for (const link of within(menu as HTMLElement).getAllByRole('link')) {
+      expect(link.className).toContain('min-h-11')
+    }
 
     fireEvent.click(
       within(menu as HTMLElement).getByRole('link', { name: '소개' }),
     )
-    expect(document.getElementById('mobile-menu')).toBeNull()
+    expect(document.getElementById('public-mobile-menu')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '메뉴 열기' }))
+    fireEvent.click(screen.getByRole('button', { name: '메뉴 닫기' }))
+    expect(document.getElementById('public-mobile-menu')).toBeNull()
+
+    const reopen = screen.getByRole('button', { name: '메뉴 열기' })
+    fireEvent.click(reopen)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(document.getElementById('public-mobile-menu')).toBeNull()
+    expect(reopen).toHaveFocus()
   })
+
+  it('history 이동으로 위치가 바뀌면 초점을 옮기지 않고 닫는다', async () => {
+    renderPublicHeaderWithHistory()
+
+    fireEvent.click(await screen.findByRole('button', { name: '메뉴 열기' }))
+    expect(document.getElementById('public-mobile-menu')).not.toBeNull()
+
+    const back = screen.getByRole('button', { name: '브라우저 뒤로' })
+    back.focus()
+    fireEvent.click(back)
+
+    expect(screen.getByLabelText('현재 경로')).toHaveTextContent('/previous')
+    expect(document.getElementById('public-mobile-menu')).toBeNull()
+    expect(back).toHaveFocus()
+    expect(screen.getByRole('button', { name: '메뉴 열기' })).not.toHaveFocus()
+
+    const forward = screen.getByRole('button', { name: '브라우저 앞으로' })
+    forward.focus()
+    fireEvent.click(forward)
+
+    expect(screen.getByLabelText('현재 경로')).toHaveTextContent(/^\/$/)
+    expect(document.getElementById('public-mobile-menu')).toBeNull()
+    expect(forward).toHaveFocus()
+    expect(screen.getByRole('button', { name: '메뉴 열기' })).not.toHaveFocus()
+  })
+
+  /*
+   * #305 — 공개 앵커와 부원 메뉴를 고르는 판단은 세션 상태 하나에서 시작하고, 데스크톱과
+   * 모바일은 그 결과를 같이 쓴다. 이 표가 상태 하나를 빠뜨리면 `active` 유니온에 함께
+   * 들어오는 `INACTIVE`처럼 이름과 실제 계정 상태가 다른 갈래에서 회귀가 남는다.
+   */
+  it.each([
+    {
+      label: 'loading',
+      getMe: () => new Promise<User>(() => undefined),
+      expectedLinks: null,
+      navigationName: null,
+    },
+    {
+      label: 'guest',
+      getMe: () => Promise.reject(new Error('비로그인')),
+      expectedLinks: PUBLIC_LINKS,
+      navigationName: '섹션 이동',
+    },
+    {
+      label: 'pending 신청 전',
+      getMe: () =>
+        Promise.resolve({
+          ...BASE,
+          status: 'PENDING' as const,
+          studentNo: null,
+          appliedAt: null,
+          approvedAt: null,
+        }),
+      expectedLinks: PUBLIC_LINKS,
+      navigationName: '섹션 이동',
+    },
+    {
+      label: 'pending 신청 후',
+      getMe: () =>
+        Promise.resolve({
+          ...BASE,
+          status: 'PENDING' as const,
+          approvedAt: null,
+        }),
+      expectedLinks: PUBLIC_LINKS,
+      navigationName: '섹션 이동',
+    },
+    {
+      label: 'pending 사용자 정보 없음',
+      getMe: () =>
+        Promise.reject(
+          new ApiError('PENDING_APPROVAL', 403, '승인 대기 중인 계정입니다.'),
+        ),
+      expectedLinks: PUBLIC_LINKS,
+      navigationName: '섹션 이동',
+    },
+    {
+      label: 'suspended',
+      getMe: () =>
+        Promise.reject(new ApiError('SUSPENDED', 403, '정지된 계정입니다.')),
+      expectedLinks: PUBLIC_LINKS,
+      navigationName: '섹션 이동',
+    },
+    {
+      label: 'inactive USER',
+      getMe: () => Promise.resolve({ ...BASE, status: 'INACTIVE' as const }),
+      expectedLinks: MEMBER_LINKS,
+      navigationName: '주요 메뉴',
+    },
+    {
+      label: 'active USER',
+      getMe: () => Promise.resolve(BASE),
+      expectedLinks: MEMBER_LINKS,
+      navigationName: '주요 메뉴',
+    },
+    {
+      label: 'active ADMIN',
+      getMe: () => Promise.resolve({ ...BASE, role: 'ADMIN' as const }),
+      expectedLinks: ADMIN_LINKS,
+      navigationName: '주요 메뉴',
+    },
+  ])(
+    '$label의 데스크톱과 모바일 메뉴가 같은 배타적 목록을 쓴다',
+    async ({ label, getMe, expectedLinks, navigationName }) => {
+      auth.me = getMe
+
+      renderLanding()
+      await screen.findByAltText(CLUB.name)
+
+      if (expectedLinks === null || navigationName === null) {
+        expect(
+          screen.queryByRole('navigation', { name: '섹션 이동' }),
+        ).not.toBeInTheDocument()
+        expect(
+          screen.queryByRole('navigation', { name: '주요 메뉴' }),
+        ).not.toBeInTheDocument()
+        expect(
+          screen.queryByRole('button', { name: '메뉴 열기' }),
+        ).not.toBeInTheDocument()
+        // 오른쪽의 기존 loading 처리도 그대로여야 한다.
+        expect(screen.queryByRole('link', { name: '로그인' })).toBeNull()
+        expect(screen.queryByRole('button', { name: '계정 메뉴' })).toBeNull()
+        return
+      }
+
+      const toggle = await screen.findByRole('button', { name: '메뉴 열기' })
+      const desktopNavigation = screen.getByRole('navigation', {
+        name: navigationName,
+      })
+      expectNavigationLinks(desktopNavigation, expectedLinks)
+
+      const otherNavigationName =
+        navigationName === '섹션 이동' ? '주요 메뉴' : '섹션 이동'
+      expect(
+        screen.queryByRole('navigation', { name: otherNavigationName }),
+      ).not.toBeInTheDocument()
+
+      fireEvent.click(toggle)
+      const mobileMenu = document.getElementById(
+        'public-mobile-menu',
+      ) as HTMLElement
+      const mobileNavigation = within(mobileMenu).getByRole('navigation', {
+        name: navigationName,
+      })
+      expectNavigationLinks(mobileNavigation, expectedLinks)
+
+      const desktopAdmin = within(desktopNavigation).queryByRole('link', {
+        name: '회원 관리',
+      })
+      const mobileAdmin = within(mobileNavigation).queryByRole('link', {
+        name: '회원 관리',
+      })
+
+      if (label === 'active ADMIN') {
+        expect(desktopAdmin?.previousElementSibling?.tagName).toBe('SPAN')
+        expect(desktopAdmin?.previousElementSibling).toHaveAttribute(
+          'aria-hidden',
+          'true',
+        )
+        expect(mobileAdmin?.previousElementSibling?.tagName).toBe('DIV')
+        expect(mobileAdmin?.previousElementSibling).toHaveAttribute(
+          'aria-hidden',
+          'true',
+        )
+      } else {
+        expect(desktopAdmin).toBeNull()
+        expect(mobileAdmin).toBeNull()
+        expect(
+          desktopNavigation.querySelector('[aria-hidden="true"]'),
+        ).toBeNull()
+        expect(
+          mobileNavigation.querySelector('[aria-hidden="true"]'),
+        ).toBeNull()
+      }
+    },
+  )
 
   /*
    * **모바일 메뉴가 데스크톱과 같은 목록을 그린다** (#251). 두 곳에 따로 적으면 화면이
@@ -421,7 +698,7 @@ describe('랜딩 헤더 상태별 진입점', () => {
     await screen.findAllByRole('link', { name: '공지사항' })
 
     fireEvent.click(screen.getByRole('button', { name: '메뉴 열기' }))
-    const menu = document.getElementById('mobile-menu') as HTMLElement
+    const menu = document.getElementById('public-mobile-menu') as HTMLElement
 
     for (const [label, href] of MEMBER_LINKS) {
       expect(within(menu).getByRole('link', { name: label })).toHaveAttribute(
@@ -546,7 +823,7 @@ describe('랜딩 헤더 상태별 진입점', () => {
     auth.me = () => Promise.reject(new Error('비로그인'))
 
     renderLanding()
-    await screen.findByRole('link', { name: '로그인' })
+    await screen.findByRole('link', { name: '지원하기' })
 
     for (const [label] of MEMBER_LINKS) {
       expect(screen.queryByRole('link', { name: label })).toBeNull()
