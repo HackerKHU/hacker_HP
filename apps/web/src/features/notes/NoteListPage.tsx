@@ -7,7 +7,9 @@ import {
   type ExamType,
   filters as fetchFilters,
   list,
+  NOTE_SORTS,
   type NoteFilterOptions,
+  type NoteSortValue,
   type NoteSummary,
   setBookmark,
 } from '@/api/notes'
@@ -40,10 +42,23 @@ import { NoteTable } from './NoteTable'
 const PAGE_SIZE = 20
 
 /** 정렬 선택지. 값은 계약의 `sort` 파라미터 그대로다 (spec §3-2-4). */
-const SORTS = [
-  { value: 'latest', label: '최신순' },
-  { value: 'title', label: '제목순' },
-] as const
+const SORT_LABEL: Record<NoteSortValue, string> = {
+  latest: '최신순',
+  title: '제목순',
+  views: '조회수순',
+}
+const SORTS = NOTE_SORTS.map((value) => ({ value, label: SORT_LABEL[value] }))
+
+/** 주소는 사람이 고칠 수 있다. 계약에 있는 정렬만 복원하고 나머지는 기본값으로 본다. */
+function sortFromParam(raw: string | null): NoteSortValue {
+  return NOTE_SORTS.find((value) => value === raw) ?? 'latest'
+}
+
+/** 갈래를 바꾸더라도 유효한 비기본 정렬은 새 갈래에서도 같은 뜻이라 유지한다. */
+function categoryHref(category: Category, sort: NoteSortValue): string {
+  const path = categoryPath(category)
+  return sort === 'latest' ? path : `${path}&sort=${sort}`
+}
 
 /** 다음 URL을 만들 때 계약에 없는 학기 값이 검색·페이지 상태에 따라붙지 않게 한다. */
 function normalizedParams(
@@ -91,7 +106,7 @@ export function NoteListPage() {
   const semester = semesterFromParam(rawSemester)
   const hasInvalidSemester = rawSemester !== null && semester === undefined
   const examType = searchParams.get('examType') ?? ''
-  const sort = searchParams.get('sort') === 'title' ? 'title' : 'latest'
+  const sort = sortFromParam(searchParams.get('sort'))
 
   /** 입력 중인 검색어. **제출해야 URL에 들어간다** — 한 글자마다 조회하지 않는다. */
   const [draft, setDraft] = useState(q)
@@ -312,9 +327,10 @@ export function NoteListPage() {
        *
        * **탭을 바꾸면 검색·필터가 딸려가지 않는다.** 시험 자료를 "중간"으로 걸러 보다가
        * 과목 탭으로 넘어가면 그 조건은 뜻을 잃는다 — 갈래마다 고를 수 있는 값이 다르고,
-       * 특히 시험 구분은 `SUBJECT`에 걸면 결과가 늘 0건이다.
+       * 특히 시험 구분은 `SUBJECT`에 걸면 결과가 늘 0건이다. 단, 정렬은 갈래와
+       * 무관하므로 유효한 비기본값을 보존한다.
        */}
-      <div className="mt-6 flex items-end justify-between gap-4 border-b border-border">
+      <div className="mt-6 flex flex-nowrap items-end justify-between gap-1 border-b border-border sm:gap-4">
         {/*
          * **담아둔 것만 보는 중에는 갈래 탭을 감춘다** (#261). `GET /bookmarks`는 갈래를
          * 가리지 않고 섞어 내려주므로, 탭을 남겨 두면 눌러도 아무 일이 없다 — 화면이
@@ -323,14 +339,17 @@ export function NoteListPage() {
         {onlyBookmarked ? (
           <span />
         ) : (
-          <nav aria-label="자료 카테고리" className="flex gap-1">
+          <nav
+            aria-label="자료 카테고리"
+            className="flex min-w-0 flex-nowrap gap-2 sm:gap-1"
+          >
             {(Object.keys(CATEGORY_LABEL) as Category[]).map((value) => (
               <Link
                 key={value}
-                to={categoryPath(value)}
+                to={categoryHref(value, sort)}
                 aria-current={value === category ? 'page' : undefined}
                 className={cn(
-                  '-mb-px border-b-2 px-4 py-2 text-sm transition-colors',
+                  '-mb-px flex min-h-11 shrink-0 items-center whitespace-nowrap border-b-2 px-1 py-2 text-sm transition-colors sm:px-4',
                   value === category
                     ? 'border-foreground font-medium text-foreground'
                     : 'border-transparent text-muted-foreground hover:text-foreground',
@@ -356,9 +375,9 @@ export function NoteListPage() {
           to={
             onlyBookmarked ? categoryPath(category) : '/notes?bookmarked=true'
           }
-          aria-pressed={onlyBookmarked}
+          aria-current={onlyBookmarked ? 'page' : undefined}
           className={cn(
-            'mb-2 flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors',
+            'flex min-h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-1 py-1.5 text-sm transition-colors sm:gap-1.5 sm:px-3',
             onlyBookmarked
               ? 'bg-accent font-medium text-foreground'
               : 'text-muted-foreground hover:text-foreground',
@@ -368,7 +387,7 @@ export function NoteListPage() {
             className={cn('size-4', onlyBookmarked && 'fill-current')}
             aria-hidden="true"
           />
-          즐겨찾기만 보기
+          즐겨찾기
         </Link>
       </div>
 

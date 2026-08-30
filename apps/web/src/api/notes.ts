@@ -44,6 +44,7 @@ export interface NoteSummary {
   examType: ExamType | null
   uploader: Uploader
   fileCount: number
+  viewCount: number
   bookmarked: boolean
   createdAt: string
 }
@@ -73,7 +74,7 @@ export type NoteQuery = {
   year?: number
   semester?: Semester
   examType?: ExamType
-  /** `latest`(기본) | `title`. 그 밖의 값은 서버가 기본값으로 본다 (spec §3-2-4). */
+  /** `latest`(기본) | `title` | `views`. 그 밖의 값은 서버가 기본값으로 본다 (spec §3-2-4). */
   sort?: NoteSortValue
   page?: number
   size?: number
@@ -81,9 +82,9 @@ export type NoteQuery = {
 
 /**
  * 정렬 값. **Spring Data의 속성 정렬(`?sort=title,asc`)이 아니다** (spec §3-2-4) —
- * 서버가 두 낱말만 받고 나머지는 기본값으로 본다.
+ * 서버가 세 낱말만 받고 나머지는 기본값으로 본다.
  */
-export const NOTE_SORTS = ['latest', 'title'] as const
+export const NOTE_SORTS = ['latest', 'title', 'views'] as const
 export type NoteSortValue = (typeof NOTE_SORTS)[number]
 
 export function list(query: NoteQuery = {}): Promise<Page<NoteSummary>> {

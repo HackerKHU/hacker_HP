@@ -41,7 +41,7 @@ export function NoteTable({
      * 네 모서리에서 행이 잘려 보인다. 공지 목록·회원 관리와 같은 기조다.
      */
     <ListSurface className="mt-4">
-      <Table>
+      <Table className={showCategory ? 'min-w-[1120px]' : 'min-w-[1000px]'}>
         <TableHeader>
           <TableRow>
             {/* 별표 열은 제목이 없다 — 아이콘만 있는 칸이라 이름을 붙이면 폭만 먹는다. */}
@@ -52,6 +52,7 @@ export function NoteTable({
             <TableHead className="w-24">교수</TableHead>
             <TableHead className="w-32">학기</TableHead>
             <TableHead className="w-16 text-right">첨부</TableHead>
+            <TableHead className="w-20 text-right">조회수</TableHead>
             <TableHead className="w-24">업로더</TableHead>
             <TableHead className="w-28">등록일</TableHead>
           </TableRow>
@@ -121,6 +122,9 @@ export function NoteTable({
               </TableCell>
               <TableCell className="text-right tabular-nums">
                 {note.fileCount}
+              </TableCell>
+              <TableCell className="whitespace-nowrap text-right tabular-nums">
+                {note.viewCount}
               </TableCell>
               <TableCell className="text-muted-foreground">
                 {note.uploader.name}

@@ -1,5 +1,5 @@
 import { Download, Star } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '@/api/client'
 import {
@@ -56,11 +56,30 @@ export function NoteDetailPage() {
   const [note, setNote] = useState<NoteDetail | null>(null)
   const [status, setStatus] = useState<Status>('loading')
   const [busy, setBusy] = useState(false)
+  /**
+   * 한 상세 진입에서 시작한 요청. 개발 StrictMode는 effect를 setup → cleanup → setup으로
+   * 다시 검증하므로, cleanup만으로는 이미 서버에서 오른 조회수를 되돌릴 수 없다.
+   *
+   * 컴포넌트 인스턴스 안에서 같은 route id의 Promise만 공유한다. 다른 id로 이동하면 새
+   * 요청을 만들고, 목록으로 나갔다가 재진입해 새 인스턴스가 되면 ref도 새로 생긴다 — 둘 다
+   * 계약대로 새로운 조회 1회다. API 함수 자체를 전역 dedupe하지 않는 이유도 이것이다.
+   */
+  const detailRequestRef = useRef<{
+    routeId: string | undefined
+    promise: Promise<NoteDetail>
+  } | null>(null)
 
   useEffect(() => {
     let alive = true
     setStatus('loading')
-    get(Number(id))
+    const current = detailRequestRef.current
+    const request =
+      current && current.routeId === id
+        ? current
+        : { routeId: id, promise: get(Number(id)) }
+    detailRequestRef.current = request
+
+    request.promise
       .then((result) => {
         if (!alive) return
         setNote(result)
@@ -114,11 +133,17 @@ export function NoteDetailPage() {
   /** 담기·빼기. 서버가 준 `bookmarked`를 보고 방향을 정한다 (계약 §3-2-4 — 토글이 아니다). */
   async function toggleBookmark() {
     if (!note) return
+    const next = !note.bookmarked
     setBusy(true)
     try {
-      await setBookmark(note.id, !note.bookmarked)
-      // 낙관적으로 바꾸지 않는다. 서버가 받아들인 뒤 그 상태로 다시 읽는다.
-      setNote(await get(note.id))
+      await setBookmark(note.id, next)
+      /*
+       * 낙관적 변경이 아니다. 서버가 요청을 받은 뒤 그 값만 반영한다.
+       * 상세 GET은 성공할 때마다 조회수를 올리므로 즐겨찾기 조작 뒤에 다시 부르지 않는다.
+       */
+      setNote((current) =>
+        current?.id === note.id ? { ...current, bookmarked: next } : current,
+      )
       alert.success(
         note.bookmarked ? '즐겨찾기에서 뺐습니다.' : '즐겨찾기에 담았습니다.',
       )
@@ -268,6 +293,8 @@ export function NoteDetailPage() {
             <dd>{note.uploader.name}</dd>
             <dt className="text-muted-foreground">등록일</dt>
             <dd>{formatDate(note.createdAt)}</dd>
+            <dt className="text-muted-foreground">조회수</dt>
+            <dd className="whitespace-nowrap tabular-nums">{note.viewCount}</dd>
             <dt className="text-muted-foreground">수정일</dt>
             <dd>{formatDate(note.updatedAt)}</dd>
           </dl>
