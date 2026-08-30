@@ -307,7 +307,8 @@ class NoteQueryIntegrationTest extends AbstractIntegrationTest {
     mockMvc
         .perform(asMember(get(PATH)))
         .andExpect(jsonPath("$.content[0].uploader.id").value(uploader.getId()))
-        .andExpect(jsonPath("$.content[0].uploader.name").value("올린이"));
+        // 표시 이름이라 학번 끝 두 자리가 붙는다 (#301, 3-2 §3-2-2).
+        .andExpect(jsonPath("$.content[0].uploader.name").value("올린이02"));
   }
 
   /**

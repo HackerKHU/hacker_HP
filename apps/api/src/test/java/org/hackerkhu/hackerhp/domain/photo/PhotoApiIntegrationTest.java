@@ -217,7 +217,8 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
             .andExpect(jsonPath("$.registered[0].url").isNotEmpty())
             .andExpect(jsonPath("$.registered[0].thumbnailUrl").isNotEmpty())
             .andExpect(jsonPath("$.registered[0].uploaderId").value(admin.getId()))
-            .andExpect(jsonPath("$.registered[0].uploaderName").value("본명"))
+            // 표시 이름이라 학번 끝 두 자리가 붙는다 (#301). 갤러리도 같은 규칙이다 (T-431).
+            .andExpect(jsonPath("$.registered[0].uploaderName").value("본명01"))
             .andExpect(jsonPath("$.failed.length()").value(0))
             .andReturn()
             .getResponse()

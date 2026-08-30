@@ -119,7 +119,7 @@ public class NoteCreateService {
    * <p><b>등록은 조회가 아니다</b> (#245) — 조회수를 올리지 않는다. 갓 만든 자료라 {@code 0}이다.
    */
   private NoteDetailResponse detailOf(Note note, Long uploaderId) {
-    String name = userRepository.findById(uploaderId).map(User::getName).orElse(null);
-    return NoteDetailResponse.of(note, Uploader.of(uploaderId, name), false, note.getViewCount());
+    User uploader = userRepository.findById(uploaderId).orElse(null);
+    return NoteDetailResponse.of(note, Uploader.of(uploader), false, note.getViewCount());
   }
 }
