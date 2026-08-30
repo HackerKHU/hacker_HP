@@ -1008,7 +1008,7 @@ T-116은 화면마다 빠지기 쉽다. `403`은 `PENDING_APPROVAL`·`SUSPENDED`
 | T-427 | 신청·공지·자료·게시글 폼의 필드 검증 | 오류가 난 필드만 `aria-invalid=true`이고 그 필드의 `aria-describedby`가 정확한 오류를 가리킨다. 빈 때도 `data-form-feedback-slot` 또는 업로드 feedback slot이 남는다 |
 | T-428 | 사진·자료 업로드 진행 및 부분 실패 | progress와 `failure.key`로 원본에 연결한 `파일명: 사유` 목록이 높이가 명시된 인라인 slot에 남고, 초과 목록은 내부 스크롤된다. 사진 부분 실패의 fixed alert는 성공/실패 건수 요약 한 건만 발표하며 인라인 목록은 중복 live region이 아니다 |
 | T-429 | 삭제·탈퇴·회원 상태 변경 | 실행 전 `AlertDialog`의 설명·취소·확인과 disabled 조건이 보존되고, 확인 뒤 짧은 실행 결과만 fixed alert로 바뀐다 |
-| T-430 | fixed alert를 320px·1440px에서 표시 | safe area 안에 있고 긴 한글·공백 없는 URL이 가로로 넘치지 않으며, 바깥 layer는 아래 조작을 막지 않는다. z-index는 `AlertDialog`보다 낮다 |
+| T-430 | fixed alert를 320px·1440px에서 표시 | 5rem 헤더 아래 12px 간격의 상단 중앙에 있고 safe area를 침범하지 않는다. 긴 한글·공백 없는 URL이 가로로 넘치지 않으며, 바깥 layer는 아래 조작을 막지 않는다. 일반 콘텐츠 < fixed alert < 공개·내부 헤더와 그 모바일 메뉴 < `AlertDialog`·dropdown 순으로 쌓인다. 내부 헤더는 이 계층을 위해 레이어만 만들고 sticky로 바꾸지 않는다 |
 
 T-425는 세션 판정과 시각 알림을 분리하는 경계다. `reportApiError()` 안에서 alert까지 만들면
 모든 호출부가 간단해 보이지만, 가드가 옮긴 화면의 설명과 같은 오류를 두 번 읽는다. 반대로

@@ -50,6 +50,14 @@ beforeEach(() => {
 })
 
 describe('AppHeader', () => {
+  it('fixed 결과 알림보다 위에 쌓이되 sticky로 바뀌지 않는다', async () => {
+    renderHeader()
+
+    const header = await screen.findByRole('banner')
+    expect(header).toHaveClass('relative', 'z-40')
+    expect(header).not.toHaveClass('sticky')
+  })
+
   /*
    * 랜딩 헤더와 **같은 가로 락업이되 잉크만 반대**다. 내부 화면은 라이트 배경이라 검정을
    * 쓴다 — 흰 잉크로 바뀌면 배경에 묻혀 아무것도 안 보이는데, 화면을 안 열어보면 모른다.

@@ -185,17 +185,20 @@
 /*
  * 짧은 비동기 작업 결과. 문서 흐름 밖의 viewport 고정 레이어라 알림의 등장·소멸이
  * 목록·폼·pager를 밀지 않는다. 바깥은 클릭을 통과시키고 카드만 조작을 받는다.
- * z-40은 일반 헤더보다 높고 AlertDialog(z-50)보다 낮다.
+ * 5rem 헤더 뒤 12px 간격을 두되 safe area가 그보다 크면 그 안쪽에 둔다.
+ * z-30은 일반 콘텐츠보다 높고, 공개·내부 헤더와 그 모바일 메뉴(z-40),
+ * AlertDialog·dropdown(z-50)보다 낮다.
  */
 .live-alert-viewport {
+  --live-alert-block-start: calc(max(5rem, env(safe-area-inset-top)) + 0.75rem);
+
   position: fixed;
-  z-index: 40;
+  z-index: 30;
   inset-inline: 0;
-  bottom: 0;
+  top: var(--live-alert-block-start);
   display: flex;
   justify-content: center;
   pointer-events: none;
-  padding-block-end: max(0.75rem, env(safe-area-inset-bottom));
   padding-inline-start: max(0.75rem, env(safe-area-inset-left));
   padding-inline-end: max(0.75rem, env(safe-area-inset-right));
 }
@@ -205,7 +208,7 @@
   min-width: 0;
   max-height: calc(
     100dvh -
-    max(0.75rem, env(safe-area-inset-top)) -
+    var(--live-alert-block-start) -
     max(0.75rem, env(safe-area-inset-bottom))
   );
   max-width: calc(

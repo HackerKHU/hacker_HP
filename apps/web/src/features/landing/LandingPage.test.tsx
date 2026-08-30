@@ -397,6 +397,8 @@ describe('랜딩 헤더 상태별 진입점', () => {
     fireEvent.click(toggle)
     const menu = document.getElementById('mobile-menu')
     expect(menu).not.toBeNull()
+    // fixed 결과 알림(z-30)이 펼쳐진 헤더 메뉴를 가리면 안 된다.
+    expect(menu?.closest('header')).toHaveClass('z-40')
     expect(screen.getByRole('button', { name: '메뉴 닫기' })).toHaveAttribute(
       'aria-expanded',
       'true',

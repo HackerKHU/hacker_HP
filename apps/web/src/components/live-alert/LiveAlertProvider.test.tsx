@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { MemoryRouter, useNavigate } from 'react-router-dom'
@@ -60,6 +62,37 @@ afterEach(() => {
 })
 
 describe('LiveAlertProvider', () => {
+  it('fixed viewport를 5rem 헤더 아래 safe area 안쪽에 두고 조작은 카드만 받는다', () => {
+    const raw = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf-8')
+    const css = raw.replace(/\/\*[\s\S]*?\*\//g, '')
+    const viewport = css
+      .match(/\.live-alert-viewport\s*\{([^}]*)\}/)?.[1]
+      ?.replace(/\s+/g, ' ')
+    const card = css
+      .match(/\.live-alert-card\s*\{([^}]*)\}/)?.[1]
+      ?.replace(/\s+/g, ' ')
+
+    expect(viewport).toContain(
+      '--live-alert-block-start: calc(max(5rem, env(safe-area-inset-top)) + 0.75rem)',
+    )
+    expect(viewport).toContain('top: var(--live-alert-block-start)')
+    expect(viewport).toContain('z-index: 30')
+    expect(viewport).toContain('pointer-events: none')
+    expect(viewport).toContain(
+      'padding-inline-start: max(0.75rem, env(safe-area-inset-left))',
+    )
+    expect(viewport).toContain(
+      'padding-inline-end: max(0.75rem, env(safe-area-inset-right))',
+    )
+    expect(viewport).not.toContain('bottom:')
+    expect(viewport).not.toContain('padding-block-end:')
+
+    expect(card).toContain('width: min(100%, 28rem)')
+    expect(card).toContain('var(--live-alert-block-start)')
+    expect(card).toContain('env(safe-area-inset-bottom)')
+    expect(card).toContain('pointer-events: auto')
+  })
+
   it('provider 밖의 hook 사용을 조용히 삼키지 않는다', () => {
     expect(() => render(<OutsideProbe />)).toThrow(
       'useLiveAlert은 LiveAlertProvider 안에서만 쓸 수 있다.',
