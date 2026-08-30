@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mockingDetails;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -13,13 +14,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.LockModeType;
-import jakarta.persistence.PersistenceContext;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -64,7 +61,6 @@ class PostIntegrationTest extends AbstractIntegrationTest {
   @MockitoSpyBean private PostRepository posts;
   @Autowired private JdbcTemplate jdbcTemplate;
   @Autowired private ObjectMapper objectMapper;
-  @PersistenceContext private EntityManager entityManager;
 
   private User member;
   private User admin;
@@ -708,18 +704,16 @@ class PostIntegrationTest extends AbstractIntegrationTest {
     CountDownLatch allowDeleteToFinish = new CountDownLatch(1);
     AtomicReference<Thread> deletingThread = new AtomicReference<>();
     AtomicReference<Thread> editingThread = new AtomicReference<>();
+    // JDK proxy spy의 기본 Answer는 Spring이 원본 repository proxy로 만든 delegatesTo다.
+    var realRepositoryCall = mockingDetails(posts).getMockCreationSettings().getDefaultAnswer();
 
     doAnswer(
             invocation -> {
-              Long lockedId = invocation.getArgument(0);
               if (Thread.currentThread() == editingThread.get()) {
                 editReachedPostLock.countDown();
-                return Optional.ofNullable(
-                    entityManager.find(Post.class, lockedId, LockModeType.PESSIMISTIC_WRITE));
+                return realRepositoryCall.answer(invocation);
               }
-              Object found =
-                  Optional.ofNullable(
-                      entityManager.find(Post.class, lockedId, LockModeType.PESSIMISTIC_WRITE));
+              Object found = realRepositoryCall.answer(invocation);
               if (Thread.currentThread() == deletingThread.get()) {
                 deleteHasPostLock.countDown();
                 if (!allowDeleteToFinish.await(5, TimeUnit.SECONDS)) {
@@ -779,18 +773,15 @@ class PostIntegrationTest extends AbstractIntegrationTest {
     CountDownLatch allowEditToFinish = new CountDownLatch(1);
     AtomicReference<Thread> editingThread = new AtomicReference<>();
     AtomicReference<Thread> deletingThread = new AtomicReference<>();
+    var realRepositoryCall = mockingDetails(posts).getMockCreationSettings().getDefaultAnswer();
 
     doAnswer(
             invocation -> {
-              Long lockedId = invocation.getArgument(0);
               if (Thread.currentThread() == deletingThread.get()) {
                 deleteReachedPostLock.countDown();
-                return Optional.ofNullable(
-                    entityManager.find(Post.class, lockedId, LockModeType.PESSIMISTIC_WRITE));
+                return realRepositoryCall.answer(invocation);
               }
-              Object found =
-                  Optional.ofNullable(
-                      entityManager.find(Post.class, lockedId, LockModeType.PESSIMISTIC_WRITE));
+              Object found = realRepositoryCall.answer(invocation);
               if (Thread.currentThread() == editingThread.get()) {
                 editHasPostLock.countDown();
                 if (!allowEditToFinish.await(5, TimeUnit.SECONDS)) {

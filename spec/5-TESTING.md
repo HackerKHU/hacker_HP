@@ -570,7 +570,7 @@ T-191은 T-32와 짝이다. 정지는 세션을 **갱신**해 `403 SUSPENDED`가
 | T-489 | 수정이 네트워크(status 0)·5xx로 실패 | 반영 여부를 확정할 수 없고 상세에서 확인하라고 알리며 성공처럼 이동하지 않는다 |
 | T-490 | React disabled 렌더 전에 수정 제출을 빠르게 두 번 실행 | 동기 잠금이 PATCH를 한 번만 보낸다 |
 | T-491 | **(웹 API·fixture)** 수정 | CSRF를 실은 `PATCH /posts/{id}`이고 fixture는 작성자만 전체 교체·`updatedAt` 변경, 작성자·등록일 보존을 수행한다. USER·ADMIN 타인과 탈퇴 작성자는 `FORBIDDEN`, 없는 글은 `NOT_FOUND`다 |
-| T-492 | 관리자 삭제와 작성자 수정이 같은 글 잠금에 순서대로 진입 | latch로 양쪽 순서를 각각 강제한다. 삭제 선행은 삭제 `204` 뒤 수정 `404`, 수정 선행은 수정 `200` 뒤 삭제 `204`이며 데드락·`500` 없이 최종 글은 삭제된다. 단위 테스트는 edit가 일반 조회 없이 계정 `findByIdForUpdate`→게시글 `findByIdForUpdate` 순서만 쓰는지도 고정한다 |
+| T-492 | 관리자 삭제와 작성자 수정이 같은 글 잠금에 순서대로 진입 | 실제 Spring Data repository proxy 호출 뒤 latch로 양쪽 순서를 각각 강제한다. 삭제 선행은 삭제 `204` 뒤 수정 `404`, 수정 선행은 수정 `200` 뒤 삭제 `204`이며 데드락·`500` 없이 최종 글은 삭제된다. 별도 DB lock-timeout 테스트는 repository의 `@Lock`·JPQL 자체를, 단위 테스트는 edit가 일반 조회 없이 계정 `findByIdForUpdate`→게시글 `findByIdForUpdate` 순서만 쓰는지를 고정한다 |
 
 **T-325는 상한만 보면 안 된다.** PostgreSQL의 `NOT NULL`은 `""`나 공백 문자열을 막지 않는다 — 구현에서 `@NotBlank`가 빠져도 상한만 재는 검사는 통과하고 **내용 없는 글이 저장된다.**
 
