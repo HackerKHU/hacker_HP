@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom'
 import { LegalBackLink } from './LegalBackLink'
 import { TERMS_SECTIONS, TERMS_UPDATED } from './termsContent'
 
@@ -53,16 +52,6 @@ export function TermsPage() {
             </dd>
           </div>
         </dl>
-
-        {/* 두 문서는 서로를 참조한다. 4항이 방침의 보관 항목을 가리키므로 길이 있어야 한다. */}
-        <p className="mt-16 text-sm text-muted-foreground">
-          <Link
-            to="/privacy"
-            className="transition-colors hover:text-foreground"
-          >
-            개인정보처리방침
-          </Link>
-        </p>
       </div>
     </div>
   )

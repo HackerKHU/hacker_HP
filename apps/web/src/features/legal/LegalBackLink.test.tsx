@@ -12,8 +12,8 @@ import { TermsPage } from './TermsPage'
 
 const LIST_LOCATION = '/notices?page=3&status=ACTIVE&q=안내'
 const LEGAL_PAGES = [
-  { path: '/privacy', title: '개인정보처리방침' },
-  { path: '/terms', title: '이용약관' },
+  { path: '/privacy', title: '개인정보처리방침', otherTitle: '이용약관' },
+  { path: '/terms', title: '이용약관', otherTitle: '개인정보처리방침' },
 ]
 
 let originalUrl: string
@@ -59,6 +59,24 @@ afterEach(() => {
 })
 
 describe('법적 문서 돌아가기', () => {
+  it.each(LEGAL_PAGES)(
+    '$title에는 상대 법적 문서 링크 없이 돌아가기만 둔다',
+    async ({ path, title, otherTitle }) => {
+      window.history.replaceState(null, '', path)
+      renderBrowserRouter()
+
+      await screen.findByRole('heading', { name: title, level: 1 })
+      expect(
+        screen.queryByRole('link', { name: otherTitle }),
+      ).not.toBeInTheDocument()
+      expect(screen.getAllByRole('link')).toHaveLength(1)
+      expect(screen.getByRole('link', { name: '← 돌아가기' })).toHaveAttribute(
+        'href',
+        '/',
+      )
+    },
+  )
+
   it.each(LEGAL_PAGES)(
     '$title 주소로 직접 진입하면 랜딩으로 돌아간다',
     async ({ path }) => {
