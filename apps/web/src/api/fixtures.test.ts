@@ -1460,6 +1460,79 @@ describe('게시판 픽스처', () => {
     await expect(fixturePost(other.id)).resolves.toBeTruthy()
   })
 
+  it('관리자 권한을 회수하면 옛 admin 시나리오로 남의 글을 삭제할 수 없다', async () => {
+    const {
+      fixturePosts,
+      fixturePost,
+      fixtureRemovePost,
+      fixtureUpdateUserRole,
+      ApiError,
+    } = await loadFixtures('admin')
+    const other = (await fixturePosts({ size: 100 })).content.find(
+      (post) => post.author.id !== 2,
+    )
+    if (!other) throw new Error('다른 부원 작성 글 fixture가 없다')
+
+    await fixtureUpdateUserRole(2, 'USER')
+    const error = await fixtureRemovePost(other.id).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+    await expect(fixturePost(other.id)).resolves.toBeTruthy()
+  })
+
+  it('권한 회수 뒤 정지되면 옛 admin 시나리오로 남의 글을 삭제할 수 없다', async () => {
+    const {
+      fixturePosts,
+      fixturePost,
+      fixtureRemovePost,
+      fixtureUpdateUserRole,
+      fixtureUpdateUserStatus,
+      ApiError,
+    } = await loadFixtures('admin')
+    const other = (await fixturePosts({ size: 100 })).content.find(
+      (post) => post.author.id !== 2,
+    )
+    if (!other) throw new Error('다른 부원 작성 글 fixture가 없다')
+
+    await fixtureUpdateUserRole(2, 'USER')
+    await fixtureUpdateUserStatus(2, 'SUSPENDED')
+    const error = await fixtureRemovePost(other.id).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe('SUSPENDED')
+    await expect(fixturePost(other.id)).resolves.toBeTruthy()
+  })
+
+  it('관리자 계정이 제거되면 옛 admin 시나리오 세션으로 남의 글을 삭제할 수 없다', async () => {
+    const {
+      fixturePosts,
+      fixturePost,
+      fixtureRemovePost,
+      fixtureRemoveUser,
+      ApiError,
+    } = await loadFixtures('admin')
+    const other = (await fixturePosts({ size: 100 })).content.find(
+      (post) => post.author.id !== 2,
+    )
+    if (!other) throw new Error('다른 부원 작성 글 fixture가 없다')
+
+    await fixtureRemoveUser(2)
+    const error = await fixtureRemovePost(other.id).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).code).toBe(
+      'UNAUTHENTICATED',
+    )
+    await expect(fixturePost(other.id)).resolves.toBeTruthy()
+  })
+
   /* 서버가 거부할 것을 픽스처도 거부한다 — 통과시키면 오류 화면을 만들 수 없다. */
   it.each([
     ['제목이 공백', '   ', '내용'],
