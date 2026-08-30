@@ -5,9 +5,9 @@ describe('학기 라벨', () => {
   it('네 학기를 학사 순서와 같은 문구로 제공한다', () => {
     expect(Object.entries(SEMESTER_LABEL)).toEqual([
       ['SPRING', '1학기'],
-      ['SUMMER', '여름 계절학기'],
+      ['SUMMER', '여름학기'],
       ['FALL', '2학기'],
-      ['WINTER', '겨울 계절학기'],
+      ['WINTER', '겨울학기'],
     ])
   })
 

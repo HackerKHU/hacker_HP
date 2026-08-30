@@ -107,9 +107,9 @@ beforeEach(() => {
 describe('자료 상세', () => {
   it.each([
     ['SPRING', '1학기'],
-    ['SUMMER', '여름 계절학기'],
+    ['SUMMER', '여름학기'],
     ['FALL', '2학기'],
-    ['WINTER', '겨울 계절학기'],
+    ['WINTER', '겨울학기'],
   ] as const)('%s를 %s로 표시한다', async (semester, label) => {
     api.note = { ...MINE, semester }
 

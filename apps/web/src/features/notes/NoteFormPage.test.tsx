@@ -136,9 +136,9 @@ describe('자료 등록', () => {
         .map((option) => [option.getAttribute('value'), option.textContent]),
     ).toEqual([
       ['SPRING', '1학기'],
-      ['SUMMER', '여름 계절학기'],
+      ['SUMMER', '여름학기'],
       ['FALL', '2학기'],
-      ['WINTER', '겨울 계절학기'],
+      ['WINTER', '겨울학기'],
     ])
   })
 

@@ -12,9 +12,9 @@ export const CATEGORY_LABEL: Record<Category, string> = {
 
 export const SEMESTER_LABEL: Record<Semester, string> = {
   SPRING: '1학기',
-  SUMMER: '여름 계절학기',
+  SUMMER: '여름학기',
   FALL: '2학기',
-  WINTER: '겨울 계절학기',
+  WINTER: '겨울학기',
 }
 
 /** 주소의 `semester`를 계약의 enum으로 좁힌다. 모르는 값은 필터에서 제거한다. */
