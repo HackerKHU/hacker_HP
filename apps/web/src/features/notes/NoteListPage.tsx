@@ -11,14 +11,19 @@ import {
   type NoteFilterOptions,
   type NoteSortValue,
   type NoteSummary,
-  type Semester,
   setBookmark,
 } from '@/api/notes'
 import type { Page } from '@/api/types'
 import { isInactive, useSession } from '@/auth/session'
 import { clampedOutOfRange } from '@/components/clampPage'
+import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import { SELECT_CLASS, SelectArrow } from '@/components/native-select'
-import { Pager, parsePage, writePage } from '@/components/Pager'
+import {
+  KOREAN_PAGER_LABELS,
+  Pager,
+  parsePage,
+  writePage,
+} from '@/components/Pager'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -30,6 +35,7 @@ import {
   EXAM_TYPE_LABEL,
   noteErrorText,
   SEMESTER_LABEL,
+  semesterFromParam,
 } from './labels'
 import { NoteTable } from './NoteTable'
 
@@ -54,6 +60,16 @@ function categoryHref(category: Category, sort: NoteSortValue): string {
   return sort === 'latest' ? path : `${path}&sort=${sort}`
 }
 
+/** 다음 URL을 만들 때 계약에 없는 학기 값이 검색·페이지 상태에 따라붙지 않게 한다. */
+function normalizedParams(
+  current: URLSearchParams,
+  semester: ReturnType<typeof semesterFromParam>,
+): URLSearchParams {
+  const next = new URLSearchParams(current)
+  if (semester === undefined) next.delete('semester')
+  return next
+}
+
 /**
  * 자료게시판. **시험 정리본과 과목 정리본이 한 화면이고 갈래는 탭으로 가른다.**
  *
@@ -73,6 +89,7 @@ export function NoteListPage() {
   const { pathname } = useLocation()
   const session = useSession()
   const { state, reportApiError } = session
+  const alert = useLiveAlert()
 
   const category = categoryFromParam(searchParams.get('category'))
   /**
@@ -85,7 +102,9 @@ export function NoteListPage() {
   const subject = searchParams.get('subject') ?? ''
   const professor = searchParams.get('professor') ?? ''
   const year = searchParams.get('year') ?? ''
-  const semester = searchParams.get('semester') ?? ''
+  const rawSemester = searchParams.get('semester')
+  const semester = semesterFromParam(rawSemester)
+  const hasInvalidSemester = rawSemester !== null && semester === undefined
   const examType = searchParams.get('examType') ?? ''
   const sort = sortFromParam(searchParams.get('sort'))
 
@@ -95,7 +114,6 @@ export function NoteListPage() {
   const [failed, setFailed] = useState(false)
   const [options, setOptions] = useState<NoteFilterOptions | null>(null)
   const [pending, setPending] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
 
   /** 주소가 바뀌어 화면이 다시 그려지면 입력 칸도 그 값에서 시작한다. */
@@ -105,9 +123,22 @@ export function NoteListPage() {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey는 본문에서 읽지 않고 재조회 트리거로만 쓴다.
   useEffect(() => {
-    let alive = true
     setData(null)
     setFailed(false)
+    /*
+     * **주소가 조회 조건의 단일 원천이다.** 모르는 학기를 화면과 API에서만 전체로 취급하고
+     * 주소에 남겨 두면 공유 URL은 실제 조회와 다른 말을 한다. 다른 조건은 보존하고 학기만
+     * 제거해 replace한다. 이 렌더에서는 조회하지 않아 canonical URL로 다시 그린 뒤 한 번만
+     * 요청한다 — 여기서 계속하면 같은 전체 목록을 두 번 부르게 된다.
+     */
+    if (hasInvalidSemester) {
+      setSearchParams(normalizedParams(searchParams, semester), {
+        replace: true,
+      })
+      return
+    }
+
+    let alive = true
     /*
      * **두 API를 갈라 부른다** (#261). `GET /notes`에는 `bookmarked` 필터가 없고
      * `GET /bookmarks`는 검색·필터를 받지 않는다 (계약 §3-2-4 — "이미 본인이 추린
@@ -123,7 +154,7 @@ export function NoteListPage() {
           subject: subject || undefined,
           professor: professor || undefined,
           year: year === '' ? undefined : Number(year),
-          semester: (semester || undefined) as Semester | undefined,
+          semester,
           // 시험 구분은 `EXAM`에만 붙인다. 과목 정리본에 걸면 결과가 늘 0건이다.
           examType:
             category === 'EXAM'
@@ -140,7 +171,14 @@ export function NoteListPage() {
          * 내리므로 여기를 건너뛴다 — 그 가드가 아래 되돌리기의 안전장치다.
          */
         if (!alive) return
-        if (clampedOutOfRange(result, page, searchParams, setSearchParams))
+        if (
+          clampedOutOfRange(
+            result,
+            page,
+            normalizedParams(searchParams, semester),
+            setSearchParams,
+          )
+        )
           return
         setData(result)
       })
@@ -161,6 +199,7 @@ export function NoteListPage() {
     professor,
     year,
     semester,
+    hasInvalidSemester,
     examType,
     sort,
     page,
@@ -177,18 +216,25 @@ export function NoteListPage() {
    * 실패해도 화면을 막지 않는다 — 옵션이 없으면 `<select>`가 "전체"만 남고 검색은 된다.
    */
   useEffect(() => {
+    // 잘못된 URL을 정규화하는 렌더에서는 옵션도 조회하지 않는다. canonical URL 뒤 한 번만 받는다.
+    if (hasInvalidSemester) return
+
     let alive = true
     fetchFilters()
       .then((result) => {
         if (alive) setOptions(result)
       })
       .catch((caught: unknown) => {
-        if (alive) reportApiError(caught)
+        if (alive && !reportApiError(caught)) {
+          alert.error(
+            '검색 필터를 불러오지 못했습니다. 목록 검색은 계속할 수 있습니다.',
+          )
+        }
       })
     return () => {
       alive = false
     }
-  }, [reportApiError])
+  }, [alert, hasInvalidSemester, reportApiError])
 
   /**
    * 조회 조건을 URL에 쓰는 **유일한 지점** (`apps/web/AGENTS.md` — 뒤로가기·새로고침·링크
@@ -200,13 +246,13 @@ export function NoteListPage() {
    */
   const setParam = useCallback(
     (key: string, value: string) => {
-      const next = new URLSearchParams(searchParams)
+      const next = normalizedParams(searchParams, semester)
       if (value === '') next.delete(key)
       else next.set(key, value)
       writePage(next, 0)
       setSearchParams(next)
     },
-    [searchParams, setSearchParams],
+    [searchParams, semester, setSearchParams],
   )
 
   function submitSearch(event: FormEvent) {
@@ -215,14 +261,14 @@ export function NoteListPage() {
   }
 
   function pageHref(next: number): string {
-    const params = new URLSearchParams(searchParams)
+    const params = normalizedParams(searchParams, semester)
     writePage(params, next)
     const query = params.toString()
     return query === '' ? pathname : `${pathname}?${query}`
   }
 
   function goToPage(next: number) {
-    const params = new URLSearchParams(searchParams)
+    const params = normalizedParams(searchParams, semester)
     writePage(params, next)
     setSearchParams(params)
   }
@@ -233,13 +279,16 @@ export function NoteListPage() {
    */
   async function toggleBookmark(note: NoteSummary) {
     setPending(true)
-    setNotice(null)
     try {
       await setBookmark(note.id, !note.bookmarked)
+      alert.success(
+        note.bookmarked ? '즐겨찾기에서 뺐습니다.' : '즐겨찾기에 담았습니다.',
+      )
       setReloadKey((key) => key + 1)
     } catch (caught: unknown) {
-      reportApiError(caught)
-      setNotice('즐겨찾기를 바꾸지 못했습니다. 다시 시도해 주세요.')
+      if (!reportApiError(caught)) {
+        alert.error('즐겨찾기를 바꾸지 못했습니다. 다시 시도해 주세요.')
+      }
     } finally {
       setPending(false)
     }
@@ -250,7 +299,7 @@ export function NoteListPage() {
     subject !== '' ||
     professor !== '' ||
     year !== '' ||
-    semester !== '' ||
+    semester !== undefined ||
     examType !== ''
 
   return (
@@ -426,7 +475,7 @@ export function NoteListPage() {
             {/* 학기·시험 구분은 값이 enum으로 고정이라 서버가 옵션을 내려주지 않는다 (§3-2-4). */}
             <select
               id="note-semester"
-              value={semester}
+              value={semester ?? ''}
               onChange={(event) => setParam('semester', event.target.value)}
               className={SELECT_CLASS}
               style={SelectArrow}
@@ -484,61 +533,69 @@ export function NoteListPage() {
         </form>
       )}
 
-      {notice && (
-        <p role="alert" className="mt-6 text-sm text-muted-foreground">
-          {notice}
-        </p>
-      )}
+      <div className="mt-6 min-h-72" data-list-surface="notes">
+        {data === null && !failed && (
+          <p className="mt-8 text-sm text-muted-foreground">불러오는 중</p>
+        )}
 
-      {data === null && !failed && (
-        <p className="mt-8 text-sm text-muted-foreground">불러오는 중</p>
-      )}
+        {failed && (
+          <div className="mt-8 space-y-4">
+            <p role="alert" className="text-sm text-muted-foreground">
+              {noteErrorText(isInactive(session))}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setReloadKey((key) => key + 1)}
+            >
+              다시 시도
+            </Button>
+          </div>
+        )}
 
-      {failed && (
-        <p role="alert" className="mt-8 text-sm text-muted-foreground">
-          {noteErrorText(isInactive(session))}
-        </p>
-      )}
-
-      {data !== null && data.content.length === 0 && (
-        /*
-         * **조건이 걸려 0건인 것과 아예 없는 것을 가른다.** 검색해서 없는 사람에게
-         * "등록된 자료가 없습니다"라고 하면 검색어를 지워볼 생각을 못 한다.
-         */
-        <p className="mt-8 text-sm text-muted-foreground">
-          {onlyBookmarked
-            ? '담아둔 자료가 없습니다. 목록에서 별표를 눌러 담아보세요.'
-            : filtered
-              ? '조건에 맞는 자료가 없습니다. 검색어나 필터를 바꿔 보세요.'
-              : '등록된 자료가 없습니다.'}
-        </p>
-      )}
-
-      {data !== null && data.content.length > 0 && (
-        <>
-          <p className="mt-6 text-sm text-muted-foreground">
-            {onlyBookmarked ? '담아둔 자료' : '전체'} {data.page.totalElements}
-            건
+        {data !== null && data.content.length === 0 && (
+          /*
+           * **조건이 걸려 0건인 것과 아예 없는 것을 가른다.** 검색해서 없는 사람에게
+           * "등록된 자료가 없습니다"라고 하면 검색어를 지워볼 생각을 못 한다.
+           */
+          <p className="mt-8 text-sm text-muted-foreground">
+            {onlyBookmarked
+              ? '담아둔 자료가 없습니다. 목록에서 별표를 눌러 담아보세요.'
+              : filtered
+                ? '조건에 맞는 자료가 없습니다. 검색어나 필터를 바꿔 보세요.'
+                : '등록된 자료가 없습니다.'}
           </p>
-          <NoteTable
-            notes={data.content}
-            /*
-             * 담아둔 목록에는 시험·과목이 섞여 오므로 갈래를 보여준다. 탭으로 가른
-             * 목록에서는 전부 같은 값이라 감춘다.
-             */
-            showCategory={onlyBookmarked}
-            onToggleBookmark={toggleBookmark}
-            busy={pending || state.kind !== 'active'}
-          />
-          <Pager
-            className="mt-8"
-            page={page}
-            totalPages={data.page.totalPages}
-            hrefFor={pageHref}
-            onGo={goToPage}
-          />
-        </>
-      )}
+        )}
+
+        {data !== null && data.content.length > 0 && (
+          <>
+            <p className="mt-6 text-sm text-muted-foreground">
+              {onlyBookmarked ? '담아둔 자료' : '전체'}{' '}
+              {data.page.totalElements}건
+            </p>
+            <NoteTable
+              notes={data.content}
+              /*
+               * 담아둔 목록에는 시험·과목이 섞여 오므로 갈래를 보여준다. 탭으로 가른
+               * 목록에서는 전부 같은 값이라 감춘다.
+               */
+              showCategory={onlyBookmarked}
+              onToggleBookmark={toggleBookmark}
+              busy={pending || state.kind !== 'active'}
+            />
+          </>
+        )}
+      </div>
+
+      <Pager
+        className="mt-8"
+        page={page}
+        totalPages={data?.page.totalPages ?? 0}
+        hrefFor={pageHref}
+        onGo={goToPage}
+        labels={KOREAN_PAGER_LABELS}
+      />
     </section>
   )
 }

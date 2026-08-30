@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/api/client'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, Route, Routes } from '@/test/TestRouter'
 import { NoticeDetailPage } from './NoticeDetailPage'
 
 vi.mock('@/api/notices', () => ({
@@ -51,6 +51,9 @@ describe('공지 상세', () => {
   it('제목과 본문을 렌더하고 줄바꿈을 보존한다', async () => {
     renderDetail('1')
 
+    expect(
+      document.querySelector('[data-detail-surface="notice"]'),
+    ).toBeInTheDocument()
     expect(
       await screen.findByRole('heading', { name: '있는 공지' }),
     ).toBeInTheDocument()

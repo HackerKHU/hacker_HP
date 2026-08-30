@@ -432,7 +432,7 @@ describe('회원 관리 픽스처', () => {
 
     const page = await fixtureAdminUsers({ status: 'PENDING', size: 100 })
 
-    // 이런 계정이 없으면 "선택되지 않는다"는 화면 규칙을 확인할 수가 없다.
+    // 이런 계정이 있어야 행별 승인과 선택 활성화의 실패 경로를 함께 확인할 수 있다.
     expect(page.content.some((user) => user.appliedAt === null)).toBe(true)
     expect(page.content.some((user) => user.appliedAt !== null)).toBe(true)
   })
@@ -479,6 +479,87 @@ describe('회원 관리 픽스처', () => {
     expect(twice.approved).toEqual([other.id])
     expect(twice.failed).toEqual([])
     expect(approved?.approvedAt).not.toBeNull()
+  })
+
+  it('거부는 계정을 명단에 남기고 신청 정보만 비워 미승인 필터로 옮긴다', async () => {
+    const { fixtureAdminUsers, fixtureRejectUsers } =
+      await loadFixtures('admin')
+    const pending = await fixtureAdminUsers({
+      status: 'PENDING',
+      applied: true,
+      size: 100,
+    })
+    const applicant = pending.content[0]
+    if (!applicant) throw new Error('거부할 신청 픽스처가 없다')
+
+    const result = await fixtureRejectUsers([applicant.id, applicant.id])
+
+    expect(result).toEqual({ rejected: [applicant.id], failed: [] })
+    const allPending = await fixtureAdminUsers({
+      status: 'PENDING',
+      size: 100,
+    })
+    const reset = allPending.content.find((user) => user.id === applicant.id)
+    expect(reset).toMatchObject({
+      id: applicant.id,
+      email: applicant.email,
+      name: applicant.name,
+      status: 'PENDING',
+      role: 'USER',
+      studentNo: null,
+      department: null,
+      appliedAt: null,
+      approvedAt: null,
+      deactivatedAt: null,
+    })
+
+    const applied = await fixtureAdminUsers({
+      status: 'PENDING',
+      applied: true,
+      size: 100,
+    })
+    expect(applied.content.map((user) => user.id)).not.toContain(applicant.id)
+    const unapplied = await fixtureAdminUsers({
+      status: 'PENDING',
+      applied: false,
+      size: 100,
+    })
+    expect(unapplied.content.map((user) => user.id)).toContain(applicant.id)
+
+    // 이미 미승인이면 목표 상태이므로 같은 id를 멱등 성공으로 돌려준다.
+    await expect(fixtureRejectUsers([applicant.id])).resolves.toEqual({
+      rejected: [applicant.id],
+      failed: [],
+    })
+  })
+
+  it('거부 fixture도 신청 정보 세 필드 밖의 값을 정규화하지 않는다', async () => {
+    const { fixtureAdminUsers, fixtureRejectUsers } =
+      await loadFixtures('admin')
+    const pending = await fixtureAdminUsers({
+      status: 'PENDING',
+      applied: true,
+      size: 100,
+    })
+    const applicant = pending.content[0]
+    if (!applicant) throw new Error('거부할 신청 픽스처가 없다')
+    applicant.role = 'ADMIN'
+    applicant.approvedAt = '2026-08-01T00:00:00Z'
+    applicant.deactivatedAt = '2026-08-02T00:00:00Z'
+
+    await fixtureRejectUsers([applicant.id])
+
+    const after = await fixtureAdminUsers({ status: 'PENDING', size: 100 })
+    const reset = after.content.find((user) => user.id === applicant.id)
+    expect(reset).toMatchObject({
+      role: 'ADMIN',
+      status: 'PENDING',
+      approvedAt: '2026-08-01T00:00:00Z',
+      deactivatedAt: '2026-08-02T00:00:00Z',
+      studentNo: null,
+      department: null,
+      appliedAt: null,
+    })
   })
 
   it('검색은 이름·학번·이메일을 함께 본다', async () => {
@@ -580,71 +661,158 @@ describe('회원 관리 픽스처', () => {
     expect(overlap).toEqual([])
   })
 
-  /*
-   * 2-2 §2-2-7 MUST — 마지막 활성 관리자는 자기 자신을 정지할 수 없다. 화면은 활성
-   * 관리자가 몇 명인지 모르므로 이 판단을 하지 않는다. 픽스처가 서버처럼 거부해야
-   * 그 실패 화면을 만들 수 있다.
-   */
-  it('마지막 활성 관리자가 되면 자기 정지가 거부된다', async () => {
+  it('관리자는 수와 본인 여부와 무관하게 권한 회수 전 정지가 거부된다', async () => {
     const { fixtureAdminUsers, fixtureUpdateUserStatus, ApiError } =
       await loadFixtures('admin')
+    const admins = await fixtureAdminUsers({ role: 'ADMIN', size: 100 })
+    expect(admins.content.length).toBeGreaterThan(1)
 
-    const all = await fixtureAdminUsers({ role: 'ADMIN', size: 100 })
-    const others = all.content.filter((user) => user.id !== 2)
-    // 본인 말고 다른 활성 관리자를 전부 정지시켜 "마지막 한 명" 상태를 만든다.
-    for (const other of others) {
-      await fixtureUpdateUserStatus(other.id, 'SUSPENDED')
-    }
-
-    const error = await fixtureUpdateUserStatus(2, 'SUSPENDED').catch(
-      (caught: unknown) => caught,
-    )
+    const error = await fixtureUpdateUserStatus(
+      admins.content[0].id,
+      'SUSPENDED',
+    ).catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(ApiError)
     expect((error as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
-    const after = await fixtureAdminUsers({ size: 100 })
-    expect(after.content.find((user) => user.id === 2)?.status).toBe('ACTIVE')
+    expect((error as Error).message).toContain('권한을 회수')
   })
 
-  it('활성 관리자가 둘 이상이면 자기 정지가 허용된다', async () => {
-    const { fixtureUpdateUserStatus } = await loadFixtures('admin')
-
-    // 명단에 활성 관리자가 셋(본인 + 둘) 있으므로 그대로 시도한다.
-    const updated = await fixtureUpdateUserStatus(2, 'SUSPENDED')
-
-    expect(updated.status).toBe('SUSPENDED')
-  })
-
-  /*
-   * 2-2 §2-2-3 MUST — 정지된 회원은 **이미 로그인된 세션도 다음 요청에서 차단**된다.
-   *
-   * 픽스처가 본인을 정지하고도 세션을 ACTIVE ADMIN으로 계속 돌려주면, 정지된 관리자가
-   * 관리 화면을 계속 쓰는 상태를 화면에서 확인할 수 없다 — 계약보다 무른 픽스처다.
-   */
-  it('본인을 정지하면 다음 세션 조회가 정지 상태를 돌려준다', async () => {
-    const { fixtureMe, fixtureUpdateUserStatus } = await loadFixtures('admin')
-
-    const before = await signedIn(fixtureMe)
-    expect(before.status).toBe('ACTIVE')
-
-    await fixtureUpdateUserStatus(before.id, 'SUSPENDED')
-
-    const after = await signedIn(fixtureMe)
-    expect(after.id).toBe(before.id)
-    expect(after.status).toBe('SUSPENDED')
-  })
-
-  it('정지된 관리자는 회원 목록도 더 볼 수 없다', async () => {
-    const { fixtureMe, fixtureUpdateUserStatus, fixtureAdminUsers, ApiError } =
+  it('선택 비활성화는 ACTIVE·SUSPENDED USER를 내리고 동일한 시각을 남긴다', async () => {
+    const { fixtureAdminUsers, fixtureDeactivateUsers } =
       await loadFixtures('admin')
+    const all = await fixtureAdminUsers({ size: 100 })
+    const active = all.content.find(
+      (user) => user.role === 'USER' && user.status === 'ACTIVE',
+    )
+    const suspended = all.content.find(
+      (user) => user.role === 'USER' && user.status === 'SUSPENDED',
+    )
+    const admin = all.content.find((user) => user.role === 'ADMIN')
+    if (!active || !suspended || !admin)
+      throw new Error('픽스처 명단이 부족하다')
 
-    const me = await signedIn(fixtureMe)
-    await fixtureUpdateUserStatus(me.id, 'SUSPENDED')
+    const result = await fixtureDeactivateUsers([
+      admin.id,
+      active.id,
+      suspended.id,
+      admin.id,
+      999999,
+    ])
 
-    const error = await fixtureAdminUsers().catch((caught: unknown) => caught)
+    expect(result).toEqual({
+      deactivated: [active.id, suspended.id],
+      failed: [
+        { userId: admin.id, reason: 'NOT_ACTIVE_USER' },
+        { userId: 999999, reason: 'NOT_FOUND' },
+      ],
+    })
+    await expect(fixtureDeactivateUsers([active.id])).resolves.toEqual({
+      deactivated: [],
+      failed: [{ userId: active.id, reason: 'NOT_ACTIVE_USER' }],
+    })
 
-    expect(error).toBeInstanceOf(ApiError)
-    expect((error as InstanceType<typeof ApiError>).code).toBe('SUSPENDED')
+    const changed = await fixtureAdminUsers({ status: 'INACTIVE', size: 100 })
+    const activeAfter = changed.content.find((user) => user.id === active.id)
+    const suspendedAfter = changed.content.find(
+      (user) => user.id === suspended.id,
+    )
+    expect(activeAfter).toMatchObject({ status: 'INACTIVE' })
+    expect(suspendedAfter).toMatchObject({ status: 'INACTIVE' })
+    expect(activeAfter?.deactivatedAt).toBeTruthy()
+    expect(suspendedAfter?.deactivatedAt).toBe(activeAfter?.deactivatedAt)
+  })
+
+  it.each(['INACTIVE', 'SUSPENDED'] as const)(
+    '%s USER를 관리자로 지정하면 ACTIVE ADMIN으로 끝나고 비활성화 시각을 지운다',
+    async (status) => {
+      const { fixtureAdminUsers, fixtureUpdateUserRole } =
+        await loadFixtures('admin')
+      const page = await fixtureAdminUsers({ status, role: 'USER', size: 100 })
+      const target = page.content[0]
+      if (!target) throw new Error(`${status} USER 픽스처가 없다`)
+
+      const result = await fixtureUpdateUserRole(target.id, 'ADMIN')
+
+      expect(result).toMatchObject({
+        id: target.id,
+        status: 'ACTIVE',
+        role: 'ADMIN',
+        deactivatedAt: null,
+      })
+    },
+  )
+
+  it('일괄 활성화는 혼합 상태와 멱등 processed를 재현한다', async () => {
+    const { fixtureAdminUsers, fixtureBulkUpdateUserStatus } =
+      await loadFixtures('admin')
+    const all = await fixtureAdminUsers({ size: 100 })
+    const active = all.content.find((user) => user.status === 'ACTIVE')
+    const inactive = all.content.find((user) => user.status === 'INACTIVE')
+    const unapplied = all.content.find(
+      (user) => user.status === 'PENDING' && user.appliedAt === null,
+    )
+    if (!active || !inactive || !unapplied)
+      throw new Error('픽스처 명단이 부족하다')
+
+    await expect(
+      fixtureBulkUpdateUserStatus(
+        [active.id, unapplied.id, inactive.id, 999999],
+        'ACTIVE',
+      ),
+    ).resolves.toEqual({
+      targetStatus: 'ACTIVE',
+      processed: [active.id, inactive.id],
+      failed: [
+        { userId: unapplied.id, reason: 'NOT_APPLIED' },
+        { userId: 999999, reason: 'NOT_FOUND' },
+      ],
+    })
+  })
+
+  it('일괄 정지는 관리자·PENDING 실패와 USER 멱등을 재현한다', async () => {
+    const { fixtureAdminUsers, fixtureBulkUpdateUserStatus } =
+      await loadFixtures('admin')
+    const all = await fixtureAdminUsers({ size: 100 })
+    const admin = all.content.find((user) => user.role === 'ADMIN')
+    const pending = all.content.find((user) => user.status === 'PENDING')
+    const suspended = all.content.find(
+      (user) => user.role === 'USER' && user.status === 'SUSPENDED',
+    )
+    if (!admin || !pending || !suspended)
+      throw new Error('픽스처 명단이 부족하다')
+
+    await expect(
+      fixtureBulkUpdateUserStatus(
+        [admin.id, suspended.id, pending.id],
+        'SUSPENDED',
+      ),
+    ).resolves.toEqual({
+      targetStatus: 'SUSPENDED',
+      processed: [suspended.id],
+      failed: [
+        {
+          userId: admin.id,
+          reason: 'ADMIN_SUSPEND_REQUIRES_ROLE_REVOCATION',
+        },
+        { userId: pending.id, reason: 'PENDING_NOT_ALLOWED' },
+      ],
+    })
+  })
+
+  it('선택 상태 fixture는 validation과 403을 성공으로 바꾸지 않는다', async () => {
+    const admin = await loadFixtures('admin')
+    const validation = await admin
+      .fixtureBulkUpdateUserStatus([], 'ACTIVE')
+      .catch((caught: unknown) => caught)
+    expect(validation).toBeInstanceOf(admin.ApiError)
+    expect((validation as InstanceType<typeof admin.ApiError>).status).toBe(400)
+
+    const user = await loadFixtures('user')
+    const forbidden = await user
+      .fixtureDeactivateUsers([1])
+      .catch((caught: unknown) => caught)
+    expect(forbidden).toBeInstanceOf(user.ApiError)
+    expect((forbidden as InstanceType<typeof user.ApiError>).status).toBe(403)
   })
 })
 
@@ -702,6 +870,71 @@ describe('자료 픽스처', () => {
     expect(reflected?.bookmarked).toBe(true)
     expect(reflected?.viewCount).toBe(detail.viewCount)
   })
+
+  it.each(['SPRING', 'SUMMER', 'FALL', 'WINTER'] as const)(
+    '%s 자료가 실제로 있고 학기 필터 결과에는 그 값만 남는다',
+    async (semester) => {
+      const { fixtureNotes } = await loadFixtures('user')
+
+      const page = await fixtureNotes({ semester, size: 100 })
+
+      expect(page.content.length).toBeGreaterThan(0)
+      expect(new Set(page.content.map((note) => note.semester))).toEqual(
+        new Set([semester]),
+      )
+    },
+  )
+
+  it.each(['SUMMER', 'WINTER'] as const)(
+    '등록 픽스처가 %s를 그대로 보존한다',
+    async (semester) => {
+      const { fixtureCreateNote } = await loadFixtures('user')
+
+      const created = await fixtureCreateNote({
+        category: 'SUBJECT',
+        title: `${semester} 자료`,
+        subjectName: '운영체제',
+        professor: null,
+        year: 2026,
+        semester,
+        examType: null,
+        files: [{ key: 'notes/uploads/1/a.pdf', originalName: 'a.pdf' }],
+      })
+
+      expect(created.semester).toBe(semester)
+    },
+  )
+
+  it.each(['SUMMER', 'WINTER'] as const)(
+    '수정 픽스처가 %s를 그대로 보존한다',
+    async (semester) => {
+      const { fixtureCreateNote, fixtureUpdateNote } =
+        await loadFixtures('user')
+      const created = await fixtureCreateNote({
+        category: 'SUBJECT',
+        title: '수정할 자료',
+        subjectName: '운영체제',
+        professor: null,
+        year: 2026,
+        semester: 'SPRING',
+        examType: null,
+        files: [{ key: 'notes/uploads/1/a.pdf', originalName: 'a.pdf' }],
+      })
+
+      const updated = await fixtureUpdateNote(created.id, {
+        category: created.category,
+        title: created.title,
+        subjectName: created.subjectName,
+        professor: created.professor,
+        year: created.year,
+        semester,
+        examType: created.examType,
+        files: created.files.map((file) => ({ fileId: file.id })),
+      })
+
+      expect(updated.semester).toBe(semester)
+    },
+  )
 
   /* 검색어와 필터는 AND로 함께 걸린다 (spec §2-1-1 MUST). */
   it('검색어와 필터를 함께 적용한다', async () => {
@@ -1020,9 +1253,9 @@ describe('활동사진 픽스처', () => {
 
   /*
    * **일부가 실패해도 성공 응답이다** (계약 §3-2-5). 픽스처가 전부 성공시키면 화면이
-   * `failed`를 읽는지 확인할 수 없다 — 그래서 2장 이상이면 마지막 한 장을 실패시킨다.
+   * `failed`를 읽는지 확인할 수 없다 — 그래서 2장이면 마지막 한 장을 실패시킨다.
    */
-  it('두 장 이상 등록하면 일부 실패가 함께 온다', async () => {
+  it('두 장을 등록하면 마지막 한 장의 실패가 함께 온다', async () => {
     const { fixtureRegisterPhotos } = await loadFixtures('admin')
 
     const result = await fixtureRegisterPhotos([
@@ -1033,6 +1266,22 @@ describe('활동사진 픽스처', () => {
     expect(result.registered).toHaveLength(1)
     expect(result.failed).toHaveLength(1)
     expect(result.failed[0].key).toBe('photos/uploads/b.jpg')
+  })
+
+  it('세 장 이상 등록하면 마지막 두 key가 서로 다른 실패 사유에 연결된다', async () => {
+    const { fixtureRegisterPhotos } = await loadFixtures('admin')
+
+    const result = await fixtureRegisterPhotos([
+      { key: 'photos/uploads/a.jpg', caption: '성공' },
+      { key: 'photos/uploads/b.jpg', caption: '큼' },
+      { key: 'photos/uploads/c.jpg', caption: '깨짐' },
+    ])
+
+    expect(result.registered).toHaveLength(1)
+    expect(result.failed).toEqual([
+      { key: 'photos/uploads/b.jpg', reason: 'FILE_TOO_LARGE' },
+      { key: 'photos/uploads/c.jpg', reason: 'UNSUPPORTED_FILE_TYPE' },
+    ])
   })
 
   /* **업로더는 인증 주체로만 정한다** (계약 §3-2-5 MUST) — 본문으로 받지 않는다. */

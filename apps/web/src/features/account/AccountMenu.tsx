@@ -54,17 +54,10 @@ export function AccountMenu({
   redirectTo?: string
 }) {
   // 로그아웃 로직은 두 헤더가 함께 쓴다. 복사하지 않는다.
-  const { logout, failed } = useLogout(redirectTo)
+  const { logout } = useLogout(redirectTo)
 
   return (
     <>
-      {/* 토스트 같은 알림 수단이 아직 없다. 사용자가 실패를 알고 다시 누를 수 있으면 충분하다. */}
-      {failed && (
-        <p role="alert" className="text-sm text-muted-foreground">
-          로그아웃하지 못했습니다. 다시 시도해 주세요.
-        </p>
-      )}
-
       {/*
        * **`modal={false}`다.** 기본값(모달)은 열려 있는 동안 페이지 나머지에 `aria-hidden`을
        * 걸고 스크롤을 잠근다 — 항목 둘짜리 메뉴에는 과하고, 스크린리더에는 그동안 화면이
@@ -79,7 +72,12 @@ export function AccountMenu({
           열린 뒤 화살표로 항목을 옮기고 Escape로 닫는다. 직접 만들지 않는 이유가 이것이다.
         */}
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="계정 메뉴">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-11 lg:size-9"
+            aria-label="계정 메뉴"
+          >
             <UserRound />
           </Button>
         </DropdownMenuTrigger>

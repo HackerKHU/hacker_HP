@@ -119,7 +119,8 @@ class PostIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.content[0].id").value(id))
         .andExpect(jsonPath("$.content[0].title").value("이번 학기 스터디 모집합니다"))
         .andExpect(jsonPath("$.content[0].author.id").value(member.getId()))
-        .andExpect(jsonPath("$.content[0].author.name").value("김부원"));
+        // 표시 이름이라 학번 끝 두 자리가 붙는다 (#301, 3-2 §3-2-2).
+        .andExpect(jsonPath("$.content[0].author.name").value("김부원01"));
 
     mockMvc
         .perform(sessions.as(member, get(POSTS + "/" + id)))
@@ -207,7 +208,8 @@ class PostIntegrationTest extends AbstractIntegrationTest {
                         .formatted(other.getId(), other.getId())))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.author.id").value(member.getId()))
-        .andExpect(jsonPath("$.author.name").value("김부원"));
+        // 표시 이름이라 학번 끝 두 자리가 붙는다 (#301, 3-2 §3-2-2).
+        .andExpect(jsonPath("$.author.name").value("김부원01"));
   }
 
   /** 쓰기에는 CSRF 토큰이 필요하다 (§3-2-3). */

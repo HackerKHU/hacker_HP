@@ -10,6 +10,7 @@ import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.testsupport.auth.TestSessions.SignedIn;
+import org.hackerkhu.testsupport.web.ResponseCookies;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -74,11 +75,6 @@ class AuthenticationBindingIntegrationTest extends AbstractIntegrationTest {
     return sessions.token(user);
   }
 
-  private static boolean expired(MvcResult result, String name) {
-    Cookie cookie = result.getResponse().getCookie(name);
-    return cookie != null && cookie.getMaxAge() == 0;
-  }
-
   @Test
   void matchingCredentialsPassThroughTheWholeChain() throws Exception {
     SignedIn signedIn = sessions.signIn(alice);
@@ -106,8 +102,8 @@ class AuthenticationBindingIntegrationTest extends AbstractIntegrationTest {
             .andReturn();
 
     assertThat(result.getResponse().getContentAsString()).isEmpty();
-    assertThat(expired(result, "ACCESS_TOKEN")).isTrue();
-    assertThat(expired(result, SESSION_COOKIE)).isTrue();
+    assertThat(ResponseCookies.discarded(result, "ACCESS_TOKEN")).isTrue();
+    assertThat(ResponseCookies.discarded(result, SESSION_COOKIE)).isTrue();
     assertThat(bobsSession.storedInRepository()).isFalse();
   }
 
@@ -128,8 +124,8 @@ class AuthenticationBindingIntegrationTest extends AbstractIntegrationTest {
             .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
             .andReturn();
 
-    assertThat(expired(result, "ACCESS_TOKEN")).isTrue();
-    assertThat(expired(result, SESSION_COOKIE)).isTrue();
+    assertThat(ResponseCookies.discarded(result, "ACCESS_TOKEN")).isTrue();
+    assertThat(ResponseCookies.discarded(result, SESSION_COOKIE)).isTrue();
     assertThat(bobsSession.storedInRepository()).isFalse();
   }
 

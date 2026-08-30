@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import jakarta.servlet.http.Cookie;
 import java.util.List;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.audit.entity.AdminAction;
@@ -17,6 +16,7 @@ import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.testsupport.auth.TestSessions.SignedIn;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
+import org.hackerkhu.testsupport.web.ResponseCookies;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -71,11 +71,6 @@ class AuthWithdrawalIntegrationTest extends AbstractIntegrationTest {
     return mockMvc.perform(Csrf.with(signedIn.on(delete(ME)))).andReturn();
   }
 
-  private static boolean expired(MvcResult result, String name) {
-    Cookie cookie = result.getResponse().getCookie(name);
-    return cookie != null && cookie.getMaxAge() == 0;
-  }
-
   private List<AdminActionLog> historyOf(Long userId) {
     return actions.findAll().stream().filter(a -> a.getTargetId().equals(userId)).toList();
   }
@@ -110,7 +105,7 @@ class AuthWithdrawalIntegrationTest extends AbstractIntegrationTest {
 
     assertThat(result.getResponse().getStatus()).isEqualTo(204);
     assertThat(signedIn.storedInRepository()).as("응답을 내보낼 때 되살아나면 안 된다").isFalse();
-    assertThat(expired(result, "ACCESS_TOKEN")).as("토큰 쿠키도 버린다").isTrue();
+    assertThat(ResponseCookies.discarded(result, "ACCESS_TOKEN")).as("토큰 쿠키도 버린다").isTrue();
   }
 
   /** T-373. <b>다른 기기의 세션</b>도 남지 않는다 — 저장소의 세션을 전부 폐기한다. */

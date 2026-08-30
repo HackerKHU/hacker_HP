@@ -10,6 +10,7 @@ import {
   setBookmark,
 } from '@/api/notes'
 import { isInactive, useSession } from '@/auth/session'
+import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,11 +51,11 @@ export function NoteDetailPage() {
   const navigate = useNavigate()
   const session = useSession()
   const { state, reportApiError } = session
+  const alert = useLiveAlert()
 
   const [note, setNote] = useState<NoteDetail | null>(null)
   const [status, setStatus] = useState<Status>('loading')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   /**
    * 한 상세 진입에서 시작한 요청. 개발 StrictMode는 effect를 setup → cleanup → setup으로
    * 다시 검증하므로, cleanup만으로는 이미 서버에서 오른 조회수를 되돌릴 수 없다.
@@ -109,7 +110,6 @@ export function NoteDetailPage() {
    */
   async function handleDownload(fileId: number) {
     setBusy(true)
-    setError(null)
     try {
       const issued = await downloadUrl(Number(id), fileId)
       /*
@@ -118,12 +118,13 @@ export function NoteDetailPage() {
        */
       window.open(issued.url, '_blank', 'noopener,noreferrer')
     } catch (caught: unknown) {
-      reportApiError(caught)
-      setError(
-        caught instanceof ApiError
-          ? caught.message
-          : '내려받기 주소를 받지 못했습니다. 다시 시도해 주세요.',
-      )
+      if (!reportApiError(caught)) {
+        alert.error(
+          caught instanceof ApiError
+            ? caught.message
+            : '내려받기 주소를 받지 못했습니다. 다시 시도해 주세요.',
+        )
+      }
     } finally {
       setBusy(false)
     }
@@ -134,7 +135,6 @@ export function NoteDetailPage() {
     if (!note) return
     const next = !note.bookmarked
     setBusy(true)
-    setError(null)
     try {
       await setBookmark(note.id, next)
       /*
@@ -144,9 +144,13 @@ export function NoteDetailPage() {
       setNote((current) =>
         current?.id === note.id ? { ...current, bookmarked: next } : current,
       )
+      alert.success(
+        note.bookmarked ? '즐겨찾기에서 뺐습니다.' : '즐겨찾기에 담았습니다.',
+      )
     } catch (caught: unknown) {
-      reportApiError(caught)
-      setError('즐겨찾기를 바꾸지 못했습니다. 다시 시도해 주세요.')
+      if (!reportApiError(caught)) {
+        alert.error('즐겨찾기를 바꾸지 못했습니다. 다시 시도해 주세요.')
+      }
     } finally {
       setBusy(false)
     }
@@ -156,18 +160,19 @@ export function NoteDetailPage() {
   async function handleDelete() {
     if (!note) return
     setBusy(true)
-    setError(null)
     try {
       await remove(note.id)
+      alert.success('자료를 삭제했습니다.', { persistOnNavigation: true })
       // 지운 자료의 상세에 남아 있으면 다음 조회가 404다. 목록으로 보내고 기록도 대체한다.
       navigate(categoryPath(note.category), { replace: true })
     } catch (caught: unknown) {
-      reportApiError(caught)
-      setError(
-        caught instanceof ApiError
-          ? caught.message
-          : '자료를 삭제하지 못했습니다. 다시 시도해 주세요.',
-      )
+      if (!reportApiError(caught)) {
+        alert.error(
+          caught instanceof ApiError
+            ? caught.message
+            : '자료를 삭제하지 못했습니다. 다시 시도해 주세요.',
+        )
+      }
     } finally {
       setBusy(false)
     }
@@ -179,7 +184,7 @@ export function NoteDetailPage() {
     note !== null && state.kind === 'active' && canEdit(note, state.user)
 
   return (
-    <article>
+    <article className="min-h-[32rem]" data-detail-surface="note">
       {/* 목록으로 돌아가는 진입점. 뒤로가기만 믿지 않는다. */}
       <Link
         to={backTo}
@@ -293,12 +298,6 @@ export function NoteDetailPage() {
             <dt className="text-muted-foreground">수정일</dt>
             <dd>{formatDate(note.updatedAt)}</dd>
           </dl>
-
-          {error && (
-            <p role="alert" className="mt-6 text-sm text-muted-foreground">
-              {error}
-            </p>
-          )}
 
           <h2 className="mt-10 text-sm font-medium">
             첨부파일 {note.files.length}개

@@ -58,7 +58,7 @@ export function PostDetailPage() {
      * 공지 상세와 같은 판단이다 (`apps/web/README.md` "화면 폭과 여백"): 남이 쓴 글은
      * 길이도 형태도 우리가 모르고, 대부분 몇 줄이라 좁히면 왼쪽에 쪼그라든다.
      */
-    <article>
+    <article className="min-h-[32rem]" data-detail-surface="post">
       {/* 목록으로 돌아가는 진입점. 뒤로가기만 믿지 않는다. */}
       <Link
         to="/posts"

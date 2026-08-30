@@ -49,6 +49,7 @@ function Probe() {
   const session = useSession()
   const applied = hasApplied(session)
   const [refreshError, setRefreshError] = useState('')
+  const [reportHandled, setReportHandled] = useState('')
   return (
     <>
       <span data-testid="applied">{String(applied)}</span>
@@ -58,6 +59,7 @@ function Probe() {
         {session.state.kind === 'active' ? session.state.user.status : '-'}
       </span>
       <span data-testid="refresh-error">{refreshError}</span>
+      <span data-testid="report-handled">{reportHandled}</span>
       <button
         type="button"
         onClick={() => {
@@ -73,7 +75,9 @@ function Probe() {
       </button>
       <button
         type="button"
-        onClick={() => session.reportApiError(reported.error)}
+        onClick={() =>
+          setReportHandled(String(session.reportApiError(reported.error)))
+        }
       >
         오류 보고
       </button>
@@ -150,6 +154,7 @@ describe('reportApiError() 경로', () => {
       fireEvent.click(screen.getByRole('button', { name: '오류 보고' }))
 
       await waitFor(() => expect(kind).toHaveTextContent(expected))
+      expect(screen.getByTestId('report-handled')).toHaveTextContent('true')
     },
   )
 
@@ -169,6 +174,7 @@ describe('reportApiError() 경로', () => {
 
     await waitFor(() => expect(kind).toHaveTextContent('active'))
     expect(kind).toHaveTextContent('active')
+    expect(screen.getByTestId('report-handled')).toHaveTextContent('false')
   })
 })
 

@@ -1,9 +1,9 @@
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ApiError } from '@/api/client'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter } from '@/test/TestRouter'
 
 vi.mock('@/api/auth', () => ({
   getMe: () =>
@@ -59,6 +59,15 @@ describe('이용약관', () => {
     // 서비스 중단 고지
     expect(screen.getByText(/최소 30일 전에 공지로/)).toBeInTheDocument()
     expect(screen.getByText(/부터 시행합니다/)).toBeInTheDocument()
+  })
+
+  it('가입 거부 뒤 같은 미승인 계정으로 다시 신청할 수 있다고 밝힌다', async () => {
+    await openTerms()
+
+    expect(
+      screen.getByText(/신청서 정보는 지우고 계정은 미승인 상태로 유지/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/같은 계정으로 다시 신청/)).toBeInTheDocument()
   })
 
   /*

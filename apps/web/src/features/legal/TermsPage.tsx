@@ -1,5 +1,4 @@
-import { Link } from 'react-router-dom'
-import { CLUB } from '@/features/landing/content'
+import { LegalBackLink } from './LegalBackLink'
 import { TERMS_SECTIONS, TERMS_UPDATED } from './termsContent'
 
 /**
@@ -21,12 +20,7 @@ export function TermsPage() {
        * 줄을 어디서 바꿀지는 브라우저가 정한다. 문자열에는 줄바꿈을 넣지 않는다.
        */}
       <div className="mx-auto w-full max-w-3xl px-6 py-20">
-        <Link
-          to="/"
-          className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          ← {CLUB.name}
-        </Link>
+        <LegalBackLink />
 
         <h1 className="mt-8 text-3xl font-semibold tracking-tight">이용약관</h1>
 
@@ -58,16 +52,6 @@ export function TermsPage() {
             </dd>
           </div>
         </dl>
-
-        {/* 두 문서는 서로를 참조한다. 4항이 방침의 보관 항목을 가리키므로 길이 있어야 한다. */}
-        <p className="mt-16 text-sm text-muted-foreground">
-          <Link
-            to="/privacy"
-            className="transition-colors hover:text-foreground"
-          >
-            개인정보처리방침
-          </Link>
-        </p>
       </div>
     </div>
   )

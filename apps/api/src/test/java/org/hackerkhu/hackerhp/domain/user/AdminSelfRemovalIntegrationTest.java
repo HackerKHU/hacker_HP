@@ -5,13 +5,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import jakarta.servlet.http.Cookie;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.testsupport.auth.TestSessions.SignedIn;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
+import org.hackerkhu.testsupport.web.ResponseCookies;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,11 +59,6 @@ class AdminSelfRemovalIntegrationTest extends AbstractIntegrationTest {
     userRepository.deleteAll();
   }
 
-  private static boolean expired(MvcResult result, String name) {
-    Cookie cookie = result.getResponse().getCookie(name);
-    return cookie != null && cookie.getMaxAge() == 0;
-  }
-
   @Test
   void removingYourselfEndsTheCurrentSessionAndToken() throws Exception {
     MvcResult result =
@@ -75,7 +70,7 @@ class AdminSelfRemovalIntegrationTest extends AbstractIntegrationTest {
     assertThat(userRepository.existsById(admin.getId())).isFalse();
     // 응답을 내보낼 때 되살아나지 않는다.
     assertThat(signedIn.storedInRepository()).as("현재 세션이 되살아나면 안 된다").isFalse();
-    assertThat(expired(result, "ACCESS_TOKEN")).as("토큰 쿠키도 버린다").isTrue();
+    assertThat(ResponseCookies.discarded(result, "ACCESS_TOKEN")).as("토큰 쿠키도 버린다").isTrue();
   }
 
   /** 그 쿠키로는 더 이상 아무것도 열리지 않는다. */

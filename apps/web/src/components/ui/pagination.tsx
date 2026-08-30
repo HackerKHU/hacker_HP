@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils'
 function Pagination({ className, ...props }: React.ComponentProps<'nav'>) {
   return (
     <nav
-      aria-label="pagination"
+      aria-label="페이지네이션"
       data-slot="pagination"
       className={cn('mx-auto flex w-full justify-center', className)}
       {...props}
@@ -25,7 +25,10 @@ function PaginationContent({
   return (
     <ul
       data-slot="pagination-content"
-      className={cn('flex flex-row items-center gap-1', className)}
+      className={cn(
+        'flex flex-row flex-wrap items-center justify-center gap-1',
+        className,
+      )}
       {...props}
     />
   )
@@ -65,33 +68,41 @@ function PaginationLink({
 
 function PaginationPrevious({
   className,
+  label = '이전',
+  'aria-label': ariaLabel = '이전 페이지로 이동',
   ...props
-}: React.ComponentProps<typeof PaginationLink>) {
+}: React.ComponentProps<typeof PaginationLink> & {
+  label?: string
+}) {
   return (
     <PaginationLink
-      aria-label="Go to previous page"
+      aria-label={ariaLabel}
       size="default"
       className={cn('gap-1 px-2.5 sm:pl-2.5', className)}
       {...props}
     >
       <ChevronLeftIcon />
-      <span className="hidden sm:block">Previous</span>
+      <span className="hidden md:block">{label}</span>
     </PaginationLink>
   )
 }
 
 function PaginationNext({
   className,
+  label = '다음',
+  'aria-label': ariaLabel = '다음 페이지로 이동',
   ...props
-}: React.ComponentProps<typeof PaginationLink>) {
+}: React.ComponentProps<typeof PaginationLink> & {
+  label?: string
+}) {
   return (
     <PaginationLink
-      aria-label="Go to next page"
+      aria-label={ariaLabel}
       size="default"
       className={cn('gap-1 px-2.5 sm:pr-2.5', className)}
       {...props}
     >
-      <span className="hidden sm:block">Next</span>
+      <span className="hidden md:block">{label}</span>
       <ChevronRightIcon />
     </PaginationLink>
   )
@@ -109,7 +120,6 @@ function PaginationEllipsis({
       {...props}
     >
       <MoreHorizontalIcon className="size-4" />
-      <span className="sr-only">More pages</span>
     </span>
   )
 }

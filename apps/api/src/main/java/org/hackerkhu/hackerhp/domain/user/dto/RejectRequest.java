@@ -16,7 +16,7 @@ import java.util.List;
  */
 @Schema(description = "일괄 거부 요청")
 public record RejectRequest(
-    @Schema(description = "거부할 계정의 id. 최대 100개")
+    @Schema(description = "가입 신청을 거부해 미승인 상태로 되돌릴 계정의 id. 최대 100개")
         @NotEmpty(message = "거부할 회원을 선택해 주세요.")
         @Size(max = 100, message = "한 번에 100명까지 거부할 수 있습니다.")
         List<@NotNull(message = "거부할 회원을 선택해 주세요.") Long> userIds) {}

@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { CLUB } from '@/features/landing/content'
+import { MemoryRouter, Route, Routes } from '@/test/TestRouter'
 import { AppLayout } from './AppLayout'
 
 /*

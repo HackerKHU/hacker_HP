@@ -1,10 +1,10 @@
 import { render, screen } from '@testing-library/react'
 import { StrictMode } from 'react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { NoteDetail } from '@/api/notes'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, Route, Routes } from '@/test/TestRouter'
 import { NoteDetailPage } from './NoteDetailPage'
 
 const MEMBER: User = {
