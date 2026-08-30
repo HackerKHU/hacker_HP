@@ -162,6 +162,41 @@ describe('자료 목록', () => {
     ).toEqual(['시험 정리본', '과목 정리본'])
   })
 
+  it('모바일 카테고리 메뉴는 세 항목을 한 줄로 두고 44px 터치 높이를 지킨다', async () => {
+    renderList()
+
+    await screen.findByText('운영체제 중간고사 정리본')
+    const categories = screen.getByRole('navigation', {
+      name: '자료 카테고리',
+    })
+    expect(categories.className).toContain('min-w-0')
+    expect(categories.className).toContain('flex-nowrap')
+    expect(categories.className).toContain('gap-2')
+    expect(categories.className).toContain('sm:gap-1')
+
+    for (const category of within(categories).getAllByRole('link')) {
+      expect(category.className).toContain('min-h-11')
+      expect(category.className).toContain('shrink-0')
+      expect(category.className).toContain('whitespace-nowrap')
+      expect(category.className).toContain('px-1')
+      expect(category.className).toContain('sm:px-4')
+    }
+
+    const favorite = screen.getByRole('link', { name: '즐겨찾기' })
+    expect(favorite.className).toContain('min-h-11')
+    expect(favorite.className).toContain('shrink-0')
+    expect(favorite.className).toContain('whitespace-nowrap')
+    expect(favorite.className).toContain('px-1')
+    expect(favorite.className).toContain('sm:px-3')
+    expect(favorite.className).not.toContain('mb-2')
+    expect(favorite.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+
+    const row = categories.parentElement
+    expect(row?.className).toContain('flex-nowrap')
+    expect(row?.className).toContain('gap-1')
+    expect(row?.className).toContain('sm:gap-4')
+  })
+
   /*
    * **갈래가 URL에 남는다.** 탭을 경로가 아니라 쿼리에 두는 이유는 `/notes/:category`가
    * `/notes/123`(상세)까지 삼키기 때문이고, URL에 두는 이유는 새로고침·링크 공유에
@@ -486,9 +521,12 @@ describe('자료 목록', () => {
     renderList()
     await screen.findByText('운영체제 중간고사 정리본')
 
-    expect(
-      screen.getByRole('link', { name: /즐겨찾기만 보기/ }),
-    ).toHaveAttribute('href', '/notes?bookmarked=true')
+    const favorite = screen.getByRole('link', { name: '즐겨찾기' })
+    expect(favorite).toHaveAttribute('href', '/notes?bookmarked=true')
+    expect(favorite).not.toHaveAttribute('aria-current')
+    const star = favorite.querySelector('svg')
+    expect(star).toHaveAttribute('aria-hidden', 'true')
+    expect(star?.className.baseVal).not.toContain('fill-current')
   })
 
   /*
@@ -502,6 +540,13 @@ describe('자료 목록', () => {
     expect(api.bookmarkCalls).toEqual([{ page: 0, size: 20 }])
     // 목록 API는 부르지 않는다 — 두 번 조회하면 그만큼 낭비다.
     expect(api.queries).toEqual([])
+
+    const favorite = screen.getByRole('link', { name: '즐겨찾기' })
+    expect(favorite).toHaveAttribute('href', '/notes?category=EXAM')
+    expect(favorite).toHaveAttribute('aria-current', 'page')
+    const star = favorite.querySelector('svg')
+    expect(star).toHaveAttribute('aria-hidden', 'true')
+    expect(star?.className.baseVal).toContain('fill-current')
   })
 
   it('토글이 꺼져 있으면 목록 API만 부른다', async () => {
@@ -550,9 +595,10 @@ describe('자료 목록', () => {
     renderList('/notes?bookmarked=true')
     await screen.findByText('운영체제 중간고사 정리본')
 
-    expect(
-      screen.getByRole('link', { name: /즐겨찾기만 보기/ }),
-    ).toHaveAttribute('href', '/notes?category=EXAM')
+    expect(screen.getByRole('link', { name: '즐겨찾기' })).toHaveAttribute(
+      'href',
+      '/notes?category=EXAM',
+    )
   })
 
   it('불러오지 못하면 안내가 뜬다', async () => {

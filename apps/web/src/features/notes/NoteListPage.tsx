@@ -281,7 +281,7 @@ export function NoteListPage() {
        * 특히 시험 구분은 `SUBJECT`에 걸면 결과가 늘 0건이다. 단, 정렬은 갈래와
        * 무관하므로 유효한 비기본값을 보존한다.
        */}
-      <div className="mt-6 flex items-end justify-between gap-4 border-b border-border">
+      <div className="mt-6 flex flex-nowrap items-end justify-between gap-1 border-b border-border sm:gap-4">
         {/*
          * **담아둔 것만 보는 중에는 갈래 탭을 감춘다** (#261). `GET /bookmarks`는 갈래를
          * 가리지 않고 섞어 내려주므로, 탭을 남겨 두면 눌러도 아무 일이 없다 — 화면이
@@ -290,14 +290,17 @@ export function NoteListPage() {
         {onlyBookmarked ? (
           <span />
         ) : (
-          <nav aria-label="자료 카테고리" className="flex gap-1">
+          <nav
+            aria-label="자료 카테고리"
+            className="flex min-w-0 flex-nowrap gap-2 sm:gap-1"
+          >
             {(Object.keys(CATEGORY_LABEL) as Category[]).map((value) => (
               <Link
                 key={value}
                 to={categoryHref(value, sort)}
                 aria-current={value === category ? 'page' : undefined}
                 className={cn(
-                  '-mb-px border-b-2 px-4 py-2 text-sm transition-colors',
+                  '-mb-px flex min-h-11 shrink-0 items-center whitespace-nowrap border-b-2 px-1 py-2 text-sm transition-colors sm:px-4',
                   value === category
                     ? 'border-foreground font-medium text-foreground'
                     : 'border-transparent text-muted-foreground hover:text-foreground',
@@ -323,9 +326,9 @@ export function NoteListPage() {
           to={
             onlyBookmarked ? categoryPath(category) : '/notes?bookmarked=true'
           }
-          aria-pressed={onlyBookmarked}
+          aria-current={onlyBookmarked ? 'page' : undefined}
           className={cn(
-            'mb-2 flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors',
+            'flex min-h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-1 py-1.5 text-sm transition-colors sm:gap-1.5 sm:px-3',
             onlyBookmarked
               ? 'bg-accent font-medium text-foreground'
               : 'text-muted-foreground hover:text-foreground',
@@ -335,7 +338,7 @@ export function NoteListPage() {
             className={cn('size-4', onlyBookmarked && 'fill-current')}
             aria-hidden="true"
           />
-          즐겨찾기만 보기
+          즐겨찾기
         </Link>
       </div>
 
