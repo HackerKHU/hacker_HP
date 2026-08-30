@@ -14,6 +14,8 @@ import org.hackerkhu.hackerhp.domain.user.dto.AdminUserResponse;
 import org.hackerkhu.hackerhp.domain.user.dto.AdminUserSearch;
 import org.hackerkhu.hackerhp.domain.user.dto.ApproveRequest;
 import org.hackerkhu.hackerhp.domain.user.dto.ApproveResponse;
+import org.hackerkhu.hackerhp.domain.user.dto.BulkStatusChangeRequest;
+import org.hackerkhu.hackerhp.domain.user.dto.BulkStatusChangeResponse;
 import org.hackerkhu.hackerhp.domain.user.dto.ContentSummaryResponse;
 import org.hackerkhu.hackerhp.domain.user.dto.DeactivateRequest;
 import org.hackerkhu.hackerhp.domain.user.dto.DeactivateResponse;
@@ -30,6 +32,7 @@ import org.hackerkhu.hackerhp.domain.user.service.AdminUserRejectService;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserRoleService;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserService;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserStatusService;
+import org.hackerkhu.hackerhp.domain.user.service.BulkUserStatusService;
 import org.hackerkhu.hackerhp.domain.user.service.SemesterTransitionService;
 import org.hackerkhu.hackerhp.domain.user.service.UserContentSummaryService;
 import org.hackerkhu.hackerhp.domain.user.service.UserRemovalService;
@@ -77,6 +80,7 @@ public class AdminUserController {
   private final SemesterTransitionService semesterTransitionService;
   private final AdminUserApprovalService adminUserApprovalService;
   private final AdminUserStatusService adminUserStatusService;
+  private final BulkUserStatusService bulkUserStatusService;
   private final AdminUserRejectService adminUserRejectService;
   private final AdminUserRoleService adminUserRoleService;
   private final UserRemovalService userRemovalService;
@@ -88,6 +92,7 @@ public class AdminUserController {
       SemesterTransitionService semesterTransitionService,
       AdminUserApprovalService adminUserApprovalService,
       AdminUserStatusService adminUserStatusService,
+      BulkUserStatusService bulkUserStatusService,
       AdminUserRejectService adminUserRejectService,
       AdminUserRoleService adminUserRoleService,
       UserRemovalService userRemovalService,
@@ -97,6 +102,7 @@ public class AdminUserController {
     this.semesterTransitionService = semesterTransitionService;
     this.adminUserApprovalService = adminUserApprovalService;
     this.adminUserStatusService = adminUserStatusService;
+    this.bulkUserStatusService = bulkUserStatusService;
     this.adminUserRejectService = adminUserRejectService;
     this.adminUserRoleService = adminUserRoleService;
     this.userRemovalService = userRemovalService;
@@ -318,6 +324,67 @@ public class AdminUserController {
   public ReactivateResponse reactivate(
       @AuthenticationPrincipal Long requesterId, @Valid @RequestBody ReactivateRequest request) {
     return semesterTransitionService.reactivate(requesterId, request.userIds());
+  }
+
+  /** 선택 회원 일괄 활성화·정지 (spec 2-2 §2-2-3, #313). */
+  @Operation(
+      summary = "선택 회원 일괄 상태 변경",
+      description =
+          """
+          선택 id의 목표 상태를 `ACTIVE` 또는 `SUSPENDED`로 지정한다.
+          원본 배열은 1~100개의 양수 id만 받고, 검증 뒤 중복을 첫 등장만 남긴다.
+
+          **`processed`는 바뀐 id와 이미 목표 상태였던 id를 모두 담는다.** 항목별
+          실패는 `failed` 사유로 돌려주며 혼합 결과도 `200`이다. 두 배열은 각각
+          원본의 첫 등장 상대 순서를 유지한다.
+
+          `ACTIVE`는 제출 완료 `PENDING`을 승인하고, `INACTIVE`를 학기 복구하고,
+          `SUSPENDED`를 정지 해제한다. `SUSPENDED`는 일반 회원만 정지한다.
+          **관리자는 권한을 먼저 회수한 뒤 별도 요청으로 정지해야 한다.**
+          """)
+  @ApiResponse(
+      responseCode = "200",
+      description = "처리됨. 항목별 실패가 섞여 있을 수 있다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = BulkStatusChangeResponse.class)))
+  @ApiResponse(
+      responseCode = "400",
+      description =
+          "`VALIDATION_ERROR` — 본문·필수 필드가 없거나, id 배열이 비었거나 100개를 넘거나, id가 양수가 아니거나, status가 허용된 값이 아니다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description = "`FORBIDDEN` — `ADMIN`이 아니거나 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL`",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "500",
+      description =
+          "`INTERNAL_ERROR` — 일괄 정지가 세션 하나 이상에 반영되지 않았다. **DB 상태와 성공 이력은 커밋됐으므로 같은 요청을 재시도해 세션을 복구한다**",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @PatchMapping("/status")
+  @PreAuthorize("hasRole('ADMIN')")
+  public BulkStatusChangeResponse changeStatuses(
+      @AuthenticationPrincipal Long requesterId,
+      @Valid @RequestBody BulkStatusChangeRequest request) {
+    return bulkUserStatusService.change(requesterId, request.userIds(), request.status());
   }
 
   /**

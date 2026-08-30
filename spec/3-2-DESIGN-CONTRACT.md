@@ -793,6 +793,7 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 | POST | `/admin/users/reject` | ADMIN | 일괄 거부 — body: `{ "userIds": [1,2,3] }` |
 | POST | `/admin/users/deactivate` | ADMIN | **학기 전환 일괄 비활성화 — 조건 전원 또는 `userIds` 선택** |
 | POST | `/admin/users/reactivate` | ADMIN | 학기 복구 — body: `{ "userIds": [1,2,3] }` |
+| PATCH | `/admin/users/status` | ADMIN | 선택 회원 일괄 활성화·정지 — body: `{ "userIds": [1,2,3], "status": "ACTIVE" }` |
 | PATCH | `/admin/users/{id}/status` | ADMIN | 일반 회원의 `ACTIVE` ↔ `SUSPENDED`, `INACTIVE` → `SUSPENDED`. `ADMIN`은 먼저 `USER`로 권한 회수 |
 | PATCH | `/admin/users/{id}/role` | ADMIN | 권한 부여/회수 (본인 대상: 마지막 활성 관리자면 차단) |
 | GET | `/admin/users/{id}/content-summary` | ADMIN | 제거 확인 창이 쓰는 건수 — 그 회원이 남길 자료·공지·사진·게시글 |
@@ -877,6 +878,46 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 권한을 `USER`로 회수한 뒤 별도 정지는 성공한다. 서버가 두 조작을 자동으로 묶지 않으며 `REVOKE_ADMIN`·`SUSPEND` 감사와 세션 반영이 각각 남는다. 직접 정지 거절에는 role·status·세션·감사 변화가 없다.
 
 **회원 제거와 본인 탈퇴의 내부 선행 정지는 이 PATCH 정책의 대상이 아니다** (MUST). 계정 삭제 뒤 세션 폐기에 실패해도 접근을 차단하는 §2-2-4 안전 절차다. 공통 정책은 서비스 계층의 작은 컴포넌트로 두어 일괄 상태 변경(#313)이 대상별 잠금 후 재사용하되, User 엔티티나 DB CHECK에는 넣지 않는다.
+
+### 선택 회원 일괄 활성화·정지 (2026-08-30 확정, #313)
+
+```json
+요청  PATCH /admin/users/status
+      { "userIds": [41, 7, 41, 999], "status": "ACTIVE" }
+응답  200
+      { "targetStatus": "ACTIVE", "processed": [41, 7],
+        "failed": [{ "userId": 999, "reason": "NOT_FOUND" }] }
+```
+
+`status`는 `ACTIVE`·`SUSPENDED` 둘뿐이고 `INACTIVE`는 받지 않는다. 비활성화는 학기 전환 API의 몫이며, 여기에 더하면 `SUSPENDED → INACTIVE` 우회가 생긴다.
+
+**본문과 두 필드는 모두 필수다** (MUST). 본문 없음·JSON 최상위 `null`·`userIds` 누락·`null`·빈 배열·원본 101개 이상·요소 `null`·0·음수·`status` 누락·`null`·잘못된 값은 `400 VALIDATION_ERROR`다. 원본 100개는 허용한다. **상한을 중복 제거 전에 검증한다** — 같은 id 101개도 거절한다.
+
+검증 뒤 중복 id는 첫 등장만 남긴다. `processed`와 `failed`는 각자 원본의 첫 등장 상대 순서를 유지하고, 모든 id는 둘 중 하나에 한 번만 들어간다. **`processed`는 실제로 바뀐 id와 이미 목표 상태였던 멱등 id를 모두 담는다.** 혼합 부분 실패는 `200`이고 성공분을 되돌리지 않는다.
+
+| `reason` | 조건 |
+|---|---|
+| `NOT_FOUND` | 잠금할 대상 행이 없다 |
+| `NOT_APPLIED` | `ACTIVE` 요청의 `PENDING`이고 `applied_at IS NULL` |
+| `PENDING_NOT_ALLOWED` | `SUSPENDED` 요청의 모든 `PENDING` |
+| `ADMIN_SUSPEND_REQUIRES_ROLE_REVOCATION` | `SUSPENDED` 요청의 모든 `ADMIN` |
+
+`ADMIN` 정지 정책은 멱등 판정보다 먼저다. `ADMIN`/`SUSPENDED`도 마지막 reason으로 실패한다. 반면 `USER`/`SUSPENDED → SUSPENDED`와 모든 role의 `ACTIVE → ACTIVE`는 멱등 성공이다. 단건 `PATCH /admin/users/{id}/status`는 관리자 직접 정지에 계속 `403 FORBIDDEN`을 쓴다.
+
+| 목표 | 잠금 후 상태 | 처리 | 이력 |
+|---|---|---|---|
+| `ACTIVE` | 신청 완료 `PENDING` | 승인하고 `approved_at` 기록 | `APPROVE` |
+| `ACTIVE` | `INACTIVE` | 복구하고 `deactivated_at=NULL` | `REACTIVATE` |
+| `ACTIVE` | `SUSPENDED` | 정지 해제해 `ACTIVE` | `ACTIVATE` |
+| `SUSPENDED` | `USER` `ACTIVE`/`INACTIVE` | 정지하고 `deactivated_at=NULL` | `SUSPEND` |
+
+요청자 id와 선택 id의 합집합을 id 오름차순으로 잠그고, **잠긴 요청자가 여전히 활성 관리자인지를 대상 존재·상태·role 판정보다 먼저 재검증한다** (MUST). 잠긴 최신 값으로 처리하고 성공분을 한 `TransactionTemplate` 트랜잭션에 커밋한다. 항목별 업무 실패는 예외가 아니지만 DB·잠금 오류는 전체를 롤백한다.
+
+성공 전이만 대상별로 이력 한 행을 남긴다. 멱등·실패는 남기지 않는다. 한 요청의 모든 성공 전이는 잠금 안에서 잡은 같은 `occurredAt`을 쓰며, 응답 순서와 무관하게 target id 오름차순으로 한 번에 best-effort 저장한다.
+
+세션 반영은 커밋과 커넥션 반납 뒤에 `processed` 전체에 수행한다. `ACTIVE`는 전원을 끝까지 시도하고 실패를 기록하되 `200`을 유지한다. `SUSPENDED`는 `refreshReporting`으로 전원을 시도한 뒤 하나라도 실패하면 **상태와 성공 이력은 커밋한 채** `500 INTERNAL_ERROR`를 반환한다. 같은 요청을 재시도하면 이미 정지된 `USER`도 세션을 다시 맞추고 이력을 늘리지 않는다.
+
+기존 일괄 승인·학기 복구·단건 상태 변경의 요청·응답은 바뀌지 않는다. 새 서비스는 그 서비스들을 차례로 호출하지 않고, 엔티티 전이·관리자 정지 정책·세션 동기화·요청자 재검증만 재사용한다.
 
 ### 가입 거부 (2026-08-22 확정, #58)
 

@@ -122,6 +122,30 @@ T-02·T-32의 코드가 `FORBIDDEN`이 아닌 이유도 같다. **셋 다 같은
 | T-441 | 관리자 회원 제거·본인 탈퇴 | 내부 선행 정지를 거쳐 기존처럼 성공한다. 마지막 활성 관리자 보호와 `SUSPEND` → `REMOVE`/`WITHDRAW` 감사도 유지한다 |
 | T-442 | 관리자 직접 정지 요청을 동시에 여러 개 보냄 | 전부 정책 거절이고 변화·감사가 없다. 마지막 관리자 동시 보호는 권한 회수·삭제 동시성 사례가 계속 맡는다 |
 
+### 선택 회원 일괄 활성화·정지 (#313)
+
+| # | 조건 | 기대 |
+|---|---|---|
+| T-443 | 본문 없음·최상위 `null`·`userIds` 누락·`null`·빈 배열 | 모두 `400 VALIDATION_ERROR`, 어떤 행도 바뀌지 않는다 |
+| T-444 | 원본 id 101개, 같은 id 101번 | 중복 제거 전 상한으로 둘 다 `400`. 원본 100개는 허용 |
+| T-445 | id 요소 `null`·0·음수, `status` 누락·잘못된 값 | 모두 `400 VALIDATION_ERROR` |
+| T-446 | 역순·중복·없는 id가 섞인 요청 | 검증 뒤 중복은 첫 등장만 남기고, `processed`·`failed`는 각자 첫 등장 상대 순서를 유지한다. 잠금만 id 오름차순 |
+| T-447 | `ACTIVE` 혼합: 신청/미신청 `PENDING`, `INACTIVE`, `SUSPENDED`, `ACTIVE`, 없는 id | 각각 승인·`NOT_APPLIED`·복구·정지 해제·멱등·`NOT_FOUND`. 승인일과 `deactivated_at` 반영 |
+| T-448 | `SUSPENDED` 혼합: `USER` ACTIVE/INACTIVE/SUSPENDED, 제출/미제출 PENDING, ACTIVE/SUSPENDED ADMIN, 없는 id | 일반 회원만 정지·멱등. PENDING은 `PENDING_NOT_ALLOWED`, ADMIN은 `ADMIN_SUSPEND_REQUIRES_ROLE_REVOCATION`, 없으면 `NOT_FOUND` |
+| T-449 | `ADMIN`을 별도 요청으로 `USER`로 회수한 뒤 일괄 정지 | 성공. 세션과 이력이 `REVOKE_ADMIN` → `SUSPEND`로 나뉘어 남는다 |
+| T-450 | 단건 상태 PATCH의 관리자·없는 id·잘못된 상태 | 기존 `403`·`404`·`400` 본문이 그대로고, 일괄의 없는 id만 `200` 항목 실패 |
+| T-451 | 한 `ACTIVE` 배치에 `APPROVE`·`REACTIVATE`·`ACTIVATE` 전이 | 성공 전이만 대상별 한 행, 같은 `occurredAt`, target id 순. 실패·멱등은 이력 없음 |
+| T-452 | 활성화 대상들의 기존 세션 | 승인·복구·정지 해제 후 다음 요청에서 `ACTIVE`. 이미 ACTIVE인 id도 세션 재반영 대상 |
+| T-453 | 정지 대상들의 기존 세션 | 다음 보호 요청이 `401`이 아닌 `403 SUSPENDED` |
+| T-454 | 정지 배치의 세션 하나가 반영 실패 | 나머지도 끝까지 시도하고 `500`. 상태·성공 이력은 남으며 같은 요청 재시도가 멱등 세션 복구 |
+| T-455 | 활성화 배치의 세션 반영 실패 | 끝까지 시도·실패 기록, `200`, 상태·이력 유지 |
+| T-456 | 같은 `USER`를 포함한 두 `SUSPENDED` 배치가 동시 도착 | 둘 다 처리되지만 `SUSPEND` 이력은 한 행뿐 |
+| T-457 | `ACTIVE`와 `SUSPENDED` 배치가 같은 id를 동시 처리 | id 오름차순 잠금으로 직렬화되고, 각 응답과 이력은 잠금 후 본 전이와 일치 |
+| T-458 | 요청자가 필터 통과 뒤 정지·강등 | 요청자 재검증이 대상 판정보다 먼저 `SUSPENDED`·`FORBIDDEN`으로 전체를 막는다 |
+| T-459 | `ADMIN` role 회수/승격과 일괄 정지가 경합 | 잠금 후 최신 role이 `USER`면 정지, `ADMIN`이면 항목 실패 |
+| T-460 | USER·비로그인·CSRF 없음·USER의 깨진 본문 | 기존 관리자 API와 같은 `FORBIDDEN`·`UNAUTHENTICATED` 우선순위. 대상은 변화 없음 |
+| T-461 | 생성된 OpenAPI | 새 PATCH, required body, `maxItems=100`, 양수 id, target enum, response·reason enum, 커밋 후 세션 실패 `500` 설명이 모두 노출 |
+
 ### 관리자 부트스트랩
 
 | # | 조건 | 기대 |
