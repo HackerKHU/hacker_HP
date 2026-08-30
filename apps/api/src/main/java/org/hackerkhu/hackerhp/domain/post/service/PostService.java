@@ -137,9 +137,10 @@ public class PostService {
     User requester = users.findByIdForUpdate(requesterId).orElse(null);
     RequesterCheck.requireActive(requester, requesterId);
 
+    /* 삭제와 같은 계정 → 게시글 순서로 잠가 수정·삭제 경쟁을 한 줄로 세운다. */
     Post post =
         posts
-            .findById(id)
+            .findByIdForUpdate(id)
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "게시글을 찾을 수 없습니다."));
     if (!requesterId.equals(post.getAuthorId())) {
       /*

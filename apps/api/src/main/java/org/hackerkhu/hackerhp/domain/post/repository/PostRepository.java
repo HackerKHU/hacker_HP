@@ -10,7 +10,7 @@ import org.springframework.data.repository.query.Param;
 
 public interface PostRepository extends JpaRepository<Post, Long> {
 
-  /** 같은 글의 삭제 요청을 직렬화하고, 권한 판정에 쓰는 작성자 id를 최신 행에서 읽는다. */
+  /** 같은 글의 수정·삭제를 직렬화하고, 권한 판정에 쓰는 작성자 id를 최신 행에서 읽는다. */
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("select p from Post p where p.id = :id")
   Optional<Post> findByIdForUpdate(@Param("id") Long id);

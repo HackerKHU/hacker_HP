@@ -14,6 +14,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.post.entity.Post;
 import org.hackerkhu.hackerhp.domain.post.repository.PostRepository;
@@ -678,6 +683,45 @@ class PostIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.code").value("SUSPENDED"));
 
     assertThat(posts.findById(id).orElseThrow().getTitle()).isEqualTo("제목");
+  }
+
+  /**
+   * T-492 — 관리자 삭제와 작성자 수정이 동시에 와도 게시글 잠금에서 직렬화된다.
+   *
+   * <p>삭제가 먼저면 수정은 {@code 404}, 수정이 먼저면 수정 {@code 200} 뒤 삭제 {@code 204}다. 어느 순서든 {@code 500}·데드락 없이
+   * 최종 행은 사라져야 한다. 한 번만 경쟁시키면 우연히 순차 실행되어 잠금 누락을 놓칠 수 있어 여러 새 행에서 반복한다.
+   */
+  @Test
+  void authorEditAndAdminDeleteSerializeWithoutDeadlock() throws Exception {
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      for (int attempt = 0; attempt < 8; attempt++) {
+        long id = write(member, "경쟁 전 제목 " + attempt, "본문");
+        CyclicBarrier start = new CyclicBarrier(2);
+        var edit = editRequest(member, id, "경쟁 뒤 제목 " + attempt, "고친 본문");
+        var remove = Csrf.with(sessions.as(admin, delete(POSTS + "/" + id)));
+
+        Future<Integer> editStatus =
+            pool.submit(
+                () -> {
+                  start.await(5, TimeUnit.SECONDS);
+                  return mockMvc.perform(edit).andReturn().getResponse().getStatus();
+                });
+        Future<Integer> deleteStatus =
+            pool.submit(
+                () -> {
+                  start.await(5, TimeUnit.SECONDS);
+                  return mockMvc.perform(remove).andReturn().getResponse().getStatus();
+                });
+
+        assertThat(editStatus.get(10, TimeUnit.SECONDS)).isIn(200, 404);
+        assertThat(deleteStatus.get(10, TimeUnit.SECONDS)).isEqualTo(204);
+        assertThat(posts.existsById(id)).isFalse();
+      }
+    } finally {
+      pool.shutdownNow();
+      assertThat(pool.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+    }
   }
 
   /* ------------------------------------------------------------------ 삭제 (#238) */
