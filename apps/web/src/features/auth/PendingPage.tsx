@@ -3,6 +3,7 @@ import { submitApplication } from '@/api/auth'
 import { ApiError } from '@/api/client'
 import { getDepartments } from '@/api/departments'
 import { hasApplied, useSession } from '@/auth/session'
+import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -113,6 +114,7 @@ const CONTAINER = 'mx-auto my-auto max-w-sm'
 export function PendingPage() {
   const session = useSession()
   const { state, refresh, reportApiError } = session
+  const alert = useLiveAlert()
   const applied = hasApplied(session)
 
   const user = state.kind === 'pending' ? state.user : null
@@ -147,7 +149,11 @@ export function PendingPage() {
     department: user?.department ?? '',
   }
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<{
+    studentNo?: string
+    department?: string
+  }>({})
+  const [unknownFailed, setUnknownFailed] = useState(false)
   const [checking, setChecking] = useState(false)
 
   /**
@@ -194,9 +200,10 @@ export function PendingPage() {
     asked.current = true
     refresh().catch(() => {
       // 여기서 삼키면 화면이 "확인하는 중"에 영영 머문다. 다시 시도할 길을 준다.
-      setError('상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.')
+      setUnknownFailed(true)
+      alert.error('상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.')
     })
-  }, [unknown, refresh])
+  }, [alert, unknown, refresh])
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -205,7 +212,7 @@ export function PendingPage() {
     // 계약이 요구하는 것은 공백이 아닐 것뿐이다 (§3-2-3 MUST). 서버가 거부할 요청을
     // 굳이 보내지 않는다 — 같은 규칙을 앞당겨 적용하는 것이지 서버 검증을 대신하지 않는다.
     if (values.studentNo.trim() === '') {
-      setError('학번을 입력해주세요.')
+      setFieldErrors({ studentNo: '학번을 입력해주세요.' })
       return
     }
     /*
@@ -213,12 +220,12 @@ export function PendingPage() {
      * `<select>`는 비어 있어도 칸이 채워진 것처럼 보여서 더 그렇다.
      */
     if (values.department === '') {
-      setError('학과를 선택해주세요.')
+      setFieldErrors({ department: '학과를 선택해주세요.' })
       return
     }
 
     setSaving(true)
-    setError(null)
+    setFieldErrors({})
     try {
       await submitApplication({
         studentNo: values.studentNo.trim(),
@@ -233,6 +240,7 @@ export function PendingPage() {
       setEditing(false)
       // 서버가 저장한 값이 다시 내려오므로 임시 입력은 버린다.
       setDraft(null)
+      alert.success('가입 신청서를 제출했습니다.')
     } catch (caught: unknown) {
       /*
        * **코드를 세션 계층에 넘긴다** (spec 5-TESTING T-116). `403`은 `PENDING_APPROVAL`·
@@ -240,7 +248,7 @@ export function PendingPage() {
        * 대기 중에 정지당한 사람이 제출하면 오류 문구만 뜨고 정지 안내로 가지 못한다.
        * 다른 화면(공지·회원)이 모두 이렇게 한다. 여기만 빠져 있었다.
        */
-      reportApiError(caught)
+      if (reportApiError(caught)) return
       /*
        * **실패했는데 성공한 것처럼 보이면 안 된다.** 입력을 그대로 두고 서버가 준 사유를
        * 보여준다 — 409 DUPLICATE_STUDENT_NO처럼 무엇을 고쳐야 하는지는 서버가 안다.
@@ -249,7 +257,7 @@ export function PendingPage() {
        * 세션이 정리되어 화면이 바뀌는 경우에는 이 문구가 보이지 않는다 — 가드가 다른
        * 화면으로 옮기기 때문이다. 바뀌지 않는 경우(409·400)에만 남는다.
        */
-      setError(
+      alert.error(
         caught instanceof ApiError
           ? caught.message
           : '신청서를 내지 못했습니다. 잠시 후 다시 시도해 주세요.',
@@ -262,7 +270,7 @@ export function PendingPage() {
   /** 승인은 이 화면에 저절로 반영되지 않는다 (§3-1-6). 사용자가 직접 확인한다. */
   async function handleRecheck() {
     setChecking(true)
-    setError(null)
+    setUnknownFailed(false)
     try {
       await refresh()
     } catch {
@@ -270,7 +278,8 @@ export function PendingPage() {
        * `refresh()`는 **상태를 알아내지 못했을 때만** 거부한다 (spec §3-1-5) — 세션은
        * 그대로다. 아무 말도 안 하면 사용자는 버튼이 고장난 줄 안다.
        */
-      setError('상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.')
+      setUnknownFailed(true)
+      alert.error('상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.')
     } finally {
       setChecking(false)
     }
@@ -282,10 +291,10 @@ export function PendingPage() {
       // 아래 본 화면과 같은 폭·정렬이다. 다르면 로딩이 끝나는 순간 화면이 좌우로 튄다.
       <section className={CONTAINER}>
         <h1 className="text-2xl font-semibold tracking-tight">가입 신청</h1>
-        {error ? (
+        {unknownFailed ? (
           <>
-            <p role="alert" className="mt-6 text-sm text-muted-foreground">
-              {error}
+            <p className="mt-6 text-sm text-muted-foreground">
+              상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.
             </p>
             {/*
               아래 대기 화면의 "다시 확인"과 같은 동작·같은 라벨이므로 모양도 같다.
@@ -380,6 +389,12 @@ export function PendingPage() {
                 value={values.studentNo}
                 placeholder={STUDENT_NO_PLACEHOLDER}
                 maxLength={STUDENT_NO_MAX}
+                aria-invalid={fieldErrors.studentNo !== undefined}
+                aria-describedby={
+                  fieldErrors.studentNo
+                    ? 'application-student-no-error'
+                    : undefined
+                }
                 onChange={(event) =>
                   setDraft({ ...values, studentNo: event.target.value })
                 }
@@ -402,6 +417,12 @@ export function PendingPage() {
                  * 읽힌다 — 목록이 오는 중이라는 것은 아래 문구가 말한다.
                  */
                 disabled={departments === null}
+                aria-invalid={fieldErrors.department !== undefined}
+                aria-describedby={
+                  fieldErrors.department
+                    ? 'application-department-error'
+                    : undefined
+                }
                 onChange={(event) =>
                   setDraft({ ...values, department: event.target.value })
                 }
@@ -432,11 +453,26 @@ export function PendingPage() {
               )}
             </div>
 
-            {error && (
-              <p role="alert" className="text-sm text-muted-foreground">
-                {error}
-              </p>
-            )}
+            <div className="min-h-12" data-form-feedback-slot="true">
+              {fieldErrors.studentNo && (
+                <p
+                  id="application-student-no-error"
+                  role="alert"
+                  className="text-sm text-muted-foreground"
+                >
+                  {fieldErrors.studentNo}
+                </p>
+              )}
+              {fieldErrors.department && (
+                <p
+                  id="application-department-error"
+                  role="alert"
+                  className="text-sm text-muted-foreground"
+                >
+                  {fieldErrors.department}
+                </p>
+              )}
+            </div>
 
             {/*
              * **좁은 카드에서는 주 동작이 전체폭 하나다** (`apps/web/README.md` "폼 버튼").
@@ -462,7 +498,7 @@ export function PendingPage() {
                   className="w-full text-muted-foreground hover:text-foreground"
                   onClick={() => {
                     setEditing(false)
-                    setError(null)
+                    setFieldErrors({})
                     setDraft(null)
                   }}
                 >
@@ -508,13 +544,6 @@ export function PendingPage() {
             승인되어도 이 화면은 저절로 바뀌지 않습니다. 아래 버튼으로 다시
             확인해 주세요.
           </p>
-
-          {/* 대기 안내에서도 오류를 그린다. 폼 분기에만 두면 "다시 확인"이 실패해도 조용하다. */}
-          {error && (
-            <p role="alert" className="mt-4 text-sm text-muted-foreground">
-              {error}
-            </p>
-          )}
 
           {/*
            * 폼은 아니지만 **같은 좁은 카드라 같은 모양을 쓴다** — 주 동작이 전체폭이고

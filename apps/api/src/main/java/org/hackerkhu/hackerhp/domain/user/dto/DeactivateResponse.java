@@ -39,7 +39,7 @@ public record DeactivateResponse(
   public enum Reason {
     /** 그 id의 계정이 없다. */
     NOT_FOUND,
-    /** {@code role=USER AND status=ACTIVE}가 아니다. 관리자·정지·대기·비활동 계정을 모두 보호한다. */
+    /** 선택 대상인 {@code ACTIVE}/{@code SUSPENDED USER}가 아니다. 관리자·대기·비활동 계정을 보호한다. */
     NOT_ACTIVE_USER
   }
 }

@@ -5,12 +5,12 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, useLocation } from '@/test/TestRouter'
 
 /**
  * 마이페이지 (#178, spec [2-1 §2-1-9](../../../../spec/2-1-USER-STORIES.md)).

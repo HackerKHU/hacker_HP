@@ -25,7 +25,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * 관리자 권한 부여·회수 (spec 2-2 §2-2-5).
  *
- * <p><b>Role만 바꾼다. Status는 건드리지 않는다</b> (§2-2-5). 권한을 회수한다고 정지되는 것이 아니고, 그 반대도 아니다.
+ * <p>권한 회수는 {@code ACTIVE USER}로 끝난다. 권한 부여는 비활동·정지 일반 회원도 같은 트랜잭션에서 {@code ACTIVE ADMIN}으로 정규화한다
+ * (§2-2-5). 중간 {@code INACTIVE ADMIN}/{@code SUSPENDED ADMIN} 상태는 커밋하거나 세션에 반영하지 않는다.
  *
  * <p><b>회수 뒤에 활성 관리자가 남는지 본다</b> (§2-2-7 MUST). 자기 대상인지와 무관하다 — 활성 관리자가 둘일 때 서로의 권한을 동시에 회수하면 두 요청
  * 모두 "남을 회수하는 것"이라 자기 검사에 걸리지 않고, 각자 다른 행만 잠근 채 커밋해 <b>0명이 된다.</b>
@@ -111,15 +112,6 @@ public class AdminUserRoleService {
       throw new BusinessException(ErrorCode.VALIDATION_ERROR, "승인 대기 중인 계정의 권한은 바꿀 수 없습니다.");
     }
 
-    /*
-     * 비활동 계정도 이 경로의 대상이 아니다 (2-2 §2-2-5 MUST, #228). 관리자로 만들면
-     * 자료를 못 보는 관리자가 생긴다 — 회원 관리 화면에서 남의 자료를 지울 수는 있는데
-     * 자기는 목록을 열지 못한다. 올려야 할 사람이면 학기 복구를 먼저 한다.
-     */
-    if (user.getStatus() == Status.INACTIVE) {
-      throw new BusinessException(ErrorCode.VALIDATION_ERROR, "비활동 계정의 권한은 바꿀 수 없습니다. 먼저 복구해 주세요.");
-    }
-
     // 회수가 활성 관리자를 0명으로 만들면 막는다. 지금 활성 관리자인 경우에만 해당한다.
     if (desired == Role.USER && isActiveAdmin(user)) {
       guardLastActiveAdmin(requesterId, targetId);
@@ -130,6 +122,11 @@ public class AdminUserRoleService {
     Instant occurredAt = Instant.now();
     if (changed) {
       if (desired == Role.ADMIN) {
+        if (user.getStatus() == Status.INACTIVE) {
+          user.restore();
+        } else if (user.getStatus() == Status.SUSPENDED) {
+          user.reactivate();
+        }
         user.promoteToAdmin();
       } else {
         user.demoteToUser();

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter, useLocation } from '@/test/TestRouter'
 import App from './App'
 import { ApiError } from './api/client'
 import type { User } from './api/types'

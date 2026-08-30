@@ -125,7 +125,12 @@ export function PublicHeader() {
   const applied = hasApplied(session)
 
   return (
-    <header className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
+      {/*
+       * **sticky 헤더와 그 안의 모바일 메뉴는 fixed 결과 알림(z-30) 위에 둔다.**
+       * 메뉴가 펼쳐지면 헤더 아래로 길어지는데, 알림이 더 높으면 링크를 가리고
+       * 클릭을 가로챈다. AlertDialog·dropdown은 portal의 z-50을 유지해 둘 모두보다 위다.
+       */}
       {/*
        * **`AppHeader`와 같은 컨테이너다** (#247, #249). 높이·폭·패딩·간격이 같아야
        * 랜딩에서 로그인해 넘어올 때 로고가 움직이지 않는다.

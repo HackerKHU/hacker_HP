@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/api/client'
 import type { NoteDetail } from '@/api/notes'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, Route, Routes } from '@/test/TestRouter'
 import { NoteDetailPage } from './NoteDetailPage'
 
 /**
@@ -19,6 +19,9 @@ const api = vi.hoisted(() => ({
   issued: [] as number[],
   removed: [] as number[],
   bookmarked: [] as { id: number; next: boolean }[],
+  downloadError: null as unknown,
+  bookmarkError: null as unknown,
+  removeError: null as unknown,
 }))
 
 const MINE: NoteDetail = {
@@ -45,6 +48,7 @@ vi.mock('@/api/notes', () => ({
           new ApiError('NOT_FOUND', 404, '자료를 찾을 수 없습니다.'),
         ),
   downloadUrl: (_noteId: number, fileId: number) => {
+    if (api.downloadError) return Promise.reject(api.downloadError)
     api.issued.push(fileId)
     return Promise.resolve({
       url: 'blob:fixture',
@@ -53,10 +57,12 @@ vi.mock('@/api/notes', () => ({
     })
   },
   remove: (id: number) => {
+    if (api.removeError) return Promise.reject(api.removeError)
     api.removed.push(id)
     return Promise.resolve()
   },
   setBookmark: (id: number, next: boolean) => {
+    if (api.bookmarkError) return Promise.reject(api.bookmarkError)
     api.bookmarked.push({ id, next })
     return Promise.resolve()
   },
@@ -100,6 +106,9 @@ beforeEach(() => {
   api.issued = []
   api.removed = []
   api.bookmarked = []
+  api.downloadError = null
+  api.bookmarkError = null
+  api.removeError = null
   auth.me = BASE
   vi.stubGlobal('open', vi.fn())
 })
@@ -108,6 +117,9 @@ describe('자료 상세', () => {
   it('메타데이터와 첨부 목록을 보여준다', async () => {
     renderDetail()
 
+    expect(
+      document.querySelector('[data-detail-surface="note"]'),
+    ).toBeInTheDocument()
     expect(
       await screen.findByRole('heading', { name: '운영체제 중간고사 정리본' }),
     ).toBeVisible()
@@ -135,6 +147,19 @@ describe('자료 상세', () => {
     await waitFor(() => {
       expect(api.issued).toEqual([1000])
     })
+  })
+
+  it('내려받기 URL 발급 실패는 fixed error alert 하나로 알린다', async () => {
+    api.downloadError = new ApiError('NETWORK_ERROR', 0, '연결하지 못했습니다.')
+    renderDetail()
+    await screen.findByText('정리본.pdf')
+
+    fireEvent.click(screen.getByRole('button', { name: '받기' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('연결하지 못했습니다.')
+    expect(alert.closest('[data-live-alert-viewport="true"]')).not.toBeNull()
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
   })
 
   /*
@@ -194,6 +219,52 @@ describe('자료 상세', () => {
     await waitFor(() => {
       expect(api.bookmarked).toEqual([{ id: 301, next: false }])
     })
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '즐겨찾기에서 뺐습니다.',
+    )
+  })
+
+  it('즐겨찾기 실패는 fixed error alert로 알리고 상세를 유지한다', async () => {
+    api.bookmarkError = new Error('network')
+    renderDetail()
+    await screen.findByText('정리본.pdf')
+
+    fireEvent.click(screen.getByRole('button', { name: '즐겨찾기' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '즐겨찾기를 바꾸지 못했습니다',
+    )
+    expect(screen.getByText('정리본.pdf')).toBeVisible()
+  })
+
+  it('삭제 AlertDialog를 확인하면 fixed 성공 알림을 다음 화면까지 유지한다', async () => {
+    renderDetail()
+    await screen.findByText('정리본.pdf')
+
+    fireEvent.click(screen.getByRole('button', { name: '삭제' }))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('운영체제 중간고사 정리본')
+    fireEvent.click(screen.getByRole('button', { name: '삭제' }))
+
+    expect(
+      await screen.findByRole('heading', { name: '자료게시판' }),
+    ).toBeVisible()
+    expect(screen.getByRole('status')).toHaveTextContent('자료를 삭제했습니다.')
+    expect(api.removed).toEqual([301])
+  })
+
+  it('삭제 실패는 AlertDialog 뒤 fixed error alert로 알리고 상세를 유지한다', async () => {
+    api.removeError = new Error('network')
+    renderDetail()
+    await screen.findByText('정리본.pdf')
+
+    fireEvent.click(screen.getByRole('button', { name: '삭제' }))
+    fireEvent.click(await screen.findByRole('button', { name: '삭제' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '자료를 삭제하지 못했습니다',
+    )
+    expect(screen.getByText('정리본.pdf')).toBeVisible()
   })
 
   it('없는 자료면 안내가 뜬다', async () => {

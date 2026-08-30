@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '@/api/client'
 import { create, get, update } from '@/api/notices'
 import { useSession } from '@/auth/session'
+import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -31,12 +32,16 @@ export function NoticeFormPage() {
   const editing = id !== undefined
   const navigate = useNavigate()
   const { reportApiError } = useSession()
+  const alert = useLiveAlert()
 
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState<Loading>(editing ? 'loading' : 'ready')
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<{
+    title?: string
+    content?: string
+  }>({})
 
   useEffect(() => {
     if (!editing) return
@@ -73,13 +78,17 @@ export function NoticeFormPage() {
      * 서버가 거부할 요청을 굳이 보내지 않는다. 서버 검증을 대신하는 것이 아니라,
      * 같은 규칙을 먼저 적용해 사용자가 왕복을 덜 하게 하는 것이다.
      */
-    if (title.trim() === '' || content.trim() === '') {
-      setError('제목과 내용을 입력해주세요.')
+    const nextErrors = {
+      ...(title.trim() === '' ? { title: '제목을 입력해주세요.' } : {}),
+      ...(content.trim() === '' ? { content: '내용을 입력해주세요.' } : {}),
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors)
       return
     }
 
     setSaving(true)
-    setError(null)
+    setFieldErrors({})
     try {
       const body = { title: title.trim(), content: content.trim() }
       // 저장 성공 후에는 결과를 볼 수 있는 곳으로 보낸다. 등록은 새로 생긴 공지,
@@ -87,14 +96,17 @@ export function NoticeFormPage() {
       const saved = editing
         ? await update(Number(id), body)
         : await create(body)
+      alert.success(editing ? '공지를 수정했습니다.' : '공지를 등록했습니다.', {
+        persistOnNavigation: true,
+      })
       navigate(`/notices/${saved.id}`, { replace: true })
     } catch (caught: unknown) {
-      reportApiError(caught)
+      if (reportApiError(caught)) return
       /*
        * **실패했는데 성공한 것처럼 보이면 안 된다.** 이동하지 않고 입력값을 그대로 둔 채
        * 서버가 준 메시지를 보여준다 — 무엇을 고쳐야 하는지는 서버가 안다 (계약 §3-2-7).
        */
-      setError(
+      alert.error(
         caught instanceof ApiError
           ? caught.message
           : '저장하지 못했습니다. 잠시 후 다시 시도해 주세요.',
@@ -117,7 +129,7 @@ export function NoticeFormPage() {
      * 둘 다 `max-w-2xl`(672px)이었는데 상세를 전체폭으로 되돌리면서(2026-08-11) 여기도
      * 함께 풀었다. **이제 둘 다 `AppLayout`의 1152px이다** — 한쪽만 고치면 어긋난다.
      */
-    <section>
+    <section className="min-h-[32rem]" data-detail-surface="notice-form">
       <Link
         to={backTo}
         className="text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -159,8 +171,15 @@ export function NoticeFormPage() {
               id="notice-title"
               value={title}
               maxLength={TITLE_MAX}
-              onChange={(event) => setTitle(event.target.value)}
+              onChange={(event) => {
+                setTitle(event.target.value)
+                setFieldErrors((current) => ({ ...current, title: undefined }))
+              }}
               placeholder="공지 제목"
+              aria-invalid={fieldErrors.title !== undefined}
+              aria-describedby={
+                fieldErrors.title ? 'notice-title-error' : undefined
+              }
             />
           </div>
 
@@ -173,17 +192,46 @@ export function NoticeFormPage() {
             <Textarea
               id="notice-content"
               value={content}
-              onChange={(event) => setContent(event.target.value)}
+              onChange={(event) => {
+                setContent(event.target.value)
+                setFieldErrors((current) => ({
+                  ...current,
+                  content: undefined,
+                }))
+              }}
               placeholder="공지 내용"
               className="min-h-64"
+              aria-invalid={fieldErrors.content !== undefined}
+              aria-describedby={
+                fieldErrors.content ? 'notice-content-error' : undefined
+              }
             />
           </div>
 
-          {error && (
-            <p role="alert" className="text-sm text-muted-foreground">
-              {error}
-            </p>
-          )}
+          <div
+            className="min-h-12 space-y-1"
+            data-form-feedback-slot="true"
+            role={
+              Object.values(fieldErrors).some(Boolean) ? 'alert' : undefined
+            }
+          >
+            {fieldErrors.title && (
+              <p
+                id="notice-title-error"
+                className="text-sm text-muted-foreground"
+              >
+                {fieldErrors.title}
+              </p>
+            )}
+            {fieldErrors.content && (
+              <p
+                id="notice-content-error"
+                className="text-sm text-muted-foreground"
+              >
+                {fieldErrors.content}
+              </p>
+            )}
+          </div>
 
           {/* 오른쪽 정렬 + 주 동작이 맨 끝 (`apps/web/README.md` "폼 버튼"). */}
           <div className="flex justify-end gap-2">

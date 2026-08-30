@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, useLocation, useNavigate } from '@/test/TestRouter'
 import { CLUB, FAQS } from './content'
 import { PublicHeader } from './PublicHeader'
 
@@ -479,6 +479,8 @@ describe('랜딩 헤더 상태별 진입점', () => {
     fireEvent.click(toggle)
     const menu = document.getElementById('public-mobile-menu')
     expect(menu).not.toBeNull()
+    // fixed 결과 알림(z-30)이 펼쳐진 헤더 메뉴를 가리면 안 된다.
+    expect(menu?.closest('header')).toHaveClass('z-40')
     expect(menu?.className).toContain('lg:hidden')
     expect(menu?.className).not.toContain('md:hidden')
     expect(screen.getByRole('button', { name: '메뉴 닫기' })).toHaveAttribute(

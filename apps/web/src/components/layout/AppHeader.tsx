@@ -74,7 +74,12 @@ export function AppHeader() {
   const menus = headerMenus(state.kind === 'active' ? state.user.role : null)
 
   return (
-    <header className="border-b border-border bg-background">
+    <header className="relative z-40 border-b border-border bg-background">
+      {/*
+       * **헤더의 레이어만 fixed 결과 알림(z-30) 위에 둔다.**
+       * `relative`는 쌓임 맥락을 만들 뿐 헤더를 sticky로 바꾸지 않는다. 내부 모바일
+       * 메뉴가 펼쳐져도 알림이 링크를 가리거나 클릭을 가로채지 않게 하려는 계약이다.
+       */}
       <div className={HEADER_CONTAINER}>
         {/*
          * 1024px 미만에서는 32px 심볼을 써서 워드마크의 157px 폭을 강요하지 않는다.

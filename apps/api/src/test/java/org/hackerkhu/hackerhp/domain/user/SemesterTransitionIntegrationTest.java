@@ -213,7 +213,7 @@ class SemesterTransitionIntegrationTest extends AbstractIntegrationTest {
     assertThat(historyOf(unselected.getId())).isEmpty();
   }
 
-  /** #295. 없는 id와 활성 일반 부원이 아닌 모든 상태·역할은 안정된 reason으로 부분 실패한다. */
+  /** #295/#324. 선택한 정지 일반 부원도 비활동으로 바꾸고, 나머지 비대상은 안정된 reason으로 부분 실패한다. */
   @Test
   void selectedMixedFailuresProtectEveryIneligibleAccount() throws Exception {
     User suspended = save(Accounts.suspended("sub-s", "s@khu.ac.kr", "20250002"));
@@ -238,18 +238,26 @@ class SemesterTransitionIntegrationTest extends AbstractIntegrationTest {
             .perform(deactivate(body))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.deactivated[0]").value(member.getId()))
-            .andExpect(jsonPath("$.failed.length()").value(5))
+            .andExpect(jsonPath("$.deactivated[1]").value(suspended.getId()))
+            .andExpect(jsonPath("$.failed.length()").value(4))
             .andExpect(jsonPath("$.failed[?(@.userId == 999999)].reason").value("NOT_FOUND"));
 
-    for (User protectedUser : List.of(admin, suspended, pending, inactive)) {
+    for (User protectedUser : List.of(admin, pending, inactive)) {
       result.andExpect(
           jsonPath("$.failed[?(@.userId == " + protectedUser.getId() + ")].reason")
               .value("NOT_ACTIVE_USER"));
     }
     assertThat(reload(admin).getStatus()).isEqualTo(Status.ACTIVE);
-    assertThat(reload(suspended).getStatus()).isEqualTo(Status.SUSPENDED);
+    User deactivatedSuspended = reload(suspended);
+    assertThat(deactivatedSuspended.getStatus()).isEqualTo(Status.INACTIVE);
+    assertThat(deactivatedSuspended.getDeactivatedAt())
+        .isNotNull()
+        .isEqualTo(reload(member).getDeactivatedAt());
     assertThat(reload(pending).getStatus()).isEqualTo(Status.PENDING);
     assertThat(reload(inactive).getStatus()).isEqualTo(Status.INACTIVE);
+    assertThat(historyOf(suspended.getId()))
+        .extracting(AdminActionLog::getAction)
+        .containsExactly(AdminAction.DEACTIVATE);
   }
 
   /** #295. 중복 id는 성공·실패 응답과 이력 어디에도 두 번 나타나지 않는다. */

@@ -6,12 +6,12 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { MemoryRouter, useSearchParams } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/api/client'
 import type { NoteQuery, NoteSummary } from '@/api/notes'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, useSearchParams } from '@/test/TestRouter'
 import { NoteListPage } from './NoteListPage'
 
 /**
@@ -37,6 +37,8 @@ const api = vi.hoisted(() => ({
   hold: false,
   /** 붙들린 응답의 resolver. 부르는 쪽이 원하는 순간에 완료시킨다. */
   held: [] as ((value: unknown) => void)[],
+  totalElements: 1,
+  totalPages: 1,
 }))
 
 const NOTE: NoteSummary = {
@@ -63,7 +65,12 @@ vi.mock('@/api/notes', () => ({
     }
     return Promise.resolve({
       content: [NOTE],
-      page: { size: 20, number: 0, totalElements: 1, totalPages: 1 },
+      page: {
+        size: 20,
+        number: query.page ?? 0,
+        totalElements: api.totalElements,
+        totalPages: api.totalPages,
+      },
     })
   },
   filters: () =>
@@ -76,7 +83,12 @@ vi.mock('@/api/notes', () => ({
     api.bookmarkCalls.push(query)
     return Promise.resolve({
       content: [{ ...NOTE, category: 'SUBJECT' as const, bookmarked: true }],
-      page: { size: 20, number: 0, totalElements: 1, totalPages: 1 },
+      page: {
+        size: 20,
+        number: query.page ?? 0,
+        totalElements: api.totalElements,
+        totalPages: api.totalPages,
+      },
     })
   },
   setBookmark: (id: number, next: boolean) => {
@@ -135,9 +147,24 @@ beforeEach(() => {
   api.status = 'ACTIVE'
   api.hold = false
   api.held = []
+  api.totalElements = 1
+  api.totalPages = 1
 })
 
 describe('자료 목록', () => {
+  it('조회 중과 완료 뒤에도 목록 surface와 pager 자리를 유지한다', async () => {
+    renderList()
+    expect(
+      document.querySelector('[data-list-surface="notes"]'),
+    ).toBeInTheDocument()
+    expect(
+      document.querySelector('[data-pager-slot="true"]'),
+    ).toBeInTheDocument()
+    await screen.findByRole('table')
+    expect(
+      document.querySelector('[data-list-surface="notes"]'),
+    ).toBeInTheDocument()
+  })
   /* 제목은 갈래와 무관하게 하나다 — 갈래는 그 안의 탭이다. */
   it('제목이 자료게시판이고 갈래 탭이 둘 있다', async () => {
     renderList()
@@ -262,6 +289,110 @@ describe('자료 목록', () => {
     })
   })
 
+  it('페이지 번호 이동은 자료의 모든 query를 보존하고 0-based page만 바꾼다', async () => {
+    api.totalElements = 400
+    api.totalPages = 20
+    renderList(
+      '/notes?category=EXAM&bookmarked=false&q=%EC%A4%91%EA%B0%84&subject=%EC%9A%B4%EC%98%81%EC%B2%B4%EC%A0%9C&professor=%EA%B9%80%EA%B5%90%EC%88%98&year=2026&semester=SUMMER&examType=MIDTERM&sort=title&page=9',
+    )
+    await screen.findByRole('table')
+
+    expect(
+      screen.getByRole('link', { name: '10페이지로 이동', current: 'page' }),
+    ).toBeInTheDocument()
+    expect(
+      document.querySelectorAll(
+        '[data-pager-mobile-visible="true"] [data-slot="pagination-ellipsis"]',
+      ),
+    ).toHaveLength(2)
+    expect(
+      document.querySelectorAll(
+        '[data-pager-desktop-visible="true"] [data-slot="pagination-ellipsis"]',
+      ),
+    ).toHaveLength(2)
+    fireEvent.click(screen.getByRole('link', { name: '12페이지로 이동' }))
+
+    await waitFor(() => expect(lastQuery().page).toBe(11))
+    const params = new URLSearchParams(
+      screen.getByTestId('query').textContent ?? '',
+    )
+    expect(Object.fromEntries(params)).toEqual({
+      category: 'EXAM',
+      bookmarked: 'false',
+      q: '중간',
+      subject: '운영체제',
+      professor: '김교수',
+      year: '2026',
+      semester: 'SUMMER',
+      examType: 'MIDTERM',
+      sort: 'title',
+      page: '11',
+    })
+    expect(lastQuery()).toMatchObject({
+      category: 'EXAM',
+      q: '중간',
+      subject: '운영체제',
+      professor: '김교수',
+      year: 2026,
+      semester: 'SUMMER',
+      examType: 'MIDTERM',
+      sort: 'title',
+      page: 11,
+    })
+  })
+
+  it('즐겨찾기 목록도 같은 번호 이동에서 bookmarked query를 보존한다', async () => {
+    api.totalElements = 400
+    api.totalPages = 20
+    renderList('/notes?bookmarked=true&page=9')
+    await screen.findByRole('table')
+
+    fireEvent.click(screen.getByRole('link', { name: '12페이지로 이동' }))
+
+    await waitFor(() => expect(api.bookmarkCalls.at(-1)?.page).toBe(11))
+    expect(screen.getByTestId('query')).toHaveTextContent('bookmarked=true')
+    expect(screen.getByTestId('query')).toHaveTextContent('page=11')
+  })
+
+  it.each([
+    ['/notes?category=SUBJECT', 0, '이전 페이지로 이동'],
+    ['/notes?category=SUBJECT&page=19', 19, '다음 페이지로 이동'],
+  ] as const)(
+    '경계 %s에서 비활성 방향 링크를 눌러도 query와 조회를 바꾸지 않는다',
+    async (path, page, label) => {
+      api.totalElements = 400
+      api.totalPages = 20
+      renderList(path)
+      await screen.findByRole('table')
+      const queries = [...api.queries]
+      const query = screen.getByTestId('query').textContent
+
+      const boundary = screen.getByRole('link', { name: label })
+      expect(boundary).toHaveAttribute('aria-disabled', 'true')
+      fireEvent.click(boundary)
+
+      expect(screen.getByTestId('query').textContent).toBe(query)
+      expect(api.queries).toEqual(queries)
+      expect(lastQuery().page).toBe(page)
+    },
+  )
+
+  it('1페이지 번호는 다른 자료 query를 보존하고 page만 지운다', async () => {
+    api.totalElements = 60
+    api.totalPages = 3
+    renderList('/notes?category=SUBJECT&q=%EC%9A%B4%EC%98%81&page=2')
+    await screen.findByRole('table')
+
+    fireEvent.click(screen.getByRole('link', { name: '1페이지로 이동' }))
+
+    await waitFor(() => expect(lastQuery().page).toBe(0))
+    expect(screen.getByTestId('query')).toHaveTextContent('category=SUBJECT')
+    expect(screen.getByTestId('query')).toHaveTextContent(
+      'q=%EC%9A%B4%EC%98%81',
+    )
+    expect(screen.getByTestId('query')).not.toHaveTextContent('page=')
+  })
+
   /* 조건을 바꾸면 페이지를 되돌린다 — 3페이지에서 필터를 바꾸면 빈 화면이 뜬다. */
   it('필터를 바꾸면 page 파라미터가 빠진다', async () => {
     renderList('/notes?page=2')
@@ -383,6 +514,9 @@ describe('자료 목록', () => {
     await waitFor(() => {
       expect(api.bookmarked).toEqual([{ id: 301, next: true }])
     })
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '즐겨찾기에 담았습니다.',
+    )
   })
 
   /* 자료를 올리는 진입점. 문구가 바뀌면 여기서 잡힌다. */
@@ -478,6 +612,16 @@ describe('자료 목록', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '자료를 불러오지 못했습니다',
     )
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(
+      document.querySelector('[data-live-alert-viewport="true"]'),
+    ).not.toBeInTheDocument()
+    api.fail = false
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }))
+    expect(await screen.findByRole('table')).toBeVisible()
+    expect(
+      document.querySelector('[data-pager-slot="true"]'),
+    ).toBeInTheDocument()
   })
 
   /*

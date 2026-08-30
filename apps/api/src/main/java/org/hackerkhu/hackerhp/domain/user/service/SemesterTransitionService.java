@@ -29,8 +29,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>내리는 쪽은 본문이 없으면 기존대로 조건 전원, id가 있으면 선택 회원만 처리한다. 올리는 쪽은 언제나 id 목록이다.
  *
- * <p><b>대상에서 빼는 것</b> (MUST): {@code ADMIN}(운영자가 자기 손으로 자기 자료 접근을 끊는다), {@code SUSPENDED}(정지가 풀린다 —
- * 비활동은 자료 말고 다 되기 때문이다), {@code PENDING}(승인 절차를 건너뛴다).
+ * <p><b>전원 경로에서 빼는 것</b> (MUST): {@code ADMIN}(운영자가 자기 손으로 자기 자료 접근을 끊는다), {@code SUSPENDED}(학기 전환이
+ * 제재를 일괄로 풀지 않는다), {@code PENDING}(승인 절차를 건너뛴다). 선택 경로는 관리자가 명시적으로 고른 {@code SUSPENDED USER}를
+ * {@code INACTIVE}로 바꿀 수 있다.
  */
 @Service
 public class SemesterTransitionService {
@@ -199,7 +200,8 @@ public class SemesterTransitionService {
         failed.add(new DeactivateResponse.Failure(targetId, DeactivateResponse.Reason.NOT_FOUND));
         continue;
       }
-      if (target.getRole() != Role.USER || target.getStatus() != Status.ACTIVE) {
+      if (target.getRole() != Role.USER
+          || (target.getStatus() != Status.ACTIVE && target.getStatus() != Status.SUSPENDED)) {
         failed.add(
             new DeactivateResponse.Failure(targetId, DeactivateResponse.Reason.NOT_ACTIVE_USER));
         continue;

@@ -25,7 +25,7 @@ export function ListSurface({
   return (
     <div
       className={cn(
-        'overflow-hidden border-y border-border',
+        'min-h-72 overflow-hidden border-y border-border',
         /*
          * **행 사이는 위아래 선보다 연하다.** 셋이 같은 굵기·같은 색이면 표가 다시
          * 격자처럼 읽힌다 — 바깥 선이 "여기까지가 목록"을 말하고 안쪽 선은 행을 가르기만

@@ -11,8 +11,8 @@ import java.util.List;
  */
 @Schema(description = "일괄 거부 결과")
 public record RejectResponse(
-    @Schema(description = "거부된 계정의 id") List<Long> rejected,
-    @Schema(description = "거부하지 못한 계정과 그 사유") List<Failure> failed) {
+    @Schema(description = "미승인 상태로 되돌린 계정의 id. 이미 미신청 상태였던 멱등 성공도 포함한다") List<Long> rejected,
+    @Schema(description = "미승인 상태로 되돌리지 못한 계정과 그 사유") List<Failure> failed) {
 
   @Schema(description = "거부하지 못한 한 건")
   public record Failure(Long userId, Reason reason) {}
@@ -26,8 +26,7 @@ public record RejectResponse(
     /**
      * {@code PENDING}이 아니다.
      *
-     * <p><b>이 경로로 이용 중인 회원을 지울 수 없다.</b> 그것은 "제거"이고, 세션 폐기·정지 선행·콘텐츠 처리 같은 규칙이 따로 붙는다 (2-2 §2-2-4).
-     * 거부는 남긴 것이 없는 계정을 지우는 일이라 그 규칙이 필요 없다.
+     * <p><b>이 경로로 이용 중인 회원의 신청 정보를 초기화할 수 없다.</b> 회원 제거·정지는 별도 규칙을 따른다 (2-2 §2-2-4).
      */
     NOT_PENDING
   }

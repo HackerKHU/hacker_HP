@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { ApiError } from '@/api/client'
 import { CONTENT_MAX, countCodePoints, create, TITLE_MAX } from '@/api/posts'
 import { useSession } from '@/auth/session'
+import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -20,11 +21,15 @@ import { Textarea } from '@/components/ui/textarea'
 export function PostFormPage() {
   const navigate = useNavigate()
   const { reportApiError } = useSession()
+  const alert = useLiveAlert()
 
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<{
+    title?: string
+    content?: string
+  }>({})
 
   /*
    * **코드 포인트로 센다.** 서버가 `codePointCount`로 재므로(`CodePointSizeValidator`)
@@ -46,17 +51,28 @@ export function PostFormPage() {
      * 계약이 요구하는 것은 공백이 아닐 것과 길이뿐이다 (§2-1-8). 서버가 거부할 요청을
      * 굳이 보내지 않는다 — 같은 규칙을 앞당겨 적용하는 것이지 서버 검증을 대신하지 않는다.
      */
-    if (title.trim() === '' || content.trim() === '') {
-      setError('제목과 내용을 입력해주세요.')
+    const emptyErrors = {
+      ...(title.trim() === '' ? { title: '제목을 입력해주세요.' } : {}),
+      ...(content.trim() === '' ? { content: '내용을 입력해주세요.' } : {}),
+    }
+    if (Object.keys(emptyErrors).length > 0) {
+      setFieldErrors(emptyErrors)
       return
     }
     if (tooLong) {
-      setError('글자 수 상한을 넘었습니다. 줄여서 다시 시도해 주세요.')
+      setFieldErrors({
+        ...(titleCount > TITLE_MAX
+          ? { title: '제목 글자 수 상한을 넘었습니다.' }
+          : {}),
+        ...(contentCount > CONTENT_MAX
+          ? { content: '내용 글자 수 상한을 넘었습니다.' }
+          : {}),
+      })
       return
     }
 
     setSaving(true)
-    setError(null)
+    setFieldErrors({})
     try {
       /*
        * **원문 그대로 보낸다.** 서버는 본문을 다듬지 않고 저장한다 (계약 §3-2-5 MUST,
@@ -70,15 +86,16 @@ export function PostFormPage() {
        * 다른 일이다.**
        */
       const saved = await create({ title, content })
+      alert.success('게시글을 등록했습니다.', { persistOnNavigation: true })
       // 쓴 글을 볼 수 있는 곳으로 보낸다. `replace`로 뒤로가기가 폼에 돌아오지 않게 한다.
       navigate(`/posts/${saved.id}`, { replace: true })
     } catch (caught: unknown) {
-      reportApiError(caught)
+      if (reportApiError(caught)) return
       /*
        * **실패했는데 성공한 것처럼 보이면 안 된다.** 이동하지 않고 입력을 그대로 둔 채
        * 서버가 준 메시지를 보여준다 — 무엇을 고쳐야 하는지는 서버가 안다.
        */
-      setError(
+      alert.error(
         caught instanceof ApiError
           ? caught.message
           : '글을 올리지 못했습니다. 잠시 후 다시 시도해 주세요.',
@@ -89,7 +106,7 @@ export function PostFormPage() {
   }
 
   return (
-    <section>
+    <section className="min-h-[32rem]" data-detail-surface="post-form">
       <Link
         to="/posts"
         className="text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -116,9 +133,17 @@ export function PostFormPage() {
           <Input
             id="post-title"
             value={title}
-            onChange={(event) => setTitle(event.target.value)}
+            onChange={(event) => {
+              setTitle(event.target.value)
+              setFieldErrors((current) => ({ ...current, title: undefined }))
+            }}
             placeholder="제목을 입력하세요"
-            aria-invalid={titleCount > TITLE_MAX}
+            aria-invalid={
+              fieldErrors.title !== undefined || titleCount > TITLE_MAX
+            }
+            aria-describedby={
+              fieldErrors.title ? 'post-title-error' : undefined
+            }
           />
         </div>
 
@@ -137,18 +162,40 @@ export function PostFormPage() {
           <Textarea
             id="post-content"
             value={content}
-            onChange={(event) => setContent(event.target.value)}
+            onChange={(event) => {
+              setContent(event.target.value)
+              setFieldErrors((current) => ({ ...current, content: undefined }))
+            }}
             placeholder="내용을 입력하세요"
             className="min-h-64"
-            aria-invalid={contentCount > CONTENT_MAX}
+            aria-invalid={
+              fieldErrors.content !== undefined || contentCount > CONTENT_MAX
+            }
+            aria-describedby={
+              fieldErrors.content ? 'post-content-error' : undefined
+            }
           />
         </div>
 
-        {error && (
-          <p role="alert" className="text-sm text-muted-foreground">
-            {error}
-          </p>
-        )}
+        <div
+          className="min-h-12 space-y-1"
+          data-form-feedback-slot="true"
+          role={Object.values(fieldErrors).some(Boolean) ? 'alert' : undefined}
+        >
+          {fieldErrors.title && (
+            <p id="post-title-error" className="text-sm text-muted-foreground">
+              {fieldErrors.title}
+            </p>
+          )}
+          {fieldErrors.content && (
+            <p
+              id="post-content-error"
+              className="text-sm text-muted-foreground"
+            >
+              {fieldErrors.content}
+            </p>
+          )}
+        </div>
 
         {/* 오른쪽 정렬 + 주 동작이 맨 끝 (`apps/web/README.md` "폼 버튼"). */}
         <div className="flex justify-end gap-2">

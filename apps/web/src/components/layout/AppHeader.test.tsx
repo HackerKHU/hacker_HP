@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
 import { CLUB } from '@/features/landing/content'
+import { MemoryRouter, useLocation, useNavigate } from '@/test/TestRouter'
 import { AppHeader } from './AppHeader'
 
 const ACTIVE: User = {
@@ -80,6 +80,14 @@ beforeEach(() => {
 })
 
 describe('AppHeader', () => {
+  it('fixed 결과 알림보다 위에 쌓이되 sticky로 바뀌지 않는다', async () => {
+    renderHeader()
+
+    const header = await screen.findByRole('banner')
+    expect(header).toHaveClass('relative', 'z-40')
+    expect(header).not.toHaveClass('sticky')
+  })
+
   it('데스크톱 lockup과 모바일 심볼이 같은 32px 크기를 쓴다', async () => {
     renderHeader()
 

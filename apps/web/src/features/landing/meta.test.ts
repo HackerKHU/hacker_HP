@@ -35,6 +35,12 @@ function content(property: string): string | undefined {
 }
 
 describe('index.html 메타 태그', () => {
+  it('탭과 링크 미리보기 제목을 같은 문구로 보여준다', () => {
+    const title = '해커 – 경희대학교 소프트웨어융합대학 학술동아리'
+    expect(html.match(/<title>([^<]+)<\/title>/)?.[1]?.trim()).toBe(title)
+    expect(content('og:title')).toBe(title)
+  })
+
   it('미리보기에 필요한 태그가 모두 있다', () => {
     expect(html.match(/<title>([^<]+)<\/title>/)?.[1]?.trim()).toBeTruthy()
     expect(
