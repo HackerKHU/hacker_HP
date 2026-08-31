@@ -62,13 +62,17 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
     MINIO.start();
   }
 
+  /**
+   * {@code app.storage}는 자료(#207)와 공용이다(#213 통합) — 자료는 {@code endpoint}를 안 쓰므로 이 오버라이드가 자료 테스트에 영향을
+   * 주지 않는다.
+   */
   @DynamicPropertySource
   static void storageProperties(DynamicPropertyRegistry registry) {
-    registry.add("app.photo-storage.bucket", () -> BUCKET);
-    registry.add("app.photo-storage.region", () -> "us-east-1");
-    registry.add("app.photo-storage.endpoint", MINIO::getS3URL);
-    registry.add("app.photo-storage.access-key", MINIO::getUserName);
-    registry.add("app.photo-storage.secret-key", MINIO::getPassword);
+    registry.add("app.storage.bucket", () -> BUCKET);
+    registry.add("app.storage.region", () -> "us-east-1");
+    registry.add("app.storage.endpoint", MINIO::getS3URL);
+    registry.add("app.storage.access-key", MINIO::getUserName);
+    registry.add("app.storage.secret-key", MINIO::getPassword);
   }
 
   /** MinIO는 버킷을 미리 만들어주지 않는다 — 앱이 뜨기 전에 한 번만 만든다. */
@@ -223,7 +227,13 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    Long photoId = objectMapper.readTree(createdBody).get("registered").get(0).get("id").asLong();
+    var registered = objectMapper.readTree(createdBody).get("registered").get(0);
+    Long photoId = registered.get("id").asLong();
+
+    // T-507. 화면은 이 URL을 보관해 lazy-load·확대에 쓰므로 자료 다운로드의 1분을 공유하면
+    // 정상 탐색 중에 만료된다. 실제 MinIO 서명까지 관통해 10분 계약을 고정한다.
+    assertThat(registered.get("url").asText()).contains("X-Amz-Expires=600");
+    assertThat(registered.get("thumbnailUrl").asText()).contains("X-Amz-Expires=600");
 
     assertThat(photoRepository.existsById(photoId)).isTrue();
     Photo saved = photoRepository.findById(photoId).orElseThrow();

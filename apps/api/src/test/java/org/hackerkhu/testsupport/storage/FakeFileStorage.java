@@ -27,8 +27,14 @@ public class FakeFileStorage implements FileStorage {
 
   private final AtomicLong etags = new AtomicLong();
 
-  /** 키 → 마지막 내려받기 발급이 담은 {@code Content-Disposition}. */
+  /**
+   * 키 → 마지막 내려받기 발급이 담은 {@code Content-Disposition}. inline 발급({@link #presignGet(String)})은 {@code
+   * "inline"}을 담는다.
+   */
   private final Map<String, String> dispositions = new LinkedHashMap<>();
+
+  /** 키 → {@link #upload}로 실제로 쓴 바이트. {@link #put}은 브라우저가 올린 셈만 치므로 여기 들어오지 않는다 (#213 통합). */
+  private final Map<String, byte[]> bytes = new LinkedHashMap<>();
 
   private Duration presignDelay = Duration.ZERO;
   private Instant presignedAt;
@@ -73,6 +79,7 @@ public class FakeFileStorage implements FileStorage {
   public void clear() {
     objects.clear();
     dispositions.clear();
+    bytes.clear();
     presignDelay = Duration.ZERO;
     presignedAt = null;
     swapAfterDescribe.clear();
@@ -80,7 +87,7 @@ public class FakeFileStorage implements FileStorage {
   }
 
   @Override
-  public URI presignPut(String key) {
+  public URI presignPut(String key, String contentType) {
     return URI.create("https://fake-bucket.s3.test/" + key + "?signed=1");
   }
 
@@ -97,6 +104,15 @@ public class FakeFileStorage implements FileStorage {
     sleepQuietly(presignDelay);
     dispositions.put(key, "attachment; filename*=UTF-8''" + originalName);
     return URI.create("https://fake-bucket.s3.test/" + key + "?signed=1&download=1");
+  }
+
+  /** 활동사진(#57)의 {@code <img src>}가 쓰는 inline 발급 (#213 통합). {@code attachment}를 담지 않는다. */
+  @Override
+  public URI presignGet(String key) {
+    presignedAt = Instant.now();
+    sleepQuietly(presignDelay);
+    dispositions.put(key, "inline");
+    return URI.create("https://fake-bucket.s3.test/" + key + "?signed=1");
   }
 
   /**
@@ -155,5 +171,29 @@ public class FakeFileStorage implements FileStorage {
       throw new IllegalStateException("삭제 실패를 흉내낸다: " + key);
     }
     objects.remove(key);
+    bytes.remove(key);
+  }
+
+  /**
+   * 활동사진(#57)의 리사이즈가 원본을 읽을 때 쓴다 (#213 통합). {@link #put}으로 "올라온 셈" 친 키는 실제 바이트가 없으므로 여기서 못 받는다 —
+   * {@link #upload}로 실제로 쓴 것만 돌려받을 수 있다.
+   */
+  @Override
+  public byte[] download(String key) {
+    byte[] found = bytes.get(key);
+    if (found == null) {
+      throw new IllegalStateException("올라오지 않은 키를 내려받으려 했다: " + key);
+    }
+    return found;
+  }
+
+  /**
+   * 활동사진(#57)의 리사이즈 결과·썸네일을 최종 키에 쓸 때 쓴다 (#213 통합). {@link #describe}로 잴 수 있도록 {@code objects}에도
+   * 반영한다.
+   */
+  @Override
+  public void upload(String key, byte[] content, String contentType) {
+    bytes.put(key, content);
+    objects.put(key, new StoredObject(content.length, "etag-" + etags.incrementAndGet()));
   }
 }

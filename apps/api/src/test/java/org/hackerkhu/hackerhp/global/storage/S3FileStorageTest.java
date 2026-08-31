@@ -26,6 +26,8 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
 /**
  * S3가 <b>실제로 어떤 예외를 던지는지</b>에 걸려 있는 부분만 본다 (#207 리뷰).
@@ -50,7 +52,14 @@ class S3FileStorageTest {
             s3,
             presigner,
             new StorageProperties(
-                "test-bucket", "ap-northeast-2", Duration.ofMinutes(5), Duration.ofMinutes(1)));
+                "test-bucket",
+                "ap-northeast-2",
+                Duration.ofMinutes(5),
+                Duration.ofMinutes(1),
+                Duration.ofMinutes(10),
+                null,
+                null,
+                null));
   }
 
   private static S3Exception withStatus(int status) {
@@ -228,5 +237,64 @@ class S3FileStorageTest {
       when(presigned.url()).thenReturn(new URL("https://bucket.s3.test/notes/uuid.pdf?sig=1"));
       return presigned;
     };
+  }
+
+  /* ------------------------------------------------------- 조회 서명, inline (활동사진 #57, #213 통합) */
+
+  /**
+   * <b>{@code Content-Disposition}을 담지 않는다.</b> {@code <img src>}가 바로 그려야 하는 자리라 "받는" 동작을 강제하면 안
+   * 된다.
+   */
+  @Test
+  void inlinePresignGetCarriesNoDisposition() {
+    when(presigner.presignGetObject(any(GetObjectPresignRequest.class))).thenAnswer(presignedGet());
+
+    storage.presignGet("photos/1/uuid.jpg");
+
+    ArgumentCaptor<GetObjectPresignRequest> captured =
+        ArgumentCaptor.forClass(GetObjectPresignRequest.class);
+    verify(presigner).presignGetObject(captured.capture());
+    assertThat(captured.getValue().getObjectRequest().responseContentDisposition()).isNull();
+    assertThat(captured.getValue().signatureDuration()).isEqualTo(Duration.ofMinutes(10));
+  }
+
+  /* ------------------------------------------------------- 올리기 서명 (활동사진 #57, #213 통합) */
+
+  private static Answer<PresignedPutObjectRequest> presignedPut() {
+    return invocation -> {
+      PresignedPutObjectRequest presigned = mock(PresignedPutObjectRequest.class);
+      when(presigned.url())
+          .thenReturn(new URL("https://bucket.s3.test/photos/uploads/uuid.jpg?sig=1"));
+      return presigned;
+    };
+  }
+
+  /**
+   * <b>{@code Content-Type}을 서명에 실을 수 있다</b> — 활동사진은 확장자별로 정해진 형식을 강제한다. 자료(#207)는 {@code null}을 넘겨
+   * 강제하지 않는다({@link #presignPutWithoutAContentTypeOmitsIt}).
+   */
+  @Test
+  void presignPutCarriesTheGivenContentType() {
+    when(presigner.presignPutObject(any(PutObjectPresignRequest.class))).thenAnswer(presignedPut());
+
+    storage.presignPut("photos/uploads/uuid.jpg", "image/jpeg");
+
+    ArgumentCaptor<PutObjectPresignRequest> captured =
+        ArgumentCaptor.forClass(PutObjectPresignRequest.class);
+    verify(presigner).presignPutObject(captured.capture());
+    assertThat(captured.getValue().putObjectRequest().contentType()).isEqualTo("image/jpeg");
+  }
+
+  /** {@code null}이면 서명에 아무 형식도 싣지 않는다 — 자료(#207)는 올리는 파일 형식이 다양해 강제하지 않는다. */
+  @Test
+  void presignPutWithoutAContentTypeOmitsIt() {
+    when(presigner.presignPutObject(any(PutObjectPresignRequest.class))).thenAnswer(presignedPut());
+
+    storage.presignPut("notes/uploads/1/uuid.pdf", null);
+
+    ArgumentCaptor<PutObjectPresignRequest> captured =
+        ArgumentCaptor.forClass(PutObjectPresignRequest.class);
+    verify(presigner).presignPutObject(captured.capture());
+    assertThat(captured.getValue().putObjectRequest().contentType()).isNull();
   }
 }

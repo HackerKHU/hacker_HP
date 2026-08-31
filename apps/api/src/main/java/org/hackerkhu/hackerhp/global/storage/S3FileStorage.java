@@ -7,6 +7,8 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.core.sync.ResponseTransformer;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
@@ -39,12 +41,15 @@ public class S3FileStorage implements FileStorage {
   }
 
   @Override
-  public URI presignPut(String key) {
+  public URI presignPut(String key, String contentType) {
+    PutObjectRequest.Builder put = PutObjectRequest.builder().bucket(properties.bucket()).key(key);
+    if (contentType != null) {
+      put.contentType(contentType);
+    }
     PutObjectPresignRequest request =
         PutObjectPresignRequest.builder()
             .signatureDuration(properties.presignTtl())
-            .putObjectRequest(
-                PutObjectRequest.builder().bucket(properties.bucket()).key(key).build())
+            .putObjectRequest(put.build())
             .build();
     return URI.create(presigner.presignPutObject(request).url().toString());
   }
@@ -68,6 +73,20 @@ public class S3FileStorage implements FileStorage {
                     .key(key)
                     .responseContentDisposition(contentDisposition(originalName))
                     .build())
+            .build();
+    return URI.create(presigner.presignGetObject(request).url().toString());
+  }
+
+  /**
+   * 활동사진(#57)의 {@code <img src>}가 쓴다 — {@code Content-Disposition}을 담지 않아 브라우저가 바로 그린다 (#213 통합).
+   */
+  @Override
+  public URI presignGet(String key) {
+    GetObjectPresignRequest request =
+        GetObjectPresignRequest.builder()
+            .signatureDuration(properties.inlinePresignTtl())
+            .getObjectRequest(
+                GetObjectRequest.builder().bucket(properties.bucket()).key(key).build())
             .build();
     return URI.create(presigner.presignGetObject(request).url().toString());
   }
@@ -154,5 +173,29 @@ public class S3FileStorage implements FileStorage {
   @Override
   public void delete(String key) {
     s3.deleteObject(DeleteObjectRequest.builder().bucket(properties.bucket()).key(key).build());
+  }
+
+  /**
+   * 활동사진(#57)의 리사이즈가 원본을 읽을 때 쓴다 (#213 통합). 없는 키는 그대로 {@link S3Exception}을 던진다 — 부르는 쪽이 {@link
+   * #describe}로 먼저 존재를 확인했어야 한다.
+   */
+  @Override
+  public byte[] download(String key) {
+    return s3.getObject(
+            GetObjectRequest.builder().bucket(properties.bucket()).key(key).build(),
+            ResponseTransformer.toBytes())
+        .asByteArray();
+  }
+
+  /** 활동사진(#57)의 리사이즈 결과·썸네일을 최종 키에 쓸 때 쓴다 (#213 통합). */
+  @Override
+  public void upload(String key, byte[] content, String contentType) {
+    s3.putObject(
+        PutObjectRequest.builder()
+            .bucket(properties.bucket())
+            .key(key)
+            .contentType(contentType)
+            .build(),
+        RequestBody.fromBytes(content));
   }
 }

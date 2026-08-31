@@ -65,17 +65,6 @@ server:
         same-site: lax
 
 app:
-  # 활동사진(#57) 전용. 자료(#207)의 app.storage와 따로 둔 이유는 PhotoStorageProperties의
-  # 클래스 주석을 참고 — 두 추상화를 하나로 합칠지는 #213에서 정한다.
-  photo-storage:
-    # 자료(app.storage)와 물리적으로 같은 버킷이다(infra/terraform/storage.tf 키 네이밍 참고) —
-    # 그래서 같은 S3_BUCKET·AWS_REGION 환경변수를 그대로 쓴다 (infra/terraform/ecs.tf).
-    # endpoint·accessKey·secretKey는 로컬(MinIO)에서만 채운다.
-    bucket: ${S3_BUCKET:}
-    region: ${AWS_REGION:ap-northeast-2}
-    endpoint: ${S3_ENDPOINT:}
-    access-key: ${S3_ACCESS_KEY:}
-    secret-key: ${S3_SECRET_KEY:}
   auth:
     # 값이 없으면 기동에 실패한다. 기본값을 심어두면 설정 누락이 조용히 지나가고
     # 도메인 제한이 무력해진다 (docs/ops/infra.md, 3-1 §3-1-4).
@@ -98,17 +87,29 @@ app:
       token: ${ADMIN_BOOTSTRAP_TOKEN:}
 
   storage:
-    # 자료·사진이 들어가는 버킷. 태스크 정의가 S3_BUCKET으로 항상 주입한다
+    # 자료(#207)·활동사진(#57)이 들어가는 버킷. 태스크 정의가 S3_BUCKET으로 항상 주입한다
     # (infra/terraform/ecs.tf). 기본값을 심으면 설정 누락이 조용히 지나가고
-    # 업로드가 엉뚱한 버킷을 가리킨다.
+    # 업로드가 엉뚱한 버킷을 가리킨다. 원래 사진은 이 버킷 값을 photo-storage로 따로 읽었는데
+    # 물리적으로 같은 버킷이라 하나로 합쳤다(#213).
     bucket: ${S3_BUCKET}
     region: ${AWS_REGION:ap-northeast-2}
     # 발급한 URL의 수명. 20MB를 올리기엔 충분하고, 새어나가도 창이 좁다.
     # 만료되면 다시 발급받으면 된다.
     presign-ttl: 5m
-    # 다운로드는 발급받자마자 브라우저가 연다 — 업로드보다 더 짧게 둔다 (2-1 §2-1-4 MUST).
+    # 자료 다운로드는 발급받자마자 브라우저가 연다 — 업로드보다 더 짧게 둔다 (2-1 §2-1-4 MUST).
     # 전송이 이보다 오래 걸려도 끊기지 않는다. S3는 요청이 시작될 때 서명을 본다.
     download-presign-ttl: 1m
+    # 활동사진 목록은 URL을 응답에 담아 화면이 보관한다. 썸네일은 lazy-load되고 원본은 나중에
+    # 열 수 있으므로 자료 다운로드의 1분을 공유하면 스크롤·확대 전에 만료된다. #213 통합 전
+    # 활동사진 조회 계약인 10분을 보존한다.
+    inline-presign-ttl: 10m
+    # MinIO 등 S3 호환 엔드포인트. 운영은 비운다 — 그러면 AWS SDK 기본 자격 증명 체인
+    # (ECS Task Role)을 그대로 쓴다. 로컬(docker-compose.yml의 MinIO)만 값을 채운다
+    # (application-local.yml) — 활동사진은 서버가 원본을 내려받아 리사이즈해야 해서 로컬에서도
+    # 실제로 검증할 S3 호환 서버가 필요하다. 자료는 바이트를 만지지 않아 이 값을 쓰지 않는다.
+    endpoint: ${S3_ENDPOINT:}
+    access-key: ${S3_ACCESS_KEY:}
+    secret-key: ${S3_SECRET_KEY:}
   notes:
     upload:
       # 2-1 §2-1-2 MUST — "허용 확장자와 최대 용량은 설정값으로 제한한다".
