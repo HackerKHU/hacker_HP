@@ -111,6 +111,23 @@ beforeEach(() => {
 })
 
 describe('게시글 상세', () => {
+  it('장문 제목과 삭제 확인문을 줄이되 원문과 조작을 보존한다', async () => {
+    const longTitle = '삭제할 게시글의 아주 긴 제목'.repeat(20)
+    api.post = { ...POST, title: longTitle }
+    renderDetail()
+
+    const heading = await screen.findByRole('heading', { name: longTitle })
+    expect(heading.className).toContain('line-clamp-2')
+    expect(heading.className).toContain('break-all')
+    expect(heading).toHaveAttribute('title', longTitle)
+    expect(screen.getByRole('button', { name: '삭제' })).toBeVisible()
+
+    const dialog = await openDeleteDialog()
+    const dialogTitle = within(dialog).getByTitle(longTitle)
+    expect(dialogTitle.className).toContain('truncate')
+    expect(dialog).toHaveTextContent(longTitle)
+  })
+
   it('제목·본문·작성자·작성일을 보여준다', async () => {
     renderDetail()
 

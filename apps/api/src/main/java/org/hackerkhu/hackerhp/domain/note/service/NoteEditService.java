@@ -40,6 +40,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class NoteEditService {
 
   private static final Logger log = LoggerFactory.getLogger(NoteEditService.class);
+  private static final int TITLE_MAX_CODE_POINTS = 50;
+  private static final int STORED_TITLE_MAX_CODE_POINTS = 200;
 
   private final NoteRepository notes;
   private final BookmarkRepository bookmarks;
@@ -81,7 +83,7 @@ public class NoteEditService {
     List<NoteUpdateRequest.FileRef> files = distinctRefs(request.files());
 
     // ① 옮기기 전에 끊는다. 권한이 없는 요청이 S3를 건드릴 이유가 없다.
-    requireEditable(requesterId, noteId);
+    requireEditable(requesterId, noteId, request.title());
 
     List<StagedUploads.Claim> claims =
         files.stream()
@@ -118,6 +120,7 @@ public class NoteEditService {
     User requester = lockRequester(requesterId);
     Note note = lockNote(noteId);
     requireOwnerOrAdmin(requester, note, requesterId);
+    requireAllowedTitleChange(note, request.title());
 
     Map<Long, NoteFile> existing =
         note.getFiles().stream().collect(Collectors.toMap(NoteFile::getId, Function.identity()));
@@ -209,10 +212,29 @@ public class NoteEditService {
    * <p>이것만으로는 부족하다 — 확인과 저장 사이에 권한이 바뀔 수 있다. 그래서 저장 트랜잭션이 잠근 행으로 다시 본다. 여기서 먼저 끊는 것은 <b>권한 없는 요청이
    * S3를 건드리지 않게</b> 하기 위해서다.
    */
-  private void requireEditable(Long requesterId, Long noteId) {
+  private void requireEditable(Long requesterId, Long noteId, String requestedTitle) {
     User requester = users.findById(requesterId).orElse(null);
     Note note = loadNote(noteId);
     requireOwnerOrAdmin(requester, note, requesterId);
+    // 새 파일을 최종 자리로 옮기기 전에 명백한 제목 위반도 함께 끊는다.
+    requireAllowedTitleChange(note, requestedTitle);
+  }
+
+  /**
+   * 새로 쓰는 제목은 50자까지다. 다만 이미 DB에 있는 51~200자 제목은 원문을 그대로 보낼 때만 유지할 수 있다 — 자료 수정은 전체 교체라 이 예외가 없으면 파일
+   * 하나만 고쳐도 제목부터 줄여야 한다 (spec 3-2 §3-2-4).
+   */
+  private void requireAllowedTitleChange(Note note, String requestedTitle) {
+    String normalized = requestedTitle.trim();
+    if (normalized.codePointCount(0, normalized.length()) > STORED_TITLE_MAX_CODE_POINTS) {
+      throw new BusinessException(ErrorCode.VALIDATION_ERROR, "기존 제목의 저장 상한을 넘었습니다.");
+    }
+    if (normalized.equals(note.getTitle())) {
+      return;
+    }
+    if (normalized.codePointCount(0, normalized.length()) > TITLE_MAX_CODE_POINTS) {
+      throw new BusinessException(ErrorCode.VALIDATION_ERROR, "제목은 50자까지 쓸 수 있습니다.");
+    }
   }
 
   private User lockRequester(Long requesterId) {

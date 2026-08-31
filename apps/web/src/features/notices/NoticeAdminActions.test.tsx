@@ -36,6 +36,7 @@ const NOTICE: Notice = {
 const api = vi.hoisted(() => ({
   removed: [] as number[],
   removeFails: false,
+  title: '지울 공지',
 }))
 
 vi.mock('@/api/notices', () => ({
@@ -44,7 +45,7 @@ vi.mock('@/api/notices', () => ({
       content: [
         {
           id: 1,
-          title: '지울 공지',
+          title: api.title,
           content: '본문',
           isPinned: false,
           authorId: 2,
@@ -55,7 +56,7 @@ vi.mock('@/api/notices', () => ({
       ],
       page: { size: 10, number: 0, totalElements: 1, totalPages: 1 },
     }),
-  get: () => Promise.resolve(NOTICE),
+  get: () => Promise.resolve({ ...NOTICE, title: api.title }),
   remove: (id: number) => {
     if (api.removeFails) {
       return Promise.reject(new ApiError('FORBIDDEN', 403, '권한이 없습니다.'))
@@ -111,6 +112,7 @@ function pathname(): string {
 beforeEach(() => {
   api.removed = []
   api.removeFails = false
+  api.title = '지울 공지'
   auth.role = 'ADMIN'
 })
 
@@ -170,6 +172,20 @@ describe('관리자 진입점 노출', () => {
 })
 
 describe('공지 삭제', () => {
+  it('장문 제목을 확인문에서 줄이되 원문을 보존한다', async () => {
+    api.title = '삭제할 공지의 아주 긴 제목'.repeat(20)
+    renderAt('/notices/1')
+
+    const heading = await screen.findByRole('heading', { name: api.title })
+    expect(heading.className).toContain('line-clamp-2')
+    fireEvent.click(screen.getByRole('button', { name: '삭제' }))
+
+    const dialog = await screen.findByRole('alertdialog')
+    const dialogTitle = within(dialog).getByTitle(api.title)
+    expect(dialogTitle.className).toContain('truncate')
+    expect(dialog).toHaveTextContent(api.title)
+  })
+
   it('확인 전에는 삭제되지 않고, 다이얼로그가 무엇을 지우는지 보여준다', async () => {
     renderAt('/notices/1')
 

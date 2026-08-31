@@ -57,6 +57,10 @@ describe('공지 상세', () => {
     expect(
       await screen.findByRole('heading', { name: '있는 공지' }),
     ).toBeInTheDocument()
+    const heading = screen.getByRole('heading', { name: '있는 공지' })
+    expect(heading.className).toContain('line-clamp-2')
+    expect(heading.className).toContain('break-all')
+    expect(heading).toHaveAttribute('title', '있는 공지')
 
     // 본문은 평문이다. 줄바꿈만 살리고 마크업으로 해석하지 않는 것이 이 화면의 계약이다.
     const body = screen.getByText(/첫 줄/)

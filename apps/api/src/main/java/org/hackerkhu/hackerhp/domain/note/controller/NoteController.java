@@ -158,13 +158,16 @@ public class NoteController {
 
           **남이 올린 키는 등록할 수 없다** — 키에 업로더가 박혀 있어 대조한다.
 
+          제목은 Java `String.trim()`과 같이 **양끝의 U+0000~U+0020 문자만 제거한 뒤
+          코드포인트 기준 50자까지**다. NBSP(U+00A0)는 제목 문자로 보존한다.
+
           **업로더는 로그인한 사람이다.** 본문으로 받지 않는다.
           """)
   @ApiResponse(responseCode = "201", description = "등록됨. 본문은 저장된 자료다")
   @ApiResponse(
       responseCode = "400",
       description =
-          "`VALIDATION_ERROR` — 필수값 누락, `category`와 `examType`의 짝이 어긋남, **아직 올라오지 않은 파일**",
+          "`VALIDATION_ERROR` — 필수값 누락, 정규화한 제목 50자 초과, `category`와 `examType`의 짝이 어긋남, **아직 올라오지 않은 파일**",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -298,12 +301,17 @@ public class NoteController {
           새로 올린 파일의 `key`+`originalName`이다 — **둘 중 하나만** 채운다.
 
           **업로더는 바뀌지 않는다.** 관리자가 남의 자료를 고쳐도 그렇다.
+
+          제목은 Java `String.trim()`과 같이 **양끝의 U+0000~U+0020 문자만 제거한 저장값**으로 센다.
+          NBSP(U+00A0)는 제목 문자로 보존한다. 새로 쓰거나 바꾸는 제목은 **50자까지**다. 기존에 저장된 51~200자 제목은
+          그대로 둔 채 다른 메타데이터·첨부만 고칠 수 있지만, 다른 50자 초과 제목으로는
+          바꿀 수 없다.
           """)
   @ApiResponse(responseCode = "200", description = "수정됨. 본문은 갱신된 자료다")
   @ApiResponse(
       responseCode = "400",
       description =
-          "`VALIDATION_ERROR` — 필수값 누락 · `category`와 `examType`의 짝이 어긋남 · **`fileId`와 `key`를 둘 다 보내거나 둘 다 비움** · 이 자료의 파일이 아닌 `fileId` · 아직 올라오지 않은 `key`",
+          "`VALIDATION_ERROR` — 필수값 누락 · 정규화한 제목이 저장 상한 200자 초과 · 변경 제목이 50자 초과 · `category`와 `examType`의 짝이 어긋남 · **`fileId`와 `key`를 둘 다 보내거나 둘 다 비움** · 이 자료의 파일이 아닌 `fileId` · 아직 올라오지 않은 `key`",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,

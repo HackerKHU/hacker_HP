@@ -228,9 +228,11 @@ export function PhotoGalleryPage() {
                   </button>
 
                   <div className="mt-2 flex items-start justify-between gap-2">
-                    <div className="min-w-0 text-sm">
+                    <div className="min-w-0 flex-1 text-sm">
                       {photo.caption && (
-                        <p className="truncate">{photo.caption}</p>
+                        <p className="truncate" title={photo.caption}>
+                          {photo.caption}
+                        </p>
                       )}
                       <p className="truncate text-xs text-muted-foreground">
                         {/* 업로더 이름은 절대 비지 않는다 — 제거되면 "탈퇴한 회원"이다 (§3-2-2). */}
@@ -260,11 +262,29 @@ export function PhotoGalleryPage() {
                             <AlertDialogTitle>
                               사진을 삭제할까요?
                             </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              {photo.caption
-                                ? `「${photo.caption}」을(를) 삭제합니다.`
-                                : '이 사진을 삭제합니다.'}{' '}
-                              되돌릴 수 없습니다.
+                            <AlertDialogDescription asChild>
+                              <div>
+                                {photo.caption ? (
+                                  <>
+                                    <span className="block">
+                                      다음 사진을 삭제합니다.
+                                    </span>
+                                    <span
+                                      className="mt-1 block truncate font-medium text-foreground"
+                                      title={photo.caption}
+                                    >
+                                      「{photo.caption}」
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="block">
+                                    이 사진을 삭제합니다.
+                                  </span>
+                                )}
+                                <span className="mt-1 block">
+                                  되돌릴 수 없습니다.
+                                </span>
+                              </div>
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>

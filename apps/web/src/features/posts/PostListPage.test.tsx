@@ -87,6 +87,18 @@ beforeEach(() => {
 })
 
 describe('자유 게시판 목록', () => {
+  it('장문 제목을 한 줄로 줄이면서 링크 이름과 원문을 보존한다', async () => {
+    const longTitle = '자유게시판의 아주 긴 제목'.repeat(20)
+    api.rows = [{ ...POST, title: longTitle }]
+    renderList()
+
+    const title = await screen.findByText(longTitle)
+    const link = title.closest('a')
+    expect(title.className).toContain('truncate')
+    expect(title).toHaveAttribute('title', longTitle)
+    expect(link?.className).toContain('min-w-0')
+  })
+
   it('조회 상태와 무관하게 목록 surface와 pager 자리를 유지한다', async () => {
     renderList()
     expect(

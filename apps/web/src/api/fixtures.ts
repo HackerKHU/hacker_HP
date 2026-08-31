@@ -37,6 +37,12 @@ import type {
   RejectResult,
 } from './adminUsers'
 import { ApiError } from './client'
+import {
+  countCodePoints,
+  NOTE_TITLE_MAX,
+  normalizeNoteTitle,
+  STORED_NOTE_TITLE_MAX,
+} from './noteContract'
 import type {
   DownloadUrl,
   FileRef,
@@ -1212,9 +1218,12 @@ const NOTES: FixtureNote[] = Array.from({ length: 23 }, (_, index) => {
   return {
     id: 301 + index,
     category: isExam ? ('EXAM' as const) : ('SUBJECT' as const),
-    title: isExam
-      ? `${subject} ${2026 - (index % 3)}년 ${index % 2 === 0 ? '중간' : '기말'}고사 정리본`
-      : `${subject} 전체 정리 노트`,
+    title:
+      index === 0
+        ? '가'.repeat(STORED_NOTE_TITLE_MAX)
+        : isExam
+          ? `${subject} ${2026 - (index % 3)}년 ${index % 2 === 0 ? '중간' : '기말'}고사 정리본`
+          : `${subject} 전체 정리 노트`,
     subjectName: subject,
     professor,
     year: 2026 - (index % 3),
@@ -1521,7 +1530,7 @@ function toDetail(
   return {
     id,
     category: body.category,
-    title: body.title,
+    title: normalizeNoteTitle(body.title),
     subjectName: body.subjectName,
     professor: body.professor,
     year: body.year,
@@ -1592,7 +1601,7 @@ export function fixtureUpdateNote(
   const denied = requireOwner(found)
   if (denied) return Promise.reject(denied)
 
-  const invalid = validateNote(body)
+  const invalid = validateNote(body, found.title)
   if (invalid) return Promise.reject(invalid)
 
   const files: NoteFile[] = []
@@ -1665,12 +1674,37 @@ function requireOwner(note: FixtureNote): ApiError | null {
 /** 서버가 거부할 것을 픽스처도 거부한다 — 통과시키면 오류 화면을 만들 수 없다. */
 function validateNote(
   body: NoteMetadata & { files: unknown[] },
+  currentTitle?: string,
 ): ApiError | null {
-  if (body.title.trim() === '' || body.subjectName.trim() === '') {
+  const normalizedTitle = normalizeNoteTitle(body.title)
+  if (normalizedTitle === '' || body.subjectName.trim() === '') {
     return new ApiError(
       'VALIDATION_ERROR',
       400,
       '제목과 과목명을 입력해 주세요.',
+    )
+  }
+  const normalizedTitleCount = countCodePoints(normalizedTitle)
+  if (
+    currentTitle !== undefined &&
+    normalizedTitleCount > STORED_NOTE_TITLE_MAX
+  ) {
+    return new ApiError(
+      'VALIDATION_ERROR',
+      400,
+      '기존 제목의 저장 상한을 넘었습니다.',
+    )
+  }
+  if (
+    currentTitle === undefined
+      ? normalizedTitleCount > NOTE_TITLE_MAX
+      : normalizedTitle !== currentTitle &&
+        normalizedTitleCount > NOTE_TITLE_MAX
+  ) {
+    return new ApiError(
+      'VALIDATION_ERROR',
+      400,
+      `제목은 ${NOTE_TITLE_MAX}자까지 쓸 수 있습니다.`,
     )
   }
   /*

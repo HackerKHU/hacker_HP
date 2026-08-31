@@ -120,6 +120,30 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.info.title").value("hacker_HP API"));
   }
 
+  @Test
+  void noteTitleLimitsDocumentNewAndGrandfatheredValues() throws Exception {
+    mockMvc
+        .perform(signedIn(get(API_DOCS)))
+        .andExpect(
+            jsonPath("$.components.schemas.NoteCreateRequest.properties.title.maxLength")
+                .doesNotExist())
+        .andExpect(
+            jsonPath("$.components.schemas.NoteUpdateRequest.properties.title.maxLength")
+                .doesNotExist())
+        .andExpect(
+            jsonPath("$.components.schemas.NoteCreateRequest.properties.title.description")
+                .value(org.hamcrest.Matchers.containsString("U+0000~U+0020")))
+        .andExpect(
+            jsonPath("$.components.schemas.NoteUpdateRequest.properties.title.description")
+                .value(org.hamcrest.Matchers.containsString("U+0000~U+0020")))
+        .andExpect(
+            jsonPath("$.components.schemas.NoteUpdateRequest.properties.title.description")
+                .value(org.hamcrest.Matchers.containsString("NBSP(U+00A0)")))
+        .andExpect(
+            jsonPath("$.components.schemas.NoteUpdateRequest.properties.title.description")
+                .value(org.hamcrest.Matchers.containsString("maxLength를 선언하지 않음")));
+  }
+
   /* 구현된 인증 API가 빠짐없이 실린다. 컨트롤러를 더하고 문서를 잊는 것을 잡는다. */
   @Test
   void everyImplementedAuthEndpointAppears() throws Exception {

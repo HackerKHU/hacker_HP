@@ -30,6 +30,12 @@ public @interface CodePointSize {
   /** 코드포인트 기준 상한. */
   int max();
 
+  /**
+   * {@code true}면 Java {@link String#trim()}과 같이 양끝의 U+0000~U+0020 문자만 제거한 뒤 센다. NBSP(U+00A0) 등 그
+   * 밖의 문자는 의미 문자로 보존한다.
+   */
+  boolean trim() default false;
+
   String message() default "너무 깁니다.";
 
   Class<?>[] groups() default {};
