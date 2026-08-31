@@ -2,8 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearCookies, setCookie } from '@/test/cookies'
 import {
   approve,
+  bulkUpdateStatus,
   contentSummary,
+  deactivate,
   list,
+  reactivate,
   reject,
   remove,
   updateRole,
@@ -131,6 +134,143 @@ describe('회원 관리 API method와 경로', () => {
       RequestInit,
     ]
     expect(JSON.parse(String(init.body))).toEqual({ userIds: [1, 2] })
+  })
+
+  it('선택 비활성화는 POST /deactivate에 userIds만 보낸다', async () => {
+    const fetchMock = stubFetch({ deactivated: [1], failed: [] })
+
+    await deactivate([1, 2])
+
+    expect(lastCall(fetchMock)).toEqual([
+      '/api/v1/admin/users/deactivate',
+      'POST',
+    ])
+    const [, init] = fetchMock.mock.calls.at(-1) as unknown as [
+      string,
+      RequestInit,
+    ]
+    expect(JSON.parse(String(init.body))).toEqual({ userIds: [1, 2] })
+  })
+
+  it('선택 비활성화의 200 혼합 결과를 순서 그대로 돌려준다', async () => {
+    stubFetch({
+      deactivated: [2],
+      failed: [
+        { userId: 1, reason: 'NOT_ACTIVE_USER' },
+        { userId: 999, reason: 'NOT_FOUND' },
+      ],
+    })
+
+    await expect(deactivate([1, 2, 999])).resolves.toEqual({
+      deactivated: [2],
+      failed: [
+        { userId: 1, reason: 'NOT_ACTIVE_USER' },
+        { userId: 999, reason: 'NOT_FOUND' },
+      ],
+    })
+  })
+
+  it.each([
+    ['ACTIVE', [1, 2]],
+    ['SUSPENDED', [5, 3]],
+  ] as const)(
+    '선택 상태 변경은 PATCH /status에 userIds와 %s를 한 번 보낸다',
+    async (status, userIds) => {
+      const fetchMock = stubFetch({
+        targetStatus: status,
+        processed: userIds,
+        failed: [],
+      })
+
+      await bulkUpdateStatus([...userIds], status)
+
+      expect(lastCall(fetchMock)).toEqual([
+        '/api/v1/admin/users/status',
+        'PATCH',
+      ])
+      const [, init] = fetchMock.mock.calls.at(-1) as unknown as [
+        string,
+        RequestInit,
+      ]
+      expect(JSON.parse(String(init.body))).toEqual({ userIds, status })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it('선택 상태 변경의 멱등·부분 실패 200 응답을 그대로 돌려준다', async () => {
+    stubFetch({
+      targetStatus: 'ACTIVE',
+      processed: [4, 6],
+      failed: [
+        { userId: 3, reason: 'NOT_APPLIED' },
+        { userId: 999, reason: 'NOT_FOUND' },
+      ],
+    })
+
+    await expect(bulkUpdateStatus([4, 3, 6, 999], 'ACTIVE')).resolves.toEqual({
+      targetStatus: 'ACTIVE',
+      processed: [4, 6],
+      failed: [
+        { userId: 3, reason: 'NOT_APPLIED' },
+        { userId: 999, reason: 'NOT_FOUND' },
+      ],
+    })
+  })
+
+  it.each([
+    [400, 'VALIDATION_ERROR'],
+    [403, 'FORBIDDEN'],
+    [500, 'INVALID_RESPONSE'],
+  ] as const)(
+    '상태 변경의 %i 응답을 성공으로 바꾸지 않는다',
+    async (status, code) => {
+      const fetchMock = vi.fn(async () =>
+        Response.json(
+          code === 'INVALID_RESPONSE'
+            ? { code: 'INTERNAL_ERROR', message: '세션 반영 실패' }
+            : { code, message: '요청을 처리할 수 없습니다.' },
+          { status },
+        ),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      await expect(bulkUpdateStatus([1], 'SUSPENDED')).rejects.toMatchObject({
+        status,
+      })
+    },
+  )
+
+  /*
+   * **복구는 반대로 id를 싣는다** (2-2 §2-2-3). 올라올 사람은 매번 다르므로 조건으로
+   * 전원을 올리면 비활성화가 무의미해진다 — 두 경로의 요청 모양이 다른 것이 그 규칙이다.
+   */
+  it('일괄 복구는 POST /api/v1/admin/users/reactivate에 userIds를 담는다', async () => {
+    const fetchMock = stubFetch({ reactivated: [1], failed: [] })
+
+    await reactivate([1, 6])
+
+    expect(lastCall(fetchMock)).toEqual([
+      '/api/v1/admin/users/reactivate',
+      'POST',
+    ])
+    const [, init] = fetchMock.mock.calls.at(-1) as unknown as [
+      string,
+      RequestInit,
+    ]
+    expect(JSON.parse(String(init.body))).toEqual({ userIds: [1, 6] })
+  })
+
+  it('일괄 복구 응답의 reactivated·failed를 그대로 돌려준다', async () => {
+    stubFetch({
+      reactivated: [1],
+      failed: [{ userId: 6, reason: 'NOT_INACTIVE' }],
+    })
+
+    // 부분 실패를 안내하려면(T-365) 사유가 화면까지 와야 한다.
+    await expect(reactivate([1, 6])).resolves.toEqual({
+      reactivated: [1],
+      failed: [{ userId: 6, reason: 'NOT_INACTIVE' }],
+    })
   })
 
   it('제거는 DELETE이고 본문을 보내지 않는다', async () => {

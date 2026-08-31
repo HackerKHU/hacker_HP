@@ -82,6 +82,9 @@ public final class NoteSpecifications {
    *
    * <p>같은 시각에 등록됐거나 제목이 같은 자료가 여럿이면 순서가 정해지지 않는다. 그러면 페이지를 넘길 때마다 배치가 달라져 <b>같은 자료가 두 번 보이거나 아예
    * 빠진다</b> — 목록을 훑는 사람은 그것을 알아채지 못한다.
+   *
+   * <p><b>{@link NoteSort#VIEWS}에서 특히 그렇다</b> (#245). 새로 올라온 자료는 전부 {@code 0}이라 <b>동률이 목록을 통째로
+   * 채운다</b> — 다른 정렬에서는 드문 경우가 여기서는 기본값이다.
    */
   private static void applyOrder(
       Root<Note> root, CriteriaQuery<?> query, CriteriaBuilder builder, NoteSort sort) {
@@ -92,6 +95,8 @@ public final class NoteSpecifications {
     List<Order> criteria = new ArrayList<>();
     if (sort == NoteSort.TITLE) {
       criteria.add(builder.asc(builder.lower(root.get("title"))));
+    } else if (sort == NoteSort.VIEWS) {
+      criteria.add(builder.desc(root.get("viewCount")));
     } else {
       criteria.add(builder.desc(root.get("createdAt")));
     }

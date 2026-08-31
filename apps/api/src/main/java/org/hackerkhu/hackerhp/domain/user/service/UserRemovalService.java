@@ -191,7 +191,8 @@ public class UserRemovalService {
    * 본인 탈퇴의 선행 정지.
    *
    * <p>{@code PENDING}이면 밟지 않는다 — {@code PENDING} → {@code SUSPENDED}는 §2-2-3에 없는 전이라 <b>시도하는 순간
-   * 탈퇴가 그 자리에서 실패한다.</b> 건너뛰어도 안전한 이유는 가입 거부와 같다: 남긴 것이 없고 세션의 {@code status}가 보호 API를 열지 못한다.
+   * 탈퇴가 그 자리에서 실패한다.</b> 건너뛰어도 안전한 이유는 {@code PENDING} 계정이 콘텐츠를 남길 수 없고 세션의 {@code status}가 보호 API를
+   * 열지 못하기 때문이다.
    *
    * @return 정지를 밟았으면 {@code true}
    */
@@ -212,7 +213,7 @@ public class UserRemovalService {
    * 지우기 전에 정지를 확정한다.
    *
    * <p>대상이 {@code PENDING}이면 정지 경로를 탈 수 없다 (§2-2-3의 전이는 {@code ACTIVE} ↔ {@code SUSPENDED}뿐이다). 그
-   * 계정은 <b>남긴 것이 없고 세션도 보호 API를 열지 못하므로</b> 그대로 지운다 — 가입 거부와 같은 상태다.
+   * 계정은 <b>남긴 것이 없고 세션도 보호 API를 열지 못하므로</b> 그대로 지운다.
    */
   private void suspendFirst(Long requesterId, Long targetId) {
     User target =
@@ -222,10 +223,7 @@ public class UserRemovalService {
     if (target.getStatus() == Status.PENDING) {
       return;
     }
-    statusService.change(
-        requesterId,
-        targetId,
-        org.hackerkhu.hackerhp.domain.user.dto.StatusChangeRequest.Target.SUSPENDED);
+    statusService.suspendForRemoval(requesterId, targetId);
   }
 
   private Instant delete(Long requesterId, Long targetId) {

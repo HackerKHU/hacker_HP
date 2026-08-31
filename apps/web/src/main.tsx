@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App.tsx'
 import { SessionProvider } from './auth/session.tsx'
+import { LiveAlertProvider } from './components/live-alert/LiveAlertProvider.tsx'
 
 const rootElement = document.getElementById('root')
 
@@ -14,9 +15,11 @@ if (!rootElement) {
 createRoot(rootElement).render(
   <StrictMode>
     <BrowserRouter>
-      <SessionProvider>
-        <App />
-      </SessionProvider>
+      <LiveAlertProvider>
+        <SessionProvider>
+          <App />
+        </SessionProvider>
+      </LiveAlertProvider>
     </BrowserRouter>
   </StrictMode>,
 )

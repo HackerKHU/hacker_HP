@@ -14,7 +14,10 @@ import org.hackerkhu.hackerhp.domain.user.dto.AdminUserResponse;
 import org.hackerkhu.hackerhp.domain.user.dto.AdminUserSearch;
 import org.hackerkhu.hackerhp.domain.user.dto.ApproveRequest;
 import org.hackerkhu.hackerhp.domain.user.dto.ApproveResponse;
+import org.hackerkhu.hackerhp.domain.user.dto.BulkStatusChangeRequest;
+import org.hackerkhu.hackerhp.domain.user.dto.BulkStatusChangeResponse;
 import org.hackerkhu.hackerhp.domain.user.dto.ContentSummaryResponse;
+import org.hackerkhu.hackerhp.domain.user.dto.DeactivateRequest;
 import org.hackerkhu.hackerhp.domain.user.dto.DeactivateResponse;
 import org.hackerkhu.hackerhp.domain.user.dto.ReactivateRequest;
 import org.hackerkhu.hackerhp.domain.user.dto.ReactivateResponse;
@@ -29,6 +32,7 @@ import org.hackerkhu.hackerhp.domain.user.service.AdminUserRejectService;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserRoleService;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserService;
 import org.hackerkhu.hackerhp.domain.user.service.AdminUserStatusService;
+import org.hackerkhu.hackerhp.domain.user.service.BulkUserStatusService;
 import org.hackerkhu.hackerhp.domain.user.service.SemesterTransitionService;
 import org.hackerkhu.hackerhp.domain.user.service.UserContentSummaryService;
 import org.hackerkhu.hackerhp.domain.user.service.UserRemovalService;
@@ -76,6 +80,7 @@ public class AdminUserController {
   private final SemesterTransitionService semesterTransitionService;
   private final AdminUserApprovalService adminUserApprovalService;
   private final AdminUserStatusService adminUserStatusService;
+  private final BulkUserStatusService bulkUserStatusService;
   private final AdminUserRejectService adminUserRejectService;
   private final AdminUserRoleService adminUserRoleService;
   private final UserRemovalService userRemovalService;
@@ -87,6 +92,7 @@ public class AdminUserController {
       SemesterTransitionService semesterTransitionService,
       AdminUserApprovalService adminUserApprovalService,
       AdminUserStatusService adminUserStatusService,
+      BulkUserStatusService bulkUserStatusService,
       AdminUserRejectService adminUserRejectService,
       AdminUserRoleService adminUserRoleService,
       UserRemovalService userRemovalService,
@@ -96,6 +102,7 @@ public class AdminUserController {
     this.semesterTransitionService = semesterTransitionService;
     this.adminUserApprovalService = adminUserApprovalService;
     this.adminUserStatusService = adminUserStatusService;
+    this.bulkUserStatusService = bulkUserStatusService;
     this.adminUserRejectService = adminUserRejectService;
     this.adminUserRoleService = adminUserRoleService;
     this.userRemovalService = userRemovalService;
@@ -208,30 +215,36 @@ public class AdminUserController {
   /**
    * 학기 전환 — 일괄 비활성화 (spec 2-2 §2-2-3, #230).
    *
-   * <p><b>본문을 받지 않는다</b> (MUST). 대상은 {@code role = 'USER' AND status = 'ACTIVE'}인 전원으로 서버가 정한다 —
-   * id를 받으면 100개 상한에 걸려 학기 전환이 페이지 수만큼 쪼개지고, <b>한 페이지를 빠뜨려도 아무도 모른다.</b>
+   * <p>본문이 없거나 {@code userIds}가 비어 있으면 기존처럼 전원을, 값이 있으면 고른 회원만 처리한다.
    *
-   * <p><b>누르기 전에 대상 건수를 보여준다</b> (MUST). 조건으로 고르므로 관리자는 목록에서 누가 바뀌는지 볼 수 없다. 건수는 {@code GET
+   * <p>전원 경로는 <b>누르기 전에 대상 건수를 보여준다</b> (MUST). 조건으로 고르므로 관리자는 목록에서 누가 바뀌는지 볼 수 없다. 건수는 {@code GET
    * /admin/users?status=ACTIVE&role=USER&size=1}의 {@code page.totalElements}로 얻는다 — 미리보기 전용 API를 두지
-   * 않는다.
+   * 않는다. 선택 경로는 목록에서 대상을 직접 확인한다.
    */
   @Operation(
       summary = "학기 전환 — 일괄 비활성화",
       description =
           """
-          `ACTIVE`인 일반 부원 **전원**을 `INACTIVE`로 내린다. **본문을 받지 않는다** — 대상을
-          서버가 정한다.
+          본문이 없거나 `userIds`가 누락·`null`·빈 배열이면 `ACTIVE`인 일반 부원 **전원**을
+          `INACTIVE`로 내린다. 값이 있으면 고른 계정만 처리하며 최대 100개다.
 
-          `ADMIN`·`SUSPENDED`·`PENDING`은 휩쓸리지 않는다. 정지된 계정을 `INACTIVE`로 바꾸면
-          **정지가 풀리기** 때문이다.
+          전원 경로는 `ADMIN`·`SUSPENDED`·`PENDING`을 제외한다. 선택 경로는 관리자가
+          명시적으로 고른 `ACTIVE`/`SUSPENDED USER`를 `INACTIVE`로 바꾼다.
 
-          **응답은 실제로 바뀐 id다.** 이미 비활동이던 사람은 들어가지 않는다. 잘못 눌렀으면
-          이 배열을 그대로 복구에 넣는다 — 응답을 잃어도 `deactivatedAt`으로 직전 배치를
-          고를 수 있다.
+          **응답은 실제로 바뀐 id다.** 선택 경로는 실패한 id와 `NOT_FOUND` 또는
+          `NOT_ACTIVE_USER` reason도 돌려준다. 전원 경로는 하위 호환을 위해 기존처럼
+          `deactivated` 필드만 돌려준다.
 
           **멱등하다.** 두 번째는 빈 배열이다.
           """)
   @ApiResponse(responseCode = "200", description = "내려간 계정의 id")
+  @ApiResponse(
+      responseCode = "400",
+      description = "`VALIDATION_ERROR` — 선택 id가 양수가 아니거나 100개를 넘었다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
   @ApiResponse(
       responseCode = "401",
       description = "`UNAUTHENTICATED`",
@@ -256,8 +269,16 @@ public class AdminUserController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @PostMapping("/deactivate")
   @PreAuthorize("hasRole('ADMIN')")
-  public DeactivateResponse deactivate(@AuthenticationPrincipal Long requesterId) {
-    return semesterTransitionService.deactivate(requesterId);
+  public DeactivateResponse deactivate(
+      @AuthenticationPrincipal Long requesterId,
+      @io.swagger.v3.oas.annotations.parameters.RequestBody(
+              required = false,
+              description = "선택 회원 id. 본문 없음·누락·null·빈 배열이면 기존처럼 전원")
+          @Valid
+          @RequestBody(required = false)
+          DeactivateRequest request) {
+    return semesterTransitionService.deactivate(
+        requesterId, request == null ? null : request.userIds());
   }
 
   /**
@@ -305,13 +326,73 @@ public class AdminUserController {
     return semesterTransitionService.reactivate(requesterId, request.userIds());
   }
 
+  /** 선택 회원 일괄 활성화·정지 (spec 2-2 §2-2-3, #313). */
+  @Operation(
+      summary = "선택 회원 일괄 상태 변경",
+      description =
+          """
+          선택 id의 목표 상태를 `ACTIVE` 또는 `SUSPENDED`로 지정한다.
+          원본 배열은 1~100개의 양수 id만 받고, 검증 뒤 중복을 첫 등장만 남긴다.
+
+          **`processed`는 바뀐 id와 이미 목표 상태였던 id를 모두 담는다.** 항목별
+          실패는 `failed` 사유로 돌려주며 혼합 결과도 `200`이다. 두 배열은 각각
+          원본의 첫 등장 상대 순서를 유지한다.
+
+          `ACTIVE`는 제출 완료 `PENDING`을 승인하고, `INACTIVE`를 학기 복구하고,
+          `SUSPENDED`를 정지 해제한다. `SUSPENDED`는 일반 회원만 정지한다.
+          **관리자는 권한을 먼저 회수한 뒤 별도 요청으로 정지해야 한다.**
+          """)
+  @ApiResponse(
+      responseCode = "200",
+      description = "처리됨. 항목별 실패가 섞여 있을 수 있다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = BulkStatusChangeResponse.class)))
+  @ApiResponse(
+      responseCode = "400",
+      description =
+          "`VALIDATION_ERROR` — 본문·필수 필드가 없거나, id 배열이 비었거나 100개를 넘거나, id가 양수가 아니거나, status가 허용된 값이 아니다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description = "`FORBIDDEN` — `ADMIN`이 아니거나 CSRF 토큰이 없다 · `SUSPENDED` · `PENDING_APPROVAL`",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "500",
+      description =
+          "`INTERNAL_ERROR` — 일괄 정지가 세션 하나 이상에 반영되지 않았다. **DB 상태와 성공 이력은 커밋됐으므로 같은 요청을 재시도해 세션을 복구한다**",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @PatchMapping("/status")
+  @PreAuthorize("hasRole('ADMIN')")
+  public BulkStatusChangeResponse changeStatuses(
+      @AuthenticationPrincipal Long requesterId,
+      @Valid @RequestBody BulkStatusChangeRequest request) {
+    return bulkUserStatusService.change(requesterId, request.userIds(), request.status());
+  }
+
   /**
    * 회원 상태 변경 — 정지와 해제 (spec 2-2 §2-2-3).
    *
    * <p><b>정지는 즉시 차단이다</b> (MUST). 이미 로그인해 있는 세션도 다음 요청에서 막힌다 (T-32).
    *
-   * <p>요청자를 받는 이유는 <b>마지막 활성 관리자가 자기 자신을 정지하는 것을 막기 위해서다</b> (§2-2-7 MUST). 화면은 활성 관리자가 몇 명인지 모르므로
-   * 이 판단을 하지 않는다 (T-80).
+   * <p><b>관리자 계정은 직접 정지할 수 없다.</b> 먼저 권한을 {@code USER}로 회수한 뒤 별도 요청으로 정지한다 (#296).
    */
   @Operation(
       summary = "회원 상태 변경",
@@ -321,6 +402,10 @@ public class AdminUserController {
 
           **정지는 즉시 차단이다.** 이미 로그인해 있는 세션도 다음 요청부터 `403 SUSPENDED`가
           된다 — 세션을 지우지 않고 갱신하므로 `401`이 아니다.
+
+          **대상이 `ADMIN`이면 현재 상태·활성 관리자 수·자기 대상 여부와 무관하게 거절한다.**
+          먼저 `PATCH /admin/users/{id}/role`로 `USER` 권한을 회수한 뒤 별도 요청으로 정지한다.
+          거절 문구는 "관리자 계정은 바로 정지할 수 없습니다. 먼저 관리자 권한을 회수한 뒤 정지해 주세요."다.
 
           **승인 대기(`PENDING`) 계정은 이 경로의 대상이 아니다.** 승인은
           `POST /admin/users/approve`가 한다.
@@ -345,7 +430,7 @@ public class AdminUserController {
   @ApiResponse(
       responseCode = "403",
       description =
-          "`FORBIDDEN` — `ADMIN`이 아니거나, CSRF 토큰이 없거나, **마지막 활성 관리자가 자기 자신을 정지하려 했다** · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
+          "`FORBIDDEN` — `ADMIN`이 아니거나, CSRF 토큰이 없거나, **대상 관리자 권한을 먼저 회수하지 않았다** · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -377,18 +462,18 @@ public class AdminUserController {
   /**
    * 가입 일괄 거부 (spec 2-2 §2-2-2).
    *
-   * <p><b>계정 레코드를 지운다.</b> 별도 상태를 두지 않으므로 거부된 사람은 같은 이메일로 재신청할 수 있다 — 상태로 남기면 그 계정이 UNIQUE를 붙잡아 다시
-   * 가입할 수 없다.
+   * <p><b>계정은 유지한다.</b> 신청서 입력값과 제출 시각을 지우고 미승인 상태로 되돌리므로, 같은 계정과 세션으로 다시 신청할 수 있다.
    */
   @Operation(
       summary = "가입 일괄 거부",
       description =
           """
-          고른 신청을 한 번에 지운다. **일부가 실패해도 `200`이다** — 한 건 때문에 되돌리면
+          고른 신청을 한 번에 미승인 상태로 되돌린다. 계정은 유지하고 학번·학과·신청일을
+          비운다. **일부가 실패해도 `200`이다** — 한 건 때문에 되돌리면
           성공한 거부까지 사라진다. 화면은 성공·실패 건수를 안내해야 한다.
 
-          **대상은 `PENDING`뿐이다.** 이용 중인 회원을 이 경로로 지우면 "제거"가 되는데,
-          그쪽은 세션 폐기·정지 선행 같은 규칙이 따로 붙는다 (2-2 §2-2-4). 그 건은
+          **대상은 `PENDING`뿐이다.** 이미 미신청 상태라면 목표 상태이므로 멱등 성공한다.
+          이용 중인 회원을 이 경로로 초기화하면 회원 관리 규칙을 우회하므로 그 건은
           `NOT_PENDING`으로 집계한다.
           """)
   @ApiResponse(responseCode = "200", description = "처리됨 (일부 실패 포함)")
@@ -424,7 +509,7 @@ public class AdminUserController {
   /**
    * 관리자 권한 부여·회수 (spec 2-2 §2-2-5).
    *
-   * <p><b>Role만 바꾼다. Status는 건드리지 않는다.</b>
+   * <p>승격은 최종 {@code ACTIVE ADMIN}으로 정규화하고, 회수는 별도 상태 변경 없이 {@code USER}로 끝낸다.
    */
   @Operation(
       summary = "관리자 권한 부여·회수",
@@ -432,6 +517,10 @@ public class AdminUserController {
           """
           `USER` ↔ `ADMIN`. **뒤집는 것이 아니라 원하는 권한을 말한다** — 화면이 들고 있는 값이
           낡았을 때 의도와 반대로 바뀌지 않는다.
+
+          `INACTIVE`·`SUSPENDED USER`를 관리자로 지정하면 같은 트랜잭션에서 상태를 `ACTIVE`로
+          정규화하고 `deactivatedAt`을 비운다. 중간 비활동·정지 관리자는 커밋하거나 세션에
+          반영하지 않는다. `PENDING`은 승인 절차를 건너뛸 수 없어 거절한다.
 
           **회수 뒤에 활성 관리자가 한 명도 남지 않으면 `403`이다** (2-2 §2-2-7).
           자기 대상인지와 무관하다 — 관리자가 둘일 때 서로의 권한을 동시에 회수하면 두 요청

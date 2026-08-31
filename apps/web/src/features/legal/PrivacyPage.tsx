@@ -1,5 +1,4 @@
-import { Link } from 'react-router-dom'
-import { CLUB } from '@/features/landing/content'
+import { LegalBackLink } from './LegalBackLink'
 import { PRIVACY_SECTIONS, PRIVACY_UPDATED } from './privacyContent'
 
 /**
@@ -21,12 +20,7 @@ export function PrivacyPage() {
        * 문단 사이는 여백(`space-y-*`)으로만 벌린다.
        */}
       <div className="mx-auto w-full max-w-3xl px-6 py-20">
-        <Link
-          to="/"
-          className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          ← {CLUB.name}
-        </Link>
+        <LegalBackLink />
 
         <h1 className="mt-8 text-3xl font-semibold tracking-tight">
           개인정보처리방침

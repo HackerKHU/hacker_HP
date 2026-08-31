@@ -1,5 +1,5 @@
 import { Download, Star } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '@/api/client'
 import {
@@ -9,7 +9,8 @@ import {
   remove,
   setBookmark,
 } from '@/api/notes'
-import { useSession } from '@/auth/session'
+import { isInactive, useSession } from '@/auth/session'
+import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +33,7 @@ import {
   formatDate,
   formatSize,
   NOTES_PATH,
+  noteErrorText,
   SEMESTER_LABEL,
 } from './labels'
 
@@ -47,17 +49,37 @@ type Status = 'loading' | 'loaded' | 'notFound' | 'failed'
 export function NoteDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { state, reportApiError } = useSession()
+  const session = useSession()
+  const { state, reportApiError } = session
+  const alert = useLiveAlert()
 
   const [note, setNote] = useState<NoteDetail | null>(null)
   const [status, setStatus] = useState<Status>('loading')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  /**
+   * 한 상세 진입에서 시작한 요청. 개발 StrictMode는 effect를 setup → cleanup → setup으로
+   * 다시 검증하므로, cleanup만으로는 이미 서버에서 오른 조회수를 되돌릴 수 없다.
+   *
+   * 컴포넌트 인스턴스 안에서 같은 route id의 Promise만 공유한다. 다른 id로 이동하면 새
+   * 요청을 만들고, 목록으로 나갔다가 재진입해 새 인스턴스가 되면 ref도 새로 생긴다 — 둘 다
+   * 계약대로 새로운 조회 1회다. API 함수 자체를 전역 dedupe하지 않는 이유도 이것이다.
+   */
+  const detailRequestRef = useRef<{
+    routeId: string | undefined
+    promise: Promise<NoteDetail>
+  } | null>(null)
 
   useEffect(() => {
     let alive = true
     setStatus('loading')
-    get(Number(id))
+    const current = detailRequestRef.current
+    const request =
+      current && current.routeId === id
+        ? current
+        : { routeId: id, promise: get(Number(id)) }
+    detailRequestRef.current = request
+
+    request.promise
       .then((result) => {
         if (!alive) return
         setNote(result)
@@ -88,7 +110,6 @@ export function NoteDetailPage() {
    */
   async function handleDownload(fileId: number) {
     setBusy(true)
-    setError(null)
     try {
       const issued = await downloadUrl(Number(id), fileId)
       /*
@@ -97,12 +118,13 @@ export function NoteDetailPage() {
        */
       window.open(issued.url, '_blank', 'noopener,noreferrer')
     } catch (caught: unknown) {
-      reportApiError(caught)
-      setError(
-        caught instanceof ApiError
-          ? caught.message
-          : '내려받기 주소를 받지 못했습니다. 다시 시도해 주세요.',
-      )
+      if (!reportApiError(caught)) {
+        alert.error(
+          caught instanceof ApiError
+            ? caught.message
+            : '내려받기 주소를 받지 못했습니다. 다시 시도해 주세요.',
+        )
+      }
     } finally {
       setBusy(false)
     }
@@ -111,15 +133,24 @@ export function NoteDetailPage() {
   /** 담기·빼기. 서버가 준 `bookmarked`를 보고 방향을 정한다 (계약 §3-2-4 — 토글이 아니다). */
   async function toggleBookmark() {
     if (!note) return
+    const next = !note.bookmarked
     setBusy(true)
-    setError(null)
     try {
-      await setBookmark(note.id, !note.bookmarked)
-      // 낙관적으로 바꾸지 않는다. 서버가 받아들인 뒤 그 상태로 다시 읽는다.
-      setNote(await get(note.id))
+      await setBookmark(note.id, next)
+      /*
+       * 낙관적 변경이 아니다. 서버가 요청을 받은 뒤 그 값만 반영한다.
+       * 상세 GET은 성공할 때마다 조회수를 올리므로 즐겨찾기 조작 뒤에 다시 부르지 않는다.
+       */
+      setNote((current) =>
+        current?.id === note.id ? { ...current, bookmarked: next } : current,
+      )
+      alert.success(
+        note.bookmarked ? '즐겨찾기에서 뺐습니다.' : '즐겨찾기에 담았습니다.',
+      )
     } catch (caught: unknown) {
-      reportApiError(caught)
-      setError('즐겨찾기를 바꾸지 못했습니다. 다시 시도해 주세요.')
+      if (!reportApiError(caught)) {
+        alert.error('즐겨찾기를 바꾸지 못했습니다. 다시 시도해 주세요.')
+      }
     } finally {
       setBusy(false)
     }
@@ -129,18 +160,19 @@ export function NoteDetailPage() {
   async function handleDelete() {
     if (!note) return
     setBusy(true)
-    setError(null)
     try {
       await remove(note.id)
+      alert.success('자료를 삭제했습니다.', { persistOnNavigation: true })
       // 지운 자료의 상세에 남아 있으면 다음 조회가 404다. 목록으로 보내고 기록도 대체한다.
       navigate(categoryPath(note.category), { replace: true })
     } catch (caught: unknown) {
-      reportApiError(caught)
-      setError(
-        caught instanceof ApiError
-          ? caught.message
-          : '자료를 삭제하지 못했습니다. 다시 시도해 주세요.',
-      )
+      if (!reportApiError(caught)) {
+        alert.error(
+          caught instanceof ApiError
+            ? caught.message
+            : '자료를 삭제하지 못했습니다. 다시 시도해 주세요.',
+        )
+      }
     } finally {
       setBusy(false)
     }
@@ -152,7 +184,7 @@ export function NoteDetailPage() {
     note !== null && state.kind === 'active' && canEdit(note, state.user)
 
   return (
-    <article>
+    <article className="min-h-[32rem]" data-detail-surface="note">
       {/* 목록으로 돌아가는 진입점. 뒤로가기만 믿지 않는다. */}
       <Link
         to={backTo}
@@ -173,7 +205,7 @@ export function NoteDetailPage() {
 
       {status === 'failed' && (
         <p role="alert" className="mt-8 text-sm text-muted-foreground">
-          자료를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+          {noteErrorText(isInactive(session))}
         </p>
       )}
 
@@ -261,15 +293,11 @@ export function NoteDetailPage() {
             <dd>{note.uploader.name}</dd>
             <dt className="text-muted-foreground">등록일</dt>
             <dd>{formatDate(note.createdAt)}</dd>
+            <dt className="text-muted-foreground">조회수</dt>
+            <dd className="whitespace-nowrap tabular-nums">{note.viewCount}</dd>
             <dt className="text-muted-foreground">수정일</dt>
             <dd>{formatDate(note.updatedAt)}</dd>
           </dl>
-
-          {error && (
-            <p role="alert" className="mt-6 text-sm text-muted-foreground">
-              {error}
-            </p>
-          )}
 
           <h2 className="mt-10 text-sm font-medium">
             첨부파일 {note.files.length}개

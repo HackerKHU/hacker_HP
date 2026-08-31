@@ -99,14 +99,15 @@ function App() {
           <Route path="/photos" element={<PhotoGalleryPage />} />
 
           {/*
-            자유 게시판. **`/admin` 아래가 아니다** — 조회·작성 모두 `ACTIVE`면 할 수 있다
-            (spec §3-1-3 매트릭스).
+            자유 게시판. **`/admin` 아래가 아니다** — 승인된 ACTIVE·INACTIVE 부원 모두
+            조회·작성할 수 있다 (spec §3-1-3 매트릭스와 INACTIVE 예외 규칙).
 
-            **수정·삭제 라우트가 없다.** 빠뜨린 것이 아니라 API에 그 경로가 없다
-            (spec §3-2-5). 관리자 삭제는 후속이다 (#238).
+            수정은 작성자 본인에게만 상세와 `/posts/:id/edit`에서 열고(#256·#279), 삭제는 별도 라우트를 늘리지 않고 상세 화면에서
+            ACTIVE ADMIN 또는 ACTIVE·INACTIVE 작성자 본인에게 연다 (spec §3-2-5, #238·#278).
           */}
           <Route path="/posts" element={<PostListPage />} />
           <Route path="/posts/new" element={<PostFormPage />} />
+          <Route path="/posts/:id/edit" element={<PostFormPage />} />
           <Route path="/posts/:id" element={<PostDetailPage />} />
         </Route>
       </Route>

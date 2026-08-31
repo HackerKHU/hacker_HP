@@ -12,6 +12,8 @@ import org.hackerkhu.hackerhp.domain.post.dto.PostDetailResponse;
 import org.hackerkhu.hackerhp.domain.post.dto.PostSummaryResponse;
 import org.hackerkhu.hackerhp.domain.post.entity.Post;
 import org.hackerkhu.hackerhp.domain.post.repository.PostRepository;
+import org.hackerkhu.hackerhp.domain.user.entity.Role;
+import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.domain.user.service.RequesterCheck;
@@ -27,7 +29,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 자유 게시판 (spec 2-1 §2-1-8, 3-2 §3-2-5, 3-3 결정 16).
+ * 자유 게시판 (spec 2-1 §2-1-8, 3-2 §3-2-5, 3-3 결정 16·17·18).
  *
  * <p><b>본문을 건드리지 않는다.</b> 받은 문자열을 그대로 저장하고 그대로 내보낸다 — 마크다운으로 해석하지도, HTML을 정화하지도 않는다. 이스케이프는 화면이 텍스트
  * 노드로 그리면서 한다. <b>서버가 정화를 시작하면 그 규칙이 어디까지인지 아무도 모르게 된다.</b>
@@ -66,8 +68,8 @@ public class PostService {
     Page<Post> page =
         posts.findAll(
             PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST));
-    Map<Long, String> names = authorNames(page.getContent());
-    return page.map(post -> PostSummaryResponse.of(post, authorOf(post, names)));
+    Map<Long, User> found = authors(page.getContent());
+    return page.map(post -> PostSummaryResponse.of(post, authorOf(post, found)));
   }
 
   @Transactional(readOnly = true)
@@ -76,7 +78,7 @@ public class PostService {
         posts
             .findById(id)
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "게시글을 찾을 수 없습니다."));
-    return PostDetailResponse.of(post, authorOf(post, authorNames(List.of(post))));
+    return PostDetailResponse.of(post, authorOf(post, authors(List.of(post))));
   }
 
   /**
@@ -119,7 +121,83 @@ public class PostService {
      * 이 줄이 남아 있어야 한다 — 실제 분포를 추측이 아니라 로그에서 본다.
      */
     log.info("게시글 등록: postId={} authorId={}", saved.getId(), authorId);
-    return PostDetailResponse.of(saved, authorOf(saved, authorNames(List.of(saved))));
+    return PostDetailResponse.of(saved, authorOf(saved, authors(List.of(saved))));
+  }
+
+  /**
+   * 수정 (#256). <b>작성자 본인만</b> 할 수 있다 — 관리자 역할도 예외를 만들지 않는다(D1, 결정 21). 보낸 것으로 통째로 바꾼다(D2, 자료 수정
+   * #54와 같은 판단). 수정 기한은 두지 않는다(D4) — 오타는 나중에 발견된다.
+   */
+  @Transactional
+  public PostDetailResponse edit(Long requesterId, Long id, PostCreateRequest request) {
+    /*
+     * 저장 직전에 요청자를 잠그고 다시 본다 (3-1 §3-1-7 MUST, write()와 같은 이유).
+     * 인가를 지난 뒤 정지되면 그 요청은 여기서 끊겨야 한다.
+     */
+    User requester = users.findByIdForUpdate(requesterId).orElse(null);
+    RequesterCheck.requireActive(requester, requesterId);
+
+    /* 삭제와 같은 계정 → 게시글 순서로 잠가 수정·삭제 경쟁을 한 줄로 세운다. */
+    Post post =
+        posts
+            .findByIdForUpdate(id)
+            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "게시글을 찾을 수 없습니다."));
+    if (!requesterId.equals(post.getAuthorId())) {
+      /*
+       * 작성자 본인만 고칠 수 있다 — 관리자도 예외가 아니다 (#256 D1). 작성자가 나간
+       * 글(authorId == null)은 아무도 고칠 수 없다 — "본인"이 성립하지 않는다.
+       */
+      log.info("남의 글을 고치려 했다: requesterId={} postId={}", requesterId, id);
+      throw new BusinessException(ErrorCode.FORBIDDEN, "본인이 쓴 글만 수정할 수 있습니다.");
+    }
+
+    // 제목은 자르고 본문은 그대로 둔다 — write()와 같은 규칙이다 (§3-2-5).
+    post.edit(request.title().trim(), request.content(), Instant.now());
+    log.info("게시글 수정: postId={} authorId={}", id, requesterId);
+    return PostDetailResponse.of(post, authorOf(post, authors(List.of(post))));
+  }
+
+  /**
+   * 삭제 (관리자 또는 작성자 본인, #238·#278).
+   *
+   * <p><b>완전 삭제다.</b> 감춤을 쓰지 않는다 — 감추면 "지웠는데 DB에 남아 있다"를 개인정보처리방침에 고지해야 하는데, 그 값을 하지 않는다 (공지 삭제와 같은
+   * 판단).
+   *
+   * <p><b>이력을 남기지 않는다.</b> {@code admin_actions}는 회원에 대한 조작 테이블이라(#143) 글 id를 넣으면 두 종류의 대상이 한 컬럼에
+   * 섞인다 — 자료 삭제(#54)도 같은 이유로 이력을 남기지 않는다.
+   */
+  @Transactional
+  public void delete(Long requesterId, Long id) {
+    /*
+     * 잠금 순서는 계정 → 게시글로 고정한다. 세션 인가 뒤 권한 회수·정지·탈퇴가 끝났거나
+     * 작성자 관계가 ON DELETE SET NULL로 끊긴 요청이 옛 값으로 삭제를 커밋하면 안 된다.
+     */
+    User requester = users.findByIdForUpdate(requesterId).orElse(null);
+    RequesterCheck.requireActive(requester, requesterId);
+    Post post =
+        posts
+            .findByIdForUpdate(id)
+            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "게시글을 찾을 수 없습니다."));
+    requireOwnerOrActiveAdmin(requester, post, requesterId);
+    posts.delete(post);
+    log.info("게시글 삭제: postId={} requesterId={}", id, requesterId);
+  }
+
+  /**
+   * <b>활성 관리자 또는 작성자 본인</b>이어야 한다. 비활동 부원은 자료 외 기능을 그대로 쓰므로 자기 글을 지울 수 있다.
+   *
+   * <p>탈퇴·제거된 작성자의 {@code authorId}는 {@code null}이라 본인 관계가 성립하지 않는다. 요청자와 게시글을 모두 잠근 뒤 판정하므로 인가 뒤
+   * 권한·상태·작성자 관계가 바뀌어도 옛 세션 값으로 삭제를 커밋하지 않는다 (3-1 §3-1-4 MUST).
+   */
+  private void requireOwnerOrActiveAdmin(User requester, Post post, Long requesterId) {
+    if (requester.getRole() == Role.ADMIN && requester.getStatus() == Status.ACTIVE) {
+      return;
+    }
+    if (requesterId.equals(post.getAuthorId())) {
+      return;
+    }
+    log.info("남의 게시글을 삭제하려 했다: requesterId={} postId={}", requesterId, post.getId());
+    throw new BusinessException(ErrorCode.FORBIDDEN, "본인이 쓴 게시글만 삭제할 수 있습니다.");
   }
 
   /**
@@ -127,18 +205,18 @@ public class PostService {
    *
    * <p><b>계정이 사라진 글은 여기 없다.</b> 그래서 {@link PostAuthor#of}가 그 자리를 "탈퇴한 회원"으로 채운다 (2-2 §2-2-4).
    */
-  private Map<Long, String> authorNames(List<Post> found) {
+  private Map<Long, User> authors(List<Post> found) {
     Set<Long> ids =
         found.stream().map(Post::getAuthorId).filter(Objects::nonNull).collect(Collectors.toSet());
     if (ids.isEmpty()) {
       return Map.of();
     }
     return users.findAllById(ids).stream()
-        .collect(Collectors.toMap(User::getId, User::getName, (first, second) -> first));
+        .collect(Collectors.toMap(User::getId, user -> user, (first, second) -> first));
   }
 
-  private PostAuthor authorOf(Post post, Map<Long, String> names) {
+  private PostAuthor authorOf(Post post, Map<Long, User> found) {
     Long authorId = post.getAuthorId();
-    return PostAuthor.of(authorId, authorId == null ? null : names.get(authorId));
+    return PostAuthor.of(authorId == null ? null : found.get(authorId));
   }
 }

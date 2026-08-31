@@ -1,9 +1,9 @@
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ApiError } from '@/api/client'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter } from '@/test/TestRouter'
 
 vi.mock('@/api/auth', () => ({
   getMe: () =>
@@ -58,18 +58,32 @@ describe('이용약관', () => {
     ).toBeInTheDocument()
     // 서비스 중단 고지
     expect(screen.getByText(/최소 30일 전에 공지로/)).toBeInTheDocument()
-    expect(screen.getByText(/부터 시행합니다/)).toBeInTheDocument()
+    expect(
+      screen.getByText('이 약관은 2026년 8월 31일부터 시행합니다.'),
+    ).toBeInTheDocument()
   })
 
-  /*
-   * **약관이 권한 매트릭스보다 넓게 적히면 안 된다** (3-1 §3-1-3). 자유 게시판에는
-   * 삭제 기능 자체가 없으므로(3-3 결정 16) "운영진이 지운다"로 뭉뚱그리면 거짓이다.
-   */
-  it('게시판 글은 아무도 화면에서 지울 수 없다는 것을 따로 밝힌다', async () => {
+  it('가입 거부 뒤 같은 미승인 계정으로 다시 신청할 수 있다고 밝힌다', async () => {
     await openTerms()
 
     expect(
-      screen.getByText(/올리신 분도 운영진도 화면에서 지우실 수 없습니다/),
+      screen.getByText(/신청서 정보는 지우고 계정은 미승인 상태로 유지/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/같은 계정으로 다시 신청/)).toBeInTheDocument()
+  })
+
+  /*
+   * **약관이 권한 매트릭스와 정확히 같아야 한다** (3-1 §3-1-3). 작성자 본인과
+   * 운영진에게 연 결정 20의 경계를 그대로 알린다.
+   */
+  it('게시판 글은 작성자와 운영진이 완전 삭제할 수 있다고 밝힌다', async () => {
+    await openTerms()
+
+    expect(
+      screen.getByText(/올리신 분이 상세 화면에서 직접 완전히 삭제/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/운영진도 관리 목적으로 완전히 삭제/),
     ).toBeInTheDocument()
   })
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearCookies, setCookie } from '@/test/cookies'
-import { countCodePoints, create, get, list } from './posts'
+import { countCodePoints, create, get, list, remove, update } from './posts'
 
 /**
  * 게시판 API 래퍼.
@@ -117,15 +117,38 @@ describe('게시판 API 경로', () => {
     expect(Object.keys(body)).toEqual(['title', 'content'])
   })
 
-  /*
-   * **수정·삭제 함수가 없다.** 빠뜨린 것이 아니라 계약에 그 경로가 없다 (§3-2-5).
-   * 누가 무심코 더하면 여기서 걸린다.
-   */
-  it('수정·삭제 함수를 내보내지 않는다', async () => {
-    const posts = await import('./posts')
+  it('삭제는 CSRF를 실은 DELETE /posts/{id}다', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 204,
+      text: () => Promise.resolve(''),
+    } as unknown as Response)
 
-    expect(posts).not.toHaveProperty('update')
-    expect(posts).not.toHaveProperty('remove')
+    await remove(701)
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/v1/posts/701')
+    expect(init.method).toBe('DELETE')
+    expect(init.headers.get('X-XSRF-TOKEN')).toBe('test-token')
+  })
+
+  /*
+   * **제목·본문만 통째로 보낸다.** 작성자는 인증 주체와 저장된 글로 서버가 판단한다.
+   */
+  it('수정은 CSRF를 실은 PATCH /posts/{id}에 원문을 보낸다', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(DETAIL))
+
+    await update(701, { title: '  고친 제목  ', content: '\n  고친 본문\n' })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/v1/posts/701')
+    expect(init.method).toBe('PATCH')
+    expect(init.headers.get('X-XSRF-TOKEN')).toBe('test-token')
+    expect(JSON.parse(init.body)).toEqual({
+      title: '  고친 제목  ',
+      content: '\n  고친 본문\n',
+    })
+    expect(Object.keys(JSON.parse(init.body))).toEqual(['title', 'content'])
   })
 })
 

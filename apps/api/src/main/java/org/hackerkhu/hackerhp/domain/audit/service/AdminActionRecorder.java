@@ -2,6 +2,7 @@ package org.hackerkhu.hackerhp.domain.audit.service;
 
 import java.time.Instant;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import org.hackerkhu.hackerhp.domain.audit.entity.AdminAction;
 import org.hackerkhu.hackerhp.domain.audit.entity.AdminActionLog;
@@ -25,6 +26,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @Service
 public class AdminActionRecorder {
+
+  /** 서로 다른 action을 한 번의 배치로 기록하기 위한 항목. */
+  public record ActionEntry(Long targetId, AdminAction action) {}
 
   private static final Logger log = LoggerFactory.getLogger(AdminActionRecorder.class);
 
@@ -83,6 +87,33 @@ public class AdminActionRecorder {
           occurredAt,
           targets,
           e);
+    }
+  }
+
+  /**
+   * 서로 다른 action을 가진 성공 전이를 target id 오름차순으로 한 번에 기록한다 (#313).
+   *
+   * <p>기존 동일 action 배치 API는 그대로 두어 하위 호환을 유지한다.
+   */
+  public void record(Long actorId, Collection<ActionEntry> actionEntries, Instant occurredAt) {
+    if (actionEntries.isEmpty()) {
+      return;
+    }
+    if (TransactionSynchronizationManager.isActualTransactionActive()) {
+      throw new IllegalStateException("조작 이력은 변경이 커밋된 뒤에 남겨야 한다 (spec 2-2 §2-2-7).");
+    }
+
+    List<ActionEntry> ordered =
+        actionEntries.stream().sorted(Comparator.comparing(ActionEntry::targetId)).toList();
+    List<AdminActionLog> entries =
+        ordered.stream()
+            .map(entry -> AdminActionLog.of(actorId, entry.targetId(), entry.action(), occurredAt))
+            .toList();
+    try {
+      transaction.executeWithoutResult(ignored -> logs.saveAll(entries));
+    } catch (RuntimeException e) {
+      log.error(
+          "조작 이력을 남기지 못했다: actorId={} occurredAt={} entries={}", actorId, occurredAt, ordered, e);
     }
   }
 }

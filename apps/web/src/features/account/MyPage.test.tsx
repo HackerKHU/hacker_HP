@@ -5,12 +5,12 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter, useLocation } from '@/test/TestRouter'
 
 /**
  * 마이페이지 (#178, spec [2-1 §2-1-9](../../../../spec/2-1-USER-STORIES.md)).
@@ -100,6 +100,22 @@ describe('마이페이지', () => {
     expect(field('상태')).toBe('활동중')
     expect(field('가입 신청일')).toBe('2026. 03. 05.')
     expect(field('승인일')).toBe('2026. 03. 07.')
+  })
+
+  /*
+   * **비활동 부원이 자기 상태를 확인하는 자리다** (#231). 헤더에 상시 배지를 두지 않기로
+   * 했으므로(2026-08-29 결정 — 아무 일도 하지 않는 사람에게 상태를 계속 알리는 값이 작다),
+   * 궁금한 사람이 **찾아와서 보는 곳**이 여기 하나다.
+   *
+   * **"정지"와 같은 낱말을 쓰지 않는다** — 회원 관리 목록과 같은 규칙이다 (T-362).
+   */
+  it('INACTIVE는 상태 칸이 비활동이다', async () => {
+    auth.me = () => Promise.resolve({ ...MEMBER, status: 'INACTIVE' as const })
+
+    renderAt()
+
+    await screen.findByRole('heading', { name: '내 정보' })
+    expect(field('상태')).toBe('비활동')
   })
 
   /*

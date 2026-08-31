@@ -1,9 +1,9 @@
 import { render, screen } from '@testing-library/react'
 import { StrictMode } from 'react'
-import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter } from '@/test/TestRouter'
 import { CLUB } from './content'
 
 /**

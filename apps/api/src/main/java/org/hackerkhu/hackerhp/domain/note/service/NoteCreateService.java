@@ -113,9 +113,13 @@ public class NoteCreateService {
     return noteRepository.save(note);
   }
 
-  /** 방금 등록한 사람이 곧 업로더다. 즐겨찾기는 아직 없다. */
+  /**
+   * 방금 등록한 사람이 곧 업로더다. 즐겨찾기는 아직 없다.
+   *
+   * <p><b>등록은 조회가 아니다</b> (#245) — 조회수를 올리지 않는다. 갓 만든 자료라 {@code 0}이다.
+   */
   private NoteDetailResponse detailOf(Note note, Long uploaderId) {
-    String name = userRepository.findById(uploaderId).map(User::getName).orElse(null);
-    return NoteDetailResponse.of(note, Uploader.of(uploaderId, name), false);
+    User uploader = userRepository.findById(uploaderId).orElse(null);
+    return NoteDetailResponse.of(note, Uploader.of(uploader), false, note.getViewCount());
   }
 }

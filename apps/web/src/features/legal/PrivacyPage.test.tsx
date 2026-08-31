@@ -1,9 +1,9 @@
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ApiError } from '@/api/client'
 import { SessionProvider } from '@/auth/session'
+import { MemoryRouter } from '@/test/TestRouter'
 
 vi.mock('@/api/auth', () => ({
   getMe: () =>
@@ -36,6 +36,10 @@ async function openPrivacy() {
 /** 항목은 `dt`/`dd` 짝이라 heading이 아니다. 제목을 감싼 블록을 집는다. */
 function retentionSection() {
   return screen.getByText('5. 보관과 파기').parentElement as HTMLElement
+}
+
+function purposeSection() {
+  return screen.getByText('2. 수집·이용 목적').parentElement as HTMLElement
 }
 
 describe('개인정보처리방침', () => {
@@ -72,7 +76,9 @@ describe('개인정보처리방침', () => {
       screen.getAllByText(/hacker19870101@gmail\.com/).length,
     ).toBeGreaterThan(1)
     expect(screen.getByText(/보호책임자는 동아리 회장/)).toBeInTheDocument()
-    expect(screen.getByText(/부터 시행합니다/)).toBeInTheDocument()
+    expect(
+      screen.getByText('이 방침은 2026년 8월 31일부터 시행합니다.'),
+    ).toBeInTheDocument()
   })
 
   /*
@@ -96,6 +102,24 @@ describe('개인정보처리방침', () => {
     expect(section).toHaveTextContent('즐겨찾기')
   })
 
+  it('가입 거부 때 신청 정보만 지우고 계정 식별정보와 재신청 경로는 유지한다고 알린다', async () => {
+    await openPrivacy()
+    const section = retentionSection()
+
+    expect(section).toHaveTextContent(
+      '학번과 학과, 가입 신청일시는 즉시 삭제합니다',
+    )
+    expect(section).toHaveTextContent(
+      '구글 계정 식별자와 이메일 주소, 이름, 계정 생성일시는 미승인 계정 기록으로 유지',
+    )
+    expect(section).toHaveTextContent(
+      '같은 계정으로 로그인해 다시 신청서를 제출',
+    )
+    expect(section).not.toHaveTextContent(
+      '가입 신청이 거부되면 계정 기록을 삭제',
+    )
+  })
+
   /*
    * 익명화라고 읽히면 안 된다. 자료 본문이나 파일 이름, 사진에 담긴
    * 정보는 그대로 남으므로 "표시까지"라는 범위를 화면이 말해야 한다.
@@ -109,24 +133,22 @@ describe('개인정보처리방침', () => {
     // 자료·공지뿐 아니라 게시글 본문도 같은 대상이다 (#235).
     expect(section).toHaveTextContent('게시글 내용')
     // 계정이 제거된 뒤에는 본인이 지울 수 없다는 것도 알려야 한다.
-    expect(section).toHaveTextContent('로그인하실 수 없어')
+    expect(section).toHaveTextContent('로그인하실 수 없고')
   })
 
-  /*
-   * 게시판에는 삭제 기능이 자체가 없다 (spec 3-3 결정 16, #235).
-   *
-   * 바로 위 문단이 "남기고 싶지 않은 것은 직접 삭제하시라"고 안내하는데,
-   * 게시글에는 그 길이 없다. 구분해 적지 않으면 이용자는 계정을 유지하는
-   * 동안에는 스스로 지울 수 있다고 읽는다 — 사실과 다른 안내다.
-   */
-  it('게시글은 직접 지울 수 없다는 것을 따로 알린다', async () => {
+  /** 게시판 작성자 본인과 운영진의 완전 삭제 경계를 그대로 알린다 (결정 20). */
+  it('게시글은 직접 완전 삭제할 수 있고 계정 제거 뒤에는 운영진에게 요청한다고 알린다', async () => {
     await openPrivacy()
     const section = retentionSection()
 
     expect(section).toHaveTextContent(
-      '자유 게시판에 올리신 글은 직접 지우실 수 없습니다',
+      '자유 게시판에 올리신 글은 상세 화면에서 직접 완전히 삭제할 수 있습니다',
+    )
+    expect(section).toHaveTextContent(
+      '작성자 관계도 끊겨 직접 지울 수 없으므로',
     )
     expect(section).toHaveTextContent('문의처로 알려 주시기')
+    expect(section).toHaveTextContent('운영진이 관리 화면에서 완전히 삭제')
   })
 
   /*
@@ -135,6 +157,26 @@ describe('개인정보처리방침', () => {
    *
    * 학번만 보면 신청서에서 받는 두 값 중 하나가 빠져도 통과하므로 둘을 함께 본다.
    */
+  /*
+   * T-435 — **학번 뒷자리 노출을 고지한다** (#300 결정 18, #301).
+   *
+   * 결정 18은 이 고지를 **조건으로** 걸었다. 나머지 사례는 전부 서버가 만드는 표시 이름만
+   * 보므로, 이것이 없으면 **표시 이름만 배포해도 전부 통과한다** — 고지 없이 노출된다.
+   *
+   * 노출되지 **않는** 것까지 함께 본다. "학번을 보여준다"로만 적으면 다음 사람이 범위를
+   * 넓혀도 이 사례가 잡지 못한다.
+   */
+  it('학번 뒷자리가 다른 부원에게 보인다는 것을 알린다', async () => {
+    await openPrivacy()
+    const section = purposeSection()
+
+    expect(section).toHaveTextContent('학번 끝 두 자리')
+    expect(section).toHaveTextContent('다른 부원에게도 보입니다')
+    expect(section).toHaveTextContent(
+      '학번 전체나 학과, 이메일 주소는 다른 부원에게 보이지 않습니다',
+    )
+  })
+
   it('신청서에서 받는 학번과 학과를 모두 수집 항목에 적는다', async () => {
     await openPrivacy()
     const section = screen.getByText('1. 수집하는 개인정보')

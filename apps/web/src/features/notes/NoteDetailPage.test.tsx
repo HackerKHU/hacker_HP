@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/api/client'
 import type { NoteDetail } from '@/api/notes'
 import type { User } from '@/api/types'
-import { SessionProvider } from '@/auth/session'
+import { SessionProvider, useSession } from '@/auth/session'
+import { Link, MemoryRouter, Route, Routes } from '@/test/TestRouter'
 import { NoteDetailPage } from './NoteDetailPage'
 
 /**
@@ -14,11 +15,23 @@ import { NoteDetailPage } from './NoteDetailPage'
  * **파일 URL을 미리 받지 않는가**(계약 §3-2-4 — 열어보기만 해도 발급되면 안 된다).
  */
 
+type ControlledNote = {
+  promise: Promise<NoteDetail>
+  resolve: (note: NoteDetail) => void
+  reject: (error: unknown) => void
+}
+
 const api = vi.hoisted(() => ({
   note: null as NoteDetail | null,
+  gets: [] as number[],
+  views: new Map<number, number>(),
+  pending: new Map<number, ControlledNote>(),
   issued: [] as number[],
   removed: [] as number[],
   bookmarked: [] as { id: number; next: boolean }[],
+  downloadError: null as unknown,
+  bookmarkError: null as unknown,
+  removeError: null as unknown,
 }))
 
 const MINE: NoteDetail = {
@@ -31,20 +44,38 @@ const MINE: NoteDetail = {
   semester: 'SPRING',
   examType: 'MIDTERM',
   uploader: { id: 1, name: '홍길동' },
+  viewCount: 12_345,
   files: [{ id: 1000, originalName: '정리본.pdf', sizeBytes: 1_048_576 }],
   bookmarked: false,
   createdAt: '2026-08-01T09:00:00Z',
   updatedAt: '2026-08-01T09:00:00Z',
 }
 
+const OTHER: NoteDetail = {
+  ...MINE,
+  id: 302,
+  title: '컴퓨터네트워크 기말고사 정리본',
+  subjectName: '컴퓨터네트워크',
+  uploader: { id: 99, name: '권승원' },
+}
+
 vi.mock('@/api/notes', () => ({
-  get: () =>
-    api.note
-      ? Promise.resolve(api.note)
-      : Promise.reject(
-          new ApiError('NOT_FOUND', 404, '자료를 찾을 수 없습니다.'),
-        ),
+  get: (id: number) => {
+    api.gets.push(id)
+    const pending = api.pending.get(id)
+    if (pending) return pending.promise
+    const note = id === OTHER.id ? OTHER : api.note
+    if (!note) {
+      return Promise.reject(
+        new ApiError('NOT_FOUND', 404, '자료를 찾을 수 없습니다.'),
+      )
+    }
+    const viewCount = (api.views.get(id) ?? note.viewCount) + 1
+    api.views.set(id, viewCount)
+    return Promise.resolve({ ...note, viewCount })
+  },
   downloadUrl: (_noteId: number, fileId: number) => {
+    if (api.downloadError) return Promise.reject(api.downloadError)
     api.issued.push(fileId)
     return Promise.resolve({
       url: 'blob:fixture',
@@ -53,10 +84,12 @@ vi.mock('@/api/notes', () => ({
     })
   },
   remove: (id: number) => {
+    if (api.removeError) return Promise.reject(api.removeError)
     api.removed.push(id)
     return Promise.resolve()
   },
   setBookmark: (id: number, next: boolean) => {
+    if (api.bookmarkError) return Promise.reject(api.bookmarkError)
     api.bookmarked.push({ id, next })
     return Promise.resolve()
   },
@@ -82,37 +115,190 @@ vi.mock('@/api/auth', () => ({
   logout: () => Promise.resolve(),
 }))
 
-function renderDetail() {
-  render(
-    <MemoryRouter initialEntries={['/notes/301']}>
-      <SessionProvider>
-        <Routes>
-          <Route path="/notes/:id" element={<NoteDetailPage />} />
-          <Route path="/notes" element={<h1>자료게시판</h1>} />
-        </Routes>
-      </SessionProvider>
-    </MemoryRouter>,
+function NoteListFixture() {
+  return (
+    <>
+      <h1>자료게시판</h1>
+      <Link to="/notes/301">첫 자료 열기</Link>
+      <Link to="/notes/302">다른 자료 열기</Link>
+    </>
   )
+}
+
+function SessionKindProbe() {
+  const { state } = useSession()
+  return <div data-testid="session-kind">{state.kind}</div>
+}
+
+function DirectNavigation() {
+  return (
+    <nav aria-label="상세 경합 테스트 이동">
+      <Link to="/notes/302">302로 직접 이동</Link>
+      <Link to="/away">상세 닫기</Link>
+    </nav>
+  )
+}
+
+function renderDetail({ directNavigation = false } = {}) {
+  render(
+    <StrictMode>
+      <MemoryRouter initialEntries={['/notes/301']}>
+        <SessionProvider>
+          <SessionKindProbe />
+          {directNavigation && <DirectNavigation />}
+          <Routes>
+            <Route path="/notes/:id" element={<NoteDetailPage />} />
+            <Route path="/notes" element={<NoteListFixture />} />
+            <Route path="/away" element={<h1>다른 화면</h1>} />
+          </Routes>
+        </SessionProvider>
+      </MemoryRouter>
+    </StrictMode>,
+  )
+}
+
+function controlNote(id: number): ControlledNote {
+  let resolve: ControlledNote['resolve'] = () => undefined
+  let reject: ControlledNote['reject'] = () => undefined
+  const promise = new Promise<NoteDetail>((onResolve, onReject) => {
+    resolve = onResolve
+    reject = onReject
+  })
+  const controlled = { promise, resolve, reject }
+  api.pending.set(id, controlled)
+  return controlled
 }
 
 beforeEach(() => {
   api.note = MINE
+  api.gets = []
+  api.views = new Map()
+  api.pending = new Map()
   api.issued = []
   api.removed = []
   api.bookmarked = []
+  api.downloadError = null
+  api.bookmarkError = null
+  api.removeError = null
   auth.me = BASE
   vi.stubGlobal('open', vi.fn())
 })
 
 describe('자료 상세', () => {
+  it('StrictMode에서도 최초 상세·다른 상세·재진입을 각각 한 번만 조회한다', async () => {
+    renderDetail()
+
+    await screen.findByRole('heading', { name: MINE.title })
+    expect(api.gets).toEqual([301])
+    expect(api.views.get(301)).toBe(MINE.viewCount + 1)
+
+    fireEvent.click(screen.getByRole('link', { name: '← 시험 정리본' }))
+    await screen.findByRole('heading', { name: '자료게시판' })
+    fireEvent.click(screen.getByRole('link', { name: '다른 자료 열기' }))
+    await screen.findByRole('heading', { name: OTHER.title })
+    expect(api.gets).toEqual([301, 302])
+    expect(api.views.get(302)).toBe(OTHER.viewCount + 1)
+
+    fireEvent.click(screen.getByRole('link', { name: '← 시험 정리본' }))
+    await screen.findByRole('heading', { name: '자료게시판' })
+    fireEvent.click(screen.getByRole('link', { name: '첫 자료 열기' }))
+    await screen.findByRole('heading', { name: MINE.title })
+    expect(api.gets).toEqual([301, 302, 301])
+    expect(api.views.get(301)).toBe(MINE.viewCount + 2)
+  })
+
+  it('먼저 연 상세가 늦게 끝나도 현재 id의 화면을 덮어쓰지 않는다', async () => {
+    const first = controlNote(301)
+    const second = controlNote(302)
+    renderDetail({ directNavigation: true })
+
+    await waitFor(() => expect(api.gets).toEqual([301]))
+    fireEvent.click(screen.getByRole('link', { name: '302로 직접 이동' }))
+    await waitFor(() => expect(api.gets).toEqual([301, 302]))
+
+    await act(async () => {
+      second.resolve(OTHER)
+      await second.promise
+    })
+    expect(
+      await screen.findByRole('heading', { name: OTHER.title }),
+    ).toBeInTheDocument()
+
+    await act(async () => {
+      first.resolve(MINE)
+      await first.promise
+    })
+    expect(screen.getByRole('heading', { name: OTHER.title })).toBeVisible()
+    expect(
+      screen.queryByRole('heading', { name: MINE.title }),
+    ).not.toBeInTheDocument()
+  })
+
+  it.each(['resolve', 'reject'] as const)(
+    '언마운트 뒤 pending 요청의 늦은 %s가 상태나 오류를 반영하지 않는다',
+    async (settle) => {
+      const pending = controlNote(301)
+      const unhandled = vi.fn()
+      window.addEventListener('unhandledrejection', unhandled)
+
+      try {
+        renderDetail({ directNavigation: true })
+        await waitFor(() => expect(api.gets).toEqual([301]))
+        await waitFor(() =>
+          expect(screen.getByTestId('session-kind')).toHaveTextContent(
+            'active',
+          ),
+        )
+
+        fireEvent.click(screen.getByRole('link', { name: '상세 닫기' }))
+        await screen.findByRole('heading', { name: '다른 화면' })
+
+        await act(async () => {
+          if (settle === 'resolve') {
+            pending.resolve(MINE)
+          } else {
+            pending.reject(new ApiError('SUSPENDED', 403, '정지된 계정입니다.'))
+          }
+          await pending.promise.catch(() => undefined)
+        })
+
+        expect(screen.getByRole('heading', { name: '다른 화면' })).toBeVisible()
+        expect(screen.getByTestId('session-kind')).toHaveTextContent('active')
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+        expect(unhandled).not.toHaveBeenCalled()
+      } finally {
+        window.removeEventListener('unhandledrejection', unhandled)
+      }
+    },
+  )
+
+  it.each([
+    ['SPRING', '1학기'],
+    ['SUMMER', '여름학기'],
+    ['FALL', '2학기'],
+    ['WINTER', '겨울학기'],
+  ] as const)('%s를 %s로 표시한다', async (semester, label) => {
+    api.note = { ...MINE, semester }
+
+    renderDetail()
+
+    expect(await screen.findByText(`2026년 ${label} · 중간고사`)).toBeVisible()
+  })
+
   it('메타데이터와 첨부 목록을 보여준다', async () => {
     renderDetail()
 
+    expect(
+      document.querySelector('[data-detail-surface="note"]'),
+    ).toBeInTheDocument()
     expect(
       await screen.findByRole('heading', { name: '운영체제 중간고사 정리본' }),
     ).toBeVisible()
     expect(screen.getByText('정리본.pdf')).toBeVisible()
     expect(screen.getByText('1.0 MB')).toBeVisible()
+    const viewCountLabel = screen.getByText('조회수')
+    expect(viewCountLabel.tagName).toBe('DT')
+    expect(viewCountLabel.nextElementSibling).toHaveTextContent('12346')
   })
 
   /*
@@ -135,6 +321,19 @@ describe('자료 상세', () => {
     await waitFor(() => {
       expect(api.issued).toEqual([1000])
     })
+  })
+
+  it('내려받기 URL 발급 실패는 fixed error alert 하나로 알린다', async () => {
+    api.downloadError = new ApiError('NETWORK_ERROR', 0, '연결하지 못했습니다.')
+    renderDetail()
+    await screen.findByText('정리본.pdf')
+
+    fireEvent.click(screen.getByRole('button', { name: '받기' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('연결하지 못했습니다.')
+    expect(alert.closest('[data-live-alert-viewport="true"]')).not.toBeNull()
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
   })
 
   /*
@@ -182,18 +381,85 @@ describe('자료 상세', () => {
     expect(screen.getByRole('link', { name: '수정' })).toBeVisible()
   })
 
-  /* 담기·빼기는 방향을 정해 보낸다 (계약 §3-2-4 MUST — 토글이 아니다). */
-  it('담긴 자료의 별표를 누르면 빼기 요청이 나간다', async () => {
-    api.note = { ...MINE, bookmarked: true }
+  /*
+   * 담기·빼기는 방향을 정해 보낸다 (계약 §3-2-4 MUST — 토글이 아니다).
+   * 즐겨찾기는 조회가 아니므로 성공 뒤 상세 GET을 다시 부르지 않는다.
+   */
+  it.each([
+    { initial: false, action: '즐겨찾기', next: true },
+    { initial: true, action: '즐겨찾기 해제', next: false },
+  ])(
+    '$action 성공 후 bookmarked만 바꾸고 상세를 재조회하지 않는다',
+    async ({ initial, action, next }) => {
+      api.note = { ...MINE, bookmarked: initial }
 
+      renderDetail()
+      await screen.findByText('정리본.pdf')
+      expect(api.gets).toEqual([301])
+      expect(api.views.get(301)).toBe(MINE.viewCount + 1)
+
+      fireEvent.click(screen.getByRole('button', { name: action }))
+
+      await waitFor(() => {
+        expect(api.bookmarked).toEqual([{ id: 301, next }])
+      })
+      expect(api.gets).toEqual([301])
+      expect(api.views.get(301)).toBe(MINE.viewCount + 1)
+      expect(
+        screen.getByRole('button', {
+          name: next ? '즐겨찾기 해제' : '즐겨찾기',
+        }),
+      ).toBeVisible()
+      const viewCountLabel = screen.getByText('조회수')
+      expect(viewCountLabel.nextElementSibling).toHaveTextContent('12346')
+      expect(screen.getByText('정리본.pdf')).toBeVisible()
+      expect(screen.getByRole('status')).toHaveTextContent(
+        next ? '즐겨찾기에 담았습니다.' : '즐겨찾기에서 뺐습니다.',
+      )
+    },
+  )
+
+  it('즐겨찾기 실패는 fixed error alert로 알리고 상세를 유지한다', async () => {
+    api.bookmarkError = new Error('network')
     renderDetail()
     await screen.findByText('정리본.pdf')
 
-    fireEvent.click(screen.getByRole('button', { name: /즐겨찾기 해제/ }))
+    fireEvent.click(screen.getByRole('button', { name: '즐겨찾기' }))
 
-    await waitFor(() => {
-      expect(api.bookmarked).toEqual([{ id: 301, next: false }])
-    })
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '즐겨찾기를 바꾸지 못했습니다',
+    )
+    expect(screen.getByText('정리본.pdf')).toBeVisible()
+  })
+
+  it('삭제 AlertDialog를 확인하면 fixed 성공 알림을 다음 화면까지 유지한다', async () => {
+    renderDetail()
+    await screen.findByText('정리본.pdf')
+
+    fireEvent.click(screen.getByRole('button', { name: '삭제' }))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('운영체제 중간고사 정리본')
+    fireEvent.click(screen.getByRole('button', { name: '삭제' }))
+
+    expect(
+      await screen.findByRole('heading', { name: '자료게시판' }),
+    ).toBeVisible()
+    expect(screen.getByRole('status')).toHaveTextContent('자료를 삭제했습니다.')
+    expect(api.removed).toEqual([301])
+  })
+
+  it('삭제 실패는 AlertDialog 뒤 fixed error alert로 알리고 상세를 유지한다', async () => {
+    api.removeError = new Error('network')
+    renderDetail()
+    await screen.findByText('정리본.pdf')
+
+    fireEvent.click(screen.getByRole('button', { name: '삭제' }))
+    fireEvent.click(await screen.findByRole('button', { name: '삭제' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '자료를 삭제하지 못했습니다',
+    )
+    expect(screen.getByText('정리본.pdf')).toBeVisible()
   })
 
   it('없는 자료면 안내가 뜬다', async () => {

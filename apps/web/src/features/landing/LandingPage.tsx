@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { SiteFooter } from '@/components/layout/SiteFooter'
 import {
   Accordion,
   AccordionContent,
@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { useDarkChrome } from '@/lib/use-dark-chrome'
 import { cn } from '@/lib/utils'
-import { ACTIVITIES, CLUB, FAQS, SECTIONS, STATS, SUPPORT } from './content'
+import { ACTIVITIES, CLUB, FAQS, STATS, SUPPORT } from './content'
 import { PublicHeader } from './PublicHeader'
 
 /** 본문 컨테이너. 다른 섹션과 좌우 정렬을 맞추는 기준이다. */
@@ -312,54 +312,6 @@ function Support() {
   )
 }
 
-function Footer() {
-  return (
-    <footer className="border-t border-border">
-      {/* 모바일은 세로로 쌓는다. 가로 고정이면 주소와 링크 일곱 개가 찌그러진다 (#174). */}
-      <div className="mx-auto flex w-full max-w-[1152px] flex-col gap-8 px-6 py-10 text-sm text-muted-foreground sm:flex-row sm:items-start sm:justify-between">
-        <address className="not-italic">
-          <span className="block text-foreground">{CLUB.fullName}</span>
-          <span className="mt-2 block">
-            ({CLUB.address.postalCode}) {CLUB.address.road}
-          </span>
-          <span className="block">{CLUB.address.detail}</span>
-        </address>
-        <nav
-          className="flex flex-wrap gap-x-4 gap-y-2"
-          aria-label="섹션 바로가기"
-        >
-          {SECTIONS.map((section) => (
-            <a
-              key={section.id}
-              href={`#${section.id}`}
-              className="transition-colors hover:text-foreground"
-            >
-              {section.label}
-            </a>
-          ))}
-          <a
-            href={CLUB.instagram}
-            target="_blank"
-            rel="noreferrer"
-            className="transition-colors hover:text-foreground"
-          >
-            인스타그램
-          </a>
-          <Link
-            to="/privacy"
-            className="transition-colors hover:text-foreground"
-          >
-            개인정보처리방침
-          </Link>
-          <Link to="/terms" className="transition-colors hover:text-foreground">
-            이용약관
-          </Link>
-        </nav>
-      </div>
-    </footer>
-  )
-}
-
 /**
  * 공개 랜딩. **가드를 붙이지 않는다** — 비로그인·PENDING·ACTIVE·SUSPENDED 어느
  * 상태에서도 그대로 열려야 한다 (spec 5-TESTING T-57~T-61).
@@ -386,7 +338,7 @@ export function LandingPage() {
         <Faq />
         <Support />
       </main>
-      <Footer />
+      <SiteFooter />
     </div>
   )
 }

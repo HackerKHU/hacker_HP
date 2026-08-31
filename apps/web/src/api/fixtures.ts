@@ -29,7 +29,11 @@
 import type {
   AdminUserQuery,
   ApproveResult,
+  BulkStatusResult,
+  BulkStatusTarget,
   ContentSummary,
+  DeactivateResult,
+  ReactivateResult,
   RejectResult,
 } from './adminUsers'
 import { ApiError } from './client'
@@ -42,6 +46,7 @@ import type {
   NoteMetadata,
   NoteQuery,
   NoteSummary,
+  Semester,
   Upload,
   UploadCandidate,
   UploadedFile,
@@ -60,6 +65,10 @@ import type { Page, Role, User } from './types'
  *
  * - `user`      ACTIVE / USER
  * - `admin`     ACTIVE / ADMIN
+ * - `inactive`  INACTIVE / USER — **자료만 막힌 부원** (spec 3-1 §3-1-2, #228). `user`와 같은
+ *               사람이고 상태만 다르다: 공지·갤러리·자유게시판·마이페이지는 그대로 열리고
+ *               자료 갈래만 `403 INACTIVE`다. 헤더의 비활동 표시(#231)를 눈으로 보려면
+ *               이 시나리오여야 한다 — "은근하게"는 화면을 띄워 보지 않고는 판정할 수 없다
  * - `applying`  PENDING, 신청서 미제출 — 신청 폼을 봐야 하는 상태 (spec 3-1-6)
  * - `pending`   PENDING, 신청서 제출 완료 — 승인 대기 안내를 봐야 하는 상태
  * - `guest`     세션 없음. getMe가 `null` (서버는 204, #190)
@@ -69,9 +78,19 @@ import type { Page, Role, User } from './types'
  * `/login?error=...`로 되돌리므로(계약 §3-2-3), 그 화면은 주소로 직접 열어 만든다.
  * 시나리오로 두면 `guest`와 결과가 같아 아무것도 구분하지 못한다.
  */
-type Scenario = 'user' | 'admin' | 'applying' | 'pending' | 'guest' | 'blocked'
+type Scenario =
+  | 'user'
+  | 'admin'
+  | 'inactive'
+  | 'applying'
+  | 'pending'
+  | 'guest'
+  | 'blocked'
 
 const SCENARIO = (import.meta.env.VITE_FIXTURE_SCENARIO ?? 'user') as Scenario
+
+/** 계정이 `PENDING`인 시나리오. 신청 API는 이들에게만 열린다 (계약 §3-2-3, T-50). */
+const PENDING_SCENARIOS: Scenario[] = ['applying', 'pending', 'blocked']
 
 const BASE = {
   id: 1,
@@ -84,13 +103,28 @@ const BASE = {
 } as const
 
 const USERS: Record<
-  'user' | 'admin' | 'applying' | 'pending' | 'blocked',
+  'user' | 'admin' | 'inactive' | 'applying' | 'pending' | 'blocked',
   User
 > = {
   user: {
     ...BASE,
     role: 'USER',
     status: 'ACTIVE',
+    approvedAt: '2026-03-03T09:00:00Z',
+  },
+  /*
+   * **`user`와 같은 사람이다.** id·이름·이메일까지 같고 `status`만 다르다 — 지난 학기에
+   * 활동하던 부원이 이번 학기에 내려간 것이 이 상태의 실제 모습이고([2-2 §2-2-3]),
+   * 같은 사람으로 두면 자료 작성자·게시글 작성자를 고르는 곳(`viewer()` 등)이 시나리오를
+   * 하나 더 알 필요가 없다.
+   *
+   * **`INACTIVE`는 언제나 `USER`다** (3-1 §3-1-2 MUST) — `ADMIN`/`INACTIVE` 조합은 만들지
+   * 않는다. 그래서 관리자용 시나리오를 따로 두지 않았다.
+   */
+  inactive: {
+    ...BASE,
+    role: 'USER',
+    status: 'INACTIVE',
     approvedAt: '2026-03-03T09:00:00Z',
   },
   admin: {
@@ -271,9 +305,15 @@ export function fixtureApplication(body: {
       new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
     )
   }
-  // 신청 API는 PENDING 전용이다 (계약 §3-2-3, T-50). 픽스처가 이걸 허용하면
-  // 승인 후 학번을 바꾸는 회귀가 화면 개발 중에 드러나지 않는다.
-  if (SCENARIO === 'user' || SCENARIO === 'admin') {
+  /*
+   * 신청 API는 PENDING 전용이다 (계약 §3-2-3, T-50). 픽스처가 이걸 허용하면
+   * 승인 후 학번을 바꾸는 회귀가 화면 개발 중에 드러나지 않는다.
+   *
+   * **허용하는 쪽을 적는다.** `user`·`admin`을 막는 식으로 적었더니 `inactive`가 늘었을 때
+   * 조용히 통과했다 — 그 계정은 `PENDING`이 아니라 신청서를 낼 수 없다. 여기는 기본이
+   * 닫힘이어야 하는 자리다.
+   */
+  if (!PENDING_SCENARIOS.includes(SCENARIO)) {
     return Promise.reject(
       new ApiError('FORBIDDEN', 403, '승인된 계정은 신청서를 낼 수 없습니다.'),
     )
@@ -593,12 +633,12 @@ export function fixtureRemoveNotice(id: number): Promise<void> {
  * 회원 명부. 위 `USERS`(`/auth/me`용 단일 사용자)와 다른 목적이라 따로 둔다 —
  * 그쪽은 "지금 로그인한 사람"이고 이쪽은 "관리자가 보는 명단"이다.
  *
- * 신청 전(`appliedAt: null`) 계정을 일부러 섞어 뒀다. 승인 대상은 신청서를 낸 계정으로
- * 한정되므로(계약 §3-2-6 MUST) **그 계정이 화면에서 선택되지 않는 것**이 이 화면의 핵심
- * 규칙인데, 명단에 그런 계정이 없으면 규칙이 지켜지는지 화면에서 확인할 수가 없다.
+ * 신청 전(`appliedAt: null`) 계정을 일부러 섞어 뒀다. 행 메뉴 승인은 신청서를 낸 계정으로
+ * 한정되지만(#297), 선택 상태 조작은 모든 행을 고른 뒤 서버 결과로 전이 가능 여부를
+ * 알려야 한다. 명단에 이런 계정이 있어야 두 경로가 갈리는지 화면에서 확인할 수 있다.
  *
- * 활성 관리자도 둘 이상 둔다. 한 명뿐이면 마지막 관리자 자기 정지 차단(§2-2-7)만 보이고
- * 정상적으로 정지되는 경로를 볼 수 없다.
+ * 활성 관리자도 둘 이상 둔다. 관리자는 선택할 수 있지만 정지 결과에서 권한을 먼저
+ * 회수하라는 항목별 실패가 보여야 한다(#296).
  */
 const MEMBERS: User[] = []
 
@@ -641,6 +681,12 @@ for (const [index, name] of MEMBER_NAMES.entries()) {
   const applied = pending ? index < 4 : true
   const admin = index === 6 || index === 7
   const suspended = index === 8
+  /*
+   * 지난 학기 부원 둘 (#228). **비활동이 없으면 회원 목록에서 확인할 수 없는 것이 많다** —
+   * "비활동" 필터·배지가 `SUSPENDED`와 갈리는지, 일괄 복구로 고를 수 있는지 전부
+   * 이 두 사람이 있어야 화면에 나온다.
+   */
+  const inactive = index === 9 || index === 10
 
   MEMBERS.push({
     id: 1000 + index,
@@ -658,7 +704,13 @@ for (const [index, name] of MEMBER_NAMES.entries()) {
      */
     department: applied ? DEPARTMENTS[index % 3] : null,
     role: admin ? 'ADMIN' : 'USER',
-    status: pending ? 'PENDING' : suspended ? 'SUSPENDED' : 'ACTIVE',
+    status: pending
+      ? 'PENDING'
+      : suspended
+        ? 'SUSPENDED'
+        : inactive
+          ? 'INACTIVE'
+          : 'ACTIVE',
     // 계정 생성(첫 구글 로그인)은 신청보다 앞선다. 둘을 며칠 벌려 둬야 화면이 어느
     // 날짜를 쓰는지 눈으로 구분된다 (2-2 §2-2-1 MUST — 신청일은 appliedAt이다).
     /*
@@ -671,6 +723,7 @@ for (const [index, name] of MEMBER_NAMES.entries()) {
     createdAt: daysAgo(60 - index),
     appliedAt: applied ? daysAgo(60 - index - APPLY_DELAY[index % 6]) : null,
     approvedAt: pending ? null : daysAgo(40 - index),
+    deactivatedAt: inactive ? daysAgo(5) : null,
   })
 }
 
@@ -784,10 +837,10 @@ export function fixtureApproveUsers(userIds: number[]): Promise<ApproveResult> {
 }
 
 /**
- * 일괄 거부 (2-2 §2-2-2). `PENDING` 계정을 지운다.
+ * 일괄 거부 (2-2 §2-2-2). 계정은 유지하고 `PENDING` 신청 정보를 초기화한다.
  *
- * **`PENDING`이 아니면 거부하지 않는다** (§3-2-6). 이 경로로 이용 중인 회원을 지울 수
- * 없다 — 그것은 "제거"이고 세션 폐기·정지 선행 같은 규칙이 따로 붙는다 (§2-2-4).
+ * **`PENDING`이 아니면 거부하지 않는다** (§3-2-6). 이 경로로 이용 중인 회원의 신청
+ * 정보를 초기화할 수 없다 — 회원 제거·정지는 별도 규칙을 따른다 (§2-2-4).
  * 픽스처가 통과시키면 화면이 그 구분을 잃는다.
  */
 export function fixtureRejectUsers(userIds: number[]): Promise<RejectResult> {
@@ -797,17 +850,159 @@ export function fixtureRejectUsers(userIds: number[]): Promise<RejectResult> {
   const result: RejectResult = { rejected: [], failed: [] }
   // 승인과 같이 중복을 먼저 지운다 — 그대로 두면 실제로는 나올 수 없는 부분 실패가 생긴다.
   for (const id of [...new Set(userIds)]) {
-    const index = MEMBERS.findIndex((user) => user.id === id)
-    if (index < 0) {
+    const user = MEMBERS.find((candidate) => candidate.id === id)
+    if (!user) {
       result.failed.push({ userId: id, reason: 'NOT_FOUND' })
       continue
     }
-    if (MEMBERS[index].status !== 'PENDING') {
+    if (user.status !== 'PENDING') {
       result.failed.push({ userId: id, reason: 'NOT_PENDING' })
       continue
     }
-    MEMBERS.splice(index, 1)
+    user.studentNo = null
+    user.department = null
+    user.appliedAt = null
     result.rejected.push(id)
+  }
+  return Promise.resolve(result)
+}
+
+/**
+ * 선택 회원 비활성화 (#295). `ACTIVE`/`SUSPENDED USER`만 바꾸고 나머지는
+ * 항목별 실패로 남긴다. 정지 회원을 내릴 때도 되돌릴 근거인 `deactivatedAt`을
+ * 상태와 함께 세운다.
+ * 중복은 첫 등장만 처리하며 두 결과 배열도 입력 순서를 지킨다.
+ */
+export function fixtureDeactivateUsers(
+  userIds: number[],
+): Promise<DeactivateResult> {
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const invalid = validateBulkIds(userIds)
+  if (invalid) return Promise.reject(invalid)
+
+  const result: DeactivateResult = { deactivated: [], failed: [] }
+  const deactivatedAt = new Date().toISOString()
+  for (const id of [...new Set(userIds)]) {
+    const user = MEMBERS.find((candidate) => candidate.id === id)
+    if (!user) {
+      result.failed.push({ userId: id, reason: 'NOT_FOUND' })
+      continue
+    }
+    if (
+      user.role !== 'USER' ||
+      (user.status !== 'ACTIVE' && user.status !== 'SUSPENDED')
+    ) {
+      result.failed.push({ userId: id, reason: 'NOT_ACTIVE_USER' })
+      continue
+    }
+    user.status = 'INACTIVE'
+    user.deactivatedAt = deactivatedAt
+    result.deactivated.push(user.id)
+  }
+  return Promise.resolve(result)
+}
+
+/** #295·#313 선택 요청이 공유하는 원본 배열 검증. 중복 제거보다 먼저 적용한다. */
+function validateBulkIds(userIds: number[]): ApiError | null {
+  if (
+    userIds.length === 0 ||
+    userIds.length > 100 ||
+    userIds.some((id) => !Number.isInteger(id) || id <= 0)
+  ) {
+    return new ApiError(
+      'VALIDATION_ERROR',
+      400,
+      '상태를 바꿀 회원은 1명 이상 100명 이하여야 합니다.',
+    )
+  }
+  return null
+}
+
+/** 선택 회원 일괄 활성화·정지 (#313). 처리 결과는 입력의 첫 등장 순서를 지킨다. */
+export function fixtureBulkUpdateUserStatus(
+  userIds: number[],
+  status: BulkStatusTarget,
+): Promise<BulkStatusResult> {
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const invalid = validateBulkIds(userIds)
+  if (invalid) return Promise.reject(invalid)
+
+  const result: BulkStatusResult = {
+    targetStatus: status,
+    processed: [],
+    failed: [],
+  }
+  for (const id of [...new Set(userIds)]) {
+    const user = MEMBERS.find((candidate) => candidate.id === id)
+    if (!user) {
+      result.failed.push({ userId: id, reason: 'NOT_FOUND' })
+      continue
+    }
+
+    if (status === 'ACTIVE') {
+      if (user.status === 'PENDING' && user.appliedAt === null) {
+        result.failed.push({ userId: id, reason: 'NOT_APPLIED' })
+        continue
+      }
+      if (user.status === 'PENDING') {
+        user.approvedAt = new Date().toISOString()
+      }
+      user.status = 'ACTIVE'
+      user.deactivatedAt = null
+      result.processed.push(id)
+      continue
+    }
+
+    if (user.role === 'ADMIN') {
+      result.failed.push({
+        userId: id,
+        reason: 'ADMIN_SUSPEND_REQUIRES_ROLE_REVOCATION',
+      })
+      continue
+    }
+    if (user.status === 'PENDING') {
+      result.failed.push({ userId: id, reason: 'PENDING_NOT_ALLOWED' })
+      continue
+    }
+    user.status = 'SUSPENDED'
+    user.deactivatedAt = null
+    result.processed.push(id)
+  }
+  return Promise.resolve(result)
+}
+
+/**
+ * 학기 전환 — 일괄 복구 (계약 §3-2-6).
+ *
+ * **`INACTIVE`가 아니면 실패로 집계한다** (MUST). 특히 정지된 계정을 여기서 통과시키면
+ * **명단을 붙여넣는 것만으로 정지가 풀린다** — 승인 픽스처가 `NOT_APPLIED`를 가르는 것과
+ * 같은 이유로, 통과시키면 화면의 부분 실패 안내를 검증할 길도 사라진다.
+ */
+export function fixtureReactivateUsers(
+  userIds: number[],
+): Promise<ReactivateResult> {
+  const denied = requireAdmin()
+  if (denied) return Promise.reject(denied)
+
+  const result: ReactivateResult = { reactivated: [], failed: [] }
+  // 승인·거부와 같이 중복을 먼저 지운다 — 그대로 두면 실제로는 나올 수 없는 부분 실패가 생긴다.
+  for (const id of [...new Set(userIds)]) {
+    const found = MEMBERS.find((user) => user.id === id)
+    if (!found) {
+      result.failed.push({ userId: id, reason: 'NOT_FOUND' })
+      continue
+    }
+    if (found.status !== 'INACTIVE') {
+      result.failed.push({ userId: id, reason: 'NOT_INACTIVE' })
+      continue
+    }
+    found.status = 'ACTIVE'
+    found.deactivatedAt = null
+    result.reactivated.push(id)
   }
   return Promise.resolve(result)
 }
@@ -920,12 +1115,17 @@ export function fixtureUpdateUserRole(id: number, role: Role): Promise<User> {
     )
   }
 
+  if (role === 'ADMIN') {
+    // 비활동·정지 ADMIN이 순간이라도 남지 않도록 한 조작의 최종값을 세운다.
+    found.status = 'ACTIVE'
+    found.deactivatedAt = null
+  }
   found.role = role
   return Promise.resolve(found)
 }
 
 /**
- * 상태 전환. **마지막 활성 관리자가 자기를 정지시키는 것을 막는다** (2-2 §2-2-7 MUST).
+ * 상태 전환. 관리자는 권한을 회수한 뒤에만 정지할 수 있다 (#296).
  *
  * 화면은 활성 관리자가 몇 명인지 모르므로 이 판단을 하지 않는다. 픽스처가 서버처럼
  * 거부해야 그 실패 화면을 만들 수 있다.
@@ -944,26 +1144,18 @@ export function fixtureUpdateUserStatus(
     )
   }
 
-  const activeAdmins = MEMBERS.filter(
-    (user) => user.role === 'ADMIN' && user.status === 'ACTIVE',
-  )
-  const isSelf = id === SELF_ID
-  if (
-    status === 'SUSPENDED' &&
-    isSelf &&
-    activeAdmins.length === 1 &&
-    activeAdmins[0].id === id
-  ) {
+  if (status === 'SUSPENDED' && found.role === 'ADMIN') {
     return Promise.reject(
       new ApiError(
         'FORBIDDEN',
         403,
-        '마지막 활성 관리자는 자기 자신을 정지할 수 없습니다.',
+        '관리자 계정은 바로 정지할 수 없습니다. 먼저 관리자 권한을 회수한 뒤 정지해 주세요.',
       ),
     )
   }
 
   found.status = status
+  found.deactivatedAt = null
   return Promise.resolve(found)
 }
 
@@ -984,6 +1176,14 @@ const NOTE_SUBJECTS = [
   { subject: '자료구조', professor: '박교수' },
   { subject: '알고리즘', professor: null },
   { subject: '데이터베이스', professor: '최교수' },
+]
+
+/** 자료가 네 학기에 실제로 흩어져 필터·표시·폼을 픽스처 모드에서도 확인할 수 있게 한다. */
+const NOTE_SEMESTERS: readonly Semester[] = [
+  'SPRING',
+  'SUMMER',
+  'FALL',
+  'WINTER',
 ]
 
 /** 로그인한 나. `GET /auth/me`가 주는 계정과 같아야 소유 판단이 화면과 맞는다. */
@@ -1018,7 +1218,7 @@ const NOTES: FixtureNote[] = Array.from({ length: 23 }, (_, index) => {
     subjectName: subject,
     professor,
     year: 2026 - (index % 3),
-    semester: index % 2 === 0 ? ('SPRING' as const) : ('FALL' as const),
+    semester: NOTE_SEMESTERS[index % NOTE_SEMESTERS.length],
     examType: isExam
       ? index % 2 === 0
         ? ('MIDTERM' as const)
@@ -1030,6 +1230,8 @@ const NOTES: FixtureNote[] = Array.from({ length: 23 }, (_, index) => {
         : owner === 1
           ? { id: 99, name: '권승원' }
           : { id: null, name: '탈퇴한 회원' },
+    // 조회수가 다른 자료와 동률인 자료를 모두 둔다. `views` 정렬의 1·2차 기준을 함께 볼 수 있다.
+    viewCount: (index % 5) * 25,
     files: [
       {
         id: 1000 + index * 2,
@@ -1115,9 +1317,34 @@ function pageOf(
   }
 }
 
+/**
+ * 자료 갈래는 비활동 부원에게 닫혀 있다 (spec 3-1 §3-1-2 MUST, 계약 §3-2-4의 열한 경로).
+ *
+ * **코드와 메시지는 서버의 것을 그대로 쓴다** (`ErrorCode.INACTIVE`). 화면이 `403`을 코드로
+ * 갈라 안내를 정하므로([3-1 §3-1-5](3-1-DESIGN-ARCHITECTURE.md)), 여기서 `FORBIDDEN`을
+ * 돌려주면 픽스처로 만든 화면은 *"권한이 없습니다"* 를 띄우고 **비활동 안내 경로는 한 번도
+ * 실행되지 않는다.**
+ *
+ * **서버는 경로 접두사로 막고**(`/api/v1/notes/**`·`/api/v1/bookmarks/**`, #229) 여기는
+ * 함수마다 막는다 — 픽스처에는 지나갈 경로가 없기 때문이다. 그래서 **기본이 열림이다**:
+ * 자료 픽스처를 새로 만들면 이 줄을 직접 넣어야 한다. 빠뜨리면 비활동 부원에게 열린 채로
+ * 남고, 그 상태는 서버가 막아 주므로 화면에서만 어긋난다.
+ */
+function requireNoteAccess(): ApiError | null {
+  if (SCENARIO !== 'inactive') return null
+  return new ApiError(
+    'INACTIVE',
+    403,
+    '이번 학기에 활동하지 않는 계정이라 자료를 볼 수 없습니다.',
+  )
+}
+
 export function fixtureNotes(
   query: NoteQuery = {},
 ): Promise<Page<NoteSummary>> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
   const matched = NOTES.filter((note) => matchesNote(note, query))
     .map(toSummary)
     /*
@@ -1127,18 +1354,25 @@ export function fixtureNotes(
     .sort((a, b) =>
       query.sort === 'title'
         ? a.title.localeCompare(b.title) || a.id - b.id
-        : b.createdAt.localeCompare(a.createdAt) || b.id - a.id,
+        : query.sort === 'views'
+          ? b.viewCount - a.viewCount || b.id - a.id
+          : b.createdAt.localeCompare(a.createdAt) || b.id - a.id,
     )
   return Promise.resolve(pageOf(matched, query.page, query.size))
 }
 
 export function fixtureNote(id: number): Promise<NoteDetail> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
   const found = NOTES.find((note) => note.id === id)
   if (!found) {
     return Promise.reject(
       new ApiError('NOT_FOUND', 404, '자료를 찾을 수 없습니다.'),
     )
   }
+  // 서버 계약과 같이 성공한 상세 GET 하나가 조회 1회다. 응답은 올린 뒤의 값을 준다.
+  found.viewCount += 1
   return Promise.resolve(withBookmark(found))
 }
 
@@ -1147,6 +1381,9 @@ export function fixtureNote(id: number): Promise<NoteDetail> {
  * 자료를 추가했을 때 옵션이 따라오지 않아, 고를 수 없는 과목이 생긴다.
  */
 export function fixtureNoteFilters(): Promise<NoteFilterOptions> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
   return Promise.resolve({
     subjects: [...new Set(NOTES.map((note) => note.subjectName))].sort((a, b) =>
       a.localeCompare(b),
@@ -1166,6 +1403,9 @@ export function fixtureNoteFilters(): Promise<NoteFilterOptions> {
 export function fixtureBookmarks(
   query: { page?: number; size?: number } = {},
 ): Promise<Page<NoteSummary>> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
   /*
    * **담긴 순서다** (계약 §3-2-4) — 자료 등록 시각이 아니다. 그리고 이 목록의
    * `bookmarked`는 언제나 참이다: 목록에 있다는 것이 곧 담겨 있다는 뜻이다.
@@ -1178,6 +1418,9 @@ export function fixtureBookmarks(
 }
 
 export function fixtureSetBookmark(id: number, next: boolean): Promise<void> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
   const found = NOTES.find((note) => note.id === id)
   /*
    * **담기는 없는 자료에 `404`, 빼기는 그래도 성공이다** (계약 §3-2-4). 자료가 지워지면
@@ -1216,6 +1459,9 @@ const FIXTURE_MAX_BYTES = 20 * 1024 * 1024
 const FIXTURE_MAX_FILES = 10
 
 export function fixtureUploadUrls(files: UploadCandidate[]): Promise<Upload[]> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
   if (files.length === 0 || files.length > FIXTURE_MAX_FILES) {
     return Promise.reject(
       new ApiError(
@@ -1270,6 +1516,7 @@ function toDetail(
   files: NoteFile[],
   uploader: Uploader,
   createdAt: string,
+  viewCount: number,
 ): FixtureNote {
   return {
     id,
@@ -1282,6 +1529,7 @@ function toDetail(
     // `SUBJECT`에는 시험 구분이 없다 (계약 §3-2-2 CHECK 제약).
     examType: body.category === 'EXAM' ? body.examType : null,
     uploader,
+    viewCount,
     files,
     createdAt,
     updatedAt: new Date().toISOString(),
@@ -1305,6 +1553,9 @@ function toFiles(files: UploadedFile[]): NoteFile[] {
 export function fixtureCreateNote(
   body: NoteMetadata & { files: UploadedFile[] },
 ): Promise<NoteDetail> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
   const invalid = validateNote(body)
   if (invalid) return Promise.reject(invalid)
 
@@ -1315,6 +1566,7 @@ export function fixtureCreateNote(
     toFiles(body.files),
     { id: me.id, name: me.name },
     new Date().toISOString(),
+    0,
   )
   NOTES.unshift(created)
   return Promise.resolve(withBookmark(created))
@@ -1328,6 +1580,9 @@ export function fixtureUpdateNote(
   id: number,
   body: NoteMetadata & { files: FileRef[] },
 ): Promise<NoteDetail> {
+  const blocked = requireNoteAccess()
+  if (blocked) return Promise.reject(blocked)
+
   const found = NOTES.find((note) => note.id === id)
   if (!found) {
     return Promise.reject(
@@ -1362,12 +1617,17 @@ export function fixtureUpdateNote(
     // 업로더는 그대로다. ADMIN이 남의 자료를 고쳐도 그렇다.
     found.uploader,
     found.createdAt,
+    // 메타데이터를 고치는 것은 조회가 아니다. 저장된 조회수를 그대로 옮긴다.
+    found.viewCount,
   )
   NOTES[NOTES.indexOf(found)] = updated
   return Promise.resolve(withBookmark(updated))
 }
 
 export function fixtureRemoveNote(id: number): Promise<void> {
+  const blocked = requireNoteAccess()
+  if (blocked) return Promise.reject(blocked)
+
   const found = NOTES.find((note) => note.id === id)
   if (!found) {
     return Promise.reject(
@@ -1440,6 +1700,9 @@ export function fixtureDownloadUrl(
   noteId: number,
   fileId: number,
 ): Promise<DownloadUrl> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
   const note = NOTES.find((item) => item.id === noteId)
   const file = note?.files.find((item) => item.id === fileId)
   /*
@@ -1604,7 +1867,8 @@ let nextPhotoId = 601
  * 등록.
  *
  * **일부가 실패해도 성공 응답이다** (계약 §3-2-5). 픽스처도 그래야 화면이 `registered`와
- * `failed`를 함께 읽는지 확인할 수 있다 — **마지막 한 장을 일부러 실패시킨다**(2장 이상일 때).
+ * `failed`를 함께 읽는지 확인할 수 있다. 2장이면 마지막 한 장, 3장 이상이면 마지막 두
+ * 장을 서로 다른 사유로 실패시켜 파일명-사유 매핑과 긴 실패 목록을 브라우저에서 확인한다.
  * 전부 성공시키면 실패 안내를 화면에서 만들 수 없다.
  */
 export function fixtureRegisterPhotos(
@@ -1622,8 +1886,16 @@ export function fixtureRegisterPhotos(
   const registered: Photo[] = []
   const failed: PhotoRegisterResult['failed'] = []
   photos.forEach((item, index) => {
-    // 2장 이상이면 마지막 한 장이 실패한다 — 부분 실패 화면을 볼 수 있어야 한다.
-    if (photos.length > 1 && index === photos.length - 1) {
+    // 여러 key를 서로 다른 사유에 연결하는 화면까지 볼 수 있게 마지막 두 장을 가른다.
+    if (photos.length >= 3 && index === photos.length - 2) {
+      failed.push({ key: item.key, reason: 'FILE_TOO_LARGE' })
+      return
+    }
+    if (photos.length >= 3 && index === photos.length - 1) {
+      failed.push({ key: item.key, reason: 'UNSUPPORTED_FILE_TYPE' })
+      return
+    }
+    if (photos.length === 2 && index === photos.length - 1) {
       failed.push({ key: item.key, reason: 'NOT_FOUND' })
       return
     }
@@ -1727,6 +1999,113 @@ export function fixturePost(id: number): Promise<PostDetail> {
   return Promise.resolve(found)
 }
 
+function validatePost(body: {
+  title: string
+  content: string
+}): ApiError | null {
+  /* 서버의 @NotBlank·@CodePointSize와 같이 다듬기 전 원문을 검사한다. */
+  if (body.title.trim() === '' || body.content.trim() === '') {
+    return new ApiError('VALIDATION_ERROR', 400, '제목과 내용을 입력해 주세요.')
+  }
+  if ([...body.title].length > 200) {
+    return new ApiError(
+      'VALIDATION_ERROR',
+      400,
+      '제목은 200자까지 쓸 수 있습니다.',
+    )
+  }
+  if ([...body.content].length > 10000) {
+    return new ApiError(
+      'VALIDATION_ERROR',
+      400,
+      '내용은 10,000자까지 쓸 수 있습니다.',
+    )
+  }
+  return null
+}
+
+/** 작성자 본인이 제목·본문을 통째로 바꾼다. 관리자 역할도 남의 글 수정 권한을 주지 않는다. */
+export function fixtureEditPost(
+  id: number,
+  body: { title: string; content: string },
+): Promise<PostDetail> {
+  const found = POSTS.find((post) => post.id === id)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '게시글을 찾을 수 없습니다.'),
+    )
+  }
+
+  const me = viewer()
+  if (found.author.id === null || found.author.id !== me.id) {
+    return Promise.reject(
+      new ApiError('FORBIDDEN', 403, '본인이 쓴 글만 수정할 수 있습니다.'),
+    )
+  }
+
+  const invalid = validatePost(body)
+  if (invalid) return Promise.reject(invalid)
+
+  found.title = body.title.trim()
+  found.content = body.content
+  /* 새 글을 즉시 고쳐도 createdAt과 달라지도록 최소 1ms 뒤로 단조 증가시킨다. */
+  found.updatedAt = new Date(
+    Math.max(Date.now(), Date.parse(found.updatedAt) + 1),
+  ).toISOString()
+  return Promise.resolve(found)
+}
+
+/** 게시글 완전 삭제는 활성 관리자 또는 ACTIVE·INACTIVE 작성자 본인만 가능하다. */
+export function fixtureRemovePost(id: number): Promise<void> {
+  if (SCENARIO === 'guest') {
+    return Promise.reject(
+      new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
+    )
+  }
+  if (PENDING_SCENARIOS.includes(SCENARIO)) {
+    return Promise.reject(
+      new ApiError('PENDING_APPROVAL', 403, '가입 승인 대기 중입니다.'),
+    )
+  }
+
+  /*
+   * 관리자 시나리오는 불변 USERS.admin이 아니라 회원 관리 조작이 바꾸는 명부를 다시 본다.
+   * 권한 회수·정지·제거 뒤에도 옛 시나리오 문자열만 보고 타인 글을 지우면 실제 서버의
+   * 커밋 직전 DB 재검증과 정반대가 된다 (결정 20, T-476).
+   */
+  const requester =
+    SCENARIO === 'admin'
+      ? MEMBERS.find((member) => member.id === SELF_ID)
+      : viewer()
+  if (!requester) {
+    return Promise.reject(
+      new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
+    )
+  }
+  if (requester.status === 'SUSPENDED') {
+    return Promise.reject(new ApiError('SUSPENDED', 403, '정지된 계정입니다.'))
+  }
+
+  const index = POSTS.findIndex((post) => post.id === id)
+  if (index === -1) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '게시글을 찾을 수 없습니다.'),
+    )
+  }
+  const activeAdmin =
+    requester.role === 'ADMIN' && requester.status === 'ACTIVE'
+  const owner =
+    (requester.status === 'ACTIVE' || requester.status === 'INACTIVE') &&
+    POSTS[index].author.id === requester.id
+  if (!activeAdmin && !owner) {
+    return Promise.reject(
+      new ApiError('FORBIDDEN', 403, '본인이 쓴 게시글만 삭제할 수 있습니다.'),
+    )
+  }
+  POSTS.splice(index, 1)
+  return Promise.resolve()
+}
+
 let nextPostId = 801
 
 /**
@@ -1742,29 +2121,8 @@ export function fixtureCreatePost(body: {
   title: string
   content: string
 }): Promise<PostDetail> {
-  /*
-   * **검사는 원문에 건다.** 서버의 `@NotBlank`·`@CodePointSize`도 다듬기 전 값에 걸린다 —
-   * 화면이 다듬은 뒤 재면 상한 언저리에서 판정이 갈린다.
-   */
-  if (body.title.trim() === '' || body.content.trim() === '') {
-    return Promise.reject(
-      new ApiError('VALIDATION_ERROR', 400, '제목과 내용을 입력해 주세요.'),
-    )
-  }
-  if ([...body.title].length > 200) {
-    return Promise.reject(
-      new ApiError('VALIDATION_ERROR', 400, '제목은 200자까지 쓸 수 있습니다.'),
-    )
-  }
-  if ([...body.content].length > 10000) {
-    return Promise.reject(
-      new ApiError(
-        'VALIDATION_ERROR',
-        400,
-        '내용은 10,000자까지 쓸 수 있습니다.',
-      ),
-    )
-  }
+  const invalid = validatePost(body)
+  if (invalid) return Promise.reject(invalid)
 
   const me = SCENARIO === 'admin' ? USERS.admin : USERS.user
   /*

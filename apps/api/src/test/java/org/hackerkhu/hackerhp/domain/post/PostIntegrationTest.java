@@ -2,7 +2,12 @@ package org.hackerkhu.hackerhp.domain.post;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mockingDetails;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -12,10 +17,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
+import org.hackerkhu.hackerhp.domain.post.entity.Post;
 import org.hackerkhu.hackerhp.domain.post.repository.PostRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.testsupport.auth.TestSessions.SignedIn;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
@@ -27,11 +40,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
- * 자유 게시판 (#236, spec 2-1 §2-1-8, 3-2 §3-2-5, 3-3 결정 16).
+ * 자유 게시판 (#236·#238·#256, spec 2-1 §2-1-8, 3-2 §3-2-5, 3-3 결정 16·20·21).
  *
  * <p><b>이 저장소에서 일반 부원이 자유 서술을 남기는 첫 기능이다.</b> 지금까지 텍스트를 남기는 길은 공지({@code ADMIN} 전용)와 자료 메타데이터뿐이었다 —
  * 승인된 모든 부원이 쓰는 입력이라 지금까지 없던 표면이 함께 생긴다.
@@ -44,17 +58,19 @@ class PostIntegrationTest extends AbstractIntegrationTest {
 
   @Autowired private MockMvc mockMvc;
   @Autowired private UserRepository userRepository;
-  @Autowired private PostRepository posts;
+  @MockitoSpyBean private PostRepository posts;
   @Autowired private JdbcTemplate jdbcTemplate;
   @Autowired private ObjectMapper objectMapper;
 
   private User member;
+  private User admin;
 
   @BeforeEach
   void setUp() {
     clearAll();
     member =
         userRepository.saveAndFlush(Accounts.approved("sub-me", "me@khu.ac.kr", "20250001", "김부원"));
+    admin = userRepository.saveAndFlush(Accounts.admin("sub-ad", "ad@khu.ac.kr", "20200000"));
   }
 
   @AfterEach
@@ -71,6 +87,13 @@ class PostIntegrationTest extends AbstractIntegrationTest {
 
   private MockHttpServletRequestBuilder writeRequest(User caller, String title, String content) {
     return Csrf.with(sessions.as(caller, post(POSTS)))
+        .contentType(MediaType.APPLICATION_JSON)
+        .content("{\"title\":\"" + title + "\",\"content\":\"" + content + "\"}");
+  }
+
+  private MockHttpServletRequestBuilder editRequest(
+      User caller, long id, String title, String content) {
+    return Csrf.with(sessions.as(caller, patch(POSTS + "/" + id)))
         .contentType(MediaType.APPLICATION_JSON)
         .content("{\"title\":\"" + title + "\",\"content\":\"" + content + "\"}");
   }
@@ -119,7 +142,8 @@ class PostIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.content[0].id").value(id))
         .andExpect(jsonPath("$.content[0].title").value("이번 학기 스터디 모집합니다"))
         .andExpect(jsonPath("$.content[0].author.id").value(member.getId()))
-        .andExpect(jsonPath("$.content[0].author.name").value("김부원"));
+        // 표시 이름이라 학번 끝 두 자리가 붙는다 (#301, 3-2 §3-2-2).
+        .andExpect(jsonPath("$.content[0].author.name").value("김부원01"));
 
     mockMvc
         .perform(sessions.as(member, get(POSTS + "/" + id)))
@@ -207,7 +231,8 @@ class PostIntegrationTest extends AbstractIntegrationTest {
                         .formatted(other.getId(), other.getId())))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.author.id").value(member.getId()))
-        .andExpect(jsonPath("$.author.name").value("김부원"));
+        // 표시 이름이라 학번 끝 두 자리가 붙는다 (#301, 3-2 §3-2-2).
+        .andExpect(jsonPath("$.author.name").value("김부원01"));
   }
 
   /** 쓰기에는 CSRF 토큰이 필요하다 (§3-2-3). */
@@ -431,7 +456,6 @@ class PostIntegrationTest extends AbstractIntegrationTest {
   @Test
   void removingTheAuthorKeepsThePostAndShowsWithdrawn() throws Exception {
     long id = write(member, "남을 글", "본문");
-    User admin = userRepository.saveAndFlush(Accounts.admin("sub-ad", "ad@khu.ac.kr", "20200000"));
 
     mockMvc
         .perform(
@@ -503,5 +527,555 @@ class PostIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.code").value("SUSPENDED"));
 
     assertThat(posts.count()).isZero();
+  }
+
+  /* ------------------------------------------------------------------ 수정 (#256) */
+
+  /**
+   * T-477 — <b>작성자 본인이 제목·본문을 통째로 고친다</b> (MUST).
+   *
+   * <p>{@code updatedAt}이 {@code createdAt}과 달라진다 — 그 자체가 "수정됨"의 근거다 (결정 21).
+   */
+  @Test
+  void authorEditsTheirOwnPost() throws Exception {
+    long id = write(member, "원래 제목", "원래 본문");
+    /*
+     * PostgreSQL TIMESTAMP는 마이크로초 정밀도다. write()에 들어간 Instant나 API 직렬화값이
+     * 아니라 수정 직전 DB round-trip 값을 기준으로 잡아, 수정이 저장 시각을 보존했는지
+     * 정밀도 차이 없이 비교한다.
+     */
+    var original = posts.findById(id).orElseThrow();
+    Instant originalCreatedAt = original.getCreatedAt();
+    assertThat(original.getUpdatedAt()).isEqualTo(originalCreatedAt);
+
+    mockMvc
+        .perform(editRequest(member, id, "고친 제목", "고친 본문"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.title").value("고친 제목"))
+        .andExpect(jsonPath("$.content").value("고친 본문"))
+        .andExpect(jsonPath("$.author.id").value(member.getId()));
+
+    mockMvc
+        .perform(sessions.as(member, get(POSTS + "/" + id)))
+        .andExpect(jsonPath("$.title").value("고친 제목"))
+        .andExpect(jsonPath("$.content").value("고친 본문"));
+
+    var edited = posts.findById(id).orElseThrow();
+    assertThat(edited.getCreatedAt()).isEqualTo(originalCreatedAt);
+    assertThat(edited.getUpdatedAt()).isNotEqualTo(edited.getCreatedAt());
+  }
+
+  /** T-478 — <b>남의 글은 고칠 수 없다</b> (MUST). 예외가 없다 — 작성자 본인만이다. */
+  @Test
+  void aMemberCannotEditSomeoneElsesPost() throws Exception {
+    long id = write(member, "제목", "본문");
+    User other =
+        userRepository.saveAndFlush(Accounts.approved("sub-ot", "ot@khu.ac.kr", "20250002", "남"));
+
+    mockMvc
+        .perform(editRequest(other, id, "가로챈 제목", "가로챈 본문"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+    assertThat(posts.findById(id).orElseThrow().getTitle()).isEqualTo("제목");
+  }
+
+  /** T-478 — <b>관리자 역할도 수정 권한의 예외가 아니다</b> (MUST, 결정 21 D1). */
+  @Test
+  void anAdminCannotEditSomeoneElsesPostEither() throws Exception {
+    long id = write(member, "제목", "본문");
+
+    mockMvc
+        .perform(editRequest(admin, id, "관리자가 고친 제목", "관리자가 고친 본문"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+    assertThat(posts.findById(id).orElseThrow().getTitle()).isEqualTo("제목");
+  }
+
+  /** T-479 — 없는 글을 수정하면 {@code 404}다 — 소유자 확인보다 존재 확인이 먼저다. */
+  @Test
+  void editingAMissingPostIsNotFound() throws Exception {
+    mockMvc
+        .perform(editRequest(member, 999_999L, "제목", "본문"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+  }
+
+  /** T-480 — <b>작성자는 바뀌지 않는다</b> (MUST, 결정 21 완료 조건). 수정은 내용만 바꾼다. */
+  @Test
+  void editingDoesNotChangeTheAuthor() throws Exception {
+    long id = write(member, "제목", "본문");
+
+    mockMvc
+        .perform(editRequest(member, id, "고친 제목", "고친 본문"))
+        .andExpect(jsonPath("$.author.id").value(member.getId()))
+        .andExpect(jsonPath("$.author.name").value("김부원01"));
+  }
+
+  /** T-480 — 관리자도 자신이 쓴 글은 관리자 권한이 아니라 작성자 자격으로 수정한다. */
+  @Test
+  void anAdminCanEditTheirOwnPostAsItsAuthor() throws Exception {
+    long id = write(admin, "관리자가 쓴 제목", "본문");
+
+    mockMvc
+        .perform(editRequest(admin, id, "관리자가 고친 제목", "고친 본문"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.title").value("관리자가 고친 제목"))
+        .andExpect(jsonPath("$.author.id").value(admin.getId()));
+  }
+
+  /** T-477 — 비활동 부원도 자료 외 기능은 그대로 쓰므로 자신이 쓴 게시글을 수정할 수 있다. */
+  @Test
+  void anInactiveAuthorCanEditTheirOwnPost() throws Exception {
+    long id = write(member, "제목", "본문");
+    User inactive = userRepository.findById(member.getId()).orElseThrow();
+    inactive.deactivate(Instant.now());
+    userRepository.saveAndFlush(inactive);
+
+    mockMvc
+        .perform(editRequest(inactive, id, "비활동 중 고친 제목", "고친 본문"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.title").value("비활동 중 고친 제목"));
+  }
+
+  /** T-479 — 탈퇴해 {@code author_id = null}인 글은 누구도 작성자일 수 없어 수정할 수 없다. */
+  @Test
+  void nobodyCanEditAPostWhoseAuthorWasRemoved() throws Exception {
+    long id = write(member, "남아 있는 글", "본문");
+    userRepository.deleteById(member.getId());
+    userRepository.flush();
+
+    mockMvc
+        .perform(editRequest(admin, id, "가로챈 제목", "가로챈 본문"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+    assertThat(posts.findById(id).orElseThrow().getAuthorId()).isNull();
+    assertThat(posts.findById(id).orElseThrow().getTitle()).isEqualTo("남아 있는 글");
+  }
+
+  /** T-481 — 수정 요청도 등록과 같은 검증을 받는다 — 빈 값·공백·상한 초과는 {@code 400}이다. */
+  @Test
+  void editRequestsAreValidatedLikeCreation() throws Exception {
+    long id = write(member, "제목", "본문");
+
+    mockMvc.perform(editRequest(member, id, "", "본문")).andExpect(status().isBadRequest());
+    mockMvc.perform(editRequest(member, id, "   ", "본문")).andExpect(status().isBadRequest());
+    mockMvc.perform(editRequest(member, id, "제목", " \n ")).andExpect(status().isBadRequest());
+    mockMvc
+        .perform(editRequest(member, id, "제목", "가".repeat(10_001)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+    // 거절된 수정은 반영되지 않는다.
+    assertThat(posts.findById(id).orElseThrow().getTitle()).isEqualTo("제목");
+  }
+
+  /** T-481 — 수정도 코드 포인트로 세어 이모지 200자는 받고 201자는 거부한다. */
+  @Test
+  void editValidationCountsEmojiAsCodePoints() throws Exception {
+    long id = write(member, "제목", "본문");
+
+    mockMvc.perform(editRequest(member, id, "🎉".repeat(200), "본문")).andExpect(status().isOk());
+    mockMvc
+        .perform(editRequest(member, id, "🎉".repeat(201), "본문"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+  }
+
+  /** T-481 — 수정 본문도 평문이다 (T-323과 같은 이유) — 서버가 정화하거나 변형하지 않는다. */
+  @Test
+  void editedHtmlIsStoredVerbatimToo() throws Exception {
+    long id = write(member, "제목", "본문");
+    String payload = "<script>alert(1)</script>";
+
+    mockMvc
+        .perform(editRequest(member, id, "제목", payload))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.content").value(payload));
+
+    assertThat(posts.findById(id).orElseThrow().getContent()).isEqualTo(payload);
+  }
+
+  /** T-482 — 비로그인은 수정을 시도조차 할 수 없다. */
+  @Test
+  void guestsCannotEdit() throws Exception {
+    long id = write(member, "제목", "본문");
+
+    mockMvc
+        .perform(
+            Csrf.with(patch(POSTS + "/" + id))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isUnauthorized());
+
+    assertThat(posts.findById(id).orElseThrow().getTitle()).isEqualTo("제목");
+  }
+
+  /** T-482 — 수정에도 CSRF 토큰이 필요하다 (§3-2-3). */
+  @Test
+  void editingNeedsACsrfToken() throws Exception {
+    long id = write(member, "제목", "본문");
+
+    mockMvc
+        .perform(
+            sessions
+                .as(member, patch(POSTS + "/" + id))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"제목\",\"content\":\"본문\"}"))
+        .andExpect(status().isForbidden());
+  }
+
+  /**
+   * T-483 — <b>필터를 지난 뒤 정지된 사람은 수정을 끝내지 못한다</b> (3-1 §3-1-7 MUST, {@link
+   * #anAuthorSuspendedAfterAuthorizationCannotFinishWriting}과 같은 이유).
+   */
+  @Test
+  void anAuthorSuspendedAfterAuthorizationCannotFinishEditing() throws Exception {
+    long id = write(member, "제목", "본문");
+    User target = userRepository.findById(member.getId()).orElseThrow();
+    target.suspend();
+    userRepository.saveAndFlush(target);
+
+    mockMvc
+        .perform(editRequest(member, id, "정지 뒤에 도착한 수정", "본문"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("SUSPENDED"));
+
+    assertThat(posts.findById(id).orElseThrow().getTitle()).isEqualTo("제목");
+  }
+
+  /**
+   * T-492 — 관리자 삭제와 작성자 수정이 동시에 와도 게시글 잠금에서 직렬화된다.
+   *
+   * <p>repository spy의 latch는 삭제가 실제 게시글 잠금을 얻은 뒤 멈추고, 수정이 같은 잠금 호출에 진입한 것을 확인한 뒤에만 삭제를 커밋시킨다.
+   * 확률·반복·sleep 없이 삭제 {@code 204} 뒤 수정 {@code 404}가 되고 {@code 500}·데드락이 없는지를 고정한다.
+   */
+  @Test
+  void authorEditAndAdminDeleteSerializeWithoutDeadlock() throws Exception {
+    long id = write(member, "삭제와 경쟁할 제목", "본문");
+    CountDownLatch deleteHasPostLock = new CountDownLatch(1);
+    CountDownLatch editReachedPostLock = new CountDownLatch(1);
+    CountDownLatch allowDeleteToFinish = new CountDownLatch(1);
+    AtomicReference<Thread> deletingThread = new AtomicReference<>();
+    AtomicReference<Thread> editingThread = new AtomicReference<>();
+    // JDK proxy spy의 기본 Answer는 Spring이 원본 repository proxy로 만든 delegatesTo다.
+    var realRepositoryCall = mockingDetails(posts).getMockCreationSettings().getDefaultAnswer();
+
+    doAnswer(
+            invocation -> {
+              if (Thread.currentThread() == editingThread.get()) {
+                editReachedPostLock.countDown();
+                return realRepositoryCall.answer(invocation);
+              }
+              Object found = realRepositoryCall.answer(invocation);
+              if (Thread.currentThread() == deletingThread.get()) {
+                deleteHasPostLock.countDown();
+                if (!allowDeleteToFinish.await(5, TimeUnit.SECONDS)) {
+                  throw new IllegalStateException("삭제 잠금 해제 신호를 받지 못했다");
+                }
+              }
+              return found;
+            })
+        .when(posts)
+        .findByIdForUpdate(anyLong());
+
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      Future<Integer> deleteStatus =
+          pool.submit(
+              () -> {
+                deletingThread.set(Thread.currentThread());
+                return mockMvc
+                    .perform(Csrf.with(sessions.as(admin, delete(POSTS + "/" + id))))
+                    .andReturn()
+                    .getResponse()
+                    .getStatus();
+              });
+      assertThat(deleteHasPostLock.await(5, TimeUnit.SECONDS)).as("삭제가 게시글 잠금을 먼저 얻는다").isTrue();
+
+      Future<Integer> editStatus =
+          pool.submit(
+              () -> {
+                editingThread.set(Thread.currentThread());
+                return mockMvc
+                    .perform(editRequest(member, id, "경쟁 뒤 제목", "고친 본문"))
+                    .andReturn()
+                    .getResponse()
+                    .getStatus();
+              });
+      assertThat(editReachedPostLock.await(5, TimeUnit.SECONDS))
+          .as("수정이 같은 게시글 잠금 호출까지 도착한다")
+          .isTrue();
+
+      allowDeleteToFinish.countDown();
+      assertThat(deleteStatus.get(10, TimeUnit.SECONDS)).isEqualTo(204);
+      assertThat(editStatus.get(10, TimeUnit.SECONDS)).isEqualTo(404);
+      assertThat(posts.existsById(id)).isFalse();
+    } finally {
+      allowDeleteToFinish.countDown();
+      pool.shutdownNow();
+      assertThat(pool.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+    }
+  }
+
+  /** T-492의 반대 순서 — 수정이 잠금을 먼저 얻으면 {@code 200} 뒤 삭제 {@code 204}로 끝난다. */
+  @Test
+  void authorEditFinishesBeforeWaitingAdminDelete() throws Exception {
+    long id = write(member, "수정이 먼저인 제목", "본문");
+    CountDownLatch editHasPostLock = new CountDownLatch(1);
+    CountDownLatch deleteReachedPostLock = new CountDownLatch(1);
+    CountDownLatch allowEditToFinish = new CountDownLatch(1);
+    AtomicReference<Thread> editingThread = new AtomicReference<>();
+    AtomicReference<Thread> deletingThread = new AtomicReference<>();
+    var realRepositoryCall = mockingDetails(posts).getMockCreationSettings().getDefaultAnswer();
+
+    doAnswer(
+            invocation -> {
+              if (Thread.currentThread() == deletingThread.get()) {
+                deleteReachedPostLock.countDown();
+                return realRepositoryCall.answer(invocation);
+              }
+              Object found = realRepositoryCall.answer(invocation);
+              if (Thread.currentThread() == editingThread.get()) {
+                editHasPostLock.countDown();
+                if (!allowEditToFinish.await(5, TimeUnit.SECONDS)) {
+                  throw new IllegalStateException("수정 잠금 해제 신호를 받지 못했다");
+                }
+              }
+              return found;
+            })
+        .when(posts)
+        .findByIdForUpdate(anyLong());
+
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      Future<Integer> editStatus =
+          pool.submit(
+              () -> {
+                editingThread.set(Thread.currentThread());
+                return mockMvc
+                    .perform(editRequest(member, id, "수정이 끝난 제목", "고친 본문"))
+                    .andReturn()
+                    .getResponse()
+                    .getStatus();
+              });
+      assertThat(editHasPostLock.await(5, TimeUnit.SECONDS)).as("수정이 게시글 잠금을 먼저 얻는다").isTrue();
+
+      Future<Integer> deleteStatus =
+          pool.submit(
+              () -> {
+                deletingThread.set(Thread.currentThread());
+                return mockMvc
+                    .perform(Csrf.with(sessions.as(admin, delete(POSTS + "/" + id))))
+                    .andReturn()
+                    .getResponse()
+                    .getStatus();
+              });
+      assertThat(deleteReachedPostLock.await(5, TimeUnit.SECONDS))
+          .as("삭제가 같은 게시글 잠금 호출까지 도착한다")
+          .isTrue();
+
+      allowEditToFinish.countDown();
+      assertThat(editStatus.get(10, TimeUnit.SECONDS)).isEqualTo(200);
+      assertThat(deleteStatus.get(10, TimeUnit.SECONDS)).isEqualTo(204);
+      assertThat(posts.existsById(id)).isFalse();
+    } finally {
+      allowEditToFinish.countDown();
+      pool.shutdownNow();
+      assertThat(pool.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+    }
+  }
+
+  /* ------------------------------------------------------------------ 삭제 (#238) */
+
+  /**
+   * T-463 — <b>관리자가 글을 완전히 지운다</b> (MUST).
+   *
+   * <p>목록·상세 어디서도 다시 보이지 않는다 — 감춤이 아니라 행 자체가 사라진다.
+   */
+  @Test
+  void adminDeletesAPost() throws Exception {
+    long id = write(member, "지워질 글", "본문");
+
+    mockMvc
+        .perform(Csrf.with(sessions.as(admin, delete(POSTS + "/" + id))))
+        .andExpect(status().isNoContent());
+
+    assertThat(posts.existsById(id)).isFalse();
+    mockMvc.perform(sessions.as(admin, get(POSTS + "/" + id))).andExpect(status().isNotFound());
+    mockMvc
+        .perform(sessions.as(admin, get(POSTS)))
+        .andExpect(jsonPath("$.content.length()").value(0));
+  }
+
+  /** T-464 — <b>ACTIVE 작성자 본인은 자기 글을 완전히 지울 수 있다</b> (MUST). */
+  @Test
+  void theAuthorDeletesTheirOwnPost() throws Exception {
+    long id = write(member, "내가 쓴 글", "본문");
+
+    mockMvc
+        .perform(Csrf.with(sessions.as(member, delete(POSTS + "/" + id))))
+        .andExpect(status().isNoContent());
+
+    assertThat(posts.existsById(id)).isFalse();
+  }
+
+  /** T-464 — 비활동 부원은 자료 외 기능을 그대로 쓰므로 자기 글도 지울 수 있다. */
+  @Test
+  void anInactiveAuthorDeletesTheirOwnPost() throws Exception {
+    long id = write(member, "비활동 중 지울 글", "본문");
+    User inactive = userRepository.findById(member.getId()).orElseThrow();
+    inactive.deactivate(Instant.now());
+    userRepository.saveAndFlush(inactive);
+
+    mockMvc
+        .perform(Csrf.with(sessions.as(inactive, delete(POSTS + "/" + id))))
+        .andExpect(status().isNoContent());
+
+    assertThat(posts.existsById(id)).isFalse();
+  }
+
+  /** T-464 — 일반 부원은 남의 글을 지울 수 없다. */
+  @Test
+  void aMemberCannotDeleteSomeoneElsesPost() throws Exception {
+    long id = write(admin, "관리자가 쓴 글", "본문");
+
+    mockMvc
+        .perform(Csrf.with(sessions.as(member, delete(POSTS + "/" + id))))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+    assertThat(posts.existsById(id)).isTrue();
+  }
+
+  /** T-464 — 관리자가 자신이 쓴 글을 지울 때도 같은 완전 삭제 경로를 쓴다. */
+  @Test
+  void anAdminDeletesTheirOwnPost() throws Exception {
+    long id = write(admin, "관리자 본인 글", "본문");
+
+    mockMvc
+        .perform(Csrf.with(sessions.as(admin, delete(POSTS + "/" + id))))
+        .andExpect(status().isNoContent());
+
+    assertThat(posts.existsById(id)).isFalse();
+  }
+
+  /** T-476 — 승인 대기 상태는 작성자 id가 같아도 필터에서 삭제를 거부한다. */
+  @Test
+  void aPendingAuthorCannotDelete() throws Exception {
+    User pending =
+        userRepository.saveAndFlush(Accounts.applied("sub-p", "p@khu.ac.kr", "20250003"));
+    Post post = posts.saveAndFlush(Post.write("신청자 글", "본문", pending.getId(), Instant.now()));
+
+    mockMvc
+        .perform(Csrf.with(sessions.as(pending, delete(POSTS + "/" + post.getId()))))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("PENDING_APPROVAL"));
+
+    assertThat(posts.existsById(post.getId())).isTrue();
+  }
+
+  /**
+   * T-476 — 세션이 아직 {@code ADMIN}이어도 DB에서 권한이 회수됐으면 삭제할 수 없다.
+   *
+   * <p>{@code @PreAuthorize}는 로그인 때 저장한 role을 보므로 이 요청은 컨트롤러까지 들어간다. 서비스가 잠근 최신 사용자 행을 다시 확인해야 되돌릴
+   * 수 없는 삭제를 막는다.
+   */
+  @Test
+  void anAdminWhoseRoleWasRevokedAfterAuthorizationCannotDelete() throws Exception {
+    long id = write(member, "남아야 할 글", "본문");
+    SignedIn staleAdminSession = sessions.signIn(admin);
+    User storedAdmin = userRepository.findById(admin.getId()).orElseThrow();
+    storedAdmin.demoteToUser();
+    userRepository.saveAndFlush(storedAdmin);
+
+    mockMvc
+        .perform(Csrf.with(staleAdminSession.on(delete(POSTS + "/" + id))))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+    assertThat(posts.existsById(id)).isTrue();
+  }
+
+  /** T-476 — 세션이 아직 {@code ACTIVE}여도 DB에서 정지됐으면 같은 최신 상태 재검증이 삭제를 막는다. */
+  @Test
+  void anAdminWhoWasSuspendedAfterAuthorizationCannotDelete() throws Exception {
+    long id = write(member, "남아야 할 글", "본문");
+    SignedIn staleAdminSession = sessions.signIn(admin);
+    User storedAdmin = userRepository.findById(admin.getId()).orElseThrow();
+    storedAdmin.suspend();
+    userRepository.saveAndFlush(storedAdmin);
+
+    mockMvc
+        .perform(Csrf.with(staleAdminSession.on(delete(POSTS + "/" + id))))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("SUSPENDED"));
+
+    assertThat(posts.existsById(id)).isTrue();
+  }
+
+  /** T-476 — 작성자도 인가 뒤 정지됐다면 잠근 최신 계정 상태가 삭제를 막는다. */
+  @Test
+  void anAuthorSuspendedAfterAuthorizationCannotDelete() throws Exception {
+    long id = write(member, "남아야 할 작성자 글", "본문");
+    SignedIn staleAuthorSession = sessions.signIn(member);
+    User storedAuthor = userRepository.findById(member.getId()).orElseThrow();
+    storedAuthor.suspend();
+    userRepository.saveAndFlush(storedAuthor);
+
+    mockMvc
+        .perform(Csrf.with(staleAuthorSession.on(delete(POSTS + "/" + id))))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("SUSPENDED"));
+
+    assertThat(posts.existsById(id)).isTrue();
+  }
+
+  /** T-476 — 제거된 작성자는 옛 세션이 남아 있어도 작성자 관계가 끊겨 자기 글을 지울 수 없다. */
+  @Test
+  void aRemovedAuthorCannotDeleteWithAStaleSession() throws Exception {
+    long id = write(member, "남아야 할 탈퇴 작성자 글", "본문");
+    SignedIn staleAuthorSession = sessions.signIn(member);
+    userRepository.deleteById(member.getId());
+    userRepository.flush();
+
+    assertThat(posts.findById(id).orElseThrow().getAuthorId()).isNull();
+    mockMvc
+        .perform(Csrf.with(staleAuthorSession.on(delete(POSTS + "/" + id))))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+
+    assertThat(posts.existsById(id)).isTrue();
+  }
+
+  /** 비로그인은 삭제를 시도조차 할 수 없다. */
+  @Test
+  void guestsCannotDelete() throws Exception {
+    long id = write(member, "제목", "본문");
+
+    mockMvc.perform(Csrf.with(delete(POSTS + "/" + id))).andExpect(status().isUnauthorized());
+
+    assertThat(posts.existsById(id)).isTrue();
+  }
+
+  /** 삭제에도 CSRF 토큰이 필요하다 (§3-2-3, {@link #writingNeedsACsrfToken}과 같은 이유). */
+  @Test
+  void deletingNeedsACsrfToken() throws Exception {
+    long id = write(member, "제목", "본문");
+
+    mockMvc.perform(sessions.as(admin, delete(POSTS + "/" + id))).andExpect(status().isForbidden());
+
+    assertThat(posts.existsById(id)).isTrue();
+  }
+
+  /** 없는 글은 {@code 404}다 — 관리자 권한과 별개로 대상이 있어야 한다. */
+  @Test
+  void deletingAMissingPostIsNotFound() throws Exception {
+    mockMvc
+        .perform(Csrf.with(sessions.as(admin, delete(POSTS + "/999999"))))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("NOT_FOUND"));
   }
 }
