@@ -120,10 +120,13 @@ export function NoticeDetailPage() {
 
       {status === 'loaded' && notice && (
         <>
-          <h1 className="mt-6 text-2xl font-semibold tracking-tight">
+          <h1
+            className="mt-6 line-clamp-2 break-all text-2xl font-semibold tracking-tight"
+            title={notice.title}
+          >
             {notice.title}
           </h1>
-          <div className="mt-2 flex items-center justify-between gap-4">
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-4">
             <time
               dateTime={notice.createdAt}
               className="block text-sm text-muted-foreground"
@@ -160,8 +163,19 @@ export function NoticeDetailPage() {
                     <AlertDialogHeader>
                       <AlertDialogTitle>공지를 삭제할까요?</AlertDialogTitle>
                       {/* 무엇을 지우는지 제목으로 보여준다. "이 항목"만으로는 확인이 안 된다. */}
-                      <AlertDialogDescription>
-                        「{notice.title}」을(를) 삭제합니다. 되돌릴 수 없습니다.
+                      <AlertDialogDescription asChild>
+                        <div>
+                          <span className="block">다음 공지를 삭제합니다.</span>
+                          <span
+                            className="mt-1 block truncate font-medium text-foreground"
+                            title={notice.title}
+                          >
+                            「{notice.title}」
+                          </span>
+                          <span className="mt-1 block">
+                            되돌릴 수 없습니다.
+                          </span>
+                        </div>
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

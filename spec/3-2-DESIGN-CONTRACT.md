@@ -151,7 +151,7 @@ erDiagram
 |---|---|---|---|
 | `id` | bigint | PK, auto | |
 | `category` | enum | NOT NULL | `EXAM`, `SUBJECT` |
-| `title` | varchar(200) | NOT NULL | |
+| `title` | varchar(200) | NOT NULL | 신규·변경은 코드포인트 50자 이하. 51~200자는 기존 데이터 보존 범위 |
 | `subject_name` | varchar(100) | NOT NULL | 과목명 |
 | `professor` | varchar(50) | NULL | 교수명 |
 | `year` | int | NOT NULL | 개설 연도 |
@@ -622,16 +622,31 @@ UPDATE notes SET view_count = view_count + 1 WHERE id = ?
 
 `POST /notes`는 메타데이터와 `files: [{ key, originalName }]`을 받아 `201`과 상세 응답을 돌려준다. **업로더는 인증 주체로만 정한다** (MUST) — 본문으로 받으면 다른 사람 이름으로 올릴 수 있다.
 
+신규 `title`은 Java `String.trim()`과 같이 양끝의 **U+0000~U+0020 문자만 제거한 뒤
+유니코드 코드포인트 기준 50자 이하**다 (MUST). NBSP(U+00A0)는 제거하지 않고 제목 문자로
+센다. UTF-16 길이나 UTF-8 바이트 수로 세지 않는다. 초과하면 `400 VALIDATION_ERROR`다.
+요청 원문에는 저장되지 않는 U+0000~U+0020 문자가 동적으로 붙을 수 있으므로 OpenAPI의 raw
+`maxLength`는 선언하지 않고 정규화 뒤 상한을 설명으로 공개한다.
+
 | 오류 | 언제 |
 |---|---|
 | `413 FILE_TOO_LARGE` | 발급 요청의 크기가 상한을 넘음 · **실제로 올라온 오브젝트가 상한을 넘음**(그 오브젝트는 삭제된다) |
 | `415 UNSUPPORTED_FILE_TYPE` | 허용되지 않는 확장자. **크기보다 먼저 본다** — "이 종류는 아예 안 받는다"가 "조금 줄여서 다시"보다 먼저 알아야 할 사실이다 |
 | `403 FORBIDDEN` | 남이 발급받은 키로 등록 |
-| `400 VALIDATION_ERROR` | 개수 상한 초과 · `category`와 `examType`의 짝이 어긋남 · **아직 올라오지 않은 키** |
+| `400 VALIDATION_ERROR` | 제목 50코드포인트 초과 · 개수 상한 초과 · `category`와 `examType`의 짝이 어긋남 · **아직 올라오지 않은 키** |
 
 **수정·삭제 (2026-08-22 확정, #54)**
 
 `PATCH /notes/{id}`는 **보낸 것으로 통째로 바꾼다.** 경로는 `PATCH`지만 동작은 전체 교체다 — 부분 수정이면 `professor`를 **지우려는 의도(`null`)와 건드리지 않는 의도를 JSON으로 구별**해야 하는데, 자료 수정은 폼 하나를 통째로 다시 내는 화면이라 그 구별이 필요 없다.
+
+바꿀 `title`도 **양끝의 U+0000~U+0020 문자만 제거한 저장값**이 코드포인트 50자 이하다.
+이는 서버의 기존 Java `String.trim()` 범위이며 NBSP(U+00A0)는 의미 문자로 남는다. 저장
+상한 200자와 변경 50자 판정도 모두 이 값 하나로 한다. 단, 배포 전에 저장된 51~200자 제목은
+그 값이 DB 원문과 **정확히 같을 때만** 유지할 수 있다. 그래서 제목을 줄이지 않고
+다른 메타데이터나 첨부만 고칠 수 있다. 다른 50자 초과 제목은 `400 VALIDATION_ERROR`다.
+수정 DTO와 DB가 정규화 뒤 200자를 받아 두는 것은 이 기존 데이터 왕복을 위한 저장 외피이지,
+새 장문을 허용한다는 뜻이 아니다. raw 요청 길이는 저장되지 않는 공백 때문에 동적이므로
+OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](3-3-DESIGN-DECISIONS.md#3-3-23-결정-22--자료-제목은-신규변경만-50자로-제한한다)).
 
 ```json
 { "category": "SUBJECT", "title": "…", "subjectName": "…", "professor": null,

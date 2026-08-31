@@ -142,7 +142,10 @@ export function PostDetailPage() {
 
       {status === 'loaded' && post && (
         <>
-          <h1 className="mt-6 text-2xl font-semibold tracking-tight">
+          <h1
+            className="mt-6 line-clamp-2 break-all text-2xl font-semibold tracking-tight"
+            title={post.title}
+          >
             {post.title}
           </h1>
 
@@ -188,9 +191,21 @@ export function PostDetailPage() {
                         <AlertDialogTitle>
                           게시글을 삭제할까요?
                         </AlertDialogTitle>
-                        <AlertDialogDescription>
-                          「{post.title}」을(를) 완전히 삭제합니다. 되돌릴 수
-                          없습니다.
+                        <AlertDialogDescription asChild>
+                          <div>
+                            <span className="block">
+                              다음 게시글을 완전히 삭제합니다.
+                            </span>
+                            <span
+                              className="mt-1 block truncate font-medium text-foreground"
+                              title={post.title}
+                            >
+                              「{post.title}」
+                            </span>
+                            <span className="mt-1 block">
+                              되돌릴 수 없습니다.
+                            </span>
+                          </div>
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>

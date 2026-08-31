@@ -211,15 +211,18 @@ export function NoteDetailPage() {
 
       {status === 'loaded' && note && (
         <>
-          <div className="mt-6 flex items-start justify-between gap-4">
-            <div className="min-w-0">
+          <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 flex-1">
               <Badge variant="outline">{CATEGORY_LABEL[note.category]}</Badge>
-              <h1 className="mt-2 text-2xl font-semibold tracking-tight">
+              <h1
+                className="mt-2 line-clamp-2 break-all text-2xl font-semibold tracking-tight"
+                title={note.title}
+              >
                 {note.title}
               </h1>
             </div>
 
-            <div className="flex shrink-0 gap-2">
+            <div className="flex shrink-0 flex-wrap gap-2">
               <Button
                 variant="outline"
                 size="sm"
@@ -258,10 +261,22 @@ export function NoteDetailPage() {
                     <AlertDialogContent>
                       <AlertDialogHeader>
                         <AlertDialogTitle>자료를 삭제할까요?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          「{note.title}」을(를) 삭제합니다. 첨부파일{' '}
-                          {note.files.length}개와 다른 사람의 즐겨찾기도 함께
-                          사라지며 되돌릴 수 없습니다.
+                        <AlertDialogDescription asChild>
+                          <div>
+                            <span className="block">
+                              다음 자료를 삭제합니다.
+                            </span>
+                            <span
+                              className="mt-1 block truncate font-medium text-foreground"
+                              title={note.title}
+                            >
+                              「{note.title}」
+                            </span>
+                            <span className="mt-1 block">
+                              첨부파일 {note.files.length}개와 다른 사람의
+                              즐겨찾기도 함께 사라지며 되돌릴 수 없습니다.
+                            </span>
+                          </div>
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>

@@ -112,12 +112,16 @@ class NoteUploadIntegrationTest extends AbstractIntegrationTest {
   }
 
   private static String createBody(String key, String originalName) {
+    return createBody(key, originalName, "운영체제 정리본");
+  }
+
+  private static String createBody(String key, String originalName, String title) {
     return """
-        {"category":"SUBJECT","title":"운영체제 정리본","subjectName":"운영체제",
+        {"category":"SUBJECT","title":"%s","subjectName":"운영체제",
          "professor":"김교수","year":2025,"semester":"SPRING",
          "files":[{"key":"%s","originalName":"%s"}]}
         """
-        .formatted(key, originalName);
+        .formatted(title, key, originalName);
   }
 
   /* ---------------------------------------------------------------- 발급 ① */
@@ -207,6 +211,30 @@ class NoteUploadIntegrationTest extends AbstractIntegrationTest {
   }
 
   /* ---------------------------------------------------------------- 등록 ③ */
+
+  /** 새 자료 제목은 코드포인트 기준 50자까지다. 이모지는 UTF-16 두 칸이어도 한 자로 센다. */
+  @Test
+  void titleLimitCountsFiftyCodePoints() throws Exception {
+    String acceptedKey = uploaded(me, "accepted.pdf", 1024);
+    String accepted = "🎉".repeat(50);
+    mockMvc
+        .perform(jsonPost(me, NOTES, createBody(acceptedKey, "accepted.pdf", accepted)))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.title").value(accepted));
+
+    String spacedKey = uploaded(me, "spaced.pdf", 1024);
+    mockMvc
+        .perform(jsonPost(me, NOTES, createBody(spacedKey, "spaced.pdf", "  " + accepted + "  ")))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.title").value(accepted));
+
+    String rejectedKey = uploaded(me, "rejected.pdf", 1024);
+    mockMvc
+        .perform(jsonPost(me, NOTES, createBody(rejectedKey, "rejected.pdf", "가".repeat(51))))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+        .andExpect(jsonPath("$.message").value("제목은 50자까지 쓸 수 있습니다."));
+  }
 
   /** 등록하면 파일이 <b>최종 자리로 옮겨지고 임시본은 사라진다</b> (#53 D2). */
   @Test

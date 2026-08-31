@@ -181,6 +181,21 @@ beforeEach(() => {
 })
 
 describe('공지 목록', () => {
+  it('장문 제목을 한 줄로 줄이면서 링크 이름과 원문을 보존한다', async () => {
+    const longTitle = '공지의 아주 긴 제목'.repeat(20)
+    PAGES[0] = {
+      ...PAGES[0],
+      content: [notice(1, longTitle, false, 30)],
+    }
+    renderList()
+
+    const title = await screen.findByText(longTitle)
+    const link = title.closest('a')
+    expect(title.className).toContain('truncate')
+    expect(title).toHaveAttribute('title', longTitle)
+    expect(link?.className).toContain('min-w-0')
+  })
+
   it('조회 상태가 바뀌어도 목록 surface와 pager 자리를 유지한다', async () => {
     renderList()
     expect(

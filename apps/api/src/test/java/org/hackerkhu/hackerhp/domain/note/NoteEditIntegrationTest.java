@@ -137,14 +137,19 @@ class NoteEditIntegrationTest extends AbstractIntegrationTest {
   }
 
   private MockHttpServletRequestBuilder updateRequest(User caller, long id, String files) {
+    return updateRequest(caller, id, "고친 제목", files);
+  }
+
+  private MockHttpServletRequestBuilder updateRequest(
+      User caller, long id, String title, String files) {
     return Csrf.with(sessions.as(caller, patch(NOTES + "/" + id)))
         .contentType(MediaType.APPLICATION_JSON)
         .content(
             """
-            {"category":"SUBJECT","title":"고친 제목","subjectName":"네트워크",
+            {"category":"SUBJECT","title":"%s","subjectName":"네트워크",
              "year":2024,"semester":"FALL","files":[%s]}
             """
-                .formatted(files));
+                .formatted(title, files));
   }
 
   private static String keepExisting(long fileId) {
@@ -156,6 +161,69 @@ class NoteEditIntegrationTest extends AbstractIntegrationTest {
   }
 
   /* ------------------------------------------------------------------ 수정 */
+
+  /**
+   * 50자 제한 전에 저장된 제목은 원문 그대로면 다른 메타데이터를 고칠 수 있다. 새 장문으로 바꾸는 것만 거부하고, 50자 이하로 줄이면 다시 일반 계약에 들어온다.
+   */
+  @Test
+  void aLegacyLongTitleIsGrandfatheredOnlyWhileUnchanged() throws Exception {
+    String legacy = "가".repeat(200);
+    jdbcTemplate.update("UPDATE notes SET title = ? WHERE id = ?", legacy, noteId);
+
+    mockMvc
+        .perform(updateRequest(owner, noteId, "  " + legacy + "  ", keepExisting(fileId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.title").value(legacy))
+        .andExpect(jsonPath("$.subjectName").value("네트워크"));
+
+    mockMvc
+        .perform(updateRequest(owner, noteId, "\u00a0" + legacy + "\u00a0", keepExisting(fileId)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+        .andExpect(jsonPath("$.message").value("기존 제목의 저장 상한을 넘었습니다."));
+
+    mockMvc
+        .perform(updateRequest(owner, noteId, "다른장문".repeat(20), keepExisting(fileId)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("제목은 50자까지 쓸 수 있습니다."));
+    mockMvc
+        .perform(sessions.as(owner, get(NOTES + "/" + noteId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.title").value(legacy));
+
+    mockMvc
+        .perform(updateRequest(owner, noteId, "짧아진 제목", keepExisting(fileId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.title").value("짧아진 제목"));
+  }
+
+  /** 기존 장문 제목은 응답에서 자르지 않고, 제목을 줄이지 않아도 삭제할 수 있다. */
+  @Test
+  void aLegacyLongTitleCanStillBeReadAndDeleted() throws Exception {
+    String legacy = "조회와 삭제에서도 보존할 기존 장문 제목".repeat(6);
+    jdbcTemplate.update("UPDATE notes SET title = ? WHERE id = ?", legacy, noteId);
+
+    mockMvc
+        .perform(sessions.as(owner, get(NOTES + "/" + noteId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.title").value(legacy));
+
+    mockMvc
+        .perform(Csrf.with(sessions.as(owner, delete(NOTES + "/" + noteId))))
+        .andExpect(status().isNoContent());
+    mockMvc.perform(sessions.as(owner, get(NOTES + "/" + noteId))).andExpect(status().isNotFound());
+  }
+
+  /** 수정 제목도 코드포인트로 세므로 이모지 50자는 허용한다. */
+  @Test
+  void anEditedTitleCountsCodePoints() throws Exception {
+    String title = "🎉".repeat(50);
+
+    mockMvc
+        .perform(updateRequest(owner, noteId, title, keepExisting(fileId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.title").value(title));
+  }
 
   /** T-308 — 메타데이터가 바뀌고, <b>업로더는 그대로다.</b> */
   @Test

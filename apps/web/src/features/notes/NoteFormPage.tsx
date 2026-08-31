@@ -3,6 +3,12 @@ import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ApiError } from '@/api/client'
 import {
+  countCodePoints,
+  NOTE_TITLE_MAX,
+  normalizeNoteTitle,
+  STORED_NOTE_TITLE_MAX,
+} from '@/api/noteContract'
+import {
   type Category,
   create,
   type ExamType,
@@ -31,14 +37,12 @@ import {
 } from './labels'
 
 /**
- * 상한. **스키마와 설정값에서 온 값이다** — `title varchar(200)`·`subject_name
- * varchar(100)`·`professor varchar(50)` (spec §3-2-2), 파일 정책은
- * `app.notes.upload`(§2-1-2 MUST)다.
+ * 상한. 제목의 신규·변경 계약은 50자이고, DB의 `varchar(200)`은 기존 장문을 보존하는
+ * 물리 상한이다. 과목명·교수명과 파일 정책은 스키마·`app.notes.upload`에서 온다.
  *
  * **서버가 원본이다.** 여기 값은 왕복을 덜기 위한 사본이라, 설정이 바뀌면 서버가 `413`·
  * `415`로 거절하고 그 메시지가 그대로 화면에 뜬다 — 화면이 통과시켜도 저장되지 않는다.
  */
-const TITLE_MAX = 200
 const SUBJECT_MAX = 100
 const PROFESSOR_MAX = 50
 const MAX_FILES = 10
@@ -109,6 +113,8 @@ export function NoteFormPage() {
     categoryFromParam(searchParams.get('category')),
   )
   const [title, setTitle] = useState('')
+  /** 기존 장문 제목을 그대로 둔 전체 교체 PATCH만 허용하기 위한 원본. */
+  const [originalTitle, setOriginalTitle] = useState<string | null>(null)
   const [subjectName, setSubjectName] = useState('')
   const [professor, setProfessor] = useState('')
   const [year, setYear] = useState(THIS_YEAR)
@@ -147,6 +153,7 @@ export function NoteFormPage() {
         }
         setCategory(note.category)
         setTitle(note.title)
+        setOriginalTitle(note.title)
         setSubjectName(note.subjectName)
         setProfessor(note.professor ?? '')
         setYear(note.year)
@@ -170,6 +177,15 @@ export function NoteFormPage() {
   }, [editing, id, state, reportApiError])
 
   const totalFiles = keptFiles.length + added.length
+  const normalizedTitle = normalizeNoteTitle(title)
+  const titleCount = countCodePoints(normalizedTitle)
+  const keepsLegacyTitle =
+    editing &&
+    originalTitle !== null &&
+    countCodePoints(originalTitle) > NOTE_TITLE_MAX &&
+    normalizedTitle === originalTitle
+  const exceedsStoredTitleMax = editing && titleCount > STORED_NOTE_TITLE_MAX
+  const titleTooLong = titleCount > NOTE_TITLE_MAX && !keepsLegacyTitle
 
   /**
    * 고른 파일을 목록에 더한다. **입력을 비운다** — 비우지 않으면 같은 파일을 다시 고를 때
@@ -211,7 +227,12 @@ export function NoteFormPage() {
     if (saving) return
 
     const requiredErrors = {
-      ...(title.trim() === '' ? { title: '제목을 입력해주세요.' } : {}),
+      ...(normalizedTitle === '' ? { title: '제목을 입력해주세요.' } : {}),
+      ...(exceedsStoredTitleMax
+        ? { title: '기존 제목의 저장 상한을 넘었습니다.' }
+        : titleTooLong
+          ? { title: `제목은 ${NOTE_TITLE_MAX}자까지 쓸 수 있습니다.` }
+          : {}),
       ...(subjectName.trim() === ''
         ? { subject: '과목명을 입력해주세요.' }
         : {}),
@@ -246,7 +267,7 @@ export function NoteFormPage() {
 
       const metadata = {
         category,
-        title: title.trim(),
+        title: normalizedTitle,
         subjectName: subjectName.trim(),
         // 빈 문자열이 아니라 `null`을 보낸다 — 빈 문자열은 서버가 값으로 저장한다.
         professor: professor.trim() === '' ? null : professor.trim(),
@@ -389,23 +410,36 @@ export function NoteFormPage() {
               <Label htmlFor="note-title">제목</Label>
               {/* 상한을 눌러 막기만 하면 왜 안 써지는지 알 수 없다. 남은 양을 보여준다. */}
               <span className="text-xs tabular-nums text-muted-foreground">
-                {title.length}/{TITLE_MAX}
+                {titleCount}/{NOTE_TITLE_MAX}
               </span>
             </div>
             <Input
               id="note-title"
               value={title}
-              maxLength={TITLE_MAX}
               onChange={(event) => {
                 setTitle(event.target.value)
                 setFieldErrors((current) => ({ ...current, title: undefined }))
               }}
               placeholder="예) 운영체제 중간고사 정리본"
-              aria-invalid={fieldErrors.title !== undefined}
+              aria-invalid={fieldErrors.title !== undefined || titleTooLong}
               aria-describedby={
-                fieldErrors.title ? 'note-title-error' : undefined
+                [
+                  fieldErrors.title ? 'note-title-error' : null,
+                  keepsLegacyTitle ? 'note-title-legacy-help' : null,
+                ]
+                  .filter(Boolean)
+                  .join(' ') || undefined
               }
             />
+            {keepsLegacyTitle && (
+              <p
+                id="note-title-legacy-help"
+                className="text-xs text-muted-foreground"
+              >
+                기존 제목은 그대로 저장할 수 있습니다. 바꾸려면 50자 이하로
+                줄여주세요.
+              </p>
+            )}
           </div>
 
           <div className="grid gap-6 sm:grid-cols-2">

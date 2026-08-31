@@ -261,7 +261,9 @@ export function NoticeListPage() {
                           <span className="sr-only">고정</span>
                         </>
                       )}
-                      <span className="truncate">{notice.title}</span>
+                      <span className="truncate" title={notice.title}>
+                        {notice.title}
+                      </span>
                       {isNew(notice.createdAt) && (
                         // 고정(핀 + 세로 바)이 강한 표시라 새글은 테두리만 있는 약한 라벨로
                         // 둔다. 둘 다 채우면 위계가 사라져 아무것도 안 튄다.
