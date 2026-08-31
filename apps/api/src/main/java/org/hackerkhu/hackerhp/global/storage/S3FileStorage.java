@@ -84,7 +84,7 @@ public class S3FileStorage implements FileStorage {
   public URI presignGet(String key) {
     GetObjectPresignRequest request =
         GetObjectPresignRequest.builder()
-            .signatureDuration(properties.downloadPresignTtl())
+            .signatureDuration(properties.inlinePresignTtl())
             .getObjectRequest(
                 GetObjectRequest.builder().bucket(properties.bucket()).key(key).build())
             .build();

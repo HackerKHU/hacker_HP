@@ -5,7 +5,7 @@ import { ApiError } from '@/api/client'
 import type { User } from '@/api/types'
 import { SessionProvider } from '@/auth/session'
 import { MemoryRouter, useLocation, useNavigate } from '@/test/TestRouter'
-import { CLUB, FAQS } from './content'
+import { ACTIVITIES, CLUB, FAQS } from './content'
 import { PublicHeader } from './PublicHeader'
 
 const auth = vi.hoisted(() => ({
@@ -110,6 +110,28 @@ async function openAccountMenu() {
 }
 
 describe('공개 랜딩', () => {
+  /*
+   * T-508 — 카드 데이터와 정적 파일을 한 사례에서 묶는다 (#360).
+   *
+   * src 문자열만 보면 파일 삭제·오타가 빌드에서 잡히지 않고, 파일 존재만 보면 카드가 빈 src나
+   * 빈 alt로 돌아가도 통과한다. `import.meta.glob`은 Vite가 실제 파일 목록으로 펼치므로 node:fs가
+   * 필요 없고, 공개 자산을 화면 코드에서 읽을 권한도 열지 않는다.
+   */
+  it('신입생 멘토멘티 카드가 설명과 실제 정적 사진을 함께 가진다', () => {
+    const mentoring = ACTIVITIES.find(
+      (activity) => activity.title === '신입생 멘토멘티',
+    )
+    expect(mentoring).toMatchObject({
+      src: '/landing/mentoring.jpg',
+      alt: '멘토멘티 조원들이 음식점 테이블에 둘러앉아 함께 식사하는 모습',
+    })
+
+    const files = Object.keys(
+      import.meta.glob('../../../public/landing/*', { eager: false }),
+    ).map((key) => key.replace('../../../public', ''))
+    expect(files).toContain(mentoring?.src)
+  })
+
   /*
    * T-57~T-59, T-61 — 어느 세션 상태에서도 가드에 걸리지 않고 그대로 렌더된다.
    *

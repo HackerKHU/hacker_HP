@@ -10,7 +10,7 @@ import { contentTypeOf, extensionOf, uploadAll, uploadUrls } from './photos'
  * `Content-Type`이다.
  *
  * 사진 쪽 서버는 `PutObjectRequest`에 `contentType`을 실어 서명한다
- * (`S3StorageService.presignPut`). SigV4의 `SignedHeaders`에 `content-type`이 들어가므로
+ * (`S3FileStorage.presignPut`). SigV4의 `SignedHeaders`에 `content-type`이 들어가므로
  * **브라우저가 정확히 같은 값을 보내지 않으면 S3가 `SignatureDoesNotMatch`로 거절한다.**
  * 자료 쪽(`S3FileStorage.presignPut`)은 서명에 넣지 않아 이 제약이 없다.
  *

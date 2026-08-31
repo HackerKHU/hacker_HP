@@ -56,6 +56,7 @@ class S3FileStorageTest {
                 "ap-northeast-2",
                 Duration.ofMinutes(5),
                 Duration.ofMinutes(1),
+                Duration.ofMinutes(10),
                 null,
                 null,
                 null));
@@ -254,6 +255,7 @@ class S3FileStorageTest {
         ArgumentCaptor.forClass(GetObjectPresignRequest.class);
     verify(presigner).presignGetObject(captured.capture());
     assertThat(captured.getValue().getObjectRequest().responseContentDisposition()).isNull();
+    assertThat(captured.getValue().signatureDuration()).isEqualTo(Duration.ofMinutes(10));
   }
 
   /* ------------------------------------------------------- 올리기 서명 (활동사진 #57, #213 통합) */
