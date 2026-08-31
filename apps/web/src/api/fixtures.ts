@@ -325,7 +325,7 @@ export function fixtureApplication(body: {
     )
   }
   /*
-   * 학번 규칙은 서버 계약이다 (§3-2-3 MUST, T-52·T-495). 픽스처가 통과시키면 오류 UI 없이도
+   * 학번 규칙은 서버 계약이다 (§3-2-3 MUST, T-52·T-502). 픽스처가 통과시키면 오류 UI 없이도
    * 폼이 정상처럼 보이고, 빈 신청서나 형식이 어긋난 학번이 승인 대상이 되는 경로를 화면에서
    * 못 잡는다.
    *
@@ -338,6 +338,11 @@ export function fixtureApplication(body: {
   if (!/^[0-9]+$/.test(studentNo)) {
     return Promise.reject(
       new ApiError('VALIDATION_ERROR', 400, '학번을 숫자로 입력해 주세요.'),
+    )
+  }
+  if (studentNo.length > 20) {
+    return Promise.reject(
+      new ApiError('VALIDATION_ERROR', 400, '학번이 너무 깁니다.'),
     )
   }
   /*

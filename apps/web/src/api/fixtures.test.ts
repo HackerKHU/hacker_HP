@@ -37,7 +37,7 @@ afterEach(() => {
 
 describe('신청 픽스처', () => {
   /*
-   * T-499 — **픽스처도 서버와 같은 학번 규칙을 쓴다** (#328).
+   * T-506 — **픽스처도 서버와 같은 학번 규칙을 쓴다** (#328).
    *
    * 픽스처는 백엔드 없이 도는 로컬·QA의 서버 대역이다. 규칙이 느슨하면 **거기서만 통과하는
    * 값**이 생기고, 화면은 정상처럼 보이는데 실제 서버에서는 거절된다.
@@ -56,15 +56,29 @@ describe('신청 픽스처', () => {
     },
   )
 
-  it('안쪽 공백을 지운 뒤 숫자를 본다', async () => {
+  it('raw 20자를 넘어도 공백 제거 뒤 20자리면 저장한다', async () => {
     const { fixtureApplication, fixtureMe } = await loadFixtures('applying')
 
     await fixtureApplication({
-      studentNo: '2024 0001',
+      studentNo: '12345 12345 12345 12345',
       department: '컴퓨터공학과',
     })
 
-    expect((await fixtureMe())?.studentNo).toBe('20240001')
+    expect((await fixtureMe())?.studentNo).toBe('12345123451234512345')
+  })
+
+  it('공백 제거 뒤 21자리면 실제 API와 같은 길이 오류로 거부한다', async () => {
+    const { fixtureApplication } = await loadFixtures('applying')
+
+    await expect(
+      fixtureApplication({
+        studentNo: '1'.repeat(21),
+        department: '컴퓨터공학과',
+      }),
+    ).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      message: '학번이 너무 깁니다.',
+    })
   })
 
   it('신청 전에는 학번과 신청일이 비어 있다', async () => {

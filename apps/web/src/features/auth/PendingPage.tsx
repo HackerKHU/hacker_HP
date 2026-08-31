@@ -15,6 +15,9 @@ import { WithdrawButton } from '@/features/account/WithdrawButton'
  * **자릿수는 여전히 고정하지 않는다** (#328). 계약이 요구하는 것은 "숫자일 것"과 이 상한뿐이다
  * (§3-2-3 MUST). 폼 예시가 10자리지만 그것이 실제 자릿수라는 근거가 없어, 길이를 규칙으로
  * 굳히면 그 길이가 아닌 학번을 가진 사람이 가입하지 못한다.
+ *
+ * 입력의 raw `maxLength`로 쓰지 않는다. 서버는 공백류를 제거한 뒤 이 상한을 적용하므로,
+ * raw 길이로 먼저 막으면 서버가 받을 값을 화면이 거부한다.
  */
 const STUDENT_NO_MAX = 20
 
@@ -241,6 +244,10 @@ export function PendingPage() {
       setFieldErrors({ studentNo: '학번을 숫자로 입력해주세요.' })
       return
     }
+    if (studentNo.length > STUDENT_NO_MAX) {
+      setFieldErrors({ studentNo: '학번이 너무 깁니다.' })
+      return
+    }
     /*
      * 학과는 따로 본다. 위 문구에 묶으면 학번을 채운 사람이 무엇이 빠졌는지 모른다 —
      * `<select>`는 비어 있어도 칸이 채워진 것처럼 보여서 더 그렇다.
@@ -415,7 +422,6 @@ export function PendingPage() {
                 id="application-student-no"
                 value={values.studentNo}
                 placeholder={STUDENT_NO_PLACEHOLDER}
-                maxLength={STUDENT_NO_MAX}
                 inputMode="numeric"
                 aria-invalid={fieldErrors.studentNo !== undefined}
                 aria-describedby={

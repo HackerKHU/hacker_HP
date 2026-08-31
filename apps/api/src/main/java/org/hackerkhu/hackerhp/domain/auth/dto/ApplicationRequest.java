@@ -1,9 +1,11 @@
 package org.hackerkhu.hackerhp.domain.auth.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import org.hackerkhu.hackerhp.global.validation.CodePointSize;
 
 /**
  * {@code POST /auth/application} 요청 (spec 3-2 §3-2-3).
@@ -40,9 +42,15 @@ public record ApplicationRequest(
      * 그런데 GlobalExceptionHandler는 실패한 것 중 findFirst()로 하나만 골라 내보내고
      * 그 순서는 정해져 있지 않다. 문구가 다르면 같은 입력에 다른 안내가 나가므로 하나로 맞춘다.
      */
-    @NotNull(message = "학번을 숫자로 입력해 주세요.")
+    @Schema(description = "유니코드 공백류·제어·서식 문자를 제거해 정규화한 뒤 ASCII 숫자 20자 이하. raw 길이에는 상한이 없다")
+        @NotNull(message = "학번을 숫자로 입력해 주세요.")
         @Pattern(regexp = "[0-9]+", message = "학번을 숫자로 입력해 주세요.")
-        @Size(max = 20, message = "학번이 너무 깁니다.")
+        /*
+         * @Size는 springdoc에 raw maxLength를 만든다. 실제 계약은 compact constructor에서
+         * 공백류를 제거한 뒤의 상한이므로, OpenAPI에 거짓 제약을 내지 않는 커스텀 검증을 쓴다.
+         * 정규화 뒤에는 ASCII 숫자만 남아 코드포인트 수와 DB varchar 길이가 같다.
+         */
+        @CodePointSize(max = 20, message = "학번이 너무 깁니다.")
         String studentNo,
     @NotBlank(message = "학과를 선택해 주세요.") @Size(max = 50, message = "학과가 너무 깁니다.")
         String department) {
