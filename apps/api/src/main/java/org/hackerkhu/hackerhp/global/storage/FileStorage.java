@@ -6,8 +6,9 @@ import java.util.Optional;
 /**
  * 파일 저장소 (spec 2-1 §2-1-2 MUST).
  *
- * <p><b>바이트를 주고받는 메서드가 없다.</b> 서버는 파일을 받지도 보내지도 않는다 — 브라우저가 S3와 직접 주고받고, 서버는 <b>그 문을 열어 주고 결과를 확인할
- * 뿐</b>이다. Vercel 프록시의 본문 제한(4.5MB)을 피하는 구조이기도 하다.
+ * <p><b>바이트를 주고받는 메서드가 대부분 없다.</b> 서버는 파일을 받지도 보내지도 않는다 — 브라우저가 S3와 직접 주고받고, 서버는 <b>그 문을 열어 주고 결과를
+ * 확인할 뿐</b>이다. Vercel 프록시의 본문 제한(4.5MB)을 피하는 구조이기도 하다. {@link #download}·{@link #upload}는 예외다 —
+ * 활동사진(#57)은 리사이즈를 위해 서버가 실제로 바이트를 만져야 한다(#213). 그 둘을 빼면 나머지는 여전히 "문을 열어 주는" 메서드다.
  *
  * <p>인터페이스를 두는 이유는 <b>테스트가 AWS 자격증명 없이 돌기 위해서다</b> (#53 D6). 우리가 지켜야 할 것은 발급 조건·크기 검증·정리 순서이지
  * presigned 서명 그 자체가 아니다 — 서명은 SDK가 한다. 실제 S3 연동은 배포 리허설(#48)의 수동 점검이 맡는다.
@@ -30,8 +31,11 @@ public interface FileStorage {
    *
    * <p><b>용량을 강제하지 못한다</b> (2-1 §2-1-2). presigned PUT은 서명에 크기를 담지 않으므로, 20MB를 넘겨 올려도 S3는 받는다. 그래서
    * 등록 단계에서 {@link #describe}로 실제 크기를 확인한다.
+   *
+   * @param contentType 서명에 함께 실을 {@code Content-Type}. {@code null}이면 싣지 않는다 — 자료(#207)는 업로드하는 파일의
+   *     형식이 다양해 강제하지 않고, 활동사진(#57)은 확장자별로 정해진 형식을 강제한다(#213 통합).
    */
-  URI presignPut(String key);
+  URI presignPut(String key, String contentType);
 
   /**
    * 그 키를 <b>내려받을 수 있는</b> 임시 URL을 만든다 (2-1 §2-1-4 MUST, #55).
@@ -40,12 +44,20 @@ public interface FileStorage {
    * {@code <a download="…">}로는 고칠 수 없다 — <b>그 힌트는 다른 오리진 링크에서 브라우저가 무시하기 때문이다.</b> S3가 {@code
    * Content-Disposition}을 직접 내려주는 길뿐이다.
    *
-   * <p><b>언제나 {@code attachment}다.</b> 자료 사이트의 기본 동작은 "받는" 것이고, {@code inline}은 저장소가 내려준 것을 브라우저가
-   * 렌더링하게 만드는 길이다.
+   * <p><b>언제나 {@code attachment}다.</b> 자료 사이트의 기본 동작은 "받는" 것이고, {@code inline}이 필요하면 {@link
+   * #presignGet(String)}을 쓴다.
    *
    * @param originalName 사용자에게 보일 이름. 한글이면 RFC 5987로 인코딩해 싣는다
    */
   URI presignGet(String key, String originalName);
+
+  /**
+   * 그 키를 <b>화면에 그대로 띄울 수 있는</b> 임시 URL을 만든다 (활동사진 #57, #213 통합).
+   *
+   * <p>{@code Content-Disposition}을 담지 않는다 — 자료 다운로드({@link #presignGet(String, String)})와 달리
+   * {@code <img src>}가 바로 그리는 자리라 "받는" 동작을 강제하면 안 된다.
+   */
+  URI presignGet(String key);
 
   /**
    * 실제로 올라온 오브젝트를 잰다.
@@ -70,4 +82,20 @@ public interface FileStorage {
    * 규칙도 없는 오브젝트가 영원히 쌓인다.</b> 삼킬지 말지는 부르는 쪽이 정한다.
    */
   void delete(String key);
+
+  /**
+   * 오브젝트를 통째로 내려받는다 (활동사진 #57, #213 통합).
+   *
+   * <p><b>다른 메서드와 달리 서버가 바이트를 실제로 만진다.</b> 리사이즈하려면 원본을 읽어야 하므로 불가피하다 — 자료(#207)는 이 메서드를 쓰지 않는다. 큰
+   * 오브젝트를 그대로 메모리에 올리므로, 부르기 전에 {@link #describe}로 크기를 확인해야 한다 (2-1 §2-1-2).
+   */
+  byte[] download(String key);
+
+  /**
+   * 오브젝트를 통째로 올린다 (활동사진 #57, #213 통합).
+   *
+   * <p>{@link #download}와 한 쌍이다 — 리사이즈한 결과를 최종 키에 쓴다. 자료(#207)는 브라우저가 presigned PUT으로 직접 올리므로 이
+   * 메서드를 쓰지 않는다.
+   */
+  void upload(String key, byte[] content, String contentType);
 }

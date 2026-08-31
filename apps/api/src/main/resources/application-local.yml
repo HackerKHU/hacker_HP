@@ -28,13 +28,6 @@ server:
         secure: false
 
 app:
-  photo-storage:
-    # docker-compose.yml의 MinIO. 기본 자격 증명(minioadmin)은 로컬 전용이라 비밀로 치지 않는다.
-    bucket: hacker-uploads-local
-    region: ap-northeast-2
-    endpoint: http://localhost:9000
-    access-key: minioadmin
-    secret-key: minioadmin
   auth:
     allowed-email-domain: khu.ac.kr
     jwt:
@@ -43,9 +36,17 @@ app:
       # HS256은 32바이트 이상을 요구한다.
       secret: local-development-only-jwt-secret-do-not-use-in-production
   storage:
-    # 로컬에는 버킷이 없다. 공통 설정의 ${S3_BUCKET}은 값이 없으면 기동을 막으므로
-    # (설정 누락이 조용히 지나가면 안 된다) 자리를 채우는 가짜 값을 둔다 — 구글 클라이언트
-    # 자리표시자와 같은 이유다. 이 값으로 실제 업로드를 시도하면 AWS가 거부한다.
+    # docker-compose.yml의 MinIO를 가리킨다 (#213 통합 — 원래 사진만 이 값을 썼다). 기본
+    # 자격 증명(minioadmin)은 로컬 전용이라 비밀로 치지 않는다.
     #
-    # 실제 버킷을 보려면 S3_BUCKET과 자격증명을 환경변수로 넣는다.
-    bucket: ${S3_BUCKET:local-bucket-not-set}
+    # 자료(#207)는 바이트를 만지지 않으므로 이 버킷이 없어도(MinIO를 안 띄워도) 기동은 된다 —
+    # presigned PUT 발급 자체는 실제 버킷 존재 여부를 확인하지 않는다. 활동사진(#57)은 서버가
+    # 원본을 내려받아 리사이즈하므로 실제로 MinIO가 떠 있어야 등록이 성공한다.
+    #
+    # 진짜 AWS S3를 보려면 이 블록을 지우고 S3_BUCKET·AWS_REGION과 ECS Task Role에 준하는
+    # 자격증명을 환경변수로 넣는다.
+    bucket: hacker-uploads-local
+    region: ap-northeast-2
+    endpoint: http://localhost:9000
+    access-key: minioadmin
+    secret-key: minioadmin

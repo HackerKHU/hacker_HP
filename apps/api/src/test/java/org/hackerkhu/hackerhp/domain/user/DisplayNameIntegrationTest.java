@@ -10,7 +10,6 @@ import java.time.Instant;
 import org.hackerkhu.hackerhp.AbstractIntegrationTest;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
-import org.hackerkhu.hackerhp.global.storage.S3StorageService;
 import org.hackerkhu.testsupport.storage.FakeStorageConfig;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.junit.jupiter.api.AfterEach;
@@ -21,7 +20,6 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -40,20 +38,16 @@ class DisplayNameIntegrationTest extends AbstractIntegrationTest {
   @Autowired private UserRepository userRepository;
   @Autowired private JdbcTemplate jdbcTemplate;
 
-  /**
-   * 사진 저장소는 대역이다.
-   *
-   * <p>{@code PhotoService}는 목록을 그릴 때마다 presigned URL을 발급하는데, 진짜 S3(MinIO)를 띄우는 것은 <b>이 사례가 재려는 것과
-   * 무관하다</b> — 여기서 보는 것은 응답에 실린 <b>이름</b>이다.
+  /*
+   * 사진 저장소도 이제 FakeStorageConfig가 대신한다 (#213 통합) — PhotoService가 자료와 같은
+   * FileStorage를 쓰게 되면서, 위 @Import 하나로 두 도메인 모두의 presigned URL 발급이
+   * 가짜로 갈린다. 예전에는 S3StorageService를 별도로 목(mock)해야 했다.
    */
-  @MockitoBean private S3StorageService photoStorage;
 
   private User viewer;
 
   @BeforeEach
   void createViewer() {
-    org.mockito.Mockito.when(photoStorage.presignGet(org.mockito.ArgumentMatchers.anyString()))
-        .thenReturn("https://example.test/photo");
     wipe();
     viewer = userRepository.saveAndFlush(Accounts.approved("sub-dv", "dv@khu.ac.kr", "20250901"));
   }
