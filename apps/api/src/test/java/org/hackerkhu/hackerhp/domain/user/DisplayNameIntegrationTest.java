@@ -165,8 +165,8 @@ class DisplayNameIntegrationTest extends AbstractIntegrationTest {
   /**
    * T-430. 숫자가 아니어도 그대로 붙인다.
    *
-   * <p>학번에는 형식 제약이 없다 (3-2 §3-2-3) — 편입·교환학생처럼 형태가 다른 값이 실제로 들어온다. <b>여기서 하려는 일은 구별이지 학번 해석이
-   * 아니다.</b>
+   * <p>신규 신청은 숫자만 받지만(3-2 §3-2-3), 규칙 전에 저장된 비숫자 값은 소급 변경하지 않는다. <b>여기서 하려는 일은 구별이지 학번 해석이 아니다.</b>
+   * 이 테스트는 그 기존 데이터를 안전하게 표시하는 계약을 고정한다.
    */
   @Test
   void doesNotRequireDigits() throws Exception {
@@ -178,8 +178,8 @@ class DisplayNameIntegrationTest extends AbstractIntegrationTest {
   /**
    * T-434. <b>BMP 밖 문자를 쪼개지 않는다</b> (MUST).
    *
-   * <p>{@code substring(length - 2)}는 UTF-16 코드 유닛을 자르므로 이 값에서 <b>깨진 서로게이트와 {@code A}</b>가 나온다. 학번에
-   * 형식이 없는 이상 이런 값도 저장된다 — 공백만 지우는 정규화는 이모지를 걸러내지 않는다.
+   * <p>{@code substring(length - 2)}는 UTF-16 코드 유닛을 자르므로 이 값에서 <b>깨진 서로게이트와 {@code A}</b>가 나온다. 신규
+   * 신청 규칙 전에 저장된 기존 값에는 이런 문자도 남을 수 있다.
    */
   @Test
   void keepsSupplementaryCharactersWhole() throws Exception {

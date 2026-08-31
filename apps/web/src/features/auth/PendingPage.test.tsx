@@ -454,7 +454,7 @@ describe('신청서 제출', () => {
   })
 
   /*
-   * T-493 — **숫자가 아닌 학번은 보내지 않는다** (#328, §3-2-3 MUST).
+   * T-500 — **숫자가 아닌 학번은 보내지 않는다** (#328, §3-2-3 MUST).
    *
    * 한때는 정반대를 단언했다 — *"편입·교환학생 학번이 그렇다"* 며 `EX-2021-7`이 그대로
    * 나가는 것을 확인했다 (#38 결정 4). **학교 학번이 전부 숫자임을 확인하고 뒤집었다.**
@@ -474,7 +474,7 @@ describe('신청서 제출', () => {
   })
 
   /*
-   * T-498 — **안쪽 공백은 지우고 보낸다.**
+   * T-505 — **안쪽 공백은 지우고 보낸다.**
    *
    * 서버는 공백을 먼저 지운 뒤 숫자를 보므로 `"2024 0001"`을 받아들인다 (§3-2-3 MUST).
    * 화면이 `trim()`만 하면 **서버가 받는 신청서를 화면이 막는다** — 붙여넣기에서 흔하다.
@@ -496,7 +496,8 @@ describe('신청서 제출', () => {
   })
 
   /*
-   * T-494 — **자릿수는 막지 않는다.** 상한만 스키마에서 온다 (`varchar(20)`).
+   * T-501 — **자릿수는 고정하지 않는다.** 정규화한 값의 상한만 스키마에서 온다
+   * (`varchar(20)`).
    *
    * 폼 예시가 10자리지만 그것이 실제 자릿수라는 근거가 없다. 길이를 규칙으로 굳히면 그
    * 길이가 아닌 학번을 가진 사람이 가입하지 못하고, 승인 뒤에는 정정할 경로도 없다 (#178).
@@ -505,7 +506,7 @@ describe('신청서 제출', () => {
     renderAt()
 
     const studentNo = await screen.findByLabelText('학번')
-    expect(studentNo).toHaveAttribute('maxLength', '20')
+    expect(studentNo).not.toHaveAttribute('maxLength')
 
     await fillApplication('12345')
     fireEvent.click(screen.getByRole('button', { name: '제출' }))
@@ -515,6 +516,34 @@ describe('신청서 제출', () => {
         { studentNo: '12345', department: '컴퓨터공학과' },
       ])
     })
+  })
+
+  it('raw 입력이 20자를 넘어도 공백 제거 뒤 20자리면 보낸다', async () => {
+    renderAt()
+
+    await fillApplication('12345 12345 12345 12345')
+    fireEvent.click(screen.getByRole('button', { name: '제출' }))
+
+    await waitFor(() => {
+      expect(api.submitted).toEqual([
+        {
+          studentNo: '12345123451234512345',
+          department: '컴퓨터공학과',
+        },
+      ])
+    })
+  })
+
+  it('공백 제거 뒤 21자리면 요청하지 않고 길이 오류를 알린다', async () => {
+    renderAt()
+
+    await fillApplication('1'.repeat(21))
+    fireEvent.click(screen.getByRole('button', { name: '제출' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '학번이 너무 깁니다.',
+    )
+    expect(api.submitted).toEqual([])
   })
 
   /*
