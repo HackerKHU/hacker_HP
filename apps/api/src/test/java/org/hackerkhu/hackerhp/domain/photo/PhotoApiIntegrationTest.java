@@ -227,7 +227,13 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    Long photoId = objectMapper.readTree(createdBody).get("registered").get(0).get("id").asLong();
+    var registered = objectMapper.readTree(createdBody).get("registered").get(0);
+    Long photoId = registered.get("id").asLong();
+
+    // T-507. 화면은 이 URL을 보관해 lazy-load·확대에 쓰므로 자료 다운로드의 1분을 공유하면
+    // 정상 탐색 중에 만료된다. 실제 MinIO 서명까지 관통해 10분 계약을 고정한다.
+    assertThat(registered.get("url").asText()).contains("X-Amz-Expires=600");
+    assertThat(registered.get("thumbnailUrl").asText()).contains("X-Amz-Expires=600");
 
     assertThat(photoRepository.existsById(photoId)).isTrue();
     Photo saved = photoRepository.findById(photoId).orElseThrow();

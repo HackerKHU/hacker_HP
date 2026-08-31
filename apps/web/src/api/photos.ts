@@ -97,7 +97,7 @@ export function extensionOf(fileName: string): string {
  * **자료 업로드와 결정적으로 다른 점이다.** 자료의 presigned PUT은 `Content-Type`을
  * 서명에 넣지 않아 브라우저가 무엇을 보내든 통과하지만(`S3FileStorage.presignPut`),
  * 사진은 서버가 `PutObjectRequest`에 `contentType`을 실어 서명한다
- * (`S3StorageService.presignPut`) — SigV4의 `SignedHeaders`에 `content-type`이 들어가므로
+ * (`S3FileStorage.presignPut`) — SigV4의 `SignedHeaders`에 `content-type`이 들어가므로
  * **브라우저가 정확히 같은 값을 보내지 않으면 S3가 `SignatureDoesNotMatch`로 거절한다.**
  *
  * 그래서 `file.type`을 쓰지 않고 **확장자에서 다시 계산한다.** 둘은 어긋날 수 있다 —
