@@ -318,12 +318,20 @@ export function fixtureApplication(body: {
       new ApiError('FORBIDDEN', 403, '승인된 계정은 신청서를 낼 수 없습니다.'),
     )
   }
-  // 공백 검증은 서버 계약이다 (§3-2-3, T-52). 픽스처가 통과시키면 오류 UI 없이도
-  // 폼이 정상처럼 보이고, 빈 신청서가 승인 대상이 되는 경로를 화면에서 못 잡는다.
-  const studentNo = body.studentNo.trim()
-  if (studentNo === '') {
+  /*
+   * 학번 규칙은 서버 계약이다 (§3-2-3 MUST, T-52·T-495). 픽스처가 통과시키면 오류 UI 없이도
+   * 폼이 정상처럼 보이고, 빈 신청서나 형식이 어긋난 학번이 승인 대상이 되는 경로를 화면에서
+   * 못 잡는다.
+   *
+   * **공백을 먼저 지우고 숫자를 본다** — 서버와 같은 순서다 (#328). 순서가 뒤집히면
+   * `"2024 0001"`이 픽스처에서만 거절되어, 백엔드 없이 도는 로컬·QA가 실제와 달라진다.
+   *
+   * 빈 값과 숫자 아님을 **한 문구로** 답하는 것도 서버와 같다.
+   */
+  const studentNo = body.studentNo.replace(/[\p{Z}\p{C}\s]+/gu, '')
+  if (!/^[0-9]+$/.test(studentNo)) {
     return Promise.reject(
-      new ApiError('VALIDATION_ERROR', 400, '학번을 입력해주세요.'),
+      new ApiError('VALIDATION_ERROR', 400, '학번을 숫자로 입력해 주세요.'),
     )
   }
   /*

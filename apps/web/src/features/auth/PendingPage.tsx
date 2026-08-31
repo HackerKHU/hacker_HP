@@ -19,6 +19,19 @@ import { WithdrawButton } from '@/features/account/WithdrawButton'
 const STUDENT_NO_MAX = 20
 
 /**
+ * 학번에서 공백을 **안쪽까지 전부** 지운다.
+ *
+ * **서버의 `removeAllSpacing`과 같은 문자 집합이다** (`ApplicationRequest`) — `\p{Z}`(구분자),
+ * `\p{C}`(제어·서식), `\s`. 서버는 이것을 검증보다 **먼저** 돌리므로 `"2024 0001"`을 받아들인다.
+ *
+ * **`trim()`으로는 부족하다.** 양끝만 지우면 화면이 서버가 받는 신청서를 막는다. NBSP나 폭 없는
+ * 문자도 `trim()`은 공백으로 보지 않는다.
+ */
+function stripSpacing(value: string): string {
+  return value.replace(/[\p{Z}\p{C}\s]+/gu, '')
+}
+
+/**
  * 입력 예시. **자릿수는 규칙이 아니라 예시다.**
  *
  * **학번은 숫자만 받는다** (#328, §3-2-3 MUST). 학교 학번이 전부 숫자임을 확인하고 정했다 —
@@ -218,8 +231,13 @@ export function PendingPage() {
      *
      * **빈 값과 숫자 아님을 한 문구로 묶는다.** 서버도 그렇게 답한다 — 나누면 화면과
      * 서버가 같은 입력에 다른 말을 하게 된다.
+     *
+     * **공백을 먼저 지운 값으로 본다.** 서버는 안쪽 공백까지 지운 뒤 숫자를 보므로
+     * `"2024 0001"`을 받아들인다 (§3-2-3 MUST). `trim()`만 하면 화면이 **서버가 받는
+     * 신청서를 막는다.**
      */
-    if (!/^[0-9]+$/.test(values.studentNo.trim())) {
+    const studentNo = stripSpacing(values.studentNo)
+    if (!/^[0-9]+$/.test(studentNo)) {
       setFieldErrors({ studentNo: '학번을 숫자로 입력해주세요.' })
       return
     }
@@ -236,7 +254,8 @@ export function PendingPage() {
     setFieldErrors({})
     try {
       await submitApplication({
-        studentNo: values.studentNo.trim(),
+        // 검증한 값을 그대로 보낸다. 다시 다듬으면 검사한 것과 보낸 것이 갈린다.
+        studentNo,
         // 목록에서 고른 값이라 다듬을 것이 없다.
         department: values.department,
       })

@@ -36,6 +36,37 @@ afterEach(() => {
 })
 
 describe('신청 픽스처', () => {
+  /*
+   * T-499 — **픽스처도 서버와 같은 학번 규칙을 쓴다** (#328).
+   *
+   * 픽스처는 백엔드 없이 도는 로컬·QA의 서버 대역이다. 규칙이 느슨하면 **거기서만 통과하는
+   * 값**이 생기고, 화면은 정상처럼 보이는데 실제 서버에서는 거절된다.
+   *
+   * 공백 제거가 숫자 검사보다 **먼저**라는 순서까지 함께 본다 — 뒤집히면 `"2024 0001"`이
+   * 픽스처에서만 거절된다.
+   */
+  it.each(['EX-2021-7', '편입2025', '  ', '٢٠٢٤'])(
+    '숫자가 아닌 학번(%s)을 거절한다',
+    async (studentNo) => {
+      const { fixtureApplication } = await loadFixtures('applying')
+
+      await expect(
+        fixtureApplication({ studentNo, department: '컴퓨터공학과' }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+    },
+  )
+
+  it('안쪽 공백을 지운 뒤 숫자를 본다', async () => {
+    const { fixtureApplication, fixtureMe } = await loadFixtures('applying')
+
+    await fixtureApplication({
+      studentNo: '2024 0001',
+      department: '컴퓨터공학과',
+    })
+
+    expect((await fixtureMe())?.studentNo).toBe('20240001')
+  })
+
   it('신청 전에는 학번과 신청일이 비어 있다', async () => {
     const { fixtureMe } = await loadFixtures('applying')
 
