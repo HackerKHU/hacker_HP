@@ -1,6 +1,8 @@
 package org.hackerkhu.hackerhp.domain.auth.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -8,6 +10,15 @@ import jakarta.validation.constraints.Size;
  *
  * <p><b>둘 다 공백이 아니어야 한다</b> (MUST). PostgreSQL의 {@code NOT NULL}·{@code UNIQUE}는 빈 문자열을 거부하지 않으므로
  * 서버가 막아야 한다. 통과시키면 식별 정보가 없는 계정이 {@code applied_at}을 얻어 승인 대상이 되고, 관리자 부트스트랩까지 지나간다 (T-52).
+ *
+ * <p><b>{@code studentNo}는 숫자만 받는다</b> (MUST, 2026-08-31 #328). 학교 학번이 전부 숫자임을 확인하고 정한 규칙이다.
+ *
+ * <p>한때는 형식을 걸지 않았다 — <i>"편입·교환학생·대학원처럼 형태가 다른 학번이 실제로 있다"</i> 는 이유였다 (#38). <b>그 전제가 확인 결과 사실이
+ * 아니었다.</b> 형식이 없으면 {@code "편입2025"}·{@code "😀A"} 같은 값이 그대로 저장되고, 그것이 표시 이름의 학번 뒷자리로 화면에 나간다 (3-2
+ * §3-2-2).
+ *
+ * <p><b>자릿수는 고정하지 않는다.</b> 폼 예시가 10자리지만 그것이 실제 자릿수라는 근거가 없다 — 확인되지 않은 가정을 규칙으로 굳히면 그 길이가 아닌 학번을 가진
+ * 사람이 가입하지 못하고, 승인 뒤에는 정정할 경로도 없다 (#178).
  *
  * <p><b>{@code name}이 없다</b> (#224). 이름은 신청서 입력이 아니라 구글 계정에 저장된 값이다 — 화면이 읽기 전용으로 보여줄 뿐이고, 서버는
  * {@code users.name}을 그대로 쓴다. 필드를 남겨 두고 무시하면 <b>보낸 값이 반영된 줄 아는 호출자가 생긴다.</b> 여기 없으면 본문에 담아 보내도 역직렬화
@@ -22,7 +33,17 @@ import jakarta.validation.constraints.Size;
  * <p>메시지는 화면에 그대로 뜬다. 어떤 값을 고쳐야 하는지 알려준다 (T-108).
  */
 public record ApplicationRequest(
-    @NotBlank(message = "학번을 입력해 주세요.") @Size(max = 20, message = "학번이 너무 깁니다.") String studentNo,
+    /*
+     * NotNull과 Pattern의 문구가 같다. Pattern은 null을 통과시키므로 NotNull이 함께 있어야
+     * 본문에서 아예 빠뜨린 요청이 막힌다.
+     *
+     * 그런데 GlobalExceptionHandler는 실패한 것 중 findFirst()로 하나만 골라 내보내고
+     * 그 순서는 정해져 있지 않다. 문구가 다르면 같은 입력에 다른 안내가 나가므로 하나로 맞춘다.
+     */
+    @NotNull(message = "학번을 숫자로 입력해 주세요.")
+        @Pattern(regexp = "[0-9]+", message = "학번을 숫자로 입력해 주세요.")
+        @Size(max = 20, message = "학번이 너무 깁니다.")
+        String studentNo,
     @NotBlank(message = "학과를 선택해 주세요.") @Size(max = 50, message = "학과가 너무 깁니다.")
         String department) {
 

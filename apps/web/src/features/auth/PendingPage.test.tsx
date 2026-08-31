@@ -440,7 +440,7 @@ describe('신청서 제출', () => {
     fireEvent.click(screen.getByRole('button', { name: '제출' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      '학번을 입력해주세요.',
+      '학번을 숫자로 입력해주세요.',
     )
     expect(screen.getByLabelText('학번')).toHaveAttribute(
       'aria-describedby',
@@ -453,20 +453,66 @@ describe('신청서 제출', () => {
     expect(api.submitted).toEqual([])
   })
 
-  // 결정 4 — 계약에 없는 형식 규칙을 만들지 않는다. 상한만 스키마에서 온다.
-  it('학번 상한은 스키마 값이고 그 밖의 형식은 막지 않는다', async () => {
+  /*
+   * T-493 — **숫자가 아닌 학번은 보내지 않는다** (#328, §3-2-3 MUST).
+   *
+   * 한때는 정반대를 단언했다 — *"편입·교환학생 학번이 그렇다"* 며 `EX-2021-7`이 그대로
+   * 나가는 것을 확인했다 (#38 결정 4). **학교 학번이 전부 숫자임을 확인하고 뒤집었다.**
+   *
+   * 빈 값과 같은 문구를 쓴다. 나누면 화면과 서버가 같은 입력에 다른 말을 하게 된다.
+   */
+  it('숫자가 아닌 학번은 요청이 나가지 않는다', async () => {
+    renderAt()
+
+    await fillApplication('EX-2021-7')
+    fireEvent.click(screen.getByRole('button', { name: '제출' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '학번을 숫자로 입력해주세요.',
+    )
+    expect(api.submitted).toEqual([])
+  })
+
+  /*
+   * T-498 — **안쪽 공백은 지우고 보낸다.**
+   *
+   * 서버는 공백을 먼저 지운 뒤 숫자를 보므로 `"2024 0001"`을 받아들인다 (§3-2-3 MUST).
+   * 화면이 `trim()`만 하면 **서버가 받는 신청서를 화면이 막는다** — 붙여넣기에서 흔하다.
+   *
+   * 보내는 값도 지운 값이어야 한다. 검사한 것과 보낸 것이 갈리면 서버가 다시 지워 준
+   * 덕분에 우연히 통과하는 것이지, 화면이 맞아서가 아니다.
+   */
+  it('학번 안쪽 공백은 지우고 보낸다', async () => {
+    renderAt()
+
+    await fillApplication('2024 0001')
+    fireEvent.click(screen.getByRole('button', { name: '제출' }))
+
+    await waitFor(() => {
+      expect(api.submitted).toEqual([
+        { studentNo: '20240001', department: '컴퓨터공학과' },
+      ])
+    })
+  })
+
+  /*
+   * T-494 — **자릿수는 막지 않는다.** 상한만 스키마에서 온다 (`varchar(20)`).
+   *
+   * 폼 예시가 10자리지만 그것이 실제 자릿수라는 근거가 없다. 길이를 규칙으로 굳히면 그
+   * 길이가 아닌 학번을 가진 사람이 가입하지 못하고, 승인 뒤에는 정정할 경로도 없다 (#178).
+   */
+  it('숫자면 자릿수는 가리지 않는다', async () => {
     renderAt()
 
     const studentNo = await screen.findByLabelText('학번')
     expect(studentNo).toHaveAttribute('maxLength', '20')
 
-    // 숫자가 아닌 학번도 그대로 받는다 — 편입·교환학생 학번이 그렇다.
-    await fillApplication('EX-2021-7')
+    await fillApplication('12345')
     fireEvent.click(screen.getByRole('button', { name: '제출' }))
 
     await waitFor(() => {
       expect(api.submitted).toEqual([
-        { studentNo: 'EX-2021-7', department: '컴퓨터공학과' },
+        { studentNo: '12345', department: '컴퓨터공학과' },
       ])
     })
   })
@@ -489,8 +535,15 @@ describe('신청서 제출', () => {
       'placeholder',
       `${new Date().getFullYear()}000000`,
     )
+    /*
+     * **숫자 자판을 띄운다** (#328). 예전에는 이 둘의 *부재*를 단언했는데, 형식 규칙이
+     * 생기면서 뒤집혔다.
+     *
+     * `pattern`은 걸지 않는다. 브라우저 기본 문구가 우리 문구를 덮어 **화면과 서버가 다른
+     * 말을 하게 되고**, 그 문구는 우리가 고칠 수 없다.
+     */
+    expect(studentNo).toHaveAttribute('inputMode', 'numeric')
     expect(studentNo).not.toHaveAttribute('pattern')
-    expect(studentNo).not.toHaveAttribute('inputMode')
   })
 })
 
