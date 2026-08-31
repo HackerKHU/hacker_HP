@@ -16,6 +16,15 @@ import org.springframework.data.repository.query.Param;
 public interface NoteRepository extends JpaRepository<Note, Long>, JpaSpecificationExecutor<Note> {
 
   /**
+   * 지금 DB가 참조하는 자료 파일의 S3 키 전체 (#339의 고아 오브젝트 정리가 쓴다).
+   *
+   * <p>등록이 끝난 행만 이 목록에 있다 — 임시 키({@code notes/uploads/…})는 애초에 {@code NoteFile}로 저장되지 않고, 최종
+   * 키({@code notes/…})만 이 테이블에 쓰인다.
+   */
+  @Query("SELECT f.storedPath FROM NoteFile f")
+  List<String> findAllFileStoredPaths();
+
+  /**
    * 자료별 파일 개수를 <b>한 번에</b> 센다.
    *
    * <p>목록에서 {@code note.getFiles().size()}를 부르면 행마다 질의가 하나씩 붙는다 — 20건이면 20번이다. 개수만 필요한 자리라 세어서 받는다.

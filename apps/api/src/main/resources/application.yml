@@ -107,6 +107,13 @@ app:
     endpoint: ${S3_ENDPOINT:}
     access-key: ${S3_ACCESS_KEY:}
     secret-key: ${S3_SECRET_KEY:}
+    orphan-cleanup:
+      # 매일 새벽 4시(서버 시간대). 부원이 거의 안 쓰는 시간을 고른 것뿐, 다른 배치와 겹칠
+      # 이유는 없다 — 이 저장소에 다른 배치가 없다 (#339, 유일한 @Scheduled 사용처).
+      cron: "0 0 4 * * *"
+      # 이보다 최근에 생성된 오브젝트는 참조가 없어도 지우지 않는다. 등록 트랜잭션이 아직
+      # 진행 중일 수 있다 — 20MB 원본을 리사이즈까지 마치는 데 걸리는 시간보다 충분히 길게 둔다.
+      safety-margin: 1h
   notes:
     upload:
       # 2-1 §2-1-2 MUST — "허용 확장자와 최대 용량은 설정값으로 제한한다".

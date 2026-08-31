@@ -1,5 +1,6 @@
 package org.hackerkhu.hackerhp.domain.photo.repository;
 
+import java.util.List;
 import org.hackerkhu.hackerhp.domain.photo.entity.Photo;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -9,6 +10,19 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface PhotoRepository extends JpaRepository<Photo, Long> {
+
+  /**
+   * 지금 DB가 참조하는 사진의 S3 키 전체 (#339의 고아 오브젝트 정리가 쓴다).
+   *
+   * <p><b>등록이 끝나지 않은 자리표시자 행도 포함한다</b> — {@link #findCompleted}와 달리 여기서는 뺄 이유가 없다. 자리표시자 행의 {@code
+   * storedPath}는 아직 임시 키({@code photos/uploads/…})라, 그 값을 참조 목록에 넣어 두면 등록이 진행 중인 원본을 고아로 오판해 지우는
+   * 사고를 막는다 — 어차피 정리 작업은 임시 접두사 자체를 건드리지 않지만, 이중으로 안전하다.
+   *
+   * <p>썸네일 키는 여기 없다 — {@code photos} 테이블에 별도 컬럼이 없고, 본 이미지 키에서 규칙대로 유도한다 ({@link
+   * org.hackerkhu.hackerhp.domain.photo.service.PhotoService#thumbnailKeyOf}).
+   */
+  @Query("select p.storedPath from Photo p")
+  List<String> findAllStoredPaths();
 
   /**
    * 목록에서 업로더를 함께 가져오고, <b>등록이 끝나지 않은 자리표시자 행은 뺀다.</b>

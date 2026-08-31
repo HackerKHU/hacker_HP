@@ -28,8 +28,12 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
  * {@link FileStorage}를 가짜로 갈아끼울 수 있는 것도 이 덕분이다.
  */
 @Configuration
-// 업로드 정책도 여기서 등록한다 — "무엇을 어디에 담나"는 함께 읽어야 뜻이 통한다.
-@EnableConfigurationProperties({StorageProperties.class, NoteUploadPolicy.class})
+// 업로드 정책·고아 정리 설정도 여기서 등록한다 — "무엇을 어디에 담나"는 함께 읽어야 뜻이 통한다.
+@EnableConfigurationProperties({
+  StorageProperties.class,
+  NoteUploadPolicy.class,
+  OrphanCleanupProperties.class
+})
 public class StorageConfig {
 
   @Bean
