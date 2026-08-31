@@ -3,6 +3,7 @@ package org.hackerkhu.hackerhp.domain.photo.service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.hackerkhu.hackerhp.domain.photo.dto.PhotoRegisterRequest;
@@ -20,7 +21,7 @@ import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
-import org.hackerkhu.hackerhp.global.storage.S3StorageService;
+import org.hackerkhu.hackerhp.global.storage.FileStorage;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -57,17 +58,17 @@ public class PhotoService {
 
   private final PhotoRepository photoRepository;
   private final UserRepository userRepository;
-  private final S3StorageService storageService;
+  private final FileStorage storage;
   private final TransactionTemplate transactionTemplate;
 
   public PhotoService(
       PhotoRepository photoRepository,
       UserRepository userRepository,
-      S3StorageService storageService,
+      FileStorage storage,
       PlatformTransactionManager transactionManager) {
     this.photoRepository = photoRepository;
     this.userRepository = userRepository;
-    this.storageService = storageService;
+    this.storage = storage;
     this.transactionTemplate = new TransactionTemplate(transactionManager);
   }
 
@@ -79,7 +80,7 @@ public class PhotoService {
   private PhotoUploadUrlResponse issueUploadUrl(String rawExtension) {
     String extension = normalizeExtension(rawExtension);
     String key = TEMP_PREFIX + UUID.randomUUID() + "." + extension;
-    String url = storageService.presignPut(key, contentTypeOf(extension));
+    String url = storage.presignPut(key, contentTypeOf(extension)).toString();
     return new PhotoUploadUrlResponse(key, url);
   }
 
@@ -131,20 +132,19 @@ public class PhotoService {
     // 바이트를 전부 내려받기 전에 크기부터 본다 — presigned PUT은 용량을 강제하지 못하므로,
     // 확장자만 맞으면 수백 MB짜리도 올릴 수 있다. 그걸 그대로 메모리에 올리면 태스크가 OOM으로
     // 죽는다.
-    long size;
-    try {
-      size = storageService.size(tempKey);
-    } catch (S3Exception e) {
-      throw missingOrRethrow(e);
+    Optional<FileStorage.StoredObject> described = storage.describe(tempKey);
+    if (described.isEmpty()) {
+      throw new PhotoRegistrationException(Reason.NOT_FOUND);
     }
+    long size = described.get().sizeBytes();
     if (size > MAX_ORIGINAL_BYTES) {
-      storageService.delete(tempKey);
+      storage.delete(tempKey);
       throw new PhotoRegistrationException(Reason.FILE_TOO_LARGE);
     }
 
     byte[] original;
     try {
-      original = storageService.download(tempKey);
+      original = storage.download(tempKey);
     } catch (S3Exception e) {
       // 크기 확인과 다운로드 사이에 같은 키를 겨냥한 다른 요청이 먼저 등록을 마쳐 지웠을 수 있다.
       throw missingOrRethrow(e);
@@ -179,8 +179,8 @@ public class PhotoService {
     Long photoId = photo.getId();
     PhotoResponse response;
     try {
-      storageService.upload(finalKey, resized, "image/jpeg");
-      storageService.upload(thumbnailKeyOf(finalKey), thumbnail, "image/jpeg");
+      storage.upload(finalKey, resized, "image/jpeg");
+      storage.upload(thumbnailKeyOf(finalKey), thumbnail, "image/jpeg");
       /*
        * 최종 커밋 직전에도 요청자 권한을 다시 확인한다. 첫 트랜잭션이 끝나며 행 잠금은 이미
        * 풀렸고, S3 업로드는 트랜잭션 밖이라 그동안 다른 관리자가 요청자를 정지·강등했을 수
@@ -202,7 +202,7 @@ public class PhotoService {
       transactionTemplate.executeWithoutResult(status -> photoRepository.deleteById(photoId));
       throw e;
     }
-    storageService.delete(tempKey);
+    storage.delete(tempKey);
     return response;
   }
 
@@ -241,8 +241,8 @@ public class PhotoService {
    */
   public void delete(Long requesterId, Long id) {
     String storedPath = transactionTemplate.execute(status -> deleteRow(requesterId, id));
-    storageService.delete(storedPath);
-    storageService.delete(thumbnailKeyOf(storedPath));
+    storage.delete(storedPath);
+    storage.delete(thumbnailKeyOf(storedPath));
   }
 
   private String deleteRow(Long requesterId, Long id) {
@@ -278,8 +278,8 @@ public class PhotoService {
      */
     String uploaderName = DisplayName.of(uploader);
     Long uploaderId = uploader == null ? null : uploader.getId();
-    String url = storageService.presignGet(photo.getStoredPath());
-    String thumbnailUrl = storageService.presignGet(thumbnailKeyOf(photo.getStoredPath()));
+    String url = storage.presignGet(photo.getStoredPath()).toString();
+    String thumbnailUrl = storage.presignGet(thumbnailKeyOf(photo.getStoredPath())).toString();
     return new PhotoResponse(
         photo.getId(),
         photo.getCaption(),

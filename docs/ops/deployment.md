@@ -23,7 +23,7 @@
 
 > 로더 클래스명(`org.springframework.boot.loader.launch.JarLauncher`)은 Spring Boot 3.2 이상 기준입니다. 3.1 이하면 `org.springframework.boot.loader.JarLauncher`.
 
-**`docker-compose.yml`** (로컬 개발) — Postgres와, 활동사진 업로드(#57)를 로컬에서 검증할 MinIO를 띄웁니다. `docker compose up -d`로 함께 뜨고, MinIO 웹 콘솔(`http://localhost:9001`, `minioadmin`/`minioadmin`)로 버킷 안의 오브젝트를 눈으로 확인할 수 있습니다. 자료 업로드(#207)는 로컬에서 실제 버킷이 필요 없습니다 — 테스트가 `FileStorage`를 갈아끼우기 때문입니다.
+**`docker-compose.yml`** (로컬 개발) — Postgres와, 자료·활동사진(#207·#57)이 공용으로 쓰는 로컬 S3 대역 MinIO를 띄웁니다 (`global/storage`, #213). `docker compose up -d`로 함께 뜨고, MinIO 웹 콘솔(`http://localhost:9001`, `minioadmin`/`minioadmin`)로 버킷 안의 오브젝트를 눈으로 확인할 수 있습니다. **테스트는 실제 버킷이 필요 없습니다** — 자료 쪽은 `FileStorage`를 가짜(`FakeFileStorage`)로 갈아끼우고, 활동사진 쪽은 Testcontainers가 별도로 MinIO를 띄웁니다. `docker compose`의 MinIO는 `./gradlew bootRun`으로 서버를 직접 띄워 볼 때만 쓰입니다.
 
 **`application-local.yml` / `application-prod.yml`** 분리 — 로컬은 위 docker-compose 값을, 운영은 `${DB_URL}` 등 환경변수를 읽습니다. `/actuator/health`가 Spring Security에서 `permitAll`이어야 하는 이유는 [spec/7-DEPLOYMENT §7-2](../../spec/7-DEPLOYMENT.md#7-2-배포-원칙)에 있습니다 — 빠뜨리면 첫 배포 실패 원인 1위입니다.
 

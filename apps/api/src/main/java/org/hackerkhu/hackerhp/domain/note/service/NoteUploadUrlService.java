@@ -70,7 +70,8 @@ public class NoteUploadUrlService {
   private UploadUrlResponse.Upload presign(
       Long uploaderId, UploadUrlRequest.File file, Instant expiresAt) {
     String key = NoteObjectKey.staging(uploaderId, NoteObjectKey.extensionOf(file.originalName()));
+    // 자료는 파일 형식이 다양해 Content-Type을 강제하지 않는다 — 활동사진(#213 통합)과 다르다.
     return new UploadUrlResponse.Upload(
-        file.originalName(), key, storage.presignPut(key), expiresAt);
+        file.originalName(), key, storage.presignPut(key, null), expiresAt);
   }
 }
