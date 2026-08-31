@@ -58,7 +58,9 @@ describe('이용약관', () => {
     ).toBeInTheDocument()
     // 서비스 중단 고지
     expect(screen.getByText(/최소 30일 전에 공지로/)).toBeInTheDocument()
-    expect(screen.getByText(/부터 시행합니다/)).toBeInTheDocument()
+    expect(
+      screen.getByText('이 약관은 2026년 8월 31일부터 시행합니다.'),
+    ).toBeInTheDocument()
   })
 
   it('가입 거부 뒤 같은 미승인 계정으로 다시 신청할 수 있다고 밝힌다', async () => {

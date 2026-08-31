@@ -76,7 +76,9 @@ describe('개인정보처리방침', () => {
       screen.getAllByText(/hacker19870101@gmail\.com/).length,
     ).toBeGreaterThan(1)
     expect(screen.getByText(/보호책임자는 동아리 회장/)).toBeInTheDocument()
-    expect(screen.getByText(/부터 시행합니다/)).toBeInTheDocument()
+    expect(
+      screen.getByText('이 방침은 2026년 8월 31일부터 시행합니다.'),
+    ).toBeInTheDocument()
   })
 
   /*

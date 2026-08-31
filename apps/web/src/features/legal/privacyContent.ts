@@ -48,7 +48,7 @@ interface PrivacySection {
  * 배포까지 따라간다.
  */
 export const PRIVACY_UPDATED = {
-  effectiveDate: '2026년 8월 26일',
+  effectiveDate: '2026년 8월 31일',
 }
 
 export const PRIVACY_SECTIONS: PrivacySection[] = [

@@ -24,7 +24,7 @@ interface TermsSection {
 
 /** 개인정보처리방침과 함께 릴리스 브랜치에서 실제 배포일로 고친다. */
 export const TERMS_UPDATED = {
-  effectiveDate: '2026년 8월 26일',
+  effectiveDate: '2026년 8월 31일',
 }
 
 export const TERMS_SECTIONS: TermsSection[] = [
