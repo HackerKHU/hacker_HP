@@ -36,6 +36,51 @@ afterEach(() => {
 })
 
 describe('신청 픽스처', () => {
+  /*
+   * T-506 — **픽스처도 서버와 같은 학번 규칙을 쓴다** (#328).
+   *
+   * 픽스처는 백엔드 없이 도는 로컬·QA의 서버 대역이다. 규칙이 느슨하면 **거기서만 통과하는
+   * 값**이 생기고, 화면은 정상처럼 보이는데 실제 서버에서는 거절된다.
+   *
+   * 공백 제거가 숫자 검사보다 **먼저**라는 순서까지 함께 본다 — 뒤집히면 `"2024 0001"`이
+   * 픽스처에서만 거절된다.
+   */
+  it.each(['EX-2021-7', '편입2025', '  ', '٢٠٢٤'])(
+    '숫자가 아닌 학번(%s)을 거절한다',
+    async (studentNo) => {
+      const { fixtureApplication } = await loadFixtures('applying')
+
+      await expect(
+        fixtureApplication({ studentNo, department: '컴퓨터공학과' }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+    },
+  )
+
+  it('raw 20자를 넘어도 공백 제거 뒤 20자리면 저장한다', async () => {
+    const { fixtureApplication, fixtureMe } = await loadFixtures('applying')
+
+    await fixtureApplication({
+      studentNo: '12345 12345 12345 12345',
+      department: '컴퓨터공학과',
+    })
+
+    expect((await fixtureMe())?.studentNo).toBe('12345123451234512345')
+  })
+
+  it('공백 제거 뒤 21자리면 실제 API와 같은 길이 오류로 거부한다', async () => {
+    const { fixtureApplication } = await loadFixtures('applying')
+
+    await expect(
+      fixtureApplication({
+        studentNo: '1'.repeat(21),
+        department: '컴퓨터공학과',
+      }),
+    ).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      message: '학번이 너무 깁니다.',
+    })
+  })
+
   it('신청 전에는 학번과 신청일이 비어 있다', async () => {
     const { fixtureMe } = await loadFixtures('applying')
 
@@ -1086,6 +1131,115 @@ describe('자료 픽스처', () => {
     expect(created.viewCount).toBe(0)
   })
 
+  it('신규 제목은 코드포인트 기준 50자까지 허용한다', async () => {
+    const { fixtureCreateNote, ApiError } = await loadFixtures('user')
+    const body = {
+      category: 'SUBJECT' as const,
+      subjectName: '운영체제',
+      professor: null,
+      year: 2026,
+      semester: 'SPRING' as const,
+      examType: null,
+      files: [{ key: 'notes/uploads/1/a.pdf', originalName: 'a.pdf' }],
+    }
+
+    await expect(
+      fixtureCreateNote({ ...body, title: '🎉'.repeat(50) }),
+    ).resolves.toMatchObject({ title: '🎉'.repeat(50) })
+
+    const error = await fixtureCreateNote({
+      ...body,
+      title: '가'.repeat(51),
+    }).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).message).toBe(
+      '제목은 50자까지 쓸 수 있습니다.',
+    )
+
+    await expect(
+      fixtureCreateNote({ ...body, title: ` ${'가'.repeat(50)} ` }),
+    ).resolves.toMatchObject({ title: '가'.repeat(50) })
+  })
+
+  it('기존 장문 제목은 Java trim 범위에서만 정규화해 수정·삭제할 수 있다', async () => {
+    const {
+      fixtureNote,
+      fixtureNotes,
+      fixtureRemoveNote,
+      fixtureUpdateNote,
+      ApiError,
+    } = await loadFixtures('user')
+    const page = await fixtureNotes({ size: 100 })
+    const legacy = page.content.find(
+      (note) => note.uploader.id === 1 && [...note.title].length > 50,
+    )
+    if (!legacy) throw new Error('기존 장문 자료가 없다')
+    const detail = await fixtureNote(legacy.id)
+    expect([...detail.title]).toHaveLength(200)
+
+    const updated = await fixtureUpdateNote(detail.id, {
+      category: detail.category,
+      title: `  ${detail.title}  `,
+      subjectName: '바뀐 과목명',
+      professor: detail.professor,
+      year: detail.year,
+      semester: detail.semester,
+      examType: detail.examType,
+      files: detail.files.map((file) => ({ fileId: file.id })),
+    })
+    expect(updated.title).toBe(detail.title)
+    expect(updated.subjectName).toBe('바뀐 과목명')
+
+    const nbspError = await fixtureUpdateNote(detail.id, {
+      category: updated.category,
+      title: `\u00a0${updated.title}\u00a0`,
+      subjectName: updated.subjectName,
+      professor: updated.professor,
+      year: updated.year,
+      semester: updated.semester,
+      examType: updated.examType,
+      files: updated.files.map((file) => ({ fileId: file.id })),
+    }).catch((caught: unknown) => caught)
+    expect(nbspError).toBeInstanceOf(ApiError)
+    expect((nbspError as InstanceType<typeof ApiError>).message).toBe(
+      '기존 제목의 저장 상한을 넘었습니다.',
+    )
+    expect((await fixtureNote(detail.id)).title).toBe(detail.title)
+
+    await fixtureRemoveNote(detail.id)
+    await expect(fixtureNote(detail.id)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+  })
+
+  it('기존 장문 제목을 다른 50자 초과 제목으로 바꾸는 것만 거부한다', async () => {
+    const { fixtureNote, fixtureNotes, fixtureUpdateNote, ApiError } =
+      await loadFixtures('user')
+    const page = await fixtureNotes({ size: 100 })
+    const legacy = page.content.find(
+      (note) => note.uploader.id === 1 && [...note.title].length > 50,
+    )
+    if (!legacy) throw new Error('기존 장문 자료가 없다')
+    const detail = await fixtureNote(legacy.id)
+
+    const error = await fixtureUpdateNote(detail.id, {
+      category: detail.category,
+      title: '다른 장문 제목'.repeat(10),
+      subjectName: detail.subjectName,
+      professor: detail.professor,
+      year: detail.year,
+      semester: detail.semester,
+      examType: detail.examType,
+      files: detail.files.map((file) => ({ fileId: file.id })),
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).message).toBe(
+      '제목은 50자까지 쓸 수 있습니다.',
+    )
+    expect((await fixtureNote(detail.id)).title).toBe(detail.title)
+  })
+
   it('수정해도 기존 조회수를 보존한다', async () => {
     const { fixtureNote, fixtureNotes, fixtureUpdateNote } =
       await loadFixtures('user')
@@ -1096,7 +1250,7 @@ describe('자료 픽스처', () => {
 
     const updated = await fixtureUpdateNote(before.id, {
       category: before.category,
-      title: `${before.title} 수정`,
+      title: before.title,
       subjectName: before.subjectName,
       professor: before.professor,
       year: before.year,

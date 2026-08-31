@@ -142,9 +142,12 @@ export function PostListPage() {
                   >
                     <Link
                       to={`/posts/${post.id}`}
-                      className="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-accent outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset"
+                      className="flex min-w-0 items-center gap-4 px-4 py-3 transition-colors hover:bg-accent outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset"
                     >
-                      <span className="min-w-0 flex-1 truncate text-sm">
+                      <span
+                        className="min-w-0 flex-1 truncate text-sm"
+                        title={post.title}
+                      >
                         {post.title}
                       </span>
                       {/* 작성자 이름은 절대 비지 않는다 — 제거되면 "탈퇴한 회원"이다 (§2-1-8). */}

@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Photo } from '@/api/photos'
 import type { User } from '@/api/types'
@@ -128,6 +134,41 @@ beforeEach(() => {
 })
 
 describe('활동사진 갤러리', () => {
+  it('장문 설명을 카드와 삭제 확인문에서 줄이되 원문을 보존한다', async () => {
+    const longCaption = '활동사진의 아주 긴 설명'.repeat(20)
+    api.rows = [photo(501, longCaption)]
+    api.total = 1
+    auth.me = { ...BASE, role: 'ADMIN' }
+    renderGallery()
+
+    const caption = await screen.findByText(longCaption)
+    expect(caption.className).toContain('truncate')
+    expect(caption).toHaveAttribute('title', longCaption)
+    expect(caption.parentElement?.className).toContain('flex-1')
+
+    fireEvent.click(screen.getByRole('button', { name: `${longCaption} 삭제` }))
+    const dialog = await screen.findByRole('alertdialog')
+    const dialogCaption = within(dialog).getByTitle(longCaption)
+    expect(dialogCaption.className).toContain('truncate')
+    expect(dialog).toHaveTextContent(longCaption)
+  })
+
+  it('크게 보기의 장문 설명은 화면 안에서 스크롤되고 원문을 보존한다', async () => {
+    const longCaption = '크게 보는 활동사진의 아주 긴 설명'.repeat(20)
+    api.rows = [photo(501, longCaption)]
+    api.total = 1
+    renderGallery()
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: `${longCaption} 크게 보기` }),
+    )
+    const dialog = document.querySelector('dialog') as HTMLDialogElement
+    const caption = dialog.querySelector(`[title="${longCaption}"]`)
+    expect(caption?.className).toContain('max-h-24')
+    expect(caption?.className).toContain('overflow-y-auto')
+    expect(caption).toHaveTextContent(longCaption)
+  })
+
   it('조회 상태와 무관하게 그리드 surface와 pager 자리를 유지한다', async () => {
     renderGallery()
     expect(

@@ -186,6 +186,61 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
     assertThat(reload().getStudentNo()).isNull();
   }
 
+  /**
+   * T-502 — <b>학번은 숫자만 받는다</b> (spec 3-2 §3-2-3 MUST, #328).
+   *
+   * <p>학교 학번이 전부 숫자임을 확인하고 정한 규칙이다. 한때는 정반대였다 — <i>"편입·교환학생·대학원처럼 형태가 다른 학번이 실제로 있다"</i> 며 형식을 걸지
+   * 않았는데(#38), 그 전제가 사실이 아니었다.
+   *
+   * <p><b>거부됐으면 {@code applied_at}이 남지 않아야 한다</b> — T-52와 같은 이유다. 남으면 형식이 어긋난 계정이 승인 대상이 된다.
+   */
+  @ParameterizedTest(name = "[{index}] {0}")
+  @ValueSource(strings = {"편입2025", "2024-0001", "EX20240001", "٢٠٢٤", "😀A"})
+  void nonNumericStudentNoIsRejected(String studentNo) throws Exception {
+    mockMvc
+        .perform(submit(applicant, body(studentNo, "컴퓨터공학과")))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+        .andExpect(jsonPath("$.message").value("학번을 숫자로 입력해 주세요."));
+
+    assertThat(reload().getAppliedAt()).isNull();
+    assertThat(reload().getStudentNo()).isNull();
+  }
+
+  /**
+   * T-503 — <b>자릿수는 가리지 않는다.</b>
+   *
+   * <p>폼 예시가 10자리지만 그것이 실제 자릿수라는 근거가 없다 — 길이를 규칙으로 굳히면 그 길이가 아닌 학번을 가진 사람이 가입하지 못하고, 승인 뒤에는 정정할 경로도
+   * 없다 ([#178]).
+   */
+  @Test
+  void anyNumericLengthIsAccepted() throws Exception {
+    mockMvc.perform(submit(applicant, body("12345", "컴퓨터공학과"))).andExpect(status().isNoContent());
+
+    assertThat(reload().getStudentNo()).isEqualTo("12345");
+  }
+
+  /**
+   * T-504 — <b>공백 제거가 검증보다 먼저다.</b>
+   *
+   * <p>{@code "2024 0001"}은 안쪽 공백이 지워져 {@code "20240001"}이 되므로 숫자 규칙을 통과한다. 순서가 뒤집히면 <b>정상 학번이 형식
+   * 위반으로 거절된다.</b>
+   */
+  @Test
+  void spacingIsStrippedBeforeTheNumericCheck() throws Exception {
+    mockMvc
+        .perform(submit(applicant, body("2024 0001", "컴퓨터공학과")))
+        .andExpect(status().isNoContent());
+
+    assertThat(reload().getStudentNo()).isEqualTo("20240001");
+
+    mockMvc
+        .perform(submit(applicant, body("12345 12345 12345 12345", "컴퓨터공학과")))
+        .andExpect(status().isNoContent());
+
+    assertThat(reload().getStudentNo()).isEqualTo("12345123451234512345");
+  }
+
   /*
    * T-181 — 학과는 정해진 목록에 있는 값만 받는다 (spec 3-2 §3-2-2, §3-2-3 MUST). 자유 입력을 허용하면
    * 회원 목록에서 학과로 걸러보는 것이 무의미해진다.
@@ -249,7 +304,8 @@ class ApplicationApiIntegrationTest extends AbstractIntegrationTest {
     mockMvc
         .perform(submit(applicant, body("1".repeat(21))))
         .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+        .andExpect(jsonPath("$.message").value("학번이 너무 깁니다."));
 
     mockMvc
         .perform(submit(applicant, body("20240001", "가".repeat(51))))

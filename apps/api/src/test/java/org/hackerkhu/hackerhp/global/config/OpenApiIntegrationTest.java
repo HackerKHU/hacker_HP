@@ -120,6 +120,45 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.info.title").value("hacker_HP API"));
   }
 
+  @Test
+  void noteTitleLimitsDocumentNewAndGrandfatheredValues() throws Exception {
+    mockMvc
+        .perform(signedIn(get(API_DOCS)))
+        .andExpect(
+            jsonPath("$.components.schemas.NoteCreateRequest.properties.title.maxLength")
+                .doesNotExist())
+        .andExpect(
+            jsonPath("$.components.schemas.NoteUpdateRequest.properties.title.maxLength")
+                .doesNotExist())
+        .andExpect(
+            jsonPath("$.components.schemas.NoteCreateRequest.properties.title.description")
+                .value(org.hamcrest.Matchers.containsString("U+0000~U+0020")))
+        .andExpect(
+            jsonPath("$.components.schemas.NoteUpdateRequest.properties.title.description")
+                .value(org.hamcrest.Matchers.containsString("U+0000~U+0020")))
+        .andExpect(
+            jsonPath("$.components.schemas.NoteUpdateRequest.properties.title.description")
+                .value(org.hamcrest.Matchers.containsString("NBSP(U+00A0)")))
+        .andExpect(
+            jsonPath("$.components.schemas.NoteUpdateRequest.properties.title.description")
+                .value(org.hamcrest.Matchers.containsString("maxLength를 선언하지 않음")));
+  }
+
+  @Test
+  void applicationStudentNumberDocumentsTheNormalizedLimitWithoutARawMaxLength() throws Exception {
+    mockMvc
+        .perform(signedIn(get(API_DOCS)))
+        .andExpect(
+            jsonPath("$.components.schemas.ApplicationRequest.properties.studentNo.maxLength")
+                .doesNotExist())
+        .andExpect(
+            jsonPath("$.components.schemas.ApplicationRequest.properties.studentNo.description")
+                .value(org.hamcrest.Matchers.containsString("정규화한 뒤")))
+        .andExpect(
+            jsonPath("$.components.schemas.ApplicationRequest.properties.studentNo.description")
+                .value(org.hamcrest.Matchers.containsString("raw 길이에는 상한이 없다")));
+  }
+
   /* 구현된 인증 API가 빠짐없이 실린다. 컨트롤러를 더하고 문서를 잊는 것을 잡는다. */
   @Test
   void everyImplementedAuthEndpointAppears() throws Exception {
@@ -218,6 +257,9 @@ class OpenApiIntegrationTest extends AbstractIntegrationTest {
     mockMvc
         .perform(signedIn(get(API_DOCS)))
         .andExpect(jsonPath(schema).value("#/components/schemas/ErrorResponse"))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/auth/application'].post.responses['400'].description")
+                .value(org.hamcrest.Matchers.containsString("ASCII 숫자가 아니거나 20자 초과")))
         .andExpect(jsonPath("$.components.schemas.ErrorResponse.properties.code").exists())
         .andExpect(jsonPath("$.components.schemas.ErrorResponse.properties.message").exists());
   }

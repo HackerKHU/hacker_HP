@@ -127,6 +127,45 @@ beforeEach(() => {
 })
 
 describe('자료 등록', () => {
+  it('제목을 코드포인트 기준 50자로 세어 이모지 50자는 저장한다', async () => {
+    renderForm('/notes/new')
+
+    fireEvent.change(await screen.findByLabelText('제목'), {
+      target: { value: '🎉'.repeat(50) },
+    })
+    fireEvent.change(screen.getByLabelText('과목명'), {
+      target: { value: '운영체제' },
+    })
+    pick('정리본.pdf')
+    expect(screen.getByText('50/50')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+
+    await waitFor(() => expect(api.created).toHaveLength(1))
+    expect(api.created[0].title).toBe('🎉'.repeat(50))
+  })
+
+  it('신규 제목이 50코드포인트를 넘으면 요청하지 않는다', async () => {
+    renderForm('/notes/new')
+
+    fireEvent.change(await screen.findByLabelText('제목'), {
+      target: { value: '가'.repeat(51) },
+    })
+    fireEvent.change(screen.getByLabelText('과목명'), {
+      target: { value: '운영체제' },
+    })
+    pick('정리본.pdf')
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '제목은 50자까지 쓸 수 있습니다.',
+    )
+    expect(screen.getByLabelText('제목')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    )
+    expect(api.created).toEqual([])
+  })
+
   it('학기 선택지가 네 학기를 학사 순서대로 제공한다', async () => {
     renderForm('/notes/new')
 
@@ -343,6 +382,68 @@ describe('자료 등록', () => {
 })
 
 describe('자료 수정', () => {
+  it('기존 장문 제목은 그대로 둔 채 메타데이터를 저장할 수 있다', async () => {
+    const legacy = '가'.repeat(200)
+    api.note = { ...MINE, title: legacy }
+    renderForm('/notes/301/edit')
+
+    expect(await screen.findByDisplayValue(legacy)).toBeVisible()
+    expect(
+      screen.getByText(
+        '기존 제목은 그대로 저장할 수 있습니다. 바꾸려면 50자 이하로 줄여주세요.',
+      ),
+    ).toBeVisible()
+    fireEvent.change(screen.getByLabelText('과목명'), {
+      target: { value: '바뀐 과목명' },
+    })
+    fireEvent.change(screen.getByLabelText('제목'), {
+      target: { value: `  ${legacy}  ` },
+    })
+    expect(screen.getByText('200/50')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+
+    await waitFor(() => expect(api.updated).toHaveLength(1))
+    expect(api.updated[0]).toMatchObject({
+      title: legacy,
+      subjectName: '바뀐 과목명',
+    })
+  })
+
+  it('200자 기존 제목을 감싼 NBSP는 의미 문자로 세어 저장 상한을 넘긴다', async () => {
+    const legacy = '가'.repeat(200)
+    api.note = { ...MINE, title: legacy }
+    renderForm('/notes/301/edit')
+    await screen.findByDisplayValue(legacy)
+
+    fireEvent.change(screen.getByLabelText('제목'), {
+      target: { value: `\u00a0${legacy}\u00a0` },
+    })
+    expect(screen.getByText('202/50')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '기존 제목의 저장 상한을 넘었습니다.',
+    )
+    expect(api.updated).toEqual([])
+  })
+
+  it('기존 장문 제목을 다른 50자 초과 제목으로 바꾸면 요청하지 않는다', async () => {
+    const legacy = '기존 장문 자료 제목'.repeat(10)
+    api.note = { ...MINE, title: legacy }
+    renderForm('/notes/301/edit')
+    await screen.findByDisplayValue(legacy)
+
+    fireEvent.change(screen.getByLabelText('제목'), {
+      target: { value: '다른 장문 제목'.repeat(10) },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '제목은 50자까지 쓸 수 있습니다.',
+    )
+    expect(api.updated).toEqual([])
+  })
+
   it.each(['SUMMER', 'WINTER'] as const)(
     '기존 %s 값을 선택하고 저장 요청에도 그대로 보낸다',
     async (semester) => {

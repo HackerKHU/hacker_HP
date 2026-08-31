@@ -161,11 +161,13 @@ public class AuthController {
 
           **`PENDING` 전용이다.** 승인 후에는 이 경로로 학번을 바꿀 수 없다. 승인 전까지는
           다시 제출해 고칠 수 있다.
+
+          학번은 유니코드 공백류·제어·서식 문자를 모두 제거한 뒤 **ASCII 숫자만 20자까지** 받는다.
           """)
   @ApiResponse(responseCode = "204", description = "저장됨. 화면은 `GET /auth/me`로 새 상태를 받는다")
   @ApiResponse(
       responseCode = "400",
-      description = "`VALIDATION_ERROR` — 공백이거나 컬럼 길이를 넘었다",
+      description = "`VALIDATION_ERROR` — 정규화한 학번이 비었거나 ASCII 숫자가 아니거나 20자 초과 · 학과 누락·목록 밖·50자 초과",
       content =
           @Content(
               mediaType = MediaType.APPLICATION_JSON_VALUE,

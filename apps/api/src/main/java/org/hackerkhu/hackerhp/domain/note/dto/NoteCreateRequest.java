@@ -12,6 +12,7 @@ import java.util.List;
 import org.hackerkhu.hackerhp.domain.note.entity.Category;
 import org.hackerkhu.hackerhp.domain.note.entity.ExamType;
 import org.hackerkhu.hackerhp.domain.note.entity.Semester;
+import org.hackerkhu.hackerhp.global.validation.CodePointSize;
 
 /**
  * 자료 등록 — 흐름의 ③ (spec 2-1 §2-1-2, 3-2 §3-2-4).
@@ -23,7 +24,10 @@ import org.hackerkhu.hackerhp.domain.note.entity.Semester;
  */
 public record NoteCreateRequest(
     @NotNull(message = "분류를 선택해 주세요.") Category category,
-    @NotBlank(message = "제목을 입력해 주세요.") @Size(max = 200, message = "제목이 너무 깁니다.") String title,
+    @Schema(description = "양끝의 U+0000~U+0020 문자만 제거한 신규 자료 제목. 유니코드 코드포인트 기준 50자 이하")
+        @NotBlank(message = "제목을 입력해 주세요.")
+        @CodePointSize(max = 50, trim = true, message = "제목은 50자까지 쓸 수 있습니다.")
+        String title,
     @NotBlank(message = "과목명을 입력해 주세요.") @Size(max = 100, message = "과목명이 너무 깁니다.")
         String subjectName,
     @Schema(description = "없어도 된다") @Size(max = 50, message = "교수명이 너무 깁니다.") String professor,

@@ -107,7 +107,10 @@ export function PhotoLightbox({
           />
 
           {photo.caption && (
-            <p className="shrink-0 text-center text-sm text-background dark:text-foreground">
+            <p
+              className="max-h-24 max-w-full shrink-0 overflow-y-auto break-words px-2 text-center text-sm text-background dark:text-foreground"
+              title={photo.caption}
+            >
               {photo.caption}
             </p>
           )}

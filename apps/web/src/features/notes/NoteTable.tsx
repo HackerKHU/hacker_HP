@@ -41,13 +41,22 @@ export function NoteTable({
      * 네 모서리에서 행이 잘려 보인다. 공지 목록·회원 관리와 같은 기조다.
      */
     <ListSurface className="mt-4">
-      <Table className={showCategory ? 'min-w-[1120px]' : 'min-w-[1000px]'}>
+      <Table
+        className={cn(
+          'table-fixed',
+          showCategory ? 'min-w-[1120px]' : 'min-w-[1000px]',
+        )}
+      >
         <TableHeader>
           <TableRow>
             {/* 별표 열은 제목이 없다 — 아이콘만 있는 칸이라 이름을 붙이면 폭만 먹는다. */}
             <TableHead className="w-10" />
             {showCategory && <TableHead className="w-28">카테고리</TableHead>}
-            <TableHead>제목</TableHead>
+            {/*
+             * 320px에서는 별표(40px) 뒤 제목의 말줄임표까지 화면 안에 둔다. 넓은 화면은
+             * 기존 메타데이터 밀도를 유지한다.
+             */}
+            <TableHead className="w-56 sm:w-72">제목</TableHead>
             <TableHead className="w-36">과목</TableHead>
             <TableHead className="w-24">교수</TableHead>
             <TableHead className="w-32">학기</TableHead>
@@ -103,10 +112,11 @@ export function NoteTable({
                 </TableCell>
               )}
 
-              <TableCell className="font-medium">
+              <TableCell className="max-w-0 font-medium">
                 <Link
                   to={`/notes/${note.id}`}
-                  className="underline-offset-4 hover:underline"
+                  className="block truncate underline-offset-4 hover:underline"
+                  title={note.title}
                 >
                   {note.title}
                 </Link>

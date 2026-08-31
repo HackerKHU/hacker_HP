@@ -301,6 +301,27 @@ describe('자료 상세', () => {
     expect(viewCountLabel.nextElementSibling).toHaveTextContent('12346')
   })
 
+  it('기존 장문 제목은 원문을 보존하면서 버튼과 겹치지 않게 줄여 표시한다', async () => {
+    const longTitle = '기존 장문 자료 제목'.repeat(15)
+    api.note = { ...MINE, title: longTitle }
+
+    renderDetail()
+
+    const heading = await screen.findByRole('heading', { name: longTitle })
+    expect(heading).toHaveAttribute('title', longTitle)
+    expect(heading.className).toContain('line-clamp-2')
+    expect(heading.className).toContain('break-all')
+    expect(heading.parentElement?.className).toContain('min-w-0')
+    expect(screen.getByRole('button', { name: '삭제' })).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: '삭제' }))
+    const dialog = await screen.findByRole('alertdialog')
+    const titleInDialog = dialog.querySelector(`[title="${longTitle}"]`)
+    expect(titleInDialog).not.toBeNull()
+    expect(titleInDialog?.className).toContain('truncate')
+    expect(dialog).toHaveTextContent(longTitle)
+  })
+
   /*
    * **상세를 여는 것만으로 URL이 발급되면 안 된다** (계약 §3-2-4). 받지도 않을 주소가
    * 응답·로그·히스토리에 남는다. 버튼을 눌러야 발급된다.

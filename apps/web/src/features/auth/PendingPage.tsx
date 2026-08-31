@@ -12,19 +12,37 @@ import { WithdrawButton } from '@/features/account/WithdrawButton'
 /**
  * 입력 상한. **스키마에서 온 값이다** — `student_no varchar(20)` (spec §3-2-2).
  *
- * **그 밖의 형식 규칙은 만들지 않는다.** 계약이 요구하는 것은 "공백이 아닐 것"뿐이다
- * (§3-2-3 MUST). 자릿수나 숫자만 같은 규칙을 지어내면 계약에 없는 이유로 유효한 학번을
- * 막는다 — 편입·교환학생·대학원처럼 형태가 다른 학번이 실제로 있다.
+ * **자릿수는 여전히 고정하지 않는다** (#328). 계약이 요구하는 것은 "숫자일 것"과 이 상한뿐이다
+ * (§3-2-3 MUST). 폼 예시가 10자리지만 그것이 실제 자릿수라는 근거가 없어, 길이를 규칙으로
+ * 굳히면 그 길이가 아닌 학번을 가진 사람이 가입하지 못한다.
+ *
+ * 입력의 raw `maxLength`로 쓰지 않는다. 서버는 공백류를 제거한 뒤 이 상한을 적용하므로,
+ * raw 길이로 먼저 막으면 서버가 받을 값을 화면이 거부한다.
  */
 const STUDENT_NO_MAX = 20
 
 /**
- * 입력 예시. **규칙이 아니라 예시다.**
+ * 학번에서 공백을 **안쪽까지 전부** 지운다.
  *
- * 위 주석대로 계약이 요구하는 것은 "공백이 아닐 것"뿐이고 학번 형식 제약은 없다
- * (#38 결정 4). `xxxxxx`를 자릿수 요구로 읽지 않도록 `maxLength` 말고는 아무것도
- * 걸지 않았다 — `pattern`도 `inputMode`도 주지 않는다. 편입·교환학생·대학원처럼
- * 형태가 다른 학번이 실제로 있고 그것들도 그대로 받아야 한다.
+ * **서버의 `removeAllSpacing`과 같은 문자 집합이다** (`ApplicationRequest`) — `\p{Z}`(구분자),
+ * `\p{C}`(제어·서식), `\s`. 서버는 이것을 검증보다 **먼저** 돌리므로 `"2024 0001"`을 받아들인다.
+ *
+ * **`trim()`으로는 부족하다.** 양끝만 지우면 화면이 서버가 받는 신청서를 막는다. NBSP나 폭 없는
+ * 문자도 `trim()`은 공백으로 보지 않는다.
+ */
+function stripSpacing(value: string): string {
+  return value.replace(/[\p{Z}\p{C}\s]+/gu, '')
+}
+
+/**
+ * 입력 예시. **자릿수는 규칙이 아니라 예시다.**
+ *
+ * **학번은 숫자만 받는다** (#328, §3-2-3 MUST). 학교 학번이 전부 숫자임을 확인하고 정했다 —
+ * 한때는 *"편입·교환학생·대학원처럼 형태가 다른 학번이 실제로 있다"* 는 이유로 형식을 걸지
+ * 않았는데(#38), 확인 결과 그 전제가 사실이 아니었다.
+ *
+ * **자릿수는 그대로 열어 둔다.** `inputMode`로 숫자 자판만 띄우고, 거절은 제출할 때 문구로
+ * 알린다 — 입력 중에 글자를 지우면 잘못 붙여넣었을 때 무엇이 사라졌는지 알 수 없다.
  *
  * **연도를 문자열에 박지 않는다.** `2026xxxxxx`라고 적어두면 내년 신입생이 작년 예시를
  * 보게 되고, 고치는 사람이 나올 때까지 아무도 모른다. 화면에 보이는 예시는 "올해 들어온
@@ -34,10 +52,10 @@ const STUDENT_NO_MAX = 20
  *
  * ⚠️ **뒤 여섯 자리는 확인된 값이 아니다.** 이대로면 총 10자리인데, 경희대 학번이
  * 실제로 10자리인지 **우리는 모른다.** 계약에는 `student_no varchar(20)`뿐이고
- * (spec §3-2-2) 형식 규칙이 없다. 픽스처가 10자리를 쓰지만 그건 우리가 지어낸 값이라
+ * (spec §3-2-2) 자릿수 규칙이 없다. 픽스처가 10자리를 쓰지만 그건 우리가 지어낸 값이라
  * 근거가 못 된다. 자릿수가 실제와 다르면 사용자가 "이 형식이어야 한다"고 오해할 수
- * 있으니, **실제 자릿수를 확인하면 이 줄을 그 값으로 고친다.** 확인 전까지도 입력은
- * 막지 않는다 — 위 주석대로 `pattern`을 걸지 않았다.
+ * 있으니, **실제 자릿수를 확인하면 이 줄을 그 값으로 고친다.** 확인 전까지 길이는
+ * 막지 않는다 — 숫자만 본다.
  */
 const STUDENT_NO_PLACEHOLDER = `${new Date().getFullYear()}000000`
 
@@ -209,10 +227,25 @@ export function PendingPage() {
     event.preventDefault()
     if (saving) return
 
-    // 계약이 요구하는 것은 공백이 아닐 것뿐이다 (§3-2-3 MUST). 서버가 거부할 요청을
-    // 굳이 보내지 않는다 — 같은 규칙을 앞당겨 적용하는 것이지 서버 검증을 대신하지 않는다.
-    if (values.studentNo.trim() === '') {
-      setFieldErrors({ studentNo: '학번을 입력해주세요.' })
+    /*
+     * 계약이 요구하는 것은 숫자일 것과 20자 이하다 (§3-2-3 MUST, #328). 서버가 거부할
+     * 요청을 굳이 보내지 않는다 — 같은 규칙을 앞당겨 적용하는 것이지 서버 검증을
+     * 대신하지 않는다.
+     *
+     * **빈 값과 숫자 아님을 한 문구로 묶는다.** 서버도 그렇게 답한다 — 나누면 화면과
+     * 서버가 같은 입력에 다른 말을 하게 된다.
+     *
+     * **공백을 먼저 지운 값으로 본다.** 서버는 안쪽 공백까지 지운 뒤 숫자를 보므로
+     * `"2024 0001"`을 받아들인다 (§3-2-3 MUST). `trim()`만 하면 화면이 **서버가 받는
+     * 신청서를 막는다.**
+     */
+    const studentNo = stripSpacing(values.studentNo)
+    if (!/^[0-9]+$/.test(studentNo)) {
+      setFieldErrors({ studentNo: '학번을 숫자로 입력해주세요.' })
+      return
+    }
+    if (studentNo.length > STUDENT_NO_MAX) {
+      setFieldErrors({ studentNo: '학번이 너무 깁니다.' })
       return
     }
     /*
@@ -228,7 +261,8 @@ export function PendingPage() {
     setFieldErrors({})
     try {
       await submitApplication({
-        studentNo: values.studentNo.trim(),
+        // 검증한 값을 그대로 보낸다. 다시 다듬으면 검사한 것과 보낸 것이 갈린다.
+        studentNo,
         // 목록에서 고른 값이라 다듬을 것이 없다.
         department: values.department,
       })
@@ -388,7 +422,7 @@ export function PendingPage() {
                 id="application-student-no"
                 value={values.studentNo}
                 placeholder={STUDENT_NO_PLACEHOLDER}
-                maxLength={STUDENT_NO_MAX}
+                inputMode="numeric"
                 aria-invalid={fieldErrors.studentNo !== undefined}
                 aria-describedby={
                   fieldErrors.studentNo
