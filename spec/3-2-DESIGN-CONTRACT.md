@@ -320,6 +320,23 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 
 **본문 길이를 DB에서도 막는다** (MUST). `text`는 무제한이라 요청 검증만 두면 다른 경로로 들어온 값이 그대로 저장되고, **글 하나로 목록 응답이 망가진다.** 반대로 DB에만 두면 위반이 사용자 오류가 아니라 `500`으로 나간다 — 양쪽에 건다. **양쪽을 각각 확인한다** ([5-TESTING](5-TESTING.md) T-325·T-331) — API만 재면 `CHECK`를 빠뜨려도 통과한다.
 
+### post_comments
+
+**자유 게시판 댓글** (2026-08-31 확정, #347). `posts`와 같은 판단으로 만들었다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | bigint | PK, auto | |
+| `post_id` | bigint | NOT NULL, FK → posts.id, **ON DELETE CASCADE** | 게시글이 지워지면 댓글도 함께 지운다 |
+| `content` | text | NOT NULL, **CHECK(길이 ≤ 2000)** | 평문만 담는다. 댓글은 게시글보다 가벼운 콘텐츠라 상한을 더 낮게 잡는다 |
+| `author_id` | bigint | NULL, FK → users.id, **ON DELETE SET NULL** | `NULL`이면 탈퇴한 회원 |
+| `created_at` | timestamp | NOT NULL | |
+| `updated_at` | timestamp | NOT NULL | |
+
+인덱스: `(post_id, created_at ASC, id ASC)` — 목록의 고정 정렬(오래된순, 대화 순서)과 같다.
+
+**`post_id`의 `ON DELETE CASCADE`는 `posts.author_id`의 `ON DELETE SET NULL`과 의도적으로 다르다.** 작성자는 지워도 글이 남아야 하지만(2-2 §2-2-4), 게시글이 지워졌는데 그 댓글만 남으면 **존재하지 않는 글을 가리키는 고아 행**이 된다 — 댓글은 게시글에 종속된 콘텐츠다 ([3-3 결정 23](3-3-DESIGN-DECISIONS.md#3-3-24-결정-23--자유-게시판-댓글을-신설한다) D4).
+
 ## 3-2-3 API — 인증
 
 | Method | Path | 권한 | 설명 |
@@ -759,6 +776,10 @@ OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](
 | POST | `/posts` | ACTIVE | 게시글 등록 |
 | PATCH | `/posts/{id}` | ACTIVE·INACTIVE (작성자 본인만) | 게시글 수정 (통째로 교체, #256) |
 | DELETE | `/posts/{id}` | ACTIVE·INACTIVE 작성자 본인 / ACTIVE ADMIN | 게시글 삭제 (완전 삭제, #238) |
+| GET | `/posts/{postId}/comments` | ACTIVE | 댓글 목록 (오래된순 고정, #347) |
+| POST | `/posts/{postId}/comments` | ACTIVE | 댓글 등록 (#347) |
+| PATCH | `/posts/{postId}/comments/{id}` | ACTIVE·INACTIVE (작성자 본인만) | 댓글 수정 (통째로 교체, #347) |
+| DELETE | `/posts/{postId}/comments/{id}` | ACTIVE·INACTIVE 작성자 본인 / ACTIVE ADMIN | 댓글 삭제 (완전 삭제, #347) |
 
 ### `POST /photos` — 업로드 경로 (확정, [1-BACKGROUND §1-5](1-BACKGROUND.md) #5)
 
@@ -858,6 +879,48 @@ OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](
 | `401 UNAUTHENTICATED` | 쿠키 두 개가 함께 있어야 한다 |
 | `403` | `PENDING_APPROVAL` · `SUSPENDED` · CSRF 토큰 없음 |
 | `404 NOT_FOUND` | 없는 게시글 |
+
+### 자유 게시판 댓글 (2026-08-31 확정, #347)
+
+| Method | Path | 권한 | 설명 |
+|---|---|---|---|
+| GET | `/posts/{postId}/comments` | ACTIVE | 목록 (오래된순 고정 — 대화 순서로 읽는다, 게시글 목록과 반대다) |
+| POST | `/posts/{postId}/comments` | ACTIVE | 등록 |
+| PATCH | `/posts/{postId}/comments/{id}` | ACTIVE·INACTIVE (작성자 본인만) | 수정 |
+| DELETE | `/posts/{postId}/comments/{id}` | ACTIVE·INACTIVE 작성자 본인 / ACTIVE ADMIN | 삭제 |
+
+**게시글과 같은 권한 모델이다** ([3-3 결정 23](3-3-DESIGN-DECISIONS.md#3-3-24-결정-23--자유-게시판-댓글을-신설한다)). 수정은 작성자 본인만, 삭제는 활성 관리자 또는 작성자 본인이 할 수 있다 — 관리자도 남의 댓글은 고칠 수 없다. 조회·등록·수정·삭제 모두 `ACTIVE`·`INACTIVE`가 열려 있고 `PENDING`·`SUSPENDED`는 필터가 먼저 막는다(게시글과 같다, 자료 갈래가 아니다).
+
+**댓글 id가 경로의 `postId` 아래 있지 않으면 있어도 `404 NOT_FOUND`다.** 다른 글의 댓글 id로 수정·삭제를 시도해도 그 댓글을 찾을 수 없는 것처럼 다룬다.
+
+**게시글이 삭제되면 그 댓글도 함께 삭제된다** (CASCADE, [3-3 결정 23](3-3-DESIGN-DECISIONS.md#3-3-24-결정-23--자유-게시판-댓글을-신설한다) D4). 별도 API 호출이 필요 없다 — `DELETE /posts/{id}`가 지운 게시글의 댓글은 DB가 알아서 함께 지운다.
+
+**`GET /posts/{postId}/comments` 응답** — 배열이다(페이지네이션 없음). 각 항목은 `id`·`content`·`author`·`createdAt`·`updatedAt`이다. 게시글과 달리 목록·상세를 나누지 않는다 — 본문 상한이 2,000자라 목록에 그대로 담아도 게시글 목록이 겪는 응답 크기 문제가 생기지 않는다.
+
+**`POST /posts/{postId}/comments` 요청·응답**
+
+```json
+// 요청
+{ "content": "저도 참여하고 싶어요!" }
+
+// 응답 201
+{ "id": 3, "content": "저도 참여하고 싶어요!",
+  "author": { "id": 9, "name": "이부원23" },
+  "createdAt": "2026-08-31T09:00:00Z", "updatedAt": "2026-08-31T09:00:00Z" }
+```
+
+`PATCH`는 같은 모양을 요청·응답 양쪽에 쓴다 — 수정은 보낸 것으로 통째로 바꾼다.
+
+**작성자를 요청으로 받지 않는다** (MUST). 인증 주체의 id로만 정한다 — 게시글과 같은 규칙이다.
+
+**본문은 평문이다** (MUST, 3-3 결정 16·23). 상한은 코드포인트로 센다(MUST) — 게시글과 같은 이유다.
+
+| 오류 | 언제 |
+|---|---|
+| `400 VALIDATION_ERROR` | 내용이 비었거나 상한(2,000자)을 넘었다 |
+| `401 UNAUTHENTICATED` | 쿠키 두 개가 함께 있어야 한다 |
+| `403` | `PENDING_APPROVAL` · `SUSPENDED` · CSRF 토큰 없음 · (수정·삭제) 권한 없음 |
+| `404 NOT_FOUND` | 없는 게시글이거나, 그 게시글 아래에 없는 댓글 |
 
 ## 3-2-6 API — 회원 관리
 
