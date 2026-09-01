@@ -235,17 +235,17 @@ export function NoticeListPage() {
              * 만큼은 `Table`의 컨테이너가 가로로 스크롤한다.
              */}
             {/*
-             * **제목만 왼쪽, 나머지는 가운데다.** 제목까지 가운데로 두면 글 길이마다
-             * 왼쪽 끝이 달라져 목록을 훑는 눈이 매번 자리를 다시 잡는다 — 게시판 목록이
-             * 제목만 왼쪽에 두는 이유다.
+             * **열 이름은 전부 가운데, 내용은 제목만 왼쪽이다.** 제목까지 가운데로 두면
+             * 글 길이마다 왼쪽 끝이 달라져 목록을 훑는 눈이 행마다 자리를 다시 잡는다 —
+             * 한국어 게시판 목록이 제목 내용만 왼쪽에 두는 이유다.
              *
              * 표에 `text-center`를 걸어 `<td>`로 상속시키고, `TableHead`가 들고 있는
-             * `text-left`는 열마다 덮는다. 제목 열만 그 기본값을 그대로 쓴다.
+             * `text-left`는 열마다 덮는다. 제목 열은 셀에서만 `text-left`로 되돌린다.
              */}
             <Table className="table-fixed min-w-[640px] text-center">
               <TableHeader>
                 <TableRow>
-                  <TableHead>제목</TableHead>
+                  <TableHead className="text-center">제목</TableHead>
                   <TableHead className="w-28 text-center">작성자</TableHead>
                   {/* 조회수 열은 아직 없다: 공지 응답에 필드가 없다 (#375). */}
                   <TableHead className="w-20 text-center">좋아요</TableHead>

@@ -45,10 +45,10 @@ export function NoteTable({
         className={cn(
           'table-fixed',
           /*
-           * **제목만 왼쪽, 나머지는 가운데다** — 공지·자유 게시판 목록과 같다. 제목까지
-           * 가운데로 두면 글 길이마다 왼쪽 끝이 달라져 목록을 훑는 눈이 매번 자리를
-           * 다시 잡는다. `text-center`가 `<td>`로 상속되고, `TableHead`의 `text-left`는
-           * 열마다 덮는다 — 제목 열만 그 기본값을 그대로 쓴다.
+           * **열 이름은 전부 가운데, 내용은 제목만 왼쪽이다** — 공지·자유 게시판 목록과
+           * 같다. 제목까지 가운데로 두면 글 길이마다 왼쪽 끝이 달라져 목록을 훑는 눈이
+           * 행마다 자리를 다시 잡는다. `text-center`가 `<td>`로 상속되고, `TableHead`의
+           * `text-left`는 열마다 덮는다 — 제목 열은 셀에서만 `text-left`로 되돌린다.
            */
           'text-center',
           showCategory ? 'min-w-[1120px]' : 'min-w-[1000px]',
@@ -65,7 +65,7 @@ export function NoteTable({
              * 320px에서는 별표(40px) 뒤 제목의 말줄임표까지 화면 안에 둔다. 넓은 화면은
              * 기존 메타데이터 밀도를 유지한다.
              */}
-            <TableHead className="w-56 sm:w-72">제목</TableHead>
+            <TableHead className="w-56 text-center sm:w-72">제목</TableHead>
             <TableHead className="w-36 text-center">과목</TableHead>
             <TableHead className="w-24 text-center">교수</TableHead>
             <TableHead className="w-32 text-center">학기</TableHead>

@@ -146,11 +146,11 @@ export function PostListPage() {
              * 열 폭과 정렬은 공지 목록에 맞춘다 — 두 목록을 나란히 놓았을 때 어긋나지
              * 않아야 한다. 조회수(#375)·댓글 수(#374) 열은 API에 필드가 생긴 뒤에 붙인다.
              */}
-            {/* 제목만 왼쪽, 나머지는 가운데다 — 공지·자료 목록과 같다. */}
+            {/* 열 이름은 전부 가운데, 내용은 제목만 왼쪽 — 공지·자료 목록과 같다. */}
             <Table className="table-fixed min-w-[560px] text-center">
               <TableHeader>
                 <TableRow>
-                  <TableHead>제목</TableHead>
+                  <TableHead className="text-center">제목</TableHead>
                   <TableHead className="w-28 text-center">작성자</TableHead>
                   <TableHead className="w-28 text-center">등록일</TableHead>
                 </TableRow>
