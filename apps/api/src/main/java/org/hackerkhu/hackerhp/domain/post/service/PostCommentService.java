@@ -3,9 +3,6 @@ package org.hackerkhu.hackerhp.domain.post.service;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.stream.Collectors;
 import org.hackerkhu.hackerhp.domain.post.dto.PostAuthor;
 import org.hackerkhu.hackerhp.domain.post.dto.PostCommentRequest;
 import org.hackerkhu.hackerhp.domain.post.dto.PostCommentResponse;
@@ -52,9 +49,12 @@ public class PostCommentService {
   public List<PostCommentResponse> list(Long postId) {
     requirePostExists(postId);
     List<PostComment> found = comments.findByPostId(postId, OLDEST_FIRST);
-    Map<Long, User> authorsById = authors(found);
+    Map<Long, User> authorsById = AuthorLookup.of(found, PostComment::getAuthorId, users);
     return found.stream()
-        .map(comment -> PostCommentResponse.of(comment, authorOf(comment, authorsById)))
+        .map(
+            comment ->
+                PostCommentResponse.of(
+                    comment, AuthorLookup.authorOf(comment.getAuthorId(), authorsById)))
         .toList();
   }
 
@@ -66,7 +66,8 @@ public class PostCommentService {
     Instant now = Instant.now();
     PostComment saved = comments.save(PostComment.write(postId, request.content(), authorId, now));
     log.info("댓글 등록: commentId={} postId={} authorId={}", saved.getId(), postId, authorId);
-    return PostCommentResponse.of(saved, authorOf(saved, authors(List.of(saved))));
+    // author는 방금 잠근 그 행이다 — 다시 조회하지 않고 그대로 쓴다.
+    return PostCommentResponse.of(saved, PostAuthor.of(author));
   }
 
   @Transactional
@@ -81,7 +82,8 @@ public class PostCommentService {
     }
     comment.edit(request.content(), Instant.now());
     log.info("댓글 수정: commentId={} postId={} authorId={}", commentId, postId, requesterId);
-    return PostCommentResponse.of(comment, authorOf(comment, authors(List.of(comment))));
+    // requester는 방금 소유자로 확인한 그 행이다 — 다시 조회하지 않고 그대로 쓴다.
+    return PostCommentResponse.of(comment, PostAuthor.of(requester));
   }
 
   @Transactional
@@ -117,21 +119,5 @@ public class PostCommentService {
     if (requesterId.equals(comment.getAuthorId())) return;
     log.info("남의 댓글을 삭제하려 했다: requesterId={} commentId={}", requesterId, comment.getId());
     throw new BusinessException(ErrorCode.FORBIDDEN, "본인이 쓴 댓글만 삭제할 수 있습니다.");
-  }
-
-  private Map<Long, User> authors(List<PostComment> found) {
-    Set<Long> ids =
-        found.stream()
-            .map(PostComment::getAuthorId)
-            .filter(Objects::nonNull)
-            .collect(Collectors.toSet());
-    if (ids.isEmpty()) return Map.of();
-    return users.findAllById(ids).stream()
-        .collect(Collectors.toMap(User::getId, user -> user, (first, second) -> first));
-  }
-
-  private PostAuthor authorOf(PostComment comment, Map<Long, User> found) {
-    Long authorId = comment.getAuthorId();
-    return PostAuthor.of(authorId == null ? null : found.get(authorId));
   }
 }
