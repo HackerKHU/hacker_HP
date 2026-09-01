@@ -57,6 +57,12 @@ function notice(
     authorName: '관리자',
     createdAt: at,
     updatedAt: at,
+    /*
+     * 계약에는 있지만 **이 화면은 쓰지 않는다** — 목록의 좋아요 열은 표 전환과 함께
+     * #373이 넣는다. 타입이 요구하므로 값만 채운다.
+     */
+    likeCount: 0,
+    likedByMe: false,
   }
 }
 

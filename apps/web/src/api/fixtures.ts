@@ -414,6 +414,8 @@ const NOTICES: Notice[] = [
     // 1일 전 — 고정이면서 새글이다. 핀(강)과 NEW(약)의 위계가 한 행에서 보인다.
     createdAt: daysAgo(1),
     updatedAt: daysAgo(1),
+    likeCount: 12,
+    likedByMe: false,
   },
   {
     id: 102,
@@ -425,6 +427,8 @@ const NOTICES: Notice[] = [
     authorName: '관리자',
     createdAt: daysAgo(12),
     updatedAt: daysAgo(10),
+    likeCount: 3,
+    likedByMe: true,
   },
 ]
 
@@ -458,6 +462,8 @@ for (const [index, topic] of TOPICS.entries()) {
   // 0·2·5·8… 일 전. 앞의 둘이 3일 이내라 새글 표시가 실제로 보인다.
   // 간격이 있어야 날짜가 서로 다르고 정렬이 눈에 보인다.
   const days = index === 0 ? 0 : index * 3 - 1
+  // 0이 섞여 있어야 "아직 아무도 안 누른 공지"의 표시를 화면에서 볼 수 있다.
+  const likeCount = index % 4
   NOTICES.push({
     id: 100 - index,
     title: topic,
@@ -467,6 +473,13 @@ for (const [index, topic] of TOPICS.entries()) {
     authorName: '관리자',
     createdAt: daysAgo(days),
     updatedAt: daysAgo(days),
+    likeCount,
+    /*
+     * **`likedByMe`는 `likeCount`에서 파생한다.** 둘을 따로 정하면 "내가 눌렀는데 개수가
+     * 0"이라는 서버가 만들 수 없는 상태가 나오고, 그 공지에서 취소를 누르면 개수가 -1이
+     * 된다. 화면에 클램프를 두는 대신 픽스처가 서버처럼 일관된 값을 준다.
+     */
+    likedByMe: likeCount > 0 && index % 5 === 0,
   })
 }
 
@@ -601,6 +614,8 @@ export function fixtureCreateNotice(body: {
     authorName: '관리자',
     createdAt: now,
     updatedAt: now,
+    likeCount: 0,
+    likedByMe: false,
   }
   NOTICES.push(created)
   sortNotices()
@@ -643,6 +658,31 @@ export function fixtureRemoveNotice(id: number): Promise<void> {
     )
   }
   NOTICES.splice(index, 1)
+  return Promise.resolve()
+}
+
+/**
+ * 좋아요·취소. **없는 공지여도 둘 다 성공은 아니다** — 누르기는 `404`, 취소는 성공이다
+ * (계약 §3-2-5). 공지가 지워지면 좋아요도 함께 사라져 뗄 것이 이미 없다.
+ *
+ * 멱등이라 이미 누른 것에 누르기, 안 눌린 것에 취소 모두 아무 일 없이 성공한다.
+ */
+export function fixtureSetNoticeLike(
+  id: number,
+  liked: boolean,
+): Promise<void> {
+  const found = NOTICES.find((notice) => notice.id === id)
+  if (!found) {
+    return liked
+      ? Promise.reject(
+          new ApiError('NOT_FOUND', 404, '공지를 찾을 수 없습니다.'),
+        )
+      : Promise.resolve()
+  }
+  if (found.likedByMe !== liked) {
+    found.likedByMe = liked
+    found.likeCount += liked ? 1 : -1
+  }
   return Promise.resolve()
 }
 
