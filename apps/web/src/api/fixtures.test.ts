@@ -1983,3 +1983,68 @@ describe('비활동 시나리오 픽스처', () => {
     expect((caught as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
   })
 })
+
+/**
+ * 댓글 픽스처.
+ *
+ * 화면 테스트는 `@/api/posts`를 통째로 mock하므로 이 계층은 그 뒤에 가려져 있다.
+ * **권한과 정렬은 여기서 본다** — 픽스처가 남의 댓글 수정을 통과시키면 로컬에서만 되는
+ * 조작이 생기고, 그 회귀는 서버가 붙는 날까지 드러나지 않는다.
+ */
+describe('댓글 픽스처', () => {
+  /* 오래된순 고정이라 새 댓글은 맨 뒤에 붙는다 — 게시글(최신순, 맨 앞)과 반대다. */
+  it('등록한 댓글이 목록 맨 뒤에 붙는다', async () => {
+    const { fixtureComments, fixtureCreateComment } = await loadFixtures('user')
+
+    const before = await fixtureComments(701)
+    const created = await fixtureCreateComment(701, { content: '새 댓글' })
+    const after = await fixtureComments(701)
+
+    expect(after).toHaveLength(before.length + 1)
+    expect(after.at(-1)?.id).toBe(created.id)
+  })
+
+  /* **관리자도 남의 댓글은 못 고친다** (결정 23 D2). 통과시키면 화면의 진입점 규칙이 무의미해진다. */
+  it('남의 댓글 수정은 관리자여도 FORBIDDEN이다', async () => {
+    const { fixtureComments, fixtureEditComment, ApiError } =
+      await loadFixtures('admin')
+
+    const rows = await fixtureComments(701)
+    // 픽스처의 첫 댓글은 남이 쓴 것이다.
+    const caught = await fixtureEditComment(701, rows[0].id, {
+      content: '고침',
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    )
+
+    expect(caught).toBeInstanceOf(ApiError)
+    expect((caught as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+  })
+
+  /* 삭제는 활성 관리자에게 열린다 — 수정과 갈리는 지점이 여기다. */
+  it('남의 댓글 삭제는 활성 관리자에게 열린다', async () => {
+    const { fixtureComments, fixtureRemoveComment } =
+      await loadFixtures('admin')
+
+    const rows = await fixtureComments(701)
+    await fixtureRemoveComment(701, rows[0].id)
+
+    expect(await fixtureComments(701)).toHaveLength(rows.length - 1)
+  })
+
+  /* 다른 글의 댓글 id로 오면 있어도 404다 (계약 §3-2-5). */
+  it('다른 게시글의 댓글 id는 찾을 수 없는 것으로 다룬다', async () => {
+    const { fixtureComments, fixtureRemoveComment, ApiError } =
+      await loadFixtures('user')
+
+    const rows = await fixtureComments(701)
+    const caught = await fixtureRemoveComment(702, rows[0].id).then(
+      () => null,
+      (error: unknown) => error,
+    )
+
+    expect(caught).toBeInstanceOf(ApiError)
+    expect((caught as InstanceType<typeof ApiError>).code).toBe('NOT_FOUND')
+  })
+})

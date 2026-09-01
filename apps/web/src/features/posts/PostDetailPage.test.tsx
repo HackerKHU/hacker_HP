@@ -57,6 +57,16 @@ vi.mock('@/api/posts', () => ({
           new ApiError('NOT_FOUND', 404, '게시글을 찾을 수 없습니다.'),
         ),
   remove: api.remove,
+  /*
+   * 상세가 댓글 영역을 함께 그린다. 이 파일이 보는 것은 게시글 쪽이라 **댓글은 빈 목록으로
+   * 지나가게만 둔다** — 댓글의 동작은 `PostComments.test.tsx`가 따로 본다.
+   */
+  COMMENT_CONTENT_MAX: 2_000,
+  countCodePoints: (text: string) => [...text].length,
+  comments: () => Promise.resolve([]),
+  createComment: () => Promise.resolve({}),
+  updateComment: () => Promise.resolve({}),
+  removeComment: () => Promise.resolve(),
 }))
 
 vi.mock('@/api/auth', () => ({
