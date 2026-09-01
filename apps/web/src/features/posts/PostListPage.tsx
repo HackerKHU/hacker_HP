@@ -146,19 +146,19 @@ export function PostListPage() {
              * 열 폭과 정렬은 공지 목록에 맞춘다 — 두 목록을 나란히 놓았을 때 어긋나지
              * 않아야 한다. 조회수(#375)·댓글 수(#374) 열은 API에 필드가 생긴 뒤에 붙인다.
              */}
-            {/* 정렬은 표 한 자리에서 준다 — 공지·자료 목록과 같다. */}
-            <Table className="table-fixed min-w-[560px] text-center [&_th]:text-center">
+            {/* 제목만 왼쪽, 나머지는 가운데다 — 공지·자료 목록과 같다. */}
+            <Table className="table-fixed min-w-[560px] text-center">
               <TableHeader>
                 <TableRow>
                   <TableHead>제목</TableHead>
-                  <TableHead className="w-28">작성자</TableHead>
-                  <TableHead className="w-28">등록일</TableHead>
+                  <TableHead className="w-28 text-center">작성자</TableHead>
+                  <TableHead className="w-28 text-center">등록일</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {data.content.map((post) => (
                   <TableRow key={post.id}>
-                    <TableCell className="max-w-0 font-medium">
+                    <TableCell className="max-w-0 text-left font-medium">
                       <Link
                         to={`/posts/${post.id}`}
                         className="block truncate underline-offset-4 hover:underline"

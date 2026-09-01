@@ -44,28 +44,35 @@ export function NoteTable({
       <Table
         className={cn(
           'table-fixed',
-          // 정렬은 표 한 자리에서 준다 — 공지·자유 게시판 목록과 같다.
-          'text-center [&_th]:text-center',
+          /*
+           * **제목만 왼쪽, 나머지는 가운데다** — 공지·자유 게시판 목록과 같다. 제목까지
+           * 가운데로 두면 글 길이마다 왼쪽 끝이 달라져 목록을 훑는 눈이 매번 자리를
+           * 다시 잡는다. `text-center`가 `<td>`로 상속되고, `TableHead`의 `text-left`는
+           * 열마다 덮는다 — 제목 열만 그 기본값을 그대로 쓴다.
+           */
+          'text-center',
           showCategory ? 'min-w-[1120px]' : 'min-w-[1000px]',
         )}
       >
         <TableHeader>
           <TableRow>
             {/* 별표 열은 제목이 없다 — 아이콘만 있는 칸이라 이름을 붙이면 폭만 먹는다. */}
-            <TableHead className="w-10" />
-            {showCategory && <TableHead className="w-28">카테고리</TableHead>}
+            <TableHead className="w-10 text-center" />
+            {showCategory && (
+              <TableHead className="w-28 text-center">카테고리</TableHead>
+            )}
             {/*
              * 320px에서는 별표(40px) 뒤 제목의 말줄임표까지 화면 안에 둔다. 넓은 화면은
              * 기존 메타데이터 밀도를 유지한다.
              */}
             <TableHead className="w-56 sm:w-72">제목</TableHead>
-            <TableHead className="w-36">과목</TableHead>
-            <TableHead className="w-24">교수</TableHead>
-            <TableHead className="w-32">학기</TableHead>
-            <TableHead className="w-16">첨부</TableHead>
-            <TableHead className="w-20">조회수</TableHead>
-            <TableHead className="w-24">업로더</TableHead>
-            <TableHead className="w-28">등록일</TableHead>
+            <TableHead className="w-36 text-center">과목</TableHead>
+            <TableHead className="w-24 text-center">교수</TableHead>
+            <TableHead className="w-32 text-center">학기</TableHead>
+            <TableHead className="w-16 text-center">첨부</TableHead>
+            <TableHead className="w-20 text-center">조회수</TableHead>
+            <TableHead className="w-24 text-center">업로더</TableHead>
+            <TableHead className="w-28 text-center">등록일</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -114,7 +121,7 @@ export function NoteTable({
                 </TableCell>
               )}
 
-              <TableCell className="max-w-0 font-medium">
+              <TableCell className="max-w-0 text-left font-medium">
                 <Link
                   to={`/notes/${note.id}`}
                   className="block truncate underline-offset-4 hover:underline"

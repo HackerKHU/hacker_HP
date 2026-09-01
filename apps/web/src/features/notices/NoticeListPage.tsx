@@ -235,24 +235,25 @@ export function NoticeListPage() {
              * 만큼은 `Table`의 컨테이너가 가로로 스크롤한다.
              */}
             {/*
-             * **열 제목과 셀을 한 자리에서 가운데로 맞춘다.** 셀마다 정렬 유틸리티를
-             * 흩뿌리면 헤더는 왼쪽인데 숫자는 오른쪽인 지금 같은 어긋남이 다시 생긴다.
-             * `text-center`가 `<td>`로 상속되고, `TableHead`가 들고 있는 `text-left`만
-             * 후손 선택자로 덮는다.
+             * **제목만 왼쪽, 나머지는 가운데다.** 제목까지 가운데로 두면 글 길이마다
+             * 왼쪽 끝이 달라져 목록을 훑는 눈이 매번 자리를 다시 잡는다 — 게시판 목록이
+             * 제목만 왼쪽에 두는 이유다.
+             *
+             * 표에 `text-center`를 걸어 `<td>`로 상속시키고, `TableHead`가 들고 있는
+             * `text-left`는 열마다 덮는다. 제목 열만 그 기본값을 그대로 쓴다.
              */}
-            <Table className="table-fixed min-w-[640px] text-center [&_th]:text-center">
+            <Table className="table-fixed min-w-[640px] text-center">
               <TableHeader>
                 <TableRow>
                   <TableHead>제목</TableHead>
-                  <TableHead className="w-28">작성자</TableHead>
-                  {/*
-                   * 자료의 `조회수` 열과 같은 모양이다 — 숫자 열은 우측 정렬이라 자릿수가
-                   * 세로로 맞는다. 조회수 열은 아직 없다: 공지 응답에 필드가 없다 (#375).
-                   */}
-                  <TableHead className="w-20">좋아요</TableHead>
-                  <TableHead className="w-28">등록일</TableHead>
+                  <TableHead className="w-28 text-center">작성자</TableHead>
+                  {/* 조회수 열은 아직 없다: 공지 응답에 필드가 없다 (#375). */}
+                  <TableHead className="w-20 text-center">좋아요</TableHead>
+                  <TableHead className="w-28 text-center">등록일</TableHead>
                   {/* 고정 토글 열은 이름이 없다 — 버튼만 있는 칸이라 이름을 붙이면 폭만 먹는다. */}
-                  {managing && isAdmin && <TableHead className="w-24" />}
+                  {managing && isAdmin && (
+                    <TableHead className="w-24 text-center" />
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -265,7 +266,7 @@ export function NoticeListPage() {
                      */}
                     <TableCell
                       className={cn(
-                        'max-w-0 border-l-[3px] font-medium',
+                        'max-w-0 border-l-[3px] text-left font-medium',
                         notice.isPinned
                           ? 'border-l-primary'
                           : 'border-l-transparent',
@@ -274,7 +275,7 @@ export function NoticeListPage() {
                       <Link
                         to={`/notices/${notice.id}`}
                         className={cn(
-                          'flex items-center justify-center gap-2 underline-offset-4 hover:underline',
+                          'flex items-center gap-2 underline-offset-4 hover:underline',
                           notice.isPinned ? 'text-primary' : 'text-foreground',
                         )}
                       >
