@@ -20,6 +20,7 @@ import org.hackerkhu.hackerhp.domain.note.service.BookmarkService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteCreateService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteDownloadService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteEditService;
+import org.hackerkhu.hackerhp.domain.note.service.NoteLikeService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteQueryService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteUploadUrlService;
 import org.hackerkhu.hackerhp.domain.note.service.NoteViewService;
@@ -57,6 +58,7 @@ public class NoteController {
 
   private final NoteQueryService noteQueryService;
   private final BookmarkService bookmarkService;
+  private final NoteLikeService noteLikeService;
   private final NoteUploadUrlService noteUploadUrlService;
   private final NoteCreateService noteCreateService;
   private final NoteDownloadService noteDownloadService;
@@ -66,6 +68,7 @@ public class NoteController {
   public NoteController(
       NoteQueryService noteQueryService,
       BookmarkService bookmarkService,
+      NoteLikeService noteLikeService,
       NoteUploadUrlService noteUploadUrlService,
       NoteCreateService noteCreateService,
       NoteDownloadService noteDownloadService,
@@ -74,6 +77,7 @@ public class NoteController {
     this.noteViewService = noteViewService;
     this.noteQueryService = noteQueryService;
     this.bookmarkService = bookmarkService;
+    this.noteLikeService = noteLikeService;
     this.noteUploadUrlService = noteUploadUrlService;
     this.noteCreateService = noteCreateService;
     this.noteDownloadService = noteDownloadService;
@@ -497,5 +501,43 @@ public class NoteController {
   @PreAuthorize("isAuthenticated()")
   public void removeBookmark(@AuthenticationPrincipal Long viewerId, @PathVariable Long id) {
     bookmarkService.remove(viewerId, id);
+  }
+
+  /**
+   * 좋아요 (#344). <b>즐겨찾기와 완전히 별개 자원이다</b> (3-3 결정 25 D1) — 즐겨찾기는 "다시 보려고 담아둔다", 좋아요는 "품질에 공감한다"로 뜻이
+   * 다르다.
+   */
+  @Operation(
+      summary = "자료 좋아요",
+      description =
+          """
+          **이미 눌렀어도 성공이다.** 즐겨찾기와 같은 계약이다 — 두 번 눌러도 빠지지 않는다.
+
+          **토글이 아니다.** 화면은 응답의 `likedByMe`를 보고 누를지 뗄지 고른다.
+          """)
+  @ApiResponse(responseCode = "204", description = "눌렸다 (이미 눌러져 있던 경우 포함)")
+  @ApiResponse(
+      responseCode = "404",
+      description = "`NOT_FOUND` — 없는 자료",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @PostMapping("/{id}/like")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  @PreAuthorize("isAuthenticated()")
+  public void like(@AuthenticationPrincipal Long viewerId, @PathVariable Long id) {
+    noteLikeService.add(viewerId, id);
+  }
+
+  @Operation(
+      summary = "자료 좋아요 취소",
+      description = "**눌러져 있지 않아도 성공이다.** 없는 자료여도 `404`를 주지 않는다 — 즐겨찾기 해제와 같은 이유다.")
+  @ApiResponse(responseCode = "204", description = "떼졌다 (눌러져 있지 않던 경우 포함)")
+  @DeleteMapping("/{id}/like")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  @PreAuthorize("isAuthenticated()")
+  public void unlike(@AuthenticationPrincipal Long viewerId, @PathVariable Long id) {
+    noteLikeService.remove(viewerId, id);
   }
 }

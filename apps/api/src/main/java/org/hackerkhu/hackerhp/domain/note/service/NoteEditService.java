@@ -12,6 +12,7 @@ import org.hackerkhu.hackerhp.domain.note.dto.Uploader;
 import org.hackerkhu.hackerhp.domain.note.entity.Note;
 import org.hackerkhu.hackerhp.domain.note.entity.NoteFile;
 import org.hackerkhu.hackerhp.domain.note.repository.BookmarkRepository;
+import org.hackerkhu.hackerhp.domain.note.repository.NoteLikeRepository;
 import org.hackerkhu.hackerhp.domain.note.repository.NoteRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
@@ -45,6 +46,7 @@ public class NoteEditService {
 
   private final NoteRepository notes;
   private final BookmarkRepository bookmarks;
+  private final NoteLikeRepository likes;
   private final UserRepository users;
   private final StagedUploads staged;
   private final NoteUploadPolicy policy;
@@ -53,12 +55,14 @@ public class NoteEditService {
   public NoteEditService(
       NoteRepository notes,
       BookmarkRepository bookmarks,
+      NoteLikeRepository likes,
       UserRepository users,
       StagedUploads staged,
       NoteUploadPolicy policy,
       PlatformTransactionManager transactionManager) {
     this.notes = notes;
     this.bookmarks = bookmarks;
+    this.likes = likes;
     this.users = users;
     this.staged = staged;
     this.policy = policy;
@@ -313,6 +317,8 @@ public class NoteEditService {
         note,
         Uploader.of(uploader),
         bookmarks.existsByUserIdAndNoteId(viewerId, note.getId()),
-        note.getViewCount());
+        note.getViewCount(),
+        likes.countByNoteId(note.getId()),
+        likes.existsByUserIdAndNoteId(viewerId, note.getId()));
   }
 }

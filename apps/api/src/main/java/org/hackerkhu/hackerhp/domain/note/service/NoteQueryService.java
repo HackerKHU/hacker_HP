@@ -1,5 +1,6 @@
 package org.hackerkhu.hackerhp.domain.note.service;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -13,6 +14,7 @@ import org.hackerkhu.hackerhp.domain.note.dto.NoteSummaryResponse;
 import org.hackerkhu.hackerhp.domain.note.dto.Uploader;
 import org.hackerkhu.hackerhp.domain.note.entity.Note;
 import org.hackerkhu.hackerhp.domain.note.repository.BookmarkRepository;
+import org.hackerkhu.hackerhp.domain.note.repository.NoteLikeRepository;
 import org.hackerkhu.hackerhp.domain.note.repository.NoteRepository;
 import org.hackerkhu.hackerhp.domain.note.repository.NoteSpecifications;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
@@ -33,12 +35,17 @@ public class NoteQueryService {
   private final NoteRepository notes;
   private final UserRepository users;
   private final BookmarkRepository bookmarks;
+  private final NoteLikeRepository likes;
 
   public NoteQueryService(
-      NoteRepository notes, UserRepository users, BookmarkRepository bookmarks) {
+      NoteRepository notes,
+      UserRepository users,
+      BookmarkRepository bookmarks,
+      NoteLikeRepository likes) {
     this.notes = notes;
     this.users = users;
     this.bookmarks = bookmarks;
+    this.likes = likes;
   }
 
   /**
@@ -50,7 +57,7 @@ public class NoteQueryService {
       Long viewerId, NoteSearch search, NoteSort sort, Pageable pageable) {
     Page<Note> page =
         notes.findAll(NoteSpecifications.matching(search, sort), fixedOrder(pageable));
-    return toSummaries(page, bookmarkedIds(viewerId, page.getContent()));
+    return toSummaries(page, viewerId, bookmarkedIds(viewerId, page.getContent()));
   }
 
   /**
@@ -67,7 +74,7 @@ public class NoteQueryService {
      * 계약이 깨진다 (#189 리뷰). 질의도 하나 준다.
      */
     return toSummaries(
-        page, page.getContent().stream().map(Note::getId).collect(Collectors.toSet()));
+        page, viewerId, page.getContent().stream().map(Note::getId).collect(Collectors.toSet()));
   }
 
   /**
@@ -95,7 +102,9 @@ public class NoteQueryService {
         note,
         uploaderOf(note, uploaders(List.of(note))),
         bookmarks.existsByUserIdAndNoteId(viewerId, id),
-        note.getViewCount());
+        note.getViewCount(),
+        likes.countByNoteId(id),
+        likes.existsByUserIdAndNoteId(viewerId, id));
   }
 
   /**
@@ -105,16 +114,21 @@ public class NoteQueryService {
    *
    * @param bookmarked 이 페이지에서 <b>내가 담은</b> 자료의 id. 부르는 쪽이 정한다 — 즐겨찾기 목록에서는 물어볼 필요가 없다
    */
-  private Page<NoteSummaryResponse> toSummaries(Page<Note> page, Set<Long> bookmarked) {
+  private Page<NoteSummaryResponse> toSummaries(
+      Page<Note> page, Long viewerId, Set<Long> bookmarked) {
     Map<Long, User> found = uploaders(page.getContent());
     Map<Long, Integer> fileCounts = fileCounts(page.getContent());
+    Map<Long, Long> likeCounts = likeCountsOf(page.getContent());
+    Set<Long> likedByMe = likedIdsOf(viewerId, page.getContent());
     return page.map(
         note ->
             NoteSummaryResponse.of(
                 note,
                 uploaderOf(note, found),
                 fileCounts.getOrDefault(note.getId(), 0),
-                bookmarked.contains(note.getId())));
+                bookmarked.contains(note.getId()),
+                likeCounts.getOrDefault(note.getId(), 0L),
+                likedByMe.contains(note.getId())));
   }
 
   private Set<Long> bookmarkedIds(Long viewerId, List<Note> found) {
@@ -123,6 +137,27 @@ public class NoteQueryService {
       return Set.of();
     }
     return Set.copyOf(bookmarks.findNoteIdsOf(viewerId, ids));
+  }
+
+  /** 좋아요 개수를 <b>한 번에</b> 모아 읽는다. 행마다 물으면 페이지 크기만큼 질의가 붙는다. */
+  private Map<Long, Long> likeCountsOf(List<Note> found) {
+    List<Long> ids = found.stream().map(Note::getId).toList();
+    if (ids.isEmpty()) {
+      return Map.of();
+    }
+    Map<Long, Long> counts = new HashMap<>();
+    for (Object[] row : likes.countByNoteIds(ids)) {
+      counts.put((Long) row[0], (Long) row[1]);
+    }
+    return counts;
+  }
+
+  private Set<Long> likedIdsOf(Long viewerId, List<Note> found) {
+    List<Long> ids = found.stream().map(Note::getId).toList();
+    if (ids.isEmpty()) {
+      return Set.of();
+    }
+    return Set.copyOf(likes.findLikedNoteIdsOf(viewerId, ids));
   }
 
   /** 필터 옵션은 <b>실제 등록된 값</b>에서 만든다 (2-1 §2-1-1 MUST). */
