@@ -414,6 +414,8 @@ const NOTICES: Notice[] = [
     // 1일 전 — 고정이면서 새글이다. 핀(강)과 NEW(약)의 위계가 한 행에서 보인다.
     createdAt: daysAgo(1),
     updatedAt: daysAgo(1),
+    likeCount: 12,
+    likedByMe: false,
   },
   {
     id: 102,
@@ -425,6 +427,8 @@ const NOTICES: Notice[] = [
     authorName: '관리자',
     createdAt: daysAgo(12),
     updatedAt: daysAgo(10),
+    likeCount: 3,
+    likedByMe: true,
   },
 ]
 
@@ -467,6 +471,9 @@ for (const [index, topic] of TOPICS.entries()) {
     authorName: '관리자',
     createdAt: daysAgo(days),
     updatedAt: daysAgo(days),
+    // 0이 섞여 있어야 "아직 아무도 안 누른 공지"의 표시를 화면에서 볼 수 있다.
+    likeCount: index % 4,
+    likedByMe: index % 5 === 0,
   })
 }
 
@@ -601,6 +608,8 @@ export function fixtureCreateNotice(body: {
     authorName: '관리자',
     createdAt: now,
     updatedAt: now,
+    likeCount: 0,
+    likedByMe: false,
   }
   NOTICES.push(created)
   sortNotices()
@@ -643,6 +652,31 @@ export function fixtureRemoveNotice(id: number): Promise<void> {
     )
   }
   NOTICES.splice(index, 1)
+  return Promise.resolve()
+}
+
+/**
+ * 좋아요·취소. **없는 공지여도 둘 다 성공은 아니다** — 누르기는 `404`, 취소는 성공이다
+ * (계약 §3-2-5). 공지가 지워지면 좋아요도 함께 사라져 뗄 것이 이미 없다.
+ *
+ * 멱등이라 이미 누른 것에 누르기, 안 눌린 것에 취소 모두 아무 일 없이 성공한다.
+ */
+export function fixtureSetNoticeLike(
+  id: number,
+  liked: boolean,
+): Promise<void> {
+  const found = NOTICES.find((notice) => notice.id === id)
+  if (!found) {
+    return liked
+      ? Promise.reject(
+          new ApiError('NOT_FOUND', 404, '공지를 찾을 수 없습니다.'),
+        )
+      : Promise.resolve()
+  }
+  if (found.likedByMe !== liked) {
+    found.likedByMe = liked
+    found.likeCount += liked ? 1 : -1
+  }
   return Promise.resolve()
 }
 

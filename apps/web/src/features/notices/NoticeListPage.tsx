@@ -1,4 +1,4 @@
-import { Pin } from 'lucide-react'
+import { Heart, Pin } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { list, type Notice, togglePin } from '@/api/notices'
@@ -274,6 +274,22 @@ export function NoticeListPage() {
                           NEW
                         </Badge>
                       )}
+                    </span>
+                    {/*
+                     * **목록은 개수만 읽기 전용으로 보여준다** — 누르는 것은 상세에만
+                     * 둔다 (#348 D1). 행 전체가 상세로 가는 링크라 그 안에 버튼을 넣으면
+                     * 링크 안의 버튼이 되고, 잘못 누르면 읽으러 온 사람이 좋아요를 남긴다.
+                     */}
+                    <span className="flex shrink-0 items-center gap-1 text-sm text-muted-foreground tabular-nums">
+                      <Heart
+                        className={cn(
+                          'size-3.5',
+                          notice.likedByMe && 'fill-current',
+                        )}
+                        aria-hidden="true"
+                      />
+                      <span className="sr-only">좋아요</span>
+                      {notice.likeCount}
                     </span>
                     <time
                       dateTime={notice.createdAt}

@@ -46,6 +46,8 @@ function notice(
   title: string,
   isPinned: boolean,
   daysAgo: number,
+  likeCount = 0,
+  likedByMe = false,
 ): Notice {
   const at = new Date(Date.now() - daysAgo * DAY_MS).toISOString()
   return {
@@ -57,6 +59,8 @@ function notice(
     authorName: '관리자',
     createdAt: at,
     updatedAt: at,
+    likeCount,
+    likedByMe,
   }
 }
 
@@ -65,7 +69,7 @@ const PAGES: Page<Notice>[] = [
   {
     content: [
       notice(1, '고정된 공지', true, 30),
-      notice(2, '최근 공지', false, 1),
+      notice(2, '최근 공지', false, 1, 7, true),
       notice(3, '일반 공지', false, 30),
     ],
     page: { size: 10, number: 0, totalElements: 12, totalPages: 2 },
@@ -162,7 +166,7 @@ function resetPages() {
     ...PAGES[0],
     content: [
       notice(1, '고정된 공지', true, 30),
-      notice(2, '최근 공지', false, 1),
+      notice(2, '최근 공지', false, 1, 7, true),
       notice(3, '일반 공지', false, 30),
     ],
   }
@@ -194,6 +198,20 @@ describe('공지 목록', () => {
     expect(title.className).toContain('truncate')
     expect(title).toHaveAttribute('title', longTitle)
     expect(link?.className).toContain('min-w-0')
+  })
+
+  /*
+   * **목록은 개수만 읽기 전용으로 보여준다** (#348 D1). 행 전체가 상세로 가는 링크라
+   * 여기에 버튼을 두면 읽으러 온 사람이 잘못 눌러 좋아요를 남긴다.
+   */
+  it('행마다 좋아요 개수를 보여주고 누르는 버튼은 두지 않는다', async () => {
+    renderList()
+
+    const row = (await screen.findByRole('link', { name: /최근 공지/ }))
+      .parentElement as HTMLElement
+    expect(within(row).getByText('7')).toBeVisible()
+    // 관리 모드가 아닌 목록에는 버튼이 아예 없다 — 좋아요도 예외가 아니다.
+    expect(within(row).queryByRole('button')).toBeNull()
   })
 
   it('조회 상태가 바뀌어도 목록 surface와 pager 자리를 유지한다', async () => {

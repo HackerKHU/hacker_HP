@@ -1,7 +1,8 @@
+import { Heart } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '@/api/client'
-import { get, type Notice, remove } from '@/api/notices'
+import { get, type Notice, remove, setNoticeLike } from '@/api/notices'
 import { useSession } from '@/auth/session'
 import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import {
@@ -16,6 +17,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 /** 상세에서는 분까지 보여준다. 목록은 날짜까지만 쓴다. */
 function formatDateTime(iso: string): string {
@@ -39,6 +41,8 @@ export function NoticeDetailPage() {
   const [notice, setNotice] = useState<Notice | null>(null)
   const [status, setStatus] = useState<Status>('loading')
   const [deleting, setDeleting] = useState(false)
+  // 진행 중에 또 누르면 POST와 DELETE가 순서를 바꿔 도착해 서버 상태와 화면이 갈린다.
+  const [liking, setLiking] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -64,6 +68,35 @@ export function NoticeDetailPage() {
       alive = false
     }
   }, [id, reportApiError])
+
+  /**
+   * 좋아요·취소. 서버가 준 `likedByMe`를 보고 방향을 정한다 (계약 §3-2-5 — 토글이 아니다).
+   *
+   * **낙관적으로 먼저 반영한다.** 응답이 `204`라 최신 개수가 오지 않아 화면이 직접 센다 —
+   * 다시 `GET`하면 왕복이 하나 더 늘고, 그 사이 숫자가 멈춰 있어 누른 것 같지가 않다.
+   * 실패하면 누르기 전 값으로 되돌린다.
+   */
+  async function toggleLike() {
+    if (!notice) return
+    const next = !notice.likedByMe
+    const before = notice
+    setLiking(true)
+    setNotice({
+      ...notice,
+      likedByMe: next,
+      likeCount: notice.likeCount + (next ? 1 : -1),
+    })
+    try {
+      await setNoticeLike(notice.id, next)
+    } catch (error: unknown) {
+      setNotice((current) => (current?.id === before.id ? before : current))
+      if (!reportApiError(error)) {
+        alert.error('좋아요를 바꾸지 못했습니다. 다시 시도해 주세요.')
+      }
+    } finally {
+      setLiking(false)
+    }
+  }
 
   /** 삭제는 되돌릴 수 없다. 확인 단계를 거친 뒤에만 여기 도달한다. */
   async function handleDelete() {
@@ -134,60 +167,87 @@ export function NoticeDetailPage() {
               {formatDateTime(notice.createdAt)}
             </time>
 
-            {/*
-             * 수정·삭제 진입점은 ADMIN에게만 보인다. **노출 제어일 뿐 권한 통제가 아니다**
-             * (spec §3-1-7). 실제 통제는 `/admin/**` 라우트 가드와 서버다 — 여기를 뚫어도
-             * 폼에 도달하지 못하고, 도달해도 서버가 거부한다.
-             */}
-            {isAdmin && (
-              <div className="flex shrink-0 gap-2">
-                <Button variant="outline" size="sm" asChild>
-                  <Link to={`/admin/notices/${notice.id}/edit`}>수정</Link>
-                </Button>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {/*
+               * **좋아요는 부원도 누른다** (계약 §3-2-5 — `ACTIVE`·`INACTIVE`). 무채색
+               * 팔레트라 색으로 구분할 수 없어 **채움과 비움으로 가른다** — 자료 즐겨찾기의
+               * 별과 같은 방식이다 (§2-1-5).
+               */}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={liking}
+                aria-pressed={notice.likedByMe}
+                onClick={toggleLike}
+              >
+                <Heart
+                  className={cn('size-4', notice.likedByMe && 'fill-current')}
+                  aria-hidden="true"
+                />
+                좋아요 {notice.likeCount}
+              </Button>
 
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    {/*
-                     * **되돌릴 수 없는 조작은 무게가 달라야 한다.** `수정`과 같은
-                     * `outline`이면 손이 미끄러진 곳이 어디였는지 알 수 없다 — 회원 관리의
-                     * `제거`를 메뉴 안에서 가른 것과 같은 이유다 (#99).
-                     *
-                     * 이 팔레트에서 `destructive`는 붉은색이 아니라 회색(`#525252`)이라
-                     * 무채색 규칙을 깨지 않는다.
-                     */}
-                    <Button variant="destructive" size="sm" disabled={deleting}>
-                      삭제
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>공지를 삭제할까요?</AlertDialogTitle>
-                      {/* 무엇을 지우는지 제목으로 보여준다. "이 항목"만으로는 확인이 안 된다. */}
-                      <AlertDialogDescription asChild>
-                        <div>
-                          <span className="block">다음 공지를 삭제합니다.</span>
-                          <span
-                            className="mt-1 block truncate font-medium text-foreground"
-                            title={notice.title}
-                          >
-                            「{notice.title}」
-                          </span>
-                          <span className="mt-1 block">
-                            되돌릴 수 없습니다.
-                          </span>
-                        </div>
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>취소</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleDelete}>
+              {/*
+               * 수정·삭제 진입점은 ADMIN에게만 보인다. **노출 제어일 뿐 권한 통제가 아니다**
+               * (spec §3-1-7). 실제 통제는 `/admin/**` 라우트 가드와 서버다 — 여기를 뚫어도
+               * 폼에 도달하지 못하고, 도달해도 서버가 거부한다.
+               */}
+              {isAdmin && (
+                <>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to={`/admin/notices/${notice.id}/edit`}>수정</Link>
+                  </Button>
+
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      {/*
+                       * **되돌릴 수 없는 조작은 무게가 달라야 한다.** `수정`과 같은
+                       * `outline`이면 손이 미끄러진 곳이 어디였는지 알 수 없다 — 회원 관리의
+                       * `제거`를 메뉴 안에서 가른 것과 같은 이유다 (#99).
+                       *
+                       * 이 팔레트에서 `destructive`는 붉은색이 아니라 회색(`#525252`)이라
+                       * 무채색 규칙을 깨지 않는다.
+                       */}
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={deleting}
+                      >
                         삭제
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-            )}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>공지를 삭제할까요?</AlertDialogTitle>
+                        {/* 무엇을 지우는지 제목으로 보여준다. "이 항목"만으로는 확인이 안 된다. */}
+                        <AlertDialogDescription asChild>
+                          <div>
+                            <span className="block">
+                              다음 공지를 삭제합니다.
+                            </span>
+                            <span
+                              className="mt-1 block truncate font-medium text-foreground"
+                              title={notice.title}
+                            >
+                              「{notice.title}」
+                            </span>
+                            <span className="mt-1 block">
+                              되돌릴 수 없습니다.
+                            </span>
+                          </div>
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>취소</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete}>
+                          삭제
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </>
+              )}
+            </div>
           </div>
 
           {/* 본문은 평문이다. 리치 텍스트는 범위 밖이고, 줄바꿈만 보존한다. */}
