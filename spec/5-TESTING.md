@@ -304,6 +304,27 @@ T-16은 `AccountStatusFilter`가 이 경로를 `PENDING`에게 열어 두는지�
 
 **T-528이 이 절의 핵심이다.** 자료 갈래(`notes`·`bookmarks`)와 달리 공지 좋아요는 `RequesterCheck#requireActive`만 쓰고 `requireNoteAccess`를 쓰지 않는다 — `INACTIVE`를 막으면 "자료 외 기능은 그대로 쓴다"는 §3-1-2의 원칙이 조용히 깨진다.
 
+### 활동사진 좋아요 (#346)
+
+[2-1 §2-1-7 "좋아요"](2-1-USER-STORIES.md#좋아요)·[3-3 결정 27](3-3-DESIGN-DECISIONS.md#3-3-28-결정-27--활동사진에-좋아요를-더한다)이 요구하는 결과다. 멱등성·동시성 계약은 다른 좋아요들과 같다 — 여기서는 **사진만의 차이**(업로드·삭제는 `ADMIN`인데 좋아요는 `ACTIVE`·`INACTIVE` 전체로 권한 레벨이 갈리는 지점, `SecurityConfig` 필터 매칭)를 본다.
+
+| # | 조건 | 기대 |
+|---|---|---|
+| T-561 | 같은 사진을 두 번 누름 | `204` 두 번, 행은 **하나**. 토글이 아니다 |
+| T-562 | 누르지 않은 사진을 취소 / 없는 사진을 취소 | 둘 다 `204` |
+| T-563 | 없는 사진을 누름 | `404 NOT_FOUND` |
+| T-564 | 남이 누른 사진을 내가 취소 | 남의 것은 그대로 남는다 |
+| T-565 | 사진 목록의 `likeCount`·`likedByMe` | 누르기 전 `0`/`false`, 두 명이 누르면 `2`/`true`(누른 사람 기준) |
+| T-566 | 남이 누른 사진의 `likedByMe` | 나에게는 `false` |
+| T-567 | 사진을 삭제 | 좋아요도 함께 사라진다 (MUST, `ON DELETE CASCADE`) |
+| T-568 | 좋아요를 누른 회원을 제거 | 그 좋아요도 함께 사라진다 (MUST, `ON DELETE CASCADE`) |
+| T-569 | 비로그인 / `PENDING` / `SUSPENDED` | `401` / `403 PENDING_APPROVAL` / `403 SUSPENDED` |
+| T-570 | `INACTIVE` 회원이 누름 | **된다** (MUST) — 활동사진은 자료 갈래가 아니다(#228) |
+| T-571 | **일반 부원(ADMIN 아님)**이 사진 좋아요를 누름 | **된다** (MUST) — 업로드·삭제와 달리 `ADMIN` 전용이 아니다 |
+| T-572 | 같은 사진을 **동시에** 여러 번 누름 / 해제 | 모두 `204`, 최종 행은 각각 하나 / 없음 |
+
+**T-571이 이 절의 핵심이다** (3-3 결정 27 D3, 리뷰로 드러남). `SecurityConfig`는 활동사진 쓰기를 필터 단에서 한 번 더 막는데, 처음 구현은 `requestMatchers(HttpMethod.POST, "/api/v1/photos/**").hasRole("ADMIN")`처럼 **와일드카드**를 썼다 — 이러면 `/photos/{id}/like`까지 `ADMIN` 전용으로 막혀 컨트롤러의 `@PreAuthorize("isAuthenticated()")`에 닿기도 전에 일반 부원이 `403`을 받는다. 정확한 경로(`/photos`, `/photos/upload-url`, `/photos/{id}`)로 좁혀야 좋아요 경로가 그 규칙 밖에 남는다. **이 사례가 없으면 필터 매칭이 다시 와일드카드로 넓어져도 잡히지 않는다** — `@PreAuthorize`만 보는 컨트롤러 단위 테스트는 필터 단계를 통과한 뒤의 이야기라 이 문제를 못 잡는다.
+
 ### 관리자 승격 시도 제한
 
 [3-3 결정 11](3-3-DESIGN-DECISIONS.md)·[3-2 §3-2-3](3-2-DESIGN-CONTRACT.md)이 요구하는 결과다 (#144).

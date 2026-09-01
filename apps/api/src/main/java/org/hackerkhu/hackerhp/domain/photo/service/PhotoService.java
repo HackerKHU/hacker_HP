@@ -1,8 +1,10 @@
 package org.hackerkhu.hackerhp.domain.photo.service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -13,6 +15,7 @@ import org.hackerkhu.hackerhp.domain.photo.dto.PhotoRegisterResponse.Reason;
 import org.hackerkhu.hackerhp.domain.photo.dto.PhotoResponse;
 import org.hackerkhu.hackerhp.domain.photo.dto.PhotoUploadUrlResponse;
 import org.hackerkhu.hackerhp.domain.photo.entity.Photo;
+import org.hackerkhu.hackerhp.domain.photo.repository.PhotoLikeRepository;
 import org.hackerkhu.hackerhp.domain.photo.repository.PhotoRepository;
 import org.hackerkhu.hackerhp.domain.user.dto.DisplayName;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
@@ -58,16 +61,19 @@ public class PhotoService {
 
   private final PhotoRepository photoRepository;
   private final UserRepository userRepository;
+  private final PhotoLikeRepository photoLikeRepository;
   private final FileStorage storage;
   private final TransactionTemplate transactionTemplate;
 
   public PhotoService(
       PhotoRepository photoRepository,
       UserRepository userRepository,
+      PhotoLikeRepository photoLikeRepository,
       FileStorage storage,
       PlatformTransactionManager transactionManager) {
     this.photoRepository = photoRepository;
     this.userRepository = userRepository;
+    this.photoLikeRepository = photoLikeRepository;
     this.storage = storage;
     this.transactionTemplate = new TransactionTemplate(transactionManager);
   }
@@ -194,7 +200,8 @@ public class PhotoService {
                 requireActiveAdmin(uploaderId);
                 Photo managed = photoRepository.getReferenceById(photoId);
                 managed.assignStoredPath(finalKey);
-                return toResponse(managed);
+                // 방금 등록한 사진이라 좋아요는 아직 없다.
+                return toResponse(managed, 0L, false);
               });
     } catch (RuntimeException e) {
       // 업로드 실패든 권한 재확인 실패든, 완결되지 못한 행은 남기지 않는다. 임시 원본은 그대로
@@ -225,13 +232,40 @@ public class PhotoService {
    * PhotoRepository#findByStoredPathNotStartingWith} 참고.
    */
   @Transactional(readOnly = true)
-  public Page<PhotoResponse> list(Pageable pageable) {
+  public Page<PhotoResponse> list(Pageable pageable, Long viewerId) {
     Sort newestFirst = Sort.by(Sort.Order.desc("createdAt"));
-    return photoRepository
-        .findCompleted(
+    Page<Photo> page =
+        photoRepository.findCompleted(
             TEMP_PREFIX,
-            PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), newestFirst))
-        .map(this::toResponse);
+            PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), newestFirst));
+    List<Long> ids = page.getContent().stream().map(Photo::getId).toList();
+    Map<Long, Long> likeCounts = likeCountsOf(ids);
+    Set<Long> likedByMe = likedIdsOf(viewerId, ids);
+    return page.map(
+        photo ->
+            toResponse(
+                photo,
+                likeCounts.getOrDefault(photo.getId(), 0L),
+                likedByMe.contains(photo.getId())));
+  }
+
+  /** 좋아요 개수를 <b>한 번에</b> 모아 읽는다. 행마다 물으면 페이지 크기만큼 질의가 붙는다. */
+  private Map<Long, Long> likeCountsOf(List<Long> photoIds) {
+    if (photoIds.isEmpty()) {
+      return Map.of();
+    }
+    Map<Long, Long> counts = new HashMap<>();
+    for (Object[] row : photoLikeRepository.countByPhotoIds(photoIds)) {
+      counts.put((Long) row[0], (Long) row[1]);
+    }
+    return counts;
+  }
+
+  private Set<Long> likedIdsOf(Long viewerId, List<Long> photoIds) {
+    if (photoIds.isEmpty()) {
+      return Set.of();
+    }
+    return Set.copyOf(photoLikeRepository.findLikedPhotoIdsOf(viewerId, photoIds));
   }
 
   /**
@@ -269,7 +303,7 @@ public class PhotoService {
     }
   }
 
-  private PhotoResponse toResponse(Photo photo) {
+  private PhotoResponse toResponse(Photo photo, long likeCount, boolean likedByMe) {
     User uploader = photo.getUploader();
     /*
      * 표시 이름은 DisplayName 한 곳에서만 만든다 (3-2 §3-2-2 MUST, #301). 예전에는 여기서
@@ -287,7 +321,9 @@ public class PhotoService {
         thumbnailUrl,
         uploaderId,
         uploaderName,
-        photo.getCreatedAt());
+        photo.getCreatedAt(),
+        likeCount,
+        likedByMe);
   }
 
   /**
