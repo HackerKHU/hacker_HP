@@ -1,8 +1,13 @@
 package org.hackerkhu.hackerhp.domain.notice.service;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.hackerkhu.hackerhp.domain.notice.dto.NoticeRequest;
 import org.hackerkhu.hackerhp.domain.notice.dto.NoticeResponse;
 import org.hackerkhu.hackerhp.domain.notice.entity.Notice;
+import org.hackerkhu.hackerhp.domain.notice.repository.NoticeLikeRepository;
 import org.hackerkhu.hackerhp.domain.notice.repository.NoticeRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
@@ -26,26 +31,40 @@ public class NoticeService {
 
   private final NoticeRepository noticeRepository;
   private final UserRepository userRepository;
+  private final NoticeLikeRepository noticeLikeRepository;
 
-  public NoticeService(NoticeRepository noticeRepository, UserRepository userRepository) {
+  public NoticeService(
+      NoticeRepository noticeRepository,
+      UserRepository userRepository,
+      NoticeLikeRepository noticeLikeRepository) {
     this.noticeRepository = noticeRepository;
     this.userRepository = userRepository;
+    this.noticeLikeRepository = noticeLikeRepository;
   }
 
   /**
    * 정렬은 항상 {@link #FIXED_SORT}다 — {@code pageable}의 {@code sort}는 무시한다. {@code page}·{@code size}는
    * {@code spring.data.web.pageable}(§3-2-8)이 검증·상한을 이미 처리했으므로 여기서 다시 확인하지 않는다.
    */
-  public Page<NoticeResponse> list(Pageable pageable) {
-    return noticeRepository
-        .findAll(PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), FIXED_SORT))
-        .map(NoticeResponse::from);
+  public Page<NoticeResponse> list(Pageable pageable, Long viewerId) {
+    Page<Notice> page =
+        noticeRepository.findAll(
+            PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), FIXED_SORT));
+    List<Long> ids = page.getContent().stream().map(Notice::getId).toList();
+    Map<Long, Long> counts = likeCountsOf(ids);
+    Set<Long> likedByMe = likedIdsOf(viewerId, ids);
+    return page.map(
+        notice ->
+            NoticeResponse.from(
+                notice,
+                counts.getOrDefault(notice.getId(), 0L),
+                likedByMe.contains(notice.getId())));
   }
 
-  public NoticeResponse get(Long id) {
+  public NoticeResponse get(Long id, Long viewerId) {
     Notice notice =
         noticeRepository.findById(id).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
-    return NoticeResponse.from(notice);
+    return withLikeInfo(notice, viewerId);
   }
 
   /**
@@ -58,15 +77,16 @@ public class NoticeService {
     User author = userRepository.getReferenceById(authorId);
     Notice notice = Notice.write(request.title(), request.content(), author);
     noticeRepository.save(notice);
-    return NoticeResponse.from(notice);
+    // 방금 만든 공지라 좋아요가 있을 수 없다 — 조회하지 않고 0/false로 바로 응답한다.
+    return NoticeResponse.from(notice, 0L, false);
   }
 
   @Transactional
-  public NoticeResponse update(Long id, NoticeRequest request) {
+  public NoticeResponse update(Long id, NoticeRequest request, Long viewerId) {
     Notice notice =
         noticeRepository.findById(id).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
     notice.edit(request.title(), request.content());
-    return NoticeResponse.from(notice);
+    return withLikeInfo(notice, viewerId);
   }
 
   @Transactional
@@ -79,7 +99,7 @@ public class NoticeService {
 
   /** 고정 개수 상한은 두지 않는다 (spec 2-1 §2-1-6). 여러 개가 고정되면 {@link #FIXED_SORT}가 등록일 최신순으로 가른다. */
   @Transactional
-  public NoticeResponse togglePin(Long id) {
+  public NoticeResponse togglePin(Long id, Long viewerId) {
     Notice notice =
         noticeRepository.findById(id).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
     if (notice.isPinned()) {
@@ -87,6 +107,32 @@ public class NoticeService {
     } else {
       notice.pin();
     }
-    return NoticeResponse.from(notice);
+    return withLikeInfo(notice, viewerId);
+  }
+
+  /** 공지 하나에 좋아요 정보를 붙인다 — {@link #get}·{@link #update}·{@link #togglePin}이 공유한다. */
+  private NoticeResponse withLikeInfo(Notice notice, Long viewerId) {
+    long count = noticeLikeRepository.countByNoticeId(notice.getId());
+    boolean liked = noticeLikeRepository.existsByUserIdAndNoticeId(viewerId, notice.getId());
+    return NoticeResponse.from(notice, count, liked);
+  }
+
+  /** 좋아요 개수를 <b>한 번에</b> 모아 읽는다. 행마다 물으면 페이지 크기만큼 질의가 붙는다. */
+  private Map<Long, Long> likeCountsOf(List<Long> noticeIds) {
+    if (noticeIds.isEmpty()) {
+      return Map.of();
+    }
+    Map<Long, Long> counts = new HashMap<>();
+    for (Object[] row : noticeLikeRepository.countByNoticeIds(noticeIds)) {
+      counts.put((Long) row[0], (Long) row[1]);
+    }
+    return counts;
+  }
+
+  private Set<Long> likedIdsOf(Long viewerId, List<Long> noticeIds) {
+    if (noticeIds.isEmpty()) {
+      return Set.of();
+    }
+    return Set.copyOf(noticeLikeRepository.findLikedNoticeIdsOf(viewerId, noticeIds));
   }
 }

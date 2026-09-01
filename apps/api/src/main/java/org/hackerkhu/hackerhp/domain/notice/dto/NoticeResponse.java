@@ -15,6 +15,9 @@ import org.hackerkhu.hackerhp.domain.user.entity.User;
  *
  * <p><b>{@code authorId}는 {@code null}이 될 수 있다.</b> 소유자 판단은 이름이 아니라 이 id로 한다 — 이름으로 견주면 "탈퇴한 회원"끼리
  * 서로의 글을 고치게 된다.
+ *
+ * <p><b>{@code likeCount}·{@code likedByMe}는 항상 함께 온다</b> (#343, 3-3 결정 24). 개수만 보이고 내가 눌렀는지 모르면
+ * 화면이 좋아요 버튼을 채울지 비울지 정할 수 없다 — {@code NoteSummaryResponse}의 {@code bookmarked}와 같은 판단이다.
  */
 public record NoticeResponse(
     Long id,
@@ -24,9 +27,11 @@ public record NoticeResponse(
     Long authorId,
     String authorName,
     Instant createdAt,
-    Instant updatedAt) {
+    Instant updatedAt,
+    long likeCount,
+    boolean likedByMe) {
 
-  public static NoticeResponse from(Notice notice) {
+  public static NoticeResponse from(Notice notice, long likeCount, boolean likedByMe) {
     User author = notice.getAuthor();
     return new NoticeResponse(
         notice.getId(),
@@ -36,6 +41,8 @@ public record NoticeResponse(
         author == null ? null : author.getId(),
         DisplayName.of(author),
         notice.getCreatedAt(),
-        notice.getUpdatedAt());
+        notice.getUpdatedAt(),
+        likeCount,
+        likedByMe);
   }
 }

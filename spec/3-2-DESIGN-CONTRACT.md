@@ -213,6 +213,20 @@ erDiagram
 
 `author_id`도 `notes.uploader_id`와 같은 이유로 **`ON DELETE SET NULL`이다** (MUST). 공지는 동아리의 기록이라 작성한 관리자가 나가도 남아야 한다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)). **`V1__init.sql`은 `ON DELETE` 절 없이 만들어졌으므로 회원 제거 기능(#58)에서 마이그레이션으로 맞춘다.**
 
+### notice_likes
+
+**공지 좋아요** (2026-09-01 확정, #343). `bookmarks`와 같은 판단으로 만들었다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `user_id` | bigint | NOT NULL, FK → users.id, **ON DELETE CASCADE** | |
+| `notice_id` | bigint | NOT NULL, FK → notices.id, **ON DELETE CASCADE** | |
+| `created_at` | timestamp | NOT NULL | |
+
+복합 PK `(user_id, notice_id)`로 중복 누름을 막는다.
+
+**작성자 FK가 `SET NULL`인데 여기만 `CASCADE`인 이유는 `bookmarks`와 같다** — 좋아요는 그 사람이 *지금 누른* 기록이지 *남긴* 것이 아니다. 주인이 없어지면 누른 사실도 의미가 없다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거), 3-3 결정 24).
+
 ### photos
 
 | 컬럼 | 타입 | 제약 | 설명 |
@@ -767,6 +781,8 @@ OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](
 | PATCH | `/notices/{id}` | ADMIN | 수정 |
 | DELETE | `/notices/{id}` | ADMIN | 삭제 |
 | PATCH | `/notices/{id}/pin` | ADMIN | 고정 토글 |
+| POST | `/notices/{id}/like` | ACTIVE·INACTIVE | 좋아요 (#343) |
+| DELETE | `/notices/{id}/like` | ACTIVE·INACTIVE | 좋아요 취소 (#343) |
 | GET | `/photos` | ACTIVE | 목록 |
 | POST | `/photos/upload-url` | ADMIN | 원본 파일별 presigned PUT URL 발급 (다중) |
 | POST | `/photos` | ADMIN | 메타데이터 등록 (JSON) — body에 업로드 완료된 원본 파일 키 목록. 서버가 그 키들을 S3에서 읽어 리사이즈한 뒤 최종 위치에 저장하고 사진마다 행을 만든다 |
@@ -830,6 +846,18 @@ OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](
 `POST /notices`, `PATCH /notices/{id}`, `PATCH /notices/{id}/pin`은 저장된 공지를 본문으로 돌려준다 (확정, 2026-08-13, #33·#34) — `POST`는 `201`, 두 `PATCH`는 `200`이다. 화면은 등록·수정 응답 본문의 `id`로 상세 화면으로 이동한다. `DELETE /notices/{id}`는 본문 없이 `204`다.
 
 공지 응답은 **`authorId`(`null` 가능)와 `authorName`(`null` 아님)을 함께 담는다** (MUST, #58) — 규칙은 [§3-2-2 "작성자를 내려주는 규칙"](#작성자를-내려주는-규칙)과 같다. 작성자가 제거되어 `author_id`가 `NULL`이면 서버가 `authorName`에 `"탈퇴한 회원"`을 넣는다.
+
+**공지 응답은 `likeCount`(전체 좋아요 수)와 `likedByMe`(내가 눌렀는지)도 함께 담는다** (MUST, 2026-09-01 확정, #343, 3-3 결정 24). 목록·상세·등록·수정·고정 토글 응답 전부에 있다 — 개수만 보이고 내가 눌렀는지 모르면 화면이 좋아요 버튼을 채울지 비울지 정할 수 없다.
+
+### 공지 좋아요 (2026-09-01 확정, #343, 3-3 결정 24)
+
+**`POST /notices/{id}/like`는 이미 눌렀어도 성공이다** (MUST, `bookmarks`의 즐겨찾기 추가와 같은 판단). **토글이 아니다** — 같은 요청이 상태를 뒤집으면 재시도가 방금 누른 것을 조용히 뗀다. 성공 시 본문 없이 `204`다. 없는 공지면 `404 NOT_FOUND`다.
+
+**`DELETE /notices/{id}/like`는 눌러져 있지 않아도, 없는 공지여도 성공이다** (MUST) — 공지가 지워지면 좋아요도 함께 사라지므로(`ON DELETE CASCADE`) 뗄 것이 이미 없고, 오류를 주면 화면이 지울 수 없는 표시를 들고 있게 된다. 성공 시 본문 없이 `204`다.
+
+**권한은 공지 조회와 같다** (`ACTIVE`·`INACTIVE`) — 공지는 자료 갈래가 아니라 `INACTIVE`도 좋아요를 누를 수 있다. `PENDING`·`SUSPENDED`는 필터가 먼저 막는다.
+
+**동시에 눌러도 좋아요는 하나다.** 확인하고 저장하는 방식으로는 안 된다 — `bookmarks`의 담기와 같은 이유로 `INSERT ... ON CONFLICT DO NOTHING`을 DB에 맡긴다. 떼기도 확인 없이 `DELETE`를 바로 실행한다.
 
 ### 자유 게시판 (2026-08-23 확정, #235 · 수정은 #256 · 삭제는 #238)
 
