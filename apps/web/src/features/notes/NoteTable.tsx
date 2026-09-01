@@ -44,26 +44,35 @@ export function NoteTable({
       <Table
         className={cn(
           'table-fixed',
+          /*
+           * **열 이름은 전부 가운데, 내용은 제목만 왼쪽이다** — 공지·자유 게시판 목록과
+           * 같다. 제목까지 가운데로 두면 글 길이마다 왼쪽 끝이 달라져 목록을 훑는 눈이
+           * 행마다 자리를 다시 잡는다. `text-center`가 `<td>`로 상속되고, `TableHead`의
+           * `text-left`는 열마다 덮는다 — 제목 열은 셀에서만 `text-left`로 되돌린다.
+           */
+          'text-center',
           showCategory ? 'min-w-[1120px]' : 'min-w-[1000px]',
         )}
       >
         <TableHeader>
           <TableRow>
             {/* 별표 열은 제목이 없다 — 아이콘만 있는 칸이라 이름을 붙이면 폭만 먹는다. */}
-            <TableHead className="w-10" />
-            {showCategory && <TableHead className="w-28">카테고리</TableHead>}
+            <TableHead className="w-10 text-center" />
+            {showCategory && (
+              <TableHead className="w-28 text-center">카테고리</TableHead>
+            )}
             {/*
              * 320px에서는 별표(40px) 뒤 제목의 말줄임표까지 화면 안에 둔다. 넓은 화면은
              * 기존 메타데이터 밀도를 유지한다.
              */}
-            <TableHead className="w-56 sm:w-72">제목</TableHead>
-            <TableHead className="w-36">과목</TableHead>
-            <TableHead className="w-24">교수</TableHead>
-            <TableHead className="w-32">학기</TableHead>
-            <TableHead className="w-16 text-right">첨부</TableHead>
-            <TableHead className="w-20 text-right">조회수</TableHead>
-            <TableHead className="w-24">업로더</TableHead>
-            <TableHead className="w-28">등록일</TableHead>
+            <TableHead className="w-56 text-center sm:w-72">제목</TableHead>
+            <TableHead className="w-36 text-center">과목</TableHead>
+            <TableHead className="w-24 text-center">교수</TableHead>
+            <TableHead className="w-32 text-center">학기</TableHead>
+            <TableHead className="w-16 text-center">첨부</TableHead>
+            <TableHead className="w-20 text-center">조회수</TableHead>
+            <TableHead className="w-24 text-center">업로더</TableHead>
+            <TableHead className="w-28 text-center">등록일</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -112,7 +121,7 @@ export function NoteTable({
                 </TableCell>
               )}
 
-              <TableCell className="max-w-0 font-medium">
+              <TableCell className="max-w-0 text-left font-medium">
                 <Link
                   to={`/notes/${note.id}`}
                   className="block truncate underline-offset-4 hover:underline"
@@ -130,10 +139,8 @@ export function NoteTable({
                 {note.year}년 {SEMESTER_LABEL[note.semester]}
                 {note.examType && ` · ${EXAM_TYPE_LABEL[note.examType]}`}
               </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {note.fileCount}
-              </TableCell>
-              <TableCell className="whitespace-nowrap text-right tabular-nums">
+              <TableCell className="tabular-nums">{note.fileCount}</TableCell>
+              <TableCell className="whitespace-nowrap tabular-nums">
                 {note.viewCount}
               </TableCell>
               <TableCell className="text-muted-foreground">
