@@ -1,9 +1,13 @@
 import { request, toQuery } from './client'
 import {
+  fixtureComments,
+  fixtureCreateComment,
   fixtureCreatePost,
+  fixtureEditComment,
   fixtureEditPost,
   fixturePost,
   fixturePosts,
+  fixtureRemoveComment,
   fixtureRemovePost,
 } from './fixtures'
 import type { Page } from './types'
@@ -113,4 +117,70 @@ export function update(
 export function remove(id: number): Promise<void> {
   if (import.meta.env.VITE_USE_FIXTURES === 'true') return fixtureRemovePost(id)
   return request(`/posts/${id}`, { method: 'DELETE' })
+}
+
+// ── 댓글 ────────────────────────────────────────────────────────────────────
+
+/**
+ * 댓글 하나 (spec §3-2-5). **목록·상세를 나누지 않는다** — 상한이 2,000자라 목록에
+ * 본문을 그대로 담아도 게시글 목록이 겪는 응답 크기 문제가 생기지 않는다.
+ */
+export interface PostComment {
+  id: number
+  content: string
+  author: PostAuthor
+  createdAt: string
+  updatedAt: string
+}
+
+/** 댓글 본문 상한 (spec §3-2-5). 게시글보다 낮다 — 더 가벼운 콘텐츠로 본다 (결정 23). */
+export const COMMENT_CONTENT_MAX = 2_000
+
+/**
+ * 목록. **배열이고 페이지네이션이 없다** (spec §3-2-5).
+ *
+ * **오래된순 고정이라 화면이 다시 정렬하지 않는다** — 서버가 `created_at ASC, id ASC`로
+ * 내려준다. 게시글 목록(최신순)과 반대인데, 댓글은 대화를 읽는 순서이기 때문이다 (결정 23).
+ */
+export function comments(postId: number): Promise<PostComment[]> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true')
+    return fixtureComments(postId)
+  return request<PostComment[]>(`/posts/${postId}/comments`)
+}
+
+/** 등록. 작성자는 인증 주체로만 정한다 (spec §3-2-5 MUST) — 게시글과 같다. */
+export function createComment(
+  postId: number,
+  body: { content: string },
+): Promise<PostComment> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true')
+    return fixtureCreateComment(postId, body)
+  return request<PostComment>(`/posts/${postId}/comments`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+/** 수정. **통째로 교체다** (spec §3-2-5) — 작성자 본인만 가능하고 관리자 예외가 없다. */
+export function updateComment(
+  postId: number,
+  commentId: number,
+  body: { content: string },
+): Promise<PostComment> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true')
+    return fixtureEditComment(postId, commentId, body)
+  return request<PostComment>(`/posts/${postId}/comments/${commentId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+}
+
+/** 삭제. 활성 관리자 또는 작성자 본인이 완전히 삭제한다 (spec §3-2-5). */
+export function removeComment(
+  postId: number,
+  commentId: number,
+): Promise<void> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true')
+    return fixtureRemoveComment(postId, commentId)
+  return request(`/posts/${postId}/comments/${commentId}`, { method: 'DELETE' })
 }

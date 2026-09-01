@@ -1,6 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearCookies, setCookie } from '@/test/cookies'
-import { countCodePoints, create, get, list, remove, update } from './posts'
+import {
+  comments,
+  countCodePoints,
+  create,
+  createComment,
+  get,
+  list,
+  remove,
+  removeComment,
+  update,
+  updateComment,
+} from './posts'
 
 /**
  * 게시판 API 래퍼.
@@ -149,6 +160,80 @@ describe('게시판 API 경로', () => {
       content: '\n  고친 본문\n',
     })
     expect(Object.keys(JSON.parse(init.body))).toEqual(['title', 'content'])
+  })
+})
+
+const COMMENT = {
+  id: 901,
+  content: '댓글',
+  author: { id: 1, name: '홍길동' },
+  createdAt: '2026-08-31T09:00:00Z',
+  updatedAt: '2026-08-31T09:00:00Z',
+}
+
+describe('댓글 API 경로', () => {
+  /*
+   * **배열이고 페이지네이션이 없다** (계약 §3-2-5). 쿼리를 붙이면 서버가 모르는 값이 되고,
+   * 화면이 페이지를 다루기 시작하면 계약과 갈린다.
+   */
+  it('목록은 쿼리 없는 GET /posts/{postId}/comments다', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse([COMMENT]))
+
+    await expect(comments(701)).resolves.toEqual([COMMENT])
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/v1/posts/701/comments')
+    expect(init.method ?? 'GET').toBe('GET')
+  })
+
+  /* 본문은 원문 그대로다 — 게시글과 같은 규칙이다 (§3-2-5 MUST). */
+  it('등록은 POST /posts/{postId}/comments에 내용만 싣는다', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(COMMENT))
+
+    await createComment(701, { content: '\n  들여쓴 댓글\n' })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/v1/posts/701/comments')
+    expect(init.method).toBe('POST')
+    const body = JSON.parse(init.body)
+    expect(body).toEqual({ content: '\n  들여쓴 댓글\n' })
+    // **작성자를 담지 않는다** — 인증 주체로만 정해진다.
+    expect(Object.keys(body)).toEqual(['content'])
+  })
+
+  // PATCH다. PUT으로 바꾸면 경로가 아니라 계약이 바뀐 것이 된다.
+  it('수정은 PATCH /posts/{postId}/comments/{id}다', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(COMMENT))
+
+    await updateComment(701, 901, { content: '고친 댓글' })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/v1/posts/701/comments/901')
+    expect(init.method).toBe('PATCH')
+    expect(JSON.parse(init.body)).toEqual({ content: '고친 댓글' })
+  })
+
+  it('삭제는 DELETE /posts/{postId}/comments/{id}다', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 204,
+      text: () => Promise.resolve(''),
+    } as unknown as Response)
+
+    await removeComment(701, 901)
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/v1/posts/701/comments/901')
+    expect(init.method).toBe('DELETE')
+  })
+
+  /* 댓글 경로도 프록시를 타야 한다 — 절대 URL이면 쿠키가 실리지 않는다. */
+  it('절대 URL을 만들지 않는다', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+
+    await comments(701)
+
+    expect(fetchMock.mock.calls[0][0]).not.toMatch(/^https?:\/\//)
   })
 })
 
