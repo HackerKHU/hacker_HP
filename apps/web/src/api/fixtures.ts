@@ -2251,7 +2251,8 @@ const COMMENTS: (PostComment & { postId: number })[] = [
     content: '저도 참여하고 싶어요!',
     author: { id: 99, name: '권승원' },
     createdAt: daysAgo(2),
-    updatedAt: daysAgo(2),
+    // 하나는 고쳐진 상태로 둔다 — "수정됨" 표시를 화면에서 확인할 수 있어야 한다.
+    updatedAt: daysAgo(1),
   },
   {
     postId: 701,
@@ -2387,9 +2388,25 @@ export function fixtureRemoveComment(
       new ApiError('NOT_FOUND', 404, '댓글을 찾을 수 없습니다.'),
     )
   }
-  const me = viewer()
+  /*
+   * **요청자를 명부에서 다시 읽는다** — `fixtureRemovePost`와 같은 판단이다 (T-476).
+   * 관리자 시나리오가 불변 `USERS.admin`을 보면 권한 회수·정지 뒤에도 옛 시나리오
+   * 문자열만 보고 남의 댓글을 지우게 되어, 실제 서버의 커밋 직전 재검증과 정반대가 된다.
+   */
+  const me =
+    SCENARIO === 'admin'
+      ? MEMBERS.find((member) => member.id === SELF_ID)
+      : viewer()
+  if (!me) {
+    return Promise.reject(
+      new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
+    )
+  }
   const activeAdmin = me.role === 'ADMIN' && me.status === 'ACTIVE'
-  const owner = found.author.id !== null && found.author.id === me.id
+  const owner =
+    (me.status === 'ACTIVE' || me.status === 'INACTIVE') &&
+    found.author.id !== null &&
+    found.author.id === me.id
   if (!activeAdmin && !owner) {
     return Promise.reject(
       new ApiError('FORBIDDEN', 403, '본인이 쓴 댓글만 삭제할 수 있습니다.'),

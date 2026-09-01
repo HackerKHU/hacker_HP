@@ -97,10 +97,16 @@ export function PostComments({ postId }: { postId: number }) {
     )
   }
 
-  /** 활성 관리자 또는 작성자 본인 (계약 §3-2-5). */
+  /**
+   * 활성 관리자 또는 작성자 본인 (계약 §3-2-5).
+   *
+   * **`status`를 따로 보지 않는다.** `INACTIVE ADMIN`은 커밋 불변식으로 존재하지 않고
+   * (3-1 §3-1-2 MUST), `SUSPENDED`는 세션이 `active`에 이르지 못한다 — 여기서 `ADMIN`은
+   * 이미 활성이다. 게시글 상세의 `canDelete`와 같은 모양이다.
+   */
   function canDelete(comment: PostComment): boolean {
     if (viewer === null) return false
-    if (viewer.role === 'ADMIN' && viewer.status === 'ACTIVE') return true
+    if (viewer.role === 'ADMIN') return true
     return comment.author.id !== null && comment.author.id === viewer.id
   }
 
