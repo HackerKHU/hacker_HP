@@ -71,7 +71,7 @@ export function NoteTable({
             <TableHead className="w-32 text-center">학기</TableHead>
             <TableHead className="w-16 text-center">첨부</TableHead>
             <TableHead className="w-20 text-center">조회수</TableHead>
-            <TableHead className="w-24 text-center">업로더</TableHead>
+            <TableHead className="w-24 text-center">작성자</TableHead>
             <TableHead className="w-28 text-center">등록일</TableHead>
           </TableRow>
         </TableHeader>
