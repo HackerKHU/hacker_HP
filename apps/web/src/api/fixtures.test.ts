@@ -356,6 +356,25 @@ describe('공지 쓰기 픽스처', () => {
     expect((error as InstanceType<typeof ApiError>).code).toBe('NOT_FOUND')
   })
 
+  /*
+   * 회귀 (2026-09-01, #348) — `likeCount`와 `likedByMe`를 서로 독립인 식으로 만들어
+   * **"내가 눌렀는데 개수가 0"인 공지가 시드에 있었다.** 서버는 그런 응답을 만들 수 없고,
+   * 그 공지에서 좋아요를 취소하면 화면이 "좋아요 -1"을 그렸다.
+   *
+   * 화면에 클램프를 두는 대신 여기서 잠근다 — 응답이 일관되면 음수가 나올 자리가 없다.
+   */
+  it('likedByMe가 참인 공지는 likeCount가 1 이상이다', async () => {
+    const { fixtureNotices } = await loadFixtures('user')
+
+    const all = await fixtureNotices(0, 1000)
+
+    expect(
+      all.content.filter((notice) => notice.likedByMe && notice.likeCount < 1),
+    ).toEqual([])
+    // 눌린 공지가 아예 없으면 위 단언이 공짜로 통과한다.
+    expect(all.content.some((notice) => notice.likedByMe)).toBe(true)
+  })
+
   it('고정하면 목록 맨 앞으로 올라간다', async () => {
     const { fixtureNotices, fixtureTogglePin } = await loadFixtures('admin')
 

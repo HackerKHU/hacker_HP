@@ -462,6 +462,8 @@ for (const [index, topic] of TOPICS.entries()) {
   // 0·2·5·8… 일 전. 앞의 둘이 3일 이내라 새글 표시가 실제로 보인다.
   // 간격이 있어야 날짜가 서로 다르고 정렬이 눈에 보인다.
   const days = index === 0 ? 0 : index * 3 - 1
+  // 0이 섞여 있어야 "아직 아무도 안 누른 공지"의 표시를 화면에서 볼 수 있다.
+  const likeCount = index % 4
   NOTICES.push({
     id: 100 - index,
     title: topic,
@@ -471,9 +473,13 @@ for (const [index, topic] of TOPICS.entries()) {
     authorName: '관리자',
     createdAt: daysAgo(days),
     updatedAt: daysAgo(days),
-    // 0이 섞여 있어야 "아직 아무도 안 누른 공지"의 표시를 화면에서 볼 수 있다.
-    likeCount: index % 4,
-    likedByMe: index % 5 === 0,
+    likeCount,
+    /*
+     * **`likedByMe`는 `likeCount`에서 파생한다.** 둘을 따로 정하면 "내가 눌렀는데 개수가
+     * 0"이라는 서버가 만들 수 없는 상태가 나오고, 그 공지에서 취소를 누르면 개수가 -1이
+     * 된다. 화면에 클램프를 두는 대신 픽스처가 서버처럼 일관된 값을 준다.
+     */
+    likedByMe: likeCount > 0 && index % 5 === 0,
   })
 }
 
