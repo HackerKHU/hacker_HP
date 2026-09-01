@@ -11,6 +11,14 @@ import {
   writePage,
 } from '@/components/Pager'
 import { Button } from '@/components/ui/button'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { formatDate } from './format'
 
 const PAGE_SIZE = 20
@@ -125,47 +133,53 @@ export function PostListPage() {
         )}
 
         {data !== null && data.content.length > 0 && (
-          <>
+          <ListSurface>
             {/*
-             * 표가 아니라 목록이다 — 열이 제목·작성자·날짜 셋뿐이라 표로 그리면 헤더가
-             * 내용보다 무거워진다. 공지 목록과 같은 모양을 쓴다.
+             * **자료·공지 목록과 같은 표다** (`NoteTable`). 예전에는 `<ul>` 링크 행이었다 —
+             * "열이 셋뿐이라 헤더가 내용보다 무거워진다"는 이유였는데, **열 제목이 없으면
+             * 오른쪽에 붙은 이름과 날짜가 각각 무엇인지 화면만 보고는 알 수 없다** (#373).
+             * 같은 사이트 안에서 목록의 생김새가 갈리는 값도 그 무게보다 크다.
              *
-             * 래퍼는 각지게 둔다 (#218) — 행이 직선으로 쌓이는데 래퍼만 둥글면 네 모서리에서
-             * 행이 잘려 보인다.
+             * **제목 셀만 링크다** — 행 전체를 링크로 만들면 작성자·날짜 열까지 링크 안에
+             * 들어가 어디를 눌러야 상세로 가는지 알 수 없다. 공지 목록과 같은 판단이다.
+             *
+             * 열 폭과 정렬은 공지 목록에 맞춘다 — 두 목록을 나란히 놓았을 때 어긋나지
+             * 않아야 한다. 조회수(#375)·댓글 수(#374) 열은 API에 필드가 생긴 뒤에 붙인다.
              */}
-            <ListSurface>
-              <ul>
+            <Table className="table-fixed min-w-[560px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>제목</TableHead>
+                  <TableHead className="w-28">작성자</TableHead>
+                  <TableHead className="w-28">등록일</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {data.content.map((post) => (
-                  <li
-                    key={post.id}
-                    className="border-b border-border last:border-b-0"
-                  >
-                    <Link
-                      to={`/posts/${post.id}`}
-                      className="flex min-w-0 items-center gap-4 px-4 py-3 transition-colors hover:bg-accent outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset"
-                    >
-                      <span
-                        className="min-w-0 flex-1 truncate text-sm"
+                  <TableRow key={post.id}>
+                    <TableCell className="max-w-0 font-medium">
+                      <Link
+                        to={`/posts/${post.id}`}
+                        className="block truncate underline-offset-4 hover:underline"
                         title={post.title}
                       >
                         {post.title}
-                      </span>
-                      {/* 작성자 이름은 절대 비지 않는다 — 제거되면 "탈퇴한 회원"이다 (§2-1-8). */}
-                      <span className="shrink-0 text-sm text-muted-foreground">
-                        {post.author.name}
-                      </span>
-                      <time
-                        dateTime={post.createdAt}
-                        className="w-24 shrink-0 text-right text-sm text-muted-foreground"
-                      >
+                      </Link>
+                    </TableCell>
+                    {/* 작성자 이름은 절대 비지 않는다 — 제거되면 "탈퇴한 회원"이다 (§2-1-8). */}
+                    <TableCell className="truncate text-muted-foreground">
+                      {post.author.name}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-muted-foreground">
+                      <time dateTime={post.createdAt}>
                         {formatDate(post.createdAt)}
                       </time>
-                    </Link>
-                  </li>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </ul>
-            </ListSurface>
-          </>
+              </TableBody>
+            </Table>
+          </ListSurface>
         )}
       </div>
 
