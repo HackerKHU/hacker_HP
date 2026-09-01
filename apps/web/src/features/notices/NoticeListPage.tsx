@@ -1,4 +1,4 @@
-import { Heart, Pin } from 'lucide-react'
+import { Pin, ThumbsUp } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { list, type Notice, togglePin } from '@/api/notices'
@@ -281,7 +281,7 @@ export function NoticeListPage() {
                      * 링크 안의 버튼이 되고, 잘못 누르면 읽으러 온 사람이 좋아요를 남긴다.
                      */}
                     <span className="flex shrink-0 items-center gap-1 text-sm text-muted-foreground tabular-nums">
-                      <Heart
+                      <ThumbsUp
                         className={cn(
                           'size-3.5',
                           notice.likedByMe && 'fill-current',

@@ -1,4 +1,4 @@
-import { Heart } from 'lucide-react'
+import { ThumbsUp } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '@/api/client'
@@ -172,6 +172,10 @@ export function NoticeDetailPage() {
                * **좋아요는 부원도 누른다** (계약 §3-2-5 — `ACTIVE`·`INACTIVE`). 무채색
                * 팔레트라 색으로 구분할 수 없어 **채움과 비움으로 가른다** — 자료 즐겨찾기의
                * 별과 같은 방식이다 (§2-1-5).
+               *
+               * **따봉이다.** 하트는 빨강을 잃으면 채움/비움이 잘 안 읽히고, 별은 이미
+               * 즐겨찾기가 쓰고 있어 "담기"와 "반응하기"가 구분되지 않는다. 결정 24 D4가
+               * 적은 이 기능의 의미도 애정이 아니라 동의다 — "봤다·동의한다·중요하게 여긴다".
                */}
               <Button
                 variant="outline"
@@ -180,7 +184,7 @@ export function NoticeDetailPage() {
                 aria-pressed={notice.likedByMe}
                 onClick={toggleLike}
               >
-                <Heart
+                <ThumbsUp
                   className={cn('size-4', notice.likedByMe && 'fill-current')}
                   aria-hidden="true"
                 />
