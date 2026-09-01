@@ -799,6 +799,8 @@ OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](
 
 `POST /photos`는 §3-2-6 일괄 승인과 같은 원칙이다 — 원본 하나의 실패(원본 없음, 손상된 이미지, 상한 초과)가 이미 등록된 나머지를 되돌리지 않는다. 실패를 예외로 던지면 한 건 때문에 스무 장을 한 번에 올린 요청이 통째로 실패한다.
 
+**`url`·`thumbnailUrl`의 presigned GET 수명은 10분이다** (MUST). `GET /photos` 응답이 두 URL을 미리 담고, 화면은 썸네일을 lazy-load하며 사용자가 나중에 원본을 열 수 있다. 발급 직후 여는 자료 다운로드의 1분 설정과 분리한다.
+
 ```json
 {
   "registered": [{ "id": 12, "caption": null, "url": "...", "thumbnailUrl": "...", "uploaderId": 3, "uploaderName": "홍길동", "createdAt": "..." }],

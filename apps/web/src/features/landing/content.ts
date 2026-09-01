@@ -93,8 +93,6 @@ interface Activity {
   /**
    * `public/landing/` 아래 경로. 실물이 없으면 빈 문자열로 두고 화면이 자리표시자를
    * 그리게 한다. 파일을 넣는 방법은 `public/landing/README.md` 참고.
-   *
-   * TODO: 신입생 멘토멘티만 아직 사진이 없다. 나머지 일곱은 채워져 있다.
    */
   src: string
   /** 스크린리더가 읽는 설명. 장식이 아니라 내용이라 무엇이 찍혔는지 적는다. */
@@ -143,8 +141,8 @@ export const ACTIVITIES: Activity[] = [
     note: '1학기는 파이썬, 2학기는 C++을 가르칩니다.',
   },
   {
-    src: '',
-    alt: '',
+    src: '/landing/mentoring.jpg',
+    alt: '멘토멘티 조원들이 음식점 테이블에 둘러앉아 함께 식사하는 모습',
     title: '신입생 멘토멘티',
     note: '멘토와 멘티가 조를 이룹니다. 전공 스터디와 밥약을 함께합니다.',
   },
