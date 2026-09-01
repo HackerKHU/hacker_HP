@@ -3,9 +3,6 @@ package org.hackerkhu.hackerhp.domain.post.service;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.stream.Collectors;
 import org.hackerkhu.hackerhp.domain.post.dto.PostAuthor;
 import org.hackerkhu.hackerhp.domain.post.dto.PostCreateRequest;
 import org.hackerkhu.hackerhp.domain.post.dto.PostDetailResponse;
@@ -68,8 +65,9 @@ public class PostService {
     Page<Post> page =
         posts.findAll(
             PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST));
-    Map<Long, User> found = authors(page.getContent());
-    return page.map(post -> PostSummaryResponse.of(post, authorOf(post, found)));
+    Map<Long, User> found = AuthorLookup.of(page.getContent(), Post::getAuthorId, users);
+    return page.map(
+        post -> PostSummaryResponse.of(post, AuthorLookup.authorOf(post.getAuthorId(), found)));
   }
 
   @Transactional(readOnly = true)
@@ -78,7 +76,8 @@ public class PostService {
         posts
             .findById(id)
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "게시글을 찾을 수 없습니다."));
-    return PostDetailResponse.of(post, authorOf(post, authors(List.of(post))));
+    Map<Long, User> found = AuthorLookup.of(List.of(post), Post::getAuthorId, users);
+    return PostDetailResponse.of(post, AuthorLookup.authorOf(post.getAuthorId(), found));
   }
 
   /**
@@ -121,7 +120,8 @@ public class PostService {
      * 이 줄이 남아 있어야 한다 — 실제 분포를 추측이 아니라 로그에서 본다.
      */
     log.info("게시글 등록: postId={} authorId={}", saved.getId(), authorId);
-    return PostDetailResponse.of(saved, authorOf(saved, authors(List.of(saved))));
+    // author는 방금 잠근 그 행이다 — 다시 조회하지 않고 그대로 쓴다.
+    return PostDetailResponse.of(saved, PostAuthor.of(author));
   }
 
   /**
@@ -154,7 +154,8 @@ public class PostService {
     // 제목은 자르고 본문은 그대로 둔다 — write()와 같은 규칙이다 (§3-2-5).
     post.edit(request.title().trim(), request.content(), Instant.now());
     log.info("게시글 수정: postId={} authorId={}", id, requesterId);
-    return PostDetailResponse.of(post, authorOf(post, authors(List.of(post))));
+    // requester는 방금 소유자로 확인한 그 행이다 — 다시 조회하지 않고 그대로 쓴다.
+    return PostDetailResponse.of(post, PostAuthor.of(requester));
   }
 
   /**
@@ -198,25 +199,5 @@ public class PostService {
     }
     log.info("남의 게시글을 삭제하려 했다: requesterId={} postId={}", requesterId, post.getId());
     throw new BusinessException(ErrorCode.FORBIDDEN, "본인이 쓴 게시글만 삭제할 수 있습니다.");
-  }
-
-  /**
-   * 작성자 이름을 <b>한 번에 모아 읽는다.</b> 행마다 읽으면 20건에 질의가 20번 붙는다.
-   *
-   * <p><b>계정이 사라진 글은 여기 없다.</b> 그래서 {@link PostAuthor#of}가 그 자리를 "탈퇴한 회원"으로 채운다 (2-2 §2-2-4).
-   */
-  private Map<Long, User> authors(List<Post> found) {
-    Set<Long> ids =
-        found.stream().map(Post::getAuthorId).filter(Objects::nonNull).collect(Collectors.toSet());
-    if (ids.isEmpty()) {
-      return Map.of();
-    }
-    return users.findAllById(ids).stream()
-        .collect(Collectors.toMap(User::getId, user -> user, (first, second) -> first));
-  }
-
-  private PostAuthor authorOf(Post post, Map<Long, User> found) {
-    Long authorId = post.getAuthorId();
-    return PostAuthor.of(authorId == null ? null : found.get(authorId));
   }
 }
