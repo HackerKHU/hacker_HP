@@ -166,6 +166,48 @@ describe('공개 랜딩', () => {
    * 추정처럼 읽히고, 아무 데도 안 붙으면 근사치가 정확한 집계처럼 읽힌다.
    */
   /*
+   * #105 — 히어로 배경 사진.
+   *
+   * jsdom은 레이아웃도 대비도 계산하지 않는다. **대비는 값으로 따로 확인했고**(근거는
+   * `LandingPage.tsx`의 주석 표에 있다), 여기서는 그 판단을 떠받치는 조건이 조용히
+   * 사라지는 회귀만 지킨다 — 흑백이 풀리면 무채색 팔레트가 깨지고, 불투명도가 올라가면
+   * 보조 문구가 AAA 아래로 내려간다.
+   */
+  it('히어로에만 흑백 배경 사진을 깔고 진하기를 묶어 둔다', async () => {
+    renderLanding()
+    await screen.findByRole('heading', { level: 1 })
+
+    const photos = document.querySelectorAll('[data-hero-photo="landing"]')
+    // 다른 섹션은 그대로 검정 위 글자다.
+    expect(photos).toHaveLength(1)
+    const photo = photos[0]
+    expect(photo.className).toContain('grayscale')
+    expect(photo.className).toContain('opacity-[0.08]')
+    expect(photo.className).toContain("bg-[url('/landing/closing.jpg')]")
+    // 장식이라 스크린리더가 읽을 것이 없다.
+    expect(photo).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  /*
+   * #105 — 제목은 두 줄이 두 줄로 남아야 한다 ("모니터 앞 ↔ 필드 위"의 대비가 핵심이다).
+   * jsdom은 줄바꿈을 계산하지 않으므로 **구간별 크기 클래스가 빠지는 회귀만** 지킨다 —
+   * 하나만 남으면 좁은 화면에서 세 줄로 흐르거나 넓은 화면에서 작게 남는다.
+   */
+  it('히어로 제목이 화면 폭마다 다른 크기를 갖는다', async () => {
+    renderLanding()
+
+    const heading = await screen.findByRole('heading', { level: 1 })
+    for (const size of [
+      'text-3xl',
+      'sm:text-5xl',
+      'md:text-6xl',
+      'lg:text-7xl',
+    ]) {
+      expect(heading.className).toContain(size)
+    }
+  })
+
+  /*
    * #174 — 기록 그리드와 푸터는 모바일에서 접힌다. jsdom은 레이아웃을 계산하지 않으므로
    * 실제 줄바꿈은 못 보고, 반응형 클래스가 빠지는 회귀만 지킨다 — 이 클래스가 사라지면
    * 390px에서 숫자 네 개가 4열에 눌려 잘린다.

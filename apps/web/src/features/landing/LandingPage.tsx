@@ -24,24 +24,72 @@ function Heading({ children }: { children: string }) {
 
 function Hero() {
   return (
-    <section id="top" className={cn(SECTION, 'py-32')}>
-      <p className="text-sm tracking-[0.2em] text-muted-foreground">
-        {CLUB.eyebrow}
-      </p>
+    /*
+     * **배경 사진은 히어로에만 깔린다.** 다른 섹션은 그대로 검정 위 글자다.
+     *
+     * `SECTION`이 곧 1152px 컨테이너라 사진을 그 안에 두면 좌우 여백이 검게 남는다.
+     * 바깥을 하나 더 두르고 사진을 거기 깔아 화면 폭 전체로 흘린다.
+     */
+    <div className="relative isolate overflow-hidden">
       {/*
-        두 줄은 의도된 줄바꿈이다. `index.css`가 제목에 `text-wrap: balance`를 걸어두는데,
-        줄을 우리가 정했으므로 `text-wrap`(=wrap)으로 되돌려 간섭을 없앤다.
-        각 줄을 블록으로 두면 개행 문자 없이 두 줄이 고정된다.
-      */}
-      <h1 className="mt-6 text-5xl leading-tight font-semibold tracking-tight text-wrap text-foreground">
-        {CLUB.headline.map((line) => (
-          <span key={line} className="block">
-            {line}
-          </span>
-        ))}
-      </h1>
-      <p className="mt-6 text-sm text-muted-foreground">{CLUB.fullName}</p>
-    </section>
+       * **흑백에 8%다.** 이 사이트는 검정·회색·흰색만 쓰므로(무채색 팔레트) 컬러 사진이
+       * 깔리면 그 원칙이 깨진다. 진하기는 눈이 아니라 값으로 정했다 — 이 사진을 회색으로
+       * 바꿨을 때 **가장 밝은 픽셀이 255**라, 불투명도가 그대로 검정 위에 얹히는 최악의
+       * 배경색이 된다:
+       *
+       * | 불투명도 | 최악 배경 | 제목(#e5e5e5) | 보조 문구(#a3a3a3) |
+       * |---|---|---|---|
+       * | 없음(지금) | `#000000` | 16.67:1 | 8.33:1 |
+       * | **0.08** | `#141414` | **14.62:1** | **7.30:1** |
+       * | 0.14 | `#242424` | 12.32:1 | 6.15:1 |
+       * | 0.18 | `#2e2e2e` | 10.78:1 | 5.38:1 |
+       *
+       * **0.08이 상한이다** — `eyebrow`와 소속 줄이 `text-sm`(14px) 보조 색이라 WCAG AAA
+       * 기준 7:1을 넘겨야 하는데, 0.14부터 그 아래로 내려간다. 사진을 더 진하게 하려면
+       * 그 두 줄의 색부터 바꿔야 한다.
+       *
+       * 아래로 갈수록 지우는 것은 다음 섹션과의 이음매를 없애기 위해서다. 마스크는 사진을
+       * 옅게만 만들므로 위 대비 값이 나빠지지 않는다.
+       */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 -z-10 bg-[url('/landing/closing.jpg')] bg-cover bg-center opacity-[0.08] grayscale [mask-image:linear-gradient(to_bottom,black_55%,transparent)]"
+        data-hero-photo="landing"
+      />
+      <section id="top" className={cn(SECTION, 'py-32')}>
+        <p className="text-sm tracking-[0.2em] text-muted-foreground">
+          {CLUB.eyebrow}
+        </p>
+        {/*
+          두 줄은 의도된 줄바꿈이다. `index.css`가 제목에 `text-wrap: balance`를 걸어두는데,
+          줄을 우리가 정했으므로 `text-wrap`(=wrap)으로 되돌려 간섭을 없앤다.
+          각 줄을 블록으로 두면 개행 문자 없이 두 줄이 고정된다.
+
+          **크기는 두 줄이 두 줄로 남는 한도에서 정한다.** 두 줄 다 한글 7자에 공백·문장부호가
+          붙어 `tracking-tight`까지 감안하면 대략 7.5em이다. 컨테이너에서 좌우 `px-6`을 뺀
+          폭을 그 값으로 나눈 것이 각 구간의 상한이다:
+
+          | 화면 | 글자가 쓸 수 있는 폭 | 상한 | 고른 값 |
+          |---|---|---|---|
+          | 320px | 272px | 36px | `text-3xl` 30px |
+          | 640px | 592px | 78px | `text-5xl` 48px |
+          | 768px | 720px | 96px | `text-6xl` 60px |
+          | 1024px+ | 976px | 130px | `text-7xl` 72px |
+
+          **가장 큰 값이 72px다.** 레퍼런스 구간(72~96px)의 아래 끝인데, 한글은 전각이라
+          같은 px에서 라틴보다 크게 보인다 — 96px은 라틴 기준 값이라 그대로 옮기면 과하다.
+          예전 48px은 320px에서 이미 세 줄로 흘러 두 줄 대비가 깨져 있었다.
+        */}
+        <h1 className="mt-6 text-3xl leading-tight font-semibold tracking-tight text-wrap text-foreground sm:text-5xl md:text-6xl lg:text-7xl">
+          {CLUB.headline.map((line) => (
+            <span key={line} className="block">
+              {line}
+            </span>
+          ))}
+        </h1>
+        <p className="mt-6 text-sm text-muted-foreground">{CLUB.fullName}</p>
+      </section>
+    </div>
   )
 }
 
