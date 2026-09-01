@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.Optional;
 import org.hackerkhu.hackerhp.domain.post.dto.PostCreateRequest;
 import org.hackerkhu.hackerhp.domain.post.entity.Post;
+import org.hackerkhu.hackerhp.domain.post.repository.PostLikeRepository;
 import org.hackerkhu.hackerhp.domain.post.repository.PostRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
@@ -21,7 +22,8 @@ class PostServiceTest {
 
   private final PostRepository posts = mock(PostRepository.class);
   private final UserRepository users = mock(UserRepository.class);
-  private final PostService service = new PostService(posts, users);
+  private final PostLikeRepository likes = mock(PostLikeRepository.class);
+  private final PostService service = new PostService(posts, users, likes);
 
   /** T-492 — 일반 조회로 되돌아가면 통합 테스트의 직렬화 근거가 사라진다. */
   @Test

@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import org.hackerkhu.hackerhp.domain.post.dto.PostCreateRequest;
 import org.hackerkhu.hackerhp.domain.post.dto.PostDetailResponse;
 import org.hackerkhu.hackerhp.domain.post.dto.PostSummaryResponse;
+import org.hackerkhu.hackerhp.domain.post.service.PostLikeService;
 import org.hackerkhu.hackerhp.domain.post.service.PostService;
 import org.hackerkhu.hackerhp.global.error.ErrorResponse;
 import org.springdoc.core.annotations.ParameterObject;
@@ -42,9 +43,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class PostController {
 
   private final PostService postService;
+  private final PostLikeService postLikeService;
 
-  public PostController(PostService postService) {
+  public PostController(PostService postService, PostLikeService postLikeService) {
     this.postService = postService;
+    this.postLikeService = postLikeService;
   }
 
   @Operation(
@@ -77,8 +80,9 @@ public class PostController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @GetMapping
   @PreAuthorize("isAuthenticated()")
-  public PagedModel<PostSummaryResponse> list(@ParameterObject Pageable pageable) {
-    return new PagedModel<>(postService.list(pageable));
+  public PagedModel<PostSummaryResponse> list(
+      @AuthenticationPrincipal Long viewerId, @ParameterObject Pageable pageable) {
+    return new PagedModel<>(postService.list(pageable, viewerId));
   }
 
   @Operation(
@@ -114,8 +118,8 @@ public class PostController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @GetMapping("/{id}")
   @PreAuthorize("isAuthenticated()")
-  public PostDetailResponse get(@PathVariable Long id) {
-    return postService.get(id);
+  public PostDetailResponse get(@AuthenticationPrincipal Long viewerId, @PathVariable Long id) {
+    return postService.get(id, viewerId);
   }
 
   /**
@@ -254,5 +258,39 @@ public class PostController {
   @PreAuthorize("isAuthenticated()")
   public void delete(@AuthenticationPrincipal Long requesterId, @PathVariable Long id) {
     postService.delete(requesterId, id);
+  }
+
+  @Operation(
+      summary = "게시글 좋아요",
+      description =
+          """
+          **이미 눌렀어도 성공이다.** 두 번 눌러도 빠지지 않는다.
+
+          **토글이 아니다.** 화면은 응답의 `likedByMe`를 보고 누를지 뗄지 고른다.
+          """)
+  @ApiResponse(responseCode = "204", description = "눌렸다 (이미 눌러져 있던 경우 포함)")
+  @ApiResponse(
+      responseCode = "404",
+      description = "`NOT_FOUND` — 없는 게시글",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @PostMapping("/{id}/like")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  @PreAuthorize("isAuthenticated()")
+  public void like(@AuthenticationPrincipal Long viewerId, @PathVariable Long id) {
+    postLikeService.add(viewerId, id);
+  }
+
+  @Operation(
+      summary = "게시글 좋아요 취소",
+      description = "**눌러져 있지 않아도 성공이다.** 없는 게시글이어도 `404`를 주지 않는다 — 게시글이 지워지면 좋아요도 함께 사라진다.")
+  @ApiResponse(responseCode = "204", description = "떼졌다 (눌러져 있지 않던 경우 포함)")
+  @DeleteMapping("/{id}/like")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  @PreAuthorize("isAuthenticated()")
+  public void unlike(@AuthenticationPrincipal Long viewerId, @PathVariable Long id) {
+    postLikeService.remove(viewerId, id);
   }
 }

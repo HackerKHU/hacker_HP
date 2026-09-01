@@ -1,13 +1,16 @@
 package org.hackerkhu.hackerhp.domain.post.service;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.hackerkhu.hackerhp.domain.post.dto.PostAuthor;
 import org.hackerkhu.hackerhp.domain.post.dto.PostCreateRequest;
 import org.hackerkhu.hackerhp.domain.post.dto.PostDetailResponse;
 import org.hackerkhu.hackerhp.domain.post.dto.PostSummaryResponse;
 import org.hackerkhu.hackerhp.domain.post.entity.Post;
+import org.hackerkhu.hackerhp.domain.post.repository.PostLikeRepository;
 import org.hackerkhu.hackerhp.domain.post.repository.PostRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
@@ -47,10 +50,12 @@ public class PostService {
 
   private final PostRepository posts;
   private final UserRepository users;
+  private final PostLikeRepository likes;
 
-  public PostService(PostRepository posts, UserRepository users) {
+  public PostService(PostRepository posts, UserRepository users, PostLikeRepository likes) {
     this.posts = posts;
     this.users = users;
+    this.likes = likes;
   }
 
   /**
@@ -61,23 +66,31 @@ public class PostService {
    * {@code page}·{@code size}는 {@code spring.data.web.pageable}이 상한까지 이미 처리했다.
    */
   @Transactional(readOnly = true)
-  public Page<PostSummaryResponse> list(Pageable pageable) {
+  public Page<PostSummaryResponse> list(Pageable pageable, Long viewerId) {
     Page<Post> page =
         posts.findAll(
             PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST));
     Map<Long, User> found = AuthorLookup.of(page.getContent(), Post::getAuthorId, users);
+    List<Long> ids = page.getContent().stream().map(Post::getId).toList();
+    Map<Long, Long> likeCounts = likeCountsOf(ids);
+    Set<Long> likedByMe = likedIdsOf(viewerId, ids);
     return page.map(
-        post -> PostSummaryResponse.of(post, AuthorLookup.authorOf(post.getAuthorId(), found)));
+        post ->
+            PostSummaryResponse.of(
+                post,
+                AuthorLookup.authorOf(post.getAuthorId(), found),
+                likeCounts.getOrDefault(post.getId(), 0L),
+                likedByMe.contains(post.getId())));
   }
 
   @Transactional(readOnly = true)
-  public PostDetailResponse get(Long id) {
+  public PostDetailResponse get(Long id, Long viewerId) {
     Post post =
         posts
             .findById(id)
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "게시글을 찾을 수 없습니다."));
     Map<Long, User> found = AuthorLookup.of(List.of(post), Post::getAuthorId, users);
-    return PostDetailResponse.of(post, AuthorLookup.authorOf(post.getAuthorId(), found));
+    return withLikeInfo(post, AuthorLookup.authorOf(post.getAuthorId(), found), viewerId);
   }
 
   /**
@@ -120,8 +133,8 @@ public class PostService {
      * 이 줄이 남아 있어야 한다 — 실제 분포를 추측이 아니라 로그에서 본다.
      */
     log.info("게시글 등록: postId={} authorId={}", saved.getId(), authorId);
-    // author는 방금 잠근 그 행이다 — 다시 조회하지 않고 그대로 쓴다.
-    return PostDetailResponse.of(saved, PostAuthor.of(author));
+    // author는 방금 잠근 그 행이다 — 다시 조회하지 않고 그대로 쓴다. 방금 만든 글이라 좋아요는 아직 없다.
+    return PostDetailResponse.of(saved, PostAuthor.of(author), 0L, false);
   }
 
   /**
@@ -155,7 +168,7 @@ public class PostService {
     post.edit(request.title().trim(), request.content(), Instant.now());
     log.info("게시글 수정: postId={} authorId={}", id, requesterId);
     // requester는 방금 소유자로 확인한 그 행이다 — 다시 조회하지 않고 그대로 쓴다.
-    return PostDetailResponse.of(post, PostAuthor.of(requester));
+    return withLikeInfo(post, PostAuthor.of(requester), requesterId);
   }
 
   /**
@@ -199,5 +212,31 @@ public class PostService {
     }
     log.info("남의 게시글을 삭제하려 했다: requesterId={} postId={}", requesterId, post.getId());
     throw new BusinessException(ErrorCode.FORBIDDEN, "본인이 쓴 게시글만 삭제할 수 있습니다.");
+  }
+
+  /** 게시글 하나에 좋아요 정보를 붙인다 — {@link #get}·{@link #edit}이 공유한다. */
+  private PostDetailResponse withLikeInfo(Post post, PostAuthor author, Long viewerId) {
+    long count = likes.countByPostId(post.getId());
+    boolean liked = likes.existsByUserIdAndPostId(viewerId, post.getId());
+    return PostDetailResponse.of(post, author, count, liked);
+  }
+
+  /** 좋아요 개수를 <b>한 번에</b> 모아 읽는다. 행마다 물으면 페이지 크기만큼 질의가 붙는다. */
+  private Map<Long, Long> likeCountsOf(List<Long> postIds) {
+    if (postIds.isEmpty()) {
+      return Map.of();
+    }
+    Map<Long, Long> counts = new HashMap<>();
+    for (Object[] row : likes.countByPostIds(postIds)) {
+      counts.put((Long) row[0], (Long) row[1]);
+    }
+    return counts;
+  }
+
+  private Set<Long> likedIdsOf(Long viewerId, List<Long> postIds) {
+    if (postIds.isEmpty()) {
+      return Set.of();
+    }
+    return Set.copyOf(likes.findLikedPostIdsOf(viewerId, postIds));
   }
 }

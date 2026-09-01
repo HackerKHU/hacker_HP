@@ -217,6 +217,16 @@
 
 좋아요·첨부파일·카테고리·검색은 범위 밖이다.
 
+### 좋아요
+
+**목록·상세에서 게시글에 좋아요를 누르고 뗄 수 있다** ([3-3 결정 26](3-3-DESIGN-DECISIONS.md#3-3-27-결정-26--자유-게시판에-좋아요를-더한다), [#345](https://github.com/HackerKHU/hacker_HP/issues/345)).
+
+**공지 좋아요(§2-1-6)와 같은 저장 방식이다.** `(회원, 게시글)` 복합 키로 취소 가능하게 남긴다. **권한은 게시판 조회와 같다** — `INACTIVE`도 누를 수 있다. 게시판은 자료 갈래가 아니므로 자료 좋아요(§2-1-5)와는 반대다.
+
+**게시글이 삭제되면 그 좋아요도 함께 사라진다.** 회원이 탈퇴·제거되어도 그 회원이 남긴 좋아요는 함께 사라진다.
+
+댓글 좋아요는 범위 밖이다 — 댓글 자체의 제외 범위와 같다.
+
 ## 2-1-9 마이페이지
 
 *(2026-08-28 확정, [#223](https://github.com/HackerKHU/hacker_HP/issues/223). 구현은 [#178](https://github.com/HackerKHU/hacker_HP/issues/178)·[#225](https://github.com/HackerKHU/hacker_HP/issues/225)·[#226](https://github.com/HackerKHU/hacker_HP/issues/226)이다.)*
