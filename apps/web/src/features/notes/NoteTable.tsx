@@ -44,6 +44,8 @@ export function NoteTable({
       <Table
         className={cn(
           'table-fixed',
+          // 정렬은 표 한 자리에서 준다 — 공지·자유 게시판 목록과 같다.
+          'text-center [&_th]:text-center',
           showCategory ? 'min-w-[1120px]' : 'min-w-[1000px]',
         )}
       >
@@ -60,8 +62,8 @@ export function NoteTable({
             <TableHead className="w-36">과목</TableHead>
             <TableHead className="w-24">교수</TableHead>
             <TableHead className="w-32">학기</TableHead>
-            <TableHead className="w-16 text-right">첨부</TableHead>
-            <TableHead className="w-20 text-right">조회수</TableHead>
+            <TableHead className="w-16">첨부</TableHead>
+            <TableHead className="w-20">조회수</TableHead>
             <TableHead className="w-24">업로더</TableHead>
             <TableHead className="w-28">등록일</TableHead>
           </TableRow>
@@ -130,10 +132,8 @@ export function NoteTable({
                 {note.year}년 {SEMESTER_LABEL[note.semester]}
                 {note.examType && ` · ${EXAM_TYPE_LABEL[note.examType]}`}
               </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {note.fileCount}
-              </TableCell>
-              <TableCell className="whitespace-nowrap text-right tabular-nums">
+              <TableCell className="tabular-nums">{note.fileCount}</TableCell>
+              <TableCell className="whitespace-nowrap tabular-nums">
                 {note.viewCount}
               </TableCell>
               <TableCell className="text-muted-foreground">

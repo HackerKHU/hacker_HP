@@ -234,7 +234,13 @@ export function NoticeListPage() {
              * `table-fixed` + `min-w`는 좁은 화면에서 열이 뭉개지지 않게 하고, 넘치는
              * 만큼은 `Table`의 컨테이너가 가로로 스크롤한다.
              */}
-            <Table className="table-fixed min-w-[640px]">
+            {/*
+             * **열 제목과 셀을 한 자리에서 가운데로 맞춘다.** 셀마다 정렬 유틸리티를
+             * 흩뿌리면 헤더는 왼쪽인데 숫자는 오른쪽인 지금 같은 어긋남이 다시 생긴다.
+             * `text-center`가 `<td>`로 상속되고, `TableHead`가 들고 있는 `text-left`만
+             * 후손 선택자로 덮는다.
+             */}
+            <Table className="table-fixed min-w-[640px] text-center [&_th]:text-center">
               <TableHeader>
                 <TableRow>
                   <TableHead>제목</TableHead>
@@ -243,7 +249,7 @@ export function NoticeListPage() {
                    * 자료의 `조회수` 열과 같은 모양이다 — 숫자 열은 우측 정렬이라 자릿수가
                    * 세로로 맞는다. 조회수 열은 아직 없다: 공지 응답에 필드가 없다 (#375).
                    */}
-                  <TableHead className="w-20 text-right">좋아요</TableHead>
+                  <TableHead className="w-20">좋아요</TableHead>
                   <TableHead className="w-28">등록일</TableHead>
                   {/* 고정 토글 열은 이름이 없다 — 버튼만 있는 칸이라 이름을 붙이면 폭만 먹는다. */}
                   {managing && isAdmin && <TableHead className="w-24" />}
@@ -268,7 +274,7 @@ export function NoticeListPage() {
                       <Link
                         to={`/notices/${notice.id}`}
                         className={cn(
-                          'flex items-center gap-2 underline-offset-4 hover:underline',
+                          'flex items-center justify-center gap-2 underline-offset-4 hover:underline',
                           notice.isPinned ? 'text-primary' : 'text-foreground',
                         )}
                       >
@@ -282,7 +288,7 @@ export function NoticeListPage() {
                             <span className="sr-only">고정</span>
                           </>
                         )}
-                        <span className="truncate" title={notice.title}>
+                        <span className="min-w-0 truncate" title={notice.title}>
                           {notice.title}
                         </span>
                         {isNew(notice.createdAt) && (
@@ -308,7 +314,7 @@ export function NoticeListPage() {
                      * 누르는 자리는 상세에만 둔다 (#348 D1). 아이콘도 두지 않는다 — 열
                      * 제목이 이미 "좋아요"라고 말한다.
                      */}
-                    <TableCell className="text-right tabular-nums">
+                    <TableCell className="tabular-nums">
                       {notice.likeCount}
                     </TableCell>
 
