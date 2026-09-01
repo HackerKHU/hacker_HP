@@ -154,17 +154,13 @@ export function PostDetailPage() {
             <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
               {/* 작성자 이름은 절대 비지 않는다 — 제거되면 "탈퇴한 회원"이다 (§2-1-8). */}
               <span>{post.author.name}</span>
-              <span aria-hidden="true">·</span>
               <time dateTime={post.createdAt}>
                 {formatDateTime(post.createdAt)}
               </time>
               {post.updatedAt !== post.createdAt && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <time dateTime={post.updatedAt}>
-                    수정됨 {formatDateTime(post.updatedAt)}
-                  </time>
-                </>
+                <time dateTime={post.updatedAt}>
+                  수정됨 {formatDateTime(post.updatedAt)}
+                </time>
               )}
             </div>
 

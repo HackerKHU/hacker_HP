@@ -252,17 +252,13 @@ export function PostComments({ postId }: { postId: number }) {
                 <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
                   {/* 작성자 이름은 절대 비지 않는다 — 제거되면 "탈퇴한 회원"이다 (§2-1-8). */}
                   <span>{comment.author.name}</span>
-                  <span aria-hidden="true">·</span>
                   <time dateTime={comment.createdAt}>
                     {formatDateTime(comment.createdAt)}
                   </time>
                   {comment.updatedAt !== comment.createdAt && (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <time dateTime={comment.updatedAt}>
-                        수정됨 {formatDateTime(comment.updatedAt)}
-                      </time>
-                    </>
+                    <time dateTime={comment.updatedAt}>
+                      수정됨 {formatDateTime(comment.updatedAt)}
+                    </time>
                   )}
                 </div>
 
