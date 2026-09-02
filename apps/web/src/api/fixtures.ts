@@ -1846,6 +1846,8 @@ type FixturePhoto = Photo
 const PHOTOS: FixturePhoto[] = Array.from({ length: 25 }, (_, index) => {
   const image = LANDING_PHOTOS[index % LANDING_PHOTOS.length]
   const owner = index % 3
+  // 0이 섞여 있어야 "아직 아무도 안 누른 사진"의 표시를 화면에서 볼 수 있다.
+  const likeCount = index % 4
   return {
     id: 501 + index,
     caption: PHOTO_CAPTIONS[index % PHOTO_CAPTIONS.length],
@@ -1856,6 +1858,9 @@ const PHOTOS: FixturePhoto[] = Array.from({ length: 25 }, (_, index) => {
     uploaderName:
       owner === 0 ? USERS.admin.name : owner === 1 ? '권승원' : '탈퇴한 회원',
     createdAt: daysAgo(index),
+    likeCount,
+    // 공지와 같은 이유로 `likedByMe`를 `likeCount`에서 파생한다 (위 `NOTICES` 주석).
+    likedByMe: likeCount > 0 && index % 5 === 0,
   }
 })
 
@@ -1898,6 +1903,30 @@ export function fixtureRemovePhoto(id: number): Promise<void> {
     )
   }
   PHOTOS.splice(at, 1)
+  return Promise.resolve()
+}
+
+/**
+ * 좋아요·취소. **없는 사진이어도 둘 다 실패는 아니다** — 누르기는 `404`, 취소는 성공이다
+ * (계약 §3-2-5). 사진이 지워지면 좋아요도 함께 사라져 뗄 것이 이미 없다.
+ *
+ * **`requirePhotoAdmin`을 쓰지 않는다** (계약 §3-2-5) — 업로드·삭제와 달리 좋아요는
+ * `ACTIVE`·`INACTIVE` 부원 누구나 누른다. 픽스처가 막으면 일반 부원 시나리오에서
+ * 화면을 확인할 수 없다.
+ */
+export function fixtureSetPhotoLike(id: number, liked: boolean): Promise<void> {
+  const found = PHOTOS.find((photo) => photo.id === id)
+  if (!found) {
+    return liked
+      ? Promise.reject(
+          new ApiError('NOT_FOUND', 404, '사진을 찾을 수 없습니다.'),
+        )
+      : Promise.resolve()
+  }
+  if (found.likedByMe !== liked) {
+    found.likedByMe = liked
+    found.likeCount += liked ? 1 : -1
+  }
   return Promise.resolve()
 }
 
@@ -1996,6 +2025,9 @@ export function fixtureRegisterPhotos(
       uploaderId: USERS.admin.id,
       uploaderName: USERS.admin.name,
       createdAt: new Date().toISOString(),
+      // 방금 등록한 사진은 좋아요가 있을 수 없다 (계약 §3-2-5).
+      likeCount: 0,
+      likedByMe: false,
     }
     PHOTOS.unshift(created)
     registered.push(created)

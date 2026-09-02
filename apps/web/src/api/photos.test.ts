@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearCookies, setCookie } from '@/test/cookies'
-import { contentTypeOf, extensionOf, uploadAll, uploadUrls } from './photos'
+import {
+  contentTypeOf,
+  extensionOf,
+  setPhotoLike,
+  uploadAll,
+  uploadUrls,
+} from './photos'
 
 /**
  * 사진 업로드의 S3 직결 구간.
@@ -214,5 +220,35 @@ describe('S3 직접 업로드', () => {
       [1, 2],
       [2, 2],
     ])
+  })
+})
+
+/**
+ * 좋아요.
+ *
+ * 화면 테스트는 이 모듈을 통째로 mock하므로 **`POST`를 `DELETE`로 바꾸거나 경로를 틀려도
+ * 그쪽은 전부 통과한다.** 좋아요는 **토글이 아니라 방향을 실어 보내는 계약**이라
+ * (§3-2-5 MUST) 방향이 뒤집히면 재시도가 방금 누른 것을 조용히 뗀다 — 여기서 잡는다.
+ */
+describe('좋아요 method와 경로', () => {
+  it.each([
+    [true, 'POST'],
+    [false, 'DELETE'],
+  ])('liked=%s면 %s /api/v1/photos/{id}/like', async (liked, method) => {
+    fetchMock.mockResolvedValue(jsonResponse(null))
+
+    await setPhotoLike(7, liked)
+
+    const [url, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit]
+    expect(url).toBe('/api/v1/photos/7/like')
+    expect(init.method).toBe(method)
+  })
+
+  it('절대 URL을 만들지 않는다 — Vercel rewrites 프록시를 타야 한다', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(null))
+
+    await setPhotoLike(7, true)
+
+    expect(fetchMock.mock.calls.at(-1)?.[0]).not.toMatch(/^https?:\/\//)
   })
 })

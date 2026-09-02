@@ -1468,6 +1468,74 @@ describe('활동사진 픽스처', () => {
     expect(result.registered[0].uploaderName).toBe('김관리')
   })
 
+  /*
+   * 공지와 같은 이유로 `likedByMe`를 `likeCount`에서 파생한다 (#348 회귀) — 둘을 따로
+   * 정하면 **"내가 눌렀는데 개수가 0"인 사진**이 시드에 생기고, 그 사진에서 취소를 누르면
+   * 화면이 "좋아요 -1"을 그린다. 서버는 그런 응답을 만들 수 없다.
+   */
+  it('likedByMe가 참인 사진은 likeCount가 1 이상이다', async () => {
+    const { fixturePhotos } = await loadFixtures('user')
+
+    const all = await fixturePhotos({ size: 1000 })
+
+    expect(
+      all.content.filter((photo) => photo.likedByMe && photo.likeCount < 1),
+    ).toEqual([])
+    // 눌린 사진이 아예 없으면 위 단언이 공짜로 통과한다.
+    expect(all.content.some((photo) => photo.likedByMe)).toBe(true)
+  })
+
+  /*
+   * **좋아요는 `ADMIN` 전용이 아니다** (계약 §3-2-5, T-571) — 업로드·삭제와 권한이 갈리는
+   * 지점이다. 픽스처가 여기까지 `requirePhotoAdmin`으로 막으면 일반 부원 시나리오에서
+   * 화면을 확인할 수 없다.
+   */
+  it('일반 부원도 좋아요를 누르고 취소한다', async () => {
+    const { fixturePhotos, fixtureSetPhotoLike } = await loadFixtures('user')
+    /*
+     * **목록은 시드 객체를 그대로 돌려준다.** 그대로 들고 있으면 아래 좋아요가 이 값까지
+     * 바꿔 놓아 "누르기 전"이 남지 않는다 — 복사해 둔다.
+     */
+    const first = async () => ({
+      ...(await fixturePhotos({ size: 1 })).content[0],
+    })
+
+    const before = await first()
+    await fixtureSetPhotoLike(before.id, true)
+    const liked = await first()
+    // 멱등이다 — 이미 누른 것에 또 눌러도 개수가 늘지 않는다 (T-561).
+    await fixtureSetPhotoLike(before.id, true)
+    const again = await first()
+    await fixtureSetPhotoLike(before.id, false)
+    const canceled = await first()
+
+    expect(liked).toMatchObject({
+      likedByMe: true,
+      likeCount: before.likeCount + 1,
+    })
+    expect(again.likeCount).toBe(liked.likeCount)
+    expect(canceled).toMatchObject({
+      likedByMe: false,
+      likeCount: before.likeCount,
+    })
+  })
+
+  /*
+   * 없는 사진이면 **누르기는 `404`, 취소는 성공이다** (계약 §3-2-5 MUST) — 사진이 지워지면
+   * 좋아요도 함께 사라져 뗄 것이 이미 없다 (T-562·T-563).
+   */
+  it('없는 사진은 누르면 404이고 취소는 성공이다', async () => {
+    const { fixtureSetPhotoLike, ApiError } = await loadFixtures('user')
+
+    const pressed = await fixtureSetPhotoLike(9999, true).catch(
+      (caught: unknown) => caught,
+    )
+    expect(pressed).toBeInstanceOf(ApiError)
+    expect((pressed as InstanceType<typeof ApiError>).code).toBe('NOT_FOUND')
+
+    await expect(fixtureSetPhotoLike(9999, false)).resolves.toBeUndefined()
+  })
+
   /* 등록한 사진이 목록에 남아야 업로드 → 갤러리 왕복을 확인할 수 있다. */
   it('등록한 사진이 목록 맨 앞에 온다', async () => {
     const { fixtureRegisterPhotos, fixturePhotos } = await loadFixtures('admin')
