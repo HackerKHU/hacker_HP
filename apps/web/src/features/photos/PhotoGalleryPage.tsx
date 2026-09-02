@@ -1,4 +1,4 @@
-import { ThumbsUp, Trash2 } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { ApiError } from '@/api/client'
@@ -297,31 +297,28 @@ export function PhotoGalleryPage() {
                           {photo.caption}
                         </p>
                       )}
-                      <p className="truncate text-xs text-muted-foreground">
+                      <p className="flex text-xs text-muted-foreground">
                         {/* 업로더 이름은 절대 비지 않는다 — 제거되면 "탈퇴한 회원"이다 (§3-2-2). */}
-                        {photo.uploaderName}
-                        {/* 한 줄 `truncate`라 부모가 gap을 줄 수 없다. 날짜가 여백을 들고 간다. */}
-                        <span className="ml-2">
-                          {formatDate(photo.createdAt)}
+                        <span className="truncate">
+                          {photo.uploaderName} · {formatDate(photo.createdAt)}
+                        </span>
+                        {/*
+                         * **개수는 이 줄의 끝이다** (#384). 업로더·날짜와 같은 급의 부수
+                         * 정보라 아이콘 없이 글자로 붙는다 — 따봉을 삭제 버튼 옆에 두면
+                         * 읽는 정보가 누르는 것처럼 보이고, 캡션이 없는 카드에서는 세로
+                         * 위치까지 어긋났다.
+                         *
+                         * **줄어들지 않는다.** 긴 이름은 앞의 `truncate`가 받아내고 개수는
+                         * 남는다 — 줄 전체를 자르면 정작 개수가 먼저 사라진다.
+                         *
+                         * **0이어도 감추지 않는다.** 숨기면 카드마다 이 줄의 폭이 달라져
+                         * 그리드가 흔들린다.
+                         */}
+                        <span className="shrink-0">
+                          &nbsp;· 좋아요 {photo.likeCount}
                         </span>
                       </p>
                     </div>
-
-                    {/*
-                     * **개수만 보여준다. 버튼은 라이트박스에만 있다** (#351 D1) — 카드마다
-                     * 버튼을 두면 사진을 고르려던 손이 좋아요를 남긴다.
-                     *
-                     * **0이어도 감추지 않는다.** 숨기면 카드마다 이 줄의 폭이 달라져
-                     * 그리드가 흔들린다. 업로더·날짜와 같은 급으로 읽히게 크기를 맞춘다 —
-                     * 사진이 주인공이고 숫자는 부수 정보다.
-                     *
-                     * 아이콘은 장식이라 감추고, 숫자만으로는 무엇의 개수인지 알 수 없으므로
-                     * 읽는 기계에게 말을 준다 — 라이트박스 버튼과 같은 "좋아요 N"이다.
-                     */}
-                    <p className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                      <ThumbsUp className="size-3.5" aria-hidden="true" />
-                      <span className="sr-only">좋아요</span> {photo.likeCount}
-                    </p>
 
                     {isAdmin && (
                       <AlertDialog>

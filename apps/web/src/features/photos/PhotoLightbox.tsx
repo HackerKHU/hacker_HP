@@ -131,12 +131,19 @@ export function PhotoLightbox({
            *
            * 채움/비움과 `aria-pressed`로 내가 눌렀는지 보인다 — 무채색 팔레트라 색으로
            * 가를 수 없다. 따봉인 이유는 공지 좋아요와 같다 (3-3 결정 24 D4).
+           *
+           * **닫기 X와 같은 처리다** (#384). 한때 `outline`이라 어두운 오버레이 위에 흰
+           * 알약으로 떴는데, 그것이 위 닫기 버튼이 피한 바로 그 문제다 — 배경 상자가
+           * 하나 더 생겨 사진 모서리를 가린다. 배경을 지우고 흰 글씨에 그림자를 준다.
+           *
+           * **잠긴 동안에도 읽혀야 한다.** 기본 `disabled:opacity-50`은 어두운 뒤를 두고
+           * 흰 글씨가 너무 흐려져 요청이 도는 몇 초간 개수가 안 보인다.
            */}
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="shrink-0"
+            className="shrink-0 text-white drop-shadow-md hover:bg-transparent hover:text-white/70 disabled:opacity-70 dark:hover:bg-transparent"
             disabled={liking}
             aria-pressed={photo.likedByMe}
             onClick={onToggleLike}
