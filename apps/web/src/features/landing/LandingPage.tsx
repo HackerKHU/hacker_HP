@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { SiteFooter } from '@/components/layout/SiteFooter'
 import {
   Accordion,
@@ -17,6 +17,69 @@ const CONTAINER = 'mx-auto w-full max-w-[1152px] px-6'
 
 /** 섹션 제목이 고정 헤더에 가리지 않도록 여백을 준다 (`scroll-mt-*`). */
 const SECTION = `${CONTAINER} scroll-mt-24 py-28`
+
+/**
+ * 화면에 들어올 때 한 번 나타난다 (#104).
+ *
+ * **감추는 것은 JS가 할 수 있을 때만 한다.** 처음 그려질 때는 그냥 보이고, 관찰을 실제로
+ * 걸 수 있을 때에만 `data-reveal="hidden"`을 붙인다 — 초기 상태를 감춤으로 두면
+ * `IntersectionObserver`가 없거나 스크립트가 죽은 환경에서 **내용이 영영 보이지 않는다.**
+ * 되돌릴 수 없는 상태로 두지 않는다는 것이 이 기능의 완료 조건이다.
+ *
+ * **`useLayoutEffect`다.** 그려진 뒤 첫 페인트 전에 감춰야 보이던 것이 사라지는 프레임이
+ * 없다. 모션을 줄이는 설정이면 아예 감추지 않는다.
+ *
+ * 한 번 나타나면 관찰을 끊는다 — 스크롤을 올렸다 내릴 때마다 다시 사라지면 읽는 데
+ * 방해된다. 라이브러리는 쓰지 않는다 (이슈의 레퍼런스 조사도 같은 결론이다).
+ *
+ * @param delayMs 차례로 나타나게 할 때의 시차. 클래스로는 값마다 새 유틸리티가 필요해
+ *   인라인 스타일로 준다.
+ */
+function Reveal({
+  children,
+  className,
+  delayMs = 0,
+}: {
+  children: React.ReactNode
+  className?: string
+  delayMs?: number
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const node = ref.current
+    const reduceMotion =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (!node || reduceMotion || typeof IntersectionObserver === 'undefined') {
+      return
+    }
+
+    node.dataset.reveal = 'hidden'
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return
+        node.dataset.reveal = 'shown'
+        observer.disconnect() // 한 번만 나타난다
+      },
+      // 아래 가장자리에 살짝 걸친 것은 아직 읽을 차례가 아니다.
+      { rootMargin: '0px 0px -10% 0px' },
+    )
+    observer.observe(node)
+
+    return () => observer.disconnect()
+  }, [])
+
+  return (
+    <div
+      ref={ref}
+      className={className}
+      style={delayMs === 0 ? undefined : { transitionDelay: `${delayMs}ms` }}
+    >
+      {children}
+    </div>
+  )
+}
 
 function Heading({ children }: { children: string }) {
   return <h2 className="text-4xl font-semibold tracking-tight">{children}</h2>
@@ -48,14 +111,16 @@ function Hero() {
 function About() {
   return (
     <section id="about" className={cn(SECTION, 'border-t border-border')}>
-      <Heading>소개</Heading>
-      <div className="mt-8 max-w-2xl space-y-4">
-        {CLUB.about.map((paragraph) => (
-          <p key={paragraph} className="leading-8 text-muted-foreground">
-            {paragraph}
-          </p>
-        ))}
-      </div>
+      <Reveal>
+        <Heading>소개</Heading>
+        <div className="mt-8 max-w-2xl space-y-4">
+          {CLUB.about.map((paragraph) => (
+            <p key={paragraph} className="leading-8 text-muted-foreground">
+              {paragraph}
+            </p>
+          ))}
+        </div>
+      </Reveal>
     </section>
   )
 }
@@ -225,11 +290,17 @@ function CountUp({
 function Stats() {
   return (
     <section id="stats" className={cn(SECTION, 'border-t border-border')}>
-      <Heading>함께한 기록</Heading>
+      <Reveal>
+        <Heading>함께한 기록</Heading>
+      </Reveal>
       {/* 모바일은 2×2다. 4열 고정이면 390px에서 숫자가 잘린다 (#174). */}
       <dl className="mt-10 grid grid-cols-2 gap-x-6 gap-y-10 md:grid-cols-4">
-        {STATS.map((stat) => (
-          <div key={stat.label}>
+        {STATS.map((stat, index) => (
+          /*
+           * **차례로 나타난다.** 카운트업이 이미 있어 등장과 겹치면 숫자가 올라가는 것이
+           * 눈에 더 띈다 — 둘 다 `IntersectionObserver`를 쓰므로 같은 시점에 시작한다.
+           */
+          <Reveal key={stat.label} delayMs={index * 60}>
             {/*
               `tabular-nums`가 없으면 숫자가 바뀔 때마다 글자 폭이 달라져 카운트업 내내
               레이아웃이 덜컹거린다. 이 애니메이션에서 제일 티나는 결함이다.
@@ -247,7 +318,7 @@ function Stats() {
               />
             </dd>
             <dt className="mt-3 text-sm text-muted-foreground">{stat.label}</dt>
-          </div>
+          </Reveal>
         ))}
       </dl>
     </section>
@@ -257,7 +328,9 @@ function Stats() {
 function Faq() {
   return (
     <section id="faq" className={cn(SECTION, 'border-t border-border')}>
-      <Heading>자주 묻는 질문</Heading>
+      <Reveal>
+        <Heading>자주 묻는 질문</Heading>
+      </Reveal>
       {/* 아코디언의 키보드 조작과 포커스는 Radix가 처리한다 (3-3 결정 10). */}
       {/*
        * 아코디언 자체에는 폭 상한을 두지 않는다. 질문 행이 다른 섹션과 같은 폭을 써야
@@ -265,9 +338,22 @@ function Faq() {
        * 1104px짜리 한 줄 문단은 눈이 줄을 놓친다.
        */}
       <Accordion type="single" collapsible className="mt-8">
-        {FAQS.map((faq) => (
-          <AccordionItem key={faq.question} value={faq.question}>
-            {/*
+        {FAQS.map((faq, index) => (
+          /*
+           * **`asChild`로 합치지 않고 감싼다.** Radix의 `Item`은 키보드 조작을 위해 자기
+           * ref를 붙이는데, `asChild`로 넘기면 이 컴포넌트가 그것을 삼켜 방향키 이동이
+           * 깨진다 (3-3 결정 10 — 그 조작은 Radix가 맡는다).
+           *
+           * **행 사이 선은 감싼 쪽이 든다.** `Item`의 `last:border-b-0`은 형제 중 마지막을
+           * 뜻하는데, 감싸면 항목마다 혼자 남아 전부 마지막이 된다 — 선이 다 사라진다.
+           */
+          <Reveal
+            key={faq.question}
+            className="border-b border-border last:border-b-0"
+            delayMs={index * 60}
+          >
+            <AccordionItem value={faq.question} className="border-b-0">
+              {/*
               **질문은 본문이 아니라 소제목이다.** 레퍼런스 실측에서도 20px였다(dnd·nexters).
               답변만 본문 16px로 두면 질문과 답변 사이에 위계가 생긴다.
 
@@ -275,20 +361,21 @@ function Faq() {
               **사용처에서 덮는다** — `accordion.tsx`를 고치면 이 컴포넌트를 쓰는 다른
               화면까지 따라 바뀐다.
             */}
-            <AccordionTrigger className="py-5 text-left text-xl leading-8 font-semibold">
-              {faq.question}
-            </AccordionTrigger>
-            <AccordionContent>
-              {/*
+              <AccordionTrigger className="py-5 text-left text-xl leading-8 font-semibold">
+                {faq.question}
+              </AccordionTrigger>
+              <AccordionContent>
+                {/*
                 답변에 폭 상한을 두지 않는다. 768px로 묶어 두면 질문 행(1104px)보다 훨씬
                 일찍 줄이 바뀌어, 오른쪽이 비어 있는데도 문장이 끊긴 것처럼 보인다.
                 1104px는 16px 한글 기준 한 줄 65~70자로 읽기 좋은 범위 안이다.
               */}
-              <p className="text-base leading-8 text-muted-foreground">
-                {faq.answer}
-              </p>
-            </AccordionContent>
-          </AccordionItem>
+                <p className="text-base leading-8 text-muted-foreground">
+                  {faq.answer}
+                </p>
+              </AccordionContent>
+            </AccordionItem>
+          </Reveal>
         ))}
       </Accordion>
     </section>
@@ -301,13 +388,15 @@ function Support() {
 
   return (
     <section id="support" className={cn(SECTION, 'border-t border-border')}>
-      <Heading>후원</Heading>
-      <p className="mt-8 max-w-2xl leading-8 text-muted-foreground">
-        {SUPPORT.description}
-      </p>
-      <Button asChild size="lg" className="mt-8">
-        <a href={mailto}>후원 문의하기</a>
-      </Button>
+      <Reveal>
+        <Heading>후원</Heading>
+        <p className="mt-8 max-w-2xl leading-8 text-muted-foreground">
+          {SUPPORT.description}
+        </p>
+        <Button asChild size="lg" className="mt-8">
+          <a href={mailto}>후원 문의하기</a>
+        </Button>
+      </Reveal>
     </section>
   )
 }

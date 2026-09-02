@@ -356,6 +356,25 @@ describe('공지 쓰기 픽스처', () => {
     expect((error as InstanceType<typeof ApiError>).code).toBe('NOT_FOUND')
   })
 
+  /*
+   * 회귀 (2026-09-01, #348) — `likeCount`와 `likedByMe`를 서로 독립인 식으로 만들어
+   * **"내가 눌렀는데 개수가 0"인 공지가 시드에 있었다.** 서버는 그런 응답을 만들 수 없고,
+   * 그 공지에서 좋아요를 취소하면 화면이 "좋아요 -1"을 그렸다.
+   *
+   * 화면에 클램프를 두는 대신 여기서 잠근다 — 응답이 일관되면 음수가 나올 자리가 없다.
+   */
+  it('likedByMe가 참인 공지는 likeCount가 1 이상이다', async () => {
+    const { fixtureNotices } = await loadFixtures('user')
+
+    const all = await fixtureNotices(0, 1000)
+
+    expect(
+      all.content.filter((notice) => notice.likedByMe && notice.likeCount < 1),
+    ).toEqual([])
+    // 눌린 공지가 아예 없으면 위 단언이 공짜로 통과한다.
+    expect(all.content.some((notice) => notice.likedByMe)).toBe(true)
+  })
+
   it('고정하면 목록 맨 앞으로 올라간다', async () => {
     const { fixtureNotices, fixtureTogglePin } = await loadFixtures('admin')
 
@@ -1962,5 +1981,70 @@ describe('비활동 시나리오 픽스처', () => {
 
     expect(caught).toBeInstanceOf(ApiError)
     expect((caught as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+  })
+})
+
+/**
+ * 댓글 픽스처.
+ *
+ * 화면 테스트는 `@/api/posts`를 통째로 mock하므로 이 계층은 그 뒤에 가려져 있다.
+ * **권한과 정렬은 여기서 본다** — 픽스처가 남의 댓글 수정을 통과시키면 로컬에서만 되는
+ * 조작이 생기고, 그 회귀는 서버가 붙는 날까지 드러나지 않는다.
+ */
+describe('댓글 픽스처', () => {
+  /* 오래된순 고정이라 새 댓글은 맨 뒤에 붙는다 — 게시글(최신순, 맨 앞)과 반대다. */
+  it('등록한 댓글이 목록 맨 뒤에 붙는다', async () => {
+    const { fixtureComments, fixtureCreateComment } = await loadFixtures('user')
+
+    const before = await fixtureComments(701)
+    const created = await fixtureCreateComment(701, { content: '새 댓글' })
+    const after = await fixtureComments(701)
+
+    expect(after).toHaveLength(before.length + 1)
+    expect(after.at(-1)?.id).toBe(created.id)
+  })
+
+  /* **관리자도 남의 댓글은 못 고친다** (결정 23 D2). 통과시키면 화면의 진입점 규칙이 무의미해진다. */
+  it('남의 댓글 수정은 관리자여도 FORBIDDEN이다', async () => {
+    const { fixtureComments, fixtureEditComment, ApiError } =
+      await loadFixtures('admin')
+
+    const rows = await fixtureComments(701)
+    // 픽스처의 첫 댓글은 남이 쓴 것이다.
+    const caught = await fixtureEditComment(701, rows[0].id, {
+      content: '고침',
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    )
+
+    expect(caught).toBeInstanceOf(ApiError)
+    expect((caught as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+  })
+
+  /* 삭제는 활성 관리자에게 열린다 — 수정과 갈리는 지점이 여기다. */
+  it('남의 댓글 삭제는 활성 관리자에게 열린다', async () => {
+    const { fixtureComments, fixtureRemoveComment } =
+      await loadFixtures('admin')
+
+    const rows = await fixtureComments(701)
+    await fixtureRemoveComment(701, rows[0].id)
+
+    expect(await fixtureComments(701)).toHaveLength(rows.length - 1)
+  })
+
+  /* 다른 글의 댓글 id로 오면 있어도 404다 (계약 §3-2-5). */
+  it('다른 게시글의 댓글 id는 찾을 수 없는 것으로 다룬다', async () => {
+    const { fixtureComments, fixtureRemoveComment, ApiError } =
+      await loadFixtures('user')
+
+    const rows = await fixtureComments(701)
+    const caught = await fixtureRemoveComment(702, rows[0].id).then(
+      () => null,
+      (error: unknown) => error,
+    )
+
+    expect(caught).toBeInstanceOf(ApiError)
+    expect((caught as InstanceType<typeof ApiError>).code).toBe('NOT_FOUND')
   })
 })

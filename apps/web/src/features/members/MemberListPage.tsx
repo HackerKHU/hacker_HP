@@ -98,6 +98,22 @@ const DEACTIVATE_FAILURE_TEXT: Record<DeactivateFailureReason, string> = {
   NOT_FOUND: '찾을 수 없는 계정',
 }
 
+/**
+ * 확인 문구·알림·`aria-label`이 **사람을 가리키는 유일한 방식** (#302).
+ *
+ * 이름만 쓰면 동명이인을 가를 수 없다. 목록에는 학번 열이 있지만 **확인 창이 열리는
+ * 순간 행이 가려지고**, 스크린리더는 애초에 그 열을 읽지 않는다 — 되돌릴 수 없는
+ * 제거를 이름만 보고 누르게 된다.
+ *
+ * **학번을 자르지 않는다.** 관리자는 이미 목록에서 전체를 보고 있어 끝 두 자리로 줄일
+ * 이유가 없다. **신청 전 계정은 학번이 없으므로 이름만 쓴다** — 표의 `—`를 문장에 넣으면
+ * "미신청(—) 회원을 제거합니다"가 된다.
+ *
+ * 여기 하나만 고치면 모든 자리가 함께 바뀐다. 형식을 각자 만들면 화면마다 갈린다.
+ */
+function identify(user: Pick<User, 'name' | 'studentNo'>): string {
+  return user.studentNo === null ? user.name : `${user.name}(${user.studentNo})`
+}
 const BULK_STATUS_FAILURE_TEXT: Record<BulkStatusFailureReason, string> = {
   NOT_FOUND: '찾을 수 없는 계정',
   NOT_APPLIED: '신청서를 내지 않은 계정',
@@ -365,14 +381,14 @@ export function MemberListPage() {
   const openerRef = useRef<string | null>(null)
 
   /**
-   * 행 메뉴에서 확인 창을 연다. 돌아갈 자리를 **이름으로** 기억한다.
+   * 행 메뉴에서 확인 창을 연다. 돌아갈 자리를 **`identify` 문자열로** 기억한다.
    *
    * 요소를 들고 있지 않는 이유는, 확인이 끝나면 목록을 다시 불러와 그 버튼이 새로
-   * 그려지기 때문이다 — 옛 요소는 이미 문서에서 빠져 있다. 이름으로 찾으면 재조회 뒤에도
-   * 같은 행을 가리킨다.
+   * 그려지기 때문이다 — 옛 요소는 이미 문서에서 빠져 있다. 이름과 학번으로 찾으면
+   * 재조회 뒤에도 같은 행을 가리키고, **동명이인이 있어도 엉뚱한 행으로 가지 않는다.**
    */
   function confirmFromMenu(user: User, next: PendingAction) {
-    openerRef.current = user.name
+    openerRef.current = identify(user)
     setConfirm(next)
   }
   const [working, setWorking] = useState(false)
@@ -549,23 +565,26 @@ export function MemberListPage() {
     selectableHere.length > 0 &&
     selectableHere.every((user) => selected.includes(user.id))
 
+  /** 일괄 조작이 나열하는 대상. 한 명짜리 문구와 **같은 형식을 쓴다** (#302). */
+  function listNames(ids: number[]): string {
+    return ids
+      .map((id) => rows.find((user) => user.id === id))
+      .filter((user): user is User => user !== undefined)
+      .map(identify)
+      .join(', ')
+  }
+
   /** 확인 창이 물어볼 문장. 무엇을 누구에게 하는지 드러나야 한다. */
   function describe(action: PendingAction): { title: string; body: string } {
     if (action.kind === 'approve') {
-      const names = action.ids
-        .map((id) => rows.find((user) => user.id === id)?.name)
-        .filter(Boolean)
-        .join(', ')
+      const names = listNames(action.ids)
       return {
         title: '선택한 회원을 승인할까요?',
         body: `${action.ids.length}명을 승인합니다: ${names}. 신청서를 내지 않았거나 이미 처리된 회원은 실패할 수 있습니다.`,
       }
     }
     if (action.kind === 'bulk-status') {
-      const names = action.ids
-        .map((id) => rows.find((user) => user.id === id)?.name)
-        .filter(Boolean)
-        .join(', ')
+      const names = listNames(action.ids)
       const activating = action.target === 'ACTIVE'
       return {
         title: activating
@@ -577,20 +596,14 @@ export function MemberListPage() {
       }
     }
     if (action.kind === 'bulk-deactivate') {
-      const names = action.ids
-        .map((id) => rows.find((user) => user.id === id)?.name)
-        .filter(Boolean)
-        .join(', ')
+      const names = listNames(action.ids)
       return {
         title: '선택한 회원을 비활성화할까요?',
         body: `${action.ids.length}명을 비활성화합니다: ${names}. 활동 중이거나 정지된 일반 부원만 바뀌며, 관리자·승인 대기·이미 비활동인 계정은 실패할 수 있습니다.`,
       }
     }
     if (action.kind === 'reject') {
-      const names = action.ids
-        .map((id) => rows.find((user) => user.id === id)?.name)
-        .filter(Boolean)
-        .join(', ')
+      const names = listNames(action.ids)
       return {
         title: '선택한 신청을 거부할까요?',
         body: `${action.ids.length}명의 신청을 미승인 상태로 되돌립니다: ${names}. 계정은 유지되어 다시 신청할 수 있습니다. 승인 대기 상태가 아닌 회원은 실패할 수 있습니다.`,
@@ -610,7 +623,7 @@ export function MemberListPage() {
             : `자료 ${summary.notes}건, 공지 ${summary.notices}건, 활동사진 ${summary.photos}건, 게시글 ${summary.posts}건이 "탈퇴한 회원"으로 남습니다.`
       return {
         title: '이 회원을 제거할까요?',
-        body: `${user.name} 회원의 계정을 지웁니다. 되돌릴 수 없습니다. ${leaves}`,
+        body: `${identify(user)} 회원의 계정을 지웁니다. 되돌릴 수 없습니다. ${leaves}`,
       }
     }
     if (action.kind === 'role') {
@@ -620,8 +633,8 @@ export function MemberListPage() {
           ? '활동 관리자로 전환할까요?'
           : '관리자 권한을 회수할까요?',
         body: granting
-          ? `${action.user.name} 회원을 활성화하고 관리자로 지정해 활동 관리자로 전환합니다.`
-          : `${action.user.name} 회원의 관리자 권한을 회수합니다.`,
+          ? `${identify(action.user)} 회원을 활성화하고 관리자로 지정해 활동 관리자로 전환합니다.`
+          : `${identify(action.user)} 회원의 관리자 권한을 회수합니다.`,
       }
     }
     return {
@@ -633,10 +646,10 @@ export function MemberListPage() {
             : '회원을 정지할까요?',
       body:
         action.action === 'ACTIVATE'
-          ? `${action.user.name} 회원을 활성화합니다.`
+          ? `${identify(action.user)} 회원을 활성화합니다.`
           : action.action === 'DEACTIVATE'
-            ? `${action.user.name} 회원을 비활성화합니다.`
-            : `${action.user.name} 회원을 정지합니다. 정지되면 즉시 로그인할 수 없습니다.`,
+            ? `${identify(action.user)} 회원을 비활성화합니다.`
+            : `${identify(action.user)} 회원을 정지합니다. 정지되면 즉시 로그인할 수 없습니다.`,
     }
   }
 
@@ -866,7 +879,7 @@ export function MemberListPage() {
     setWorking(true)
     try {
       await remove(user.id)
-      alert.success(`${user.name} 회원을 제거했습니다.`)
+      alert.success(`${identify(user)} 회원을 제거했습니다.`)
       // 목록 재조회가 제거된 id만 선택에서 걷어 내고, 무관한 선택은 그대로 둔다.
       setReloadKey((key) => key + 1)
     } catch (error: unknown) {
@@ -892,8 +905,8 @@ export function MemberListPage() {
       await updateRole(user.id, next)
       alert.success(
         next === 'ADMIN'
-          ? `${user.name} 회원을 활동 관리자로 지정했습니다.`
-          : `${user.name} 회원의 관리자 권한을 회수했습니다.`,
+          ? `${identify(user)} 회원을 활동 관리자로 지정했습니다.`
+          : `${identify(user)} 회원의 관리자 권한을 회수했습니다.`,
       )
       setReloadKey((key) => key + 1)
     } catch (error: unknown) {
@@ -929,7 +942,7 @@ export function MemberListPage() {
             `활성화하지 못했습니다. ${BULK_STATUS_FAILURE_TEXT[failure.reason]}`,
           )
         } else {
-          alert.success(`${user.name} 회원을 활성화했습니다.`)
+          alert.success(`${identify(user)} 회원을 활성화했습니다.`)
         }
       } else if (action === 'DEACTIVATE') {
         const result = await deactivate([user.id])
@@ -939,7 +952,7 @@ export function MemberListPage() {
             `비활성화하지 못했습니다. ${DEACTIVATE_FAILURE_TEXT[failure.reason]}`,
           )
         } else {
-          alert.success(`${user.name} 회원을 비활성화했습니다.`)
+          alert.success(`${identify(user)} 회원을 비활성화했습니다.`)
         }
       } else {
         const result = await bulkUpdateStatus([user.id], 'SUSPENDED')
@@ -949,7 +962,7 @@ export function MemberListPage() {
             `정지하지 못했습니다. ${BULK_STATUS_FAILURE_TEXT[failure.reason]}`,
           )
         } else {
-          alert.success(`${user.name} 회원을 정지했습니다.`)
+          alert.success(`${identify(user)} 회원을 정지했습니다.`)
         }
       }
     } catch (error: unknown) {
@@ -1186,7 +1199,7 @@ export function MemberListPage() {
                             onCheckedChange={(next) =>
                               toggleOne(user.id, next === true)
                             }
-                            aria-label={`${user.name} 선택`}
+                            aria-label={`${identify(user)} 선택`}
                           />
                         </TableCell>
                         <TableCell className="font-medium">
@@ -1236,7 +1249,7 @@ export function MemberListPage() {
                                   variant="ghost"
                                   size="sm"
                                   disabled={working}
-                                  aria-label={`${user.name} 관리 메뉴`}
+                                  aria-label={`${identify(user)} 관리 메뉴`}
                                 >
                                   <MoreHorizontalIcon aria-hidden="true" />
                                 </Button>
@@ -1272,7 +1285,7 @@ export function MemberListPage() {
                                     <DropdownMenuItem
                                       variant="destructive"
                                       onSelect={() => {
-                                        openerRef.current = user.name
+                                        openerRef.current = identify(user)
                                         openRemove(user)
                                       }}
                                     >
@@ -1352,7 +1365,7 @@ export function MemberListPage() {
                                     <DropdownMenuItem
                                       variant="destructive"
                                       onSelect={() => {
-                                        openerRef.current = user.name
+                                        openerRef.current = identify(user)
                                         openRemove(user)
                                       }}
                                     >

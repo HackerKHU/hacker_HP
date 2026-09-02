@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { formatDateTime } from './format'
+import { PostComments } from './PostComments'
 
 type Status = 'loading' | 'loaded' | 'notFound' | 'failed'
 
@@ -153,17 +154,13 @@ export function PostDetailPage() {
             <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
               {/* 작성자 이름은 절대 비지 않는다 — 제거되면 "탈퇴한 회원"이다 (§2-1-8). */}
               <span>{post.author.name}</span>
-              <span aria-hidden="true">·</span>
               <time dateTime={post.createdAt}>
                 {formatDateTime(post.createdAt)}
               </time>
               {post.updatedAt !== post.createdAt && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <time dateTime={post.updatedAt}>
-                    수정됨 {formatDateTime(post.updatedAt)}
-                  </time>
-                </>
+                <time dateTime={post.updatedAt}>
+                  수정됨 {formatDateTime(post.updatedAt)}
+                </time>
               )}
             </div>
 
@@ -234,6 +231,9 @@ export function PostDetailPage() {
           <div className="mt-8 whitespace-pre-wrap border-t border-border pt-8 text-sm leading-7">
             {post.content}
           </div>
+
+          {/* 댓글은 게시글이 실제로 있을 때만 부른다 — 없는 글의 댓글은 서버도 404다. */}
+          <PostComments postId={post.id} />
         </>
       )}
     </article>

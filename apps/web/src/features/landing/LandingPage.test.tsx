@@ -166,6 +166,127 @@ describe('공개 랜딩', () => {
    * 추정처럼 읽히고, 아무 데도 안 붙으면 근사치가 정확한 집계처럼 읽힌다.
    */
   /*
+   * #104 — 스크롤 등장.
+   *
+   * **감춘 채 남는 요소가 없어야 한다**는 것이 이 기능의 완료 조건이다. 여기서 그 세 갈래를
+   * 전부 잠근다 — 관찰을 못 걸 때, 모션을 줄일 때, 그리고 정상적으로 나타날 때.
+   */
+  describe('스크롤 등장', () => {
+    /** 관찰 대상과 콜백을 붙잡아 두는 가짜 `IntersectionObserver`. */
+    function stubObserver() {
+      const observed: Element[] = []
+      const disconnected: Element[] = []
+      const fire: (() => void)[] = []
+      class FakeObserver {
+        targets: Element[] = []
+        constructor(callback: IntersectionObserverCallback) {
+          fire.push(() => {
+            callback(
+              this.targets.map(
+                (target) =>
+                  ({
+                    target,
+                    isIntersecting: true,
+                  }) as IntersectionObserverEntry,
+              ),
+              this as unknown as IntersectionObserver,
+            )
+          })
+        }
+        observe(target: Element) {
+          this.targets.push(target)
+          observed.push(target)
+        }
+        disconnect() {
+          disconnected.push(...this.targets)
+        }
+        unobserve() {}
+        takeRecords() {
+          return []
+        }
+      }
+      vi.stubGlobal('IntersectionObserver', FakeObserver)
+      return {
+        observed,
+        disconnected,
+        revealAll: () => {
+          for (const trigger of fire) trigger()
+        },
+      }
+    }
+
+    function hidden() {
+      return document.querySelectorAll('[data-reveal="hidden"]')
+    }
+
+    /*
+     * **`IntersectionObserver`가 없으면 감추지 않는다.** 초기 상태를 감춤으로 두면 관찰을
+     * 걸 수 없는 환경에서 내용이 영영 보이지 않는다 — jsdom이 바로 그 환경이다.
+     */
+    it('관찰을 걸 수 없으면 아무것도 감추지 않는다', async () => {
+      renderLanding()
+      await screen.findByRole('heading', { name: '소개' })
+
+      expect(hidden()).toHaveLength(0)
+      expect(screen.getByRole('heading', { name: '후원' })).toBeVisible()
+    })
+
+    it('화면에 들어오면 나타나고 관찰을 끊는다', async () => {
+      const observer = stubObserver()
+      renderLanding()
+      await screen.findByRole('heading', { name: '소개' })
+
+      /*
+       * 관찰하는 것이 등장만은 아니다 — 통계 카운트업도 같은 방식을 쓴다. 그래서 등장이
+       * 실제로 감춘 것만 골라 센다.
+       */
+      const targets = observer.observed.filter((node) =>
+        node.hasAttribute('data-reveal'),
+      )
+      // 감추는 것은 관찰을 실제로 건 뒤다.
+      expect(targets.length).toBeGreaterThan(0)
+      expect(hidden().length).toBe(targets.length)
+
+      observer.revealAll()
+
+      expect(hidden()).toHaveLength(0)
+      // 스크롤을 올렸다 내릴 때마다 다시 사라지면 읽는 데 방해된다.
+      for (const target of targets) {
+        expect(observer.disconnected).toContain(target)
+      }
+    })
+
+    /* 모션을 줄이도록 설정했으면 **처음부터 보인다.** 감췄다가 보여주지 않는다. */
+    it('prefers-reduced-motion이면 감추지 않는다', async () => {
+      stubObserver()
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches: query.includes('prefers-reduced-motion'),
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }))
+
+      renderLanding()
+      await screen.findByRole('heading', { name: '소개' })
+
+      expect(hidden()).toHaveLength(0)
+    })
+
+    /* 첫 화면이 잠깐 비어 보이면 로딩이 느린 것으로 읽힌다. */
+    it('히어로에는 등장을 걸지 않는다', async () => {
+      const observer = stubObserver()
+      renderLanding()
+      const heading = await screen.findByRole('heading', { level: 1 })
+
+      expect(heading.closest('[data-reveal]')).toBeNull()
+      // 이미 움직이는 marquee에 등장까지 붙이면 산만하다.
+      const marquee = document.querySelector('.marquee-track')
+      expect(marquee?.closest('[data-reveal]') ?? null).toBeNull()
+      expect(observer.observed.length).toBeGreaterThan(0)
+    })
+  })
+
+  /*
    * #174 — 기록 그리드와 푸터는 모바일에서 접힌다. jsdom은 레이아웃을 계산하지 않으므로
    * 실제 줄바꿈은 못 보고, 반응형 클래스가 빠지는 회귀만 지킨다 — 이 클래스가 사라지면
    * 390px에서 숫자 네 개가 4열에 눌려 잘린다.

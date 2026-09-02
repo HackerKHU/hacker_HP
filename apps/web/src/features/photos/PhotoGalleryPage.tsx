@@ -236,7 +236,11 @@ export function PhotoGalleryPage() {
                       )}
                       <p className="truncate text-xs text-muted-foreground">
                         {/* 업로더 이름은 절대 비지 않는다 — 제거되면 "탈퇴한 회원"이다 (§3-2-2). */}
-                        {photo.uploaderName} · {formatDate(photo.createdAt)}
+                        {photo.uploaderName}
+                        {/* 한 줄 `truncate`라 부모가 gap을 줄 수 없다. 날짜가 여백을 들고 간다. */}
+                        <span className="ml-2">
+                          {formatDate(photo.createdAt)}
+                        </span>
                       </p>
                     </div>
 

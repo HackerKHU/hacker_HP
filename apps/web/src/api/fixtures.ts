@@ -60,7 +60,7 @@ import type {
 } from './notes'
 import type { Notice } from './notices'
 import type { Photo, PhotoRegisterResult, PhotoUpload } from './photos'
-import type { PostDetail, PostSummary } from './posts'
+import type { PostComment, PostDetail, PostSummary } from './posts'
 import type { Page, Role, User } from './types'
 
 /**
@@ -414,6 +414,8 @@ const NOTICES: Notice[] = [
     // 1일 전 — 고정이면서 새글이다. 핀(강)과 NEW(약)의 위계가 한 행에서 보인다.
     createdAt: daysAgo(1),
     updatedAt: daysAgo(1),
+    likeCount: 12,
+    likedByMe: false,
   },
   {
     id: 102,
@@ -425,6 +427,8 @@ const NOTICES: Notice[] = [
     authorName: '관리자',
     createdAt: daysAgo(12),
     updatedAt: daysAgo(10),
+    likeCount: 3,
+    likedByMe: true,
   },
 ]
 
@@ -458,6 +462,8 @@ for (const [index, topic] of TOPICS.entries()) {
   // 0·2·5·8… 일 전. 앞의 둘이 3일 이내라 새글 표시가 실제로 보인다.
   // 간격이 있어야 날짜가 서로 다르고 정렬이 눈에 보인다.
   const days = index === 0 ? 0 : index * 3 - 1
+  // 0이 섞여 있어야 "아직 아무도 안 누른 공지"의 표시를 화면에서 볼 수 있다.
+  const likeCount = index % 4
   NOTICES.push({
     id: 100 - index,
     title: topic,
@@ -467,6 +473,13 @@ for (const [index, topic] of TOPICS.entries()) {
     authorName: '관리자',
     createdAt: daysAgo(days),
     updatedAt: daysAgo(days),
+    likeCount,
+    /*
+     * **`likedByMe`는 `likeCount`에서 파생한다.** 둘을 따로 정하면 "내가 눌렀는데 개수가
+     * 0"이라는 서버가 만들 수 없는 상태가 나오고, 그 공지에서 취소를 누르면 개수가 -1이
+     * 된다. 화면에 클램프를 두는 대신 픽스처가 서버처럼 일관된 값을 준다.
+     */
+    likedByMe: likeCount > 0 && index % 5 === 0,
   })
 }
 
@@ -601,6 +614,8 @@ export function fixtureCreateNotice(body: {
     authorName: '관리자',
     createdAt: now,
     updatedAt: now,
+    likeCount: 0,
+    likedByMe: false,
   }
   NOTICES.push(created)
   sortNotices()
@@ -643,6 +658,31 @@ export function fixtureRemoveNotice(id: number): Promise<void> {
     )
   }
   NOTICES.splice(index, 1)
+  return Promise.resolve()
+}
+
+/**
+ * 좋아요·취소. **없는 공지여도 둘 다 성공은 아니다** — 누르기는 `404`, 취소는 성공이다
+ * (계약 §3-2-5). 공지가 지워지면 좋아요도 함께 사라져 뗄 것이 이미 없다.
+ *
+ * 멱등이라 이미 누른 것에 누르기, 안 눌린 것에 취소 모두 아무 일 없이 성공한다.
+ */
+export function fixtureSetNoticeLike(
+  id: number,
+  liked: boolean,
+): Promise<void> {
+  const found = NOTICES.find((notice) => notice.id === id)
+  if (!found) {
+    return liked
+      ? Promise.reject(
+          new ApiError('NOT_FOUND', 404, '공지를 찾을 수 없습니다.'),
+        )
+      : Promise.resolve()
+  }
+  if (found.likedByMe !== liked) {
+    found.likedByMe = liked
+    found.likeCount += liked ? 1 : -1
+  }
   return Promise.resolve()
 }
 
@@ -2193,4 +2233,185 @@ export function fixtureCreatePost(body: {
   }
   POSTS.unshift(created)
   return Promise.resolve(created)
+}
+
+// ── 자유 게시판 댓글 ─────────────────────────────────────────────────────────
+
+/**
+ * 댓글 픽스처. **오래된순으로 이미 정렬된 상태로 둔다** (계약 §3-2-5) — 화면에서 다시
+ * 정렬하면 서버가 붙었을 때 클라이언트 정렬이 남아 서버 순서를 덮어쓴다.
+ *
+ * 작성자를 나·남·탈퇴한 회원으로 섞는다 — 수정·삭제 진입점이 누구에게 보이는지가
+ * 이 화면의 핵심이라, 셋이 다 있어야 눈으로 확인할 수 있다.
+ */
+const COMMENTS: (PostComment & { postId: number })[] = [
+  {
+    postId: 701,
+    id: 901,
+    content: '저도 참여하고 싶어요!',
+    author: { id: 99, name: '권승원' },
+    createdAt: daysAgo(2),
+    // 하나는 고쳐진 상태로 둔다 — "수정됨" 표시를 화면에서 확인할 수 있어야 한다.
+    updatedAt: daysAgo(1),
+  },
+  {
+    postId: 701,
+    id: 902,
+    content: '수요일은 수업이 있어서 목요일도 가능한가요?',
+    author: { id: USERS.user.id, name: USERS.user.name },
+    createdAt: daysAgo(1),
+    updatedAt: daysAgo(1),
+  },
+  {
+    postId: 701,
+    id: 903,
+    content: '탈퇴한 회원이 남긴 댓글도 그대로 보여야 합니다.',
+    author: { id: null, name: '탈퇴한 회원' },
+    createdAt: daysAgo(1),
+    updatedAt: daysAgo(1),
+  },
+]
+
+let nextCommentId = 950
+
+function findPost(postId: number): FixturePost | undefined {
+  return POSTS.find((post) => post.id === postId)
+}
+
+/** **배열이다** (계약 §3-2-5) — 페이지네이션이 없다. 오래된순 그대로 준다. */
+export function fixtureComments(postId: number): Promise<PostComment[]> {
+  if (!findPost(postId)) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '게시글을 찾을 수 없습니다.'),
+    )
+  }
+  return Promise.resolve(
+    COMMENTS.filter((comment) => comment.postId === postId).map(
+      ({ postId: _postId, ...rest }) => rest,
+    ),
+  )
+}
+
+/** 서버의 `@NotBlank`·`@CodePointSize`와 같이 다듬기 전 원문을 검사한다. */
+function validateComment(content: string): ApiError | null {
+  if (content.trim() === '') {
+    return new ApiError('VALIDATION_ERROR', 400, '내용을 입력해 주세요.')
+  }
+  if ([...content].length > 2000) {
+    return new ApiError(
+      'VALIDATION_ERROR',
+      400,
+      '내용은 2,000자까지 쓸 수 있습니다.',
+    )
+  }
+  return null
+}
+
+export function fixtureCreateComment(
+  postId: number,
+  body: { content: string },
+): Promise<PostComment> {
+  if (!findPost(postId)) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '게시글을 찾을 수 없습니다.'),
+    )
+  }
+  const invalid = validateComment(body.content)
+  if (invalid) return Promise.reject(invalid)
+
+  const me = viewer()
+  const now = new Date().toISOString()
+  const created = {
+    postId,
+    id: nextCommentId++,
+    // **본문은 다듬지 않는다** — 게시글과 같은 판단이다 (§3-2-5 MUST).
+    content: body.content,
+    author: { id: me.id, name: me.name },
+    createdAt: now,
+    updatedAt: now,
+  }
+  // 오래된순이라 맨 뒤에 붙는다. 게시글(`unshift`)과 반대다.
+  COMMENTS.push(created)
+  const { postId: _postId, ...rest } = created
+  return Promise.resolve(rest)
+}
+
+/**
+ * 그 게시글 아래에 있는 댓글만 찾는다. **다른 글의 댓글 id로 오면 `404`다** (계약 §3-2-5) —
+ * 있어도 찾을 수 없는 것처럼 다룬다.
+ */
+function findComment(postId: number, commentId: number) {
+  if (!findPost(postId)) return undefined
+  return COMMENTS.find(
+    (comment) => comment.postId === postId && comment.id === commentId,
+  )
+}
+
+/** 작성자 본인만 고친다. **관리자 예외가 없다** (결정 23 D2). */
+export function fixtureEditComment(
+  postId: number,
+  commentId: number,
+  body: { content: string },
+): Promise<PostComment> {
+  const found = findComment(postId, commentId)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '댓글을 찾을 수 없습니다.'),
+    )
+  }
+  const me = viewer()
+  if (found.author.id === null || found.author.id !== me.id) {
+    return Promise.reject(
+      new ApiError('FORBIDDEN', 403, '본인이 쓴 댓글만 수정할 수 있습니다.'),
+    )
+  }
+  const invalid = validateComment(body.content)
+  if (invalid) return Promise.reject(invalid)
+
+  found.content = body.content
+  /* 새 댓글을 즉시 고쳐도 createdAt과 달라지도록 최소 1ms 뒤로 단조 증가시킨다. */
+  found.updatedAt = new Date(
+    Math.max(Date.now(), Date.parse(found.updatedAt) + 1),
+  ).toISOString()
+  const { postId: _postId, ...rest } = found
+  return Promise.resolve(rest)
+}
+
+/** 활성 관리자 또는 작성자 본인이 완전히 삭제한다 — 게시글과 같은 판단이다. */
+export function fixtureRemoveComment(
+  postId: number,
+  commentId: number,
+): Promise<void> {
+  const found = findComment(postId, commentId)
+  if (!found) {
+    return Promise.reject(
+      new ApiError('NOT_FOUND', 404, '댓글을 찾을 수 없습니다.'),
+    )
+  }
+  /*
+   * **요청자를 명부에서 다시 읽는다** — `fixtureRemovePost`와 같은 판단이다 (T-476).
+   * 관리자 시나리오가 불변 `USERS.admin`을 보면 권한 회수·정지 뒤에도 옛 시나리오
+   * 문자열만 보고 남의 댓글을 지우게 되어, 실제 서버의 커밋 직전 재검증과 정반대가 된다.
+   */
+  const me =
+    SCENARIO === 'admin'
+      ? MEMBERS.find((member) => member.id === SELF_ID)
+      : viewer()
+  if (!me) {
+    return Promise.reject(
+      new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
+    )
+  }
+  const activeAdmin = me.role === 'ADMIN' && me.status === 'ACTIVE'
+  const owner =
+    (me.status === 'ACTIVE' || me.status === 'INACTIVE') &&
+    found.author.id !== null &&
+    found.author.id === me.id
+  if (!activeAdmin && !owner) {
+    return Promise.reject(
+      new ApiError('FORBIDDEN', 403, '본인이 쓴 댓글만 삭제할 수 있습니다.'),
+    )
+  }
+  COMMENTS.splice(COMMENTS.indexOf(found), 1)
+  return Promise.resolve()
 }

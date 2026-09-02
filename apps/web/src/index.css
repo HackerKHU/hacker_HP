@@ -282,3 +282,42 @@ html body[data-scroll-locked] {
     overflow-x: auto;
   }
 }
+
+/*
+ * 스크롤 등장 (#104).
+ *
+ * **`data-reveal`이 없으면 그냥 보인다.** 감추는 것은 JS가 붙인 뒤에만 일어난다 —
+ * 초기 상태를 CSS로 `opacity: 0`으로 두면 `IntersectionObserver`가 없거나 스크립트가
+ * 죽은 환경에서 **내용이 영영 보이지 않는다.** 되돌릴 수 있을 때만 감춘다.
+ *
+ * 전환을 `[data-reveal]`에만 두는 것도 같은 이유다. 감추는 순간에 전환 속성과 값이 함께
+ * 생기므로 브라우저가 전환을 걸지 않는다 — 나타나기 전에 사라지는 것이 보이지 않는다.
+ *
+ * 0.2s에 `opacity`·`transform`만 쓴다 (레퍼런스 실측 0.15~0.2s).
+ */
+[data-reveal] {
+  transition:
+    opacity 0.2s ease-out,
+    transform 0.2s ease-out;
+}
+
+[data-reveal="hidden"] {
+  opacity: 0;
+  transform: translateY(0.75rem);
+}
+
+/*
+ * 모션을 줄이도록 설정한 사용자에게는 **처음부터 보인다.** 감추는 쪽은 JS가 이미
+ * 건너뛰지만, 설정을 도중에 바꾸는 경우까지 여기서 막는다 — 숨은 채 남는 요소가 없어야
+ * 한다는 것이 이 기능의 완료 조건이다.
+ */
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal] {
+    transition: none;
+  }
+
+  [data-reveal="hidden"] {
+    opacity: 1;
+    transform: none;
+  }
+}
