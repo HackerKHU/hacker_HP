@@ -1,8 +1,8 @@
-import { Trash2 } from 'lucide-react'
+import { ThumbsUp, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { ApiError } from '@/api/client'
-import { list, type Photo, remove } from '@/api/photos'
+import { list, type Photo, remove, setPhotoLike } from '@/api/photos'
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
 import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
@@ -73,15 +73,33 @@ export function PhotoGalleryPage() {
   const [data, setData] = useState<Page<Photo> | null>(null)
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
-  /** 크게 보고 있는 사진. `null`이면 오버레이가 닫혀 있다 (#270). */
-  const [zoomed, setZoomed] = useState<Photo | null>(null)
+  /**
+   * 크게 보고 있는 사진. `null`이면 오버레이가 닫혀 있다 (#270).
+   *
+   * **사진이 아니라 id를 들고 있는다** (#351). 좋아요를 누르면 개수가 바뀌는데, 사진 자체를
+   * 복사해 두면 그 복사본이 낡아 **라이트박스와 그리드의 숫자가 갈린다.** 목록이 유일한
+   * 출처이고 여기서는 그중 어느 것인지만 가리킨다.
+   */
+  const [zoomedId, setZoomedId] = useState<number | null>(null)
+  // 진행 중에 또 누르면 POST와 DELETE가 순서를 바꿔 도착해 서버 상태와 화면이 갈린다.
+  const [liking, setLiking] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const zoomed = data?.content.find((photo) => photo.id === zoomedId) ?? null
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey는 본문에서 읽지 않고 재조회 트리거로만 쓴다.
   useEffect(() => {
     let alive = true
     setData(null)
     setFailed(false)
+    /*
+     * **크게 보던 사진도 함께 놓는다** (#351). 목록이 비면 그 사진이 사라져 다이얼로그는
+     * 닫히지만, id를 남겨 두면 **같은 사진이 든 응답이 도착하는 순간 사용자가 아무것도
+     * 하지 않았는데 라이트박스가 다시 열린다** — 페이지를 옮겨 닫은 것이 되살아난다.
+     *
+     * 닫힘을 `close` 이벤트로 돌려받는 길에 기대지 않는다. 그 리스너는 매 렌더 새로
+     * 붙는데, 닫는 effect와 다시 붙는 effect 사이에 이벤트가 도착하면 아무도 못 듣는다.
+     */
+    setZoomedId(null)
     list({ page, size: PAGE_SIZE })
       .then((result) => {
         if (alive) setData(result)
@@ -114,6 +132,46 @@ export function PhotoGalleryPage() {
     return query === '' ? pathname : `${pathname}?${query}`
   }
 
+  /** 목록의 그 한 장만 갈아 끼운다. 그리드와 라이트박스가 같은 값을 읽는다. */
+  function replacePhoto(next: Photo) {
+    setData(
+      (current) =>
+        current && {
+          ...current,
+          content: current.content.map((row) =>
+            row.id === next.id ? next : row,
+          ),
+        },
+    )
+  }
+
+  /**
+   * 좋아요·취소. 서버가 준 `likedByMe`를 보고 방향을 정한다 (계약 §3-2-5 — 토글이 아니다).
+   *
+   * **낙관적으로 먼저 반영한다** (#351 D2). 응답이 `204`라 최신 개수가 오지 않아 화면이
+   * 직접 센다 — 목록을 다시 읽으면 왕복이 하나 더 늘고, 그 사이 숫자가 멈춰 있어 누른 것
+   * 같지가 않다. 실패하면 누르기 전 사진으로 되돌린다.
+   */
+  async function toggleLike(photo: Photo) {
+    const next = !photo.likedByMe
+    setLiking(true)
+    replacePhoto({
+      ...photo,
+      likedByMe: next,
+      likeCount: photo.likeCount + (next ? 1 : -1),
+    })
+    try {
+      await setPhotoLike(photo.id, next)
+    } catch (caught: unknown) {
+      replacePhoto(photo)
+      if (!reportApiError(caught)) {
+        alert.error('좋아요를 바꾸지 못했습니다. 다시 시도해 주세요.')
+      }
+    } finally {
+      setLiking(false)
+    }
+  }
+
   /** 삭제는 되돌릴 수 없다. 확인 단계를 거친 뒤에만 여기 도달한다. */
   async function handleDelete(photo: Photo) {
     setBusy(true)
@@ -137,7 +195,12 @@ export function PhotoGalleryPage() {
 
   return (
     <section>
-      <PhotoLightbox photo={zoomed} onClose={() => setZoomed(null)} />
+      <PhotoLightbox
+        photo={zoomed}
+        onClose={() => setZoomedId(null)}
+        onToggleLike={() => zoomed && toggleLike(zoomed)}
+        liking={liking}
+      />
 
       <div className="flex items-center justify-between gap-4">
         {/*
@@ -206,7 +269,7 @@ export function PhotoGalleryPage() {
                    */}
                   <button
                     type="button"
-                    onClick={() => setZoomed(photo)}
+                    onClick={() => setZoomedId(photo.id)}
                     aria-label={
                       photo.caption
                         ? `${photo.caption} 크게 보기`
@@ -243,6 +306,22 @@ export function PhotoGalleryPage() {
                         </span>
                       </p>
                     </div>
+
+                    {/*
+                     * **개수만 보여준다. 버튼은 라이트박스에만 있다** (#351 D1) — 카드마다
+                     * 버튼을 두면 사진을 고르려던 손이 좋아요를 남긴다.
+                     *
+                     * **0이어도 감추지 않는다.** 숨기면 카드마다 이 줄의 폭이 달라져
+                     * 그리드가 흔들린다. 업로더·날짜와 같은 급으로 읽히게 크기를 맞춘다 —
+                     * 사진이 주인공이고 숫자는 부수 정보다.
+                     *
+                     * 아이콘은 장식이라 감추고, 숫자만으로는 무엇의 개수인지 알 수 없으므로
+                     * 읽는 기계에게 말을 준다 — 라이트박스 버튼과 같은 "좋아요 N"이다.
+                     */}
+                    <p className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                      <ThumbsUp className="size-3.5" aria-hidden="true" />
+                      <span className="sr-only">좋아요</span> {photo.likeCount}
+                    </p>
 
                     {isAdmin && (
                       <AlertDialog>

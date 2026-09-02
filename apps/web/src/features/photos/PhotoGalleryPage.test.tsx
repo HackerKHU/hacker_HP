@@ -27,9 +27,18 @@ const api = vi.hoisted(() => ({
   totalPages: 1,
   removeError: null as unknown,
   listError: null as unknown,
+  /** 화면이 어떤 방향으로 보냈는지. 토글이 아니므로 방향이 곧 계약이다. */
+  likes: [] as { id: number; liked: boolean }[],
+  likeFails: false,
+  /** 응답을 붙잡아 두는 문. 요청이 도는 동안의 화면을 보려면 끝나지 않는 순간이 필요하다. */
+  likeGate: null as Promise<void> | null,
 }))
 
-function photo(id: number, caption: string | null): Photo {
+function photo(
+  id: number,
+  caption: string | null,
+  like: { count: number; mine: boolean } = { count: 0, mine: false },
+): Photo {
   return {
     id,
     caption,
@@ -38,6 +47,8 @@ function photo(id: number, caption: string | null): Photo {
     uploaderId: 2,
     uploaderName: '김관리',
     createdAt: '2026-08-01T09:00:00Z',
+    likeCount: like.count,
+    likedByMe: like.mine,
   }
 }
 
@@ -61,6 +72,11 @@ vi.mock('@/api/photos', () => ({
     api.rows = api.rows.filter((row) => row.id !== id)
     api.total -= 1
     return Promise.resolve()
+  },
+  setPhotoLike: (id: number, liked: boolean) => {
+    if (api.likeFails) return Promise.reject(new Error('network'))
+    api.likes.push({ id, liked })
+    return api.likeGate ?? Promise.resolve()
   },
 }))
 
@@ -130,6 +146,9 @@ beforeEach(() => {
   api.totalPages = 1
   api.removeError = null
   api.listError = null
+  api.likes = []
+  api.likeFails = false
+  api.likeGate = null
   auth.me = BASE
 })
 
@@ -487,6 +506,39 @@ describe('활동사진 갤러리', () => {
     })
   })
 
+  /*
+   * 회귀 (#351) — **크게 보고 있는 사진을 id로 들면서 생긴 자리다.** 목록을 다시 읽는
+   * 동안 `data`가 비어 다이얼로그가 닫히는데, 그 닫힘이 부모 상태에 돌아오지 않으면
+   * id가 남는다. 그러면 같은 사진이 든 응답이 도착하는 순간 **사용자가 아무것도 하지
+   * 않았는데 라이트박스가 다시 열린다.**
+   */
+  it('재조회로 닫힌 라이트박스는 같은 사진이 돌아와도 다시 열리지 않는다', async () => {
+    api.totalPages = 2
+    api.total = 25
+
+    renderGallery()
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: '2026 신입생 환영회 크게 보기',
+      }),
+    )
+    const dialog = document.querySelector('dialog') as HTMLDialogElement
+    expect(dialog.open).toBe(true)
+
+    fireEvent.click(screen.getByRole('link', { name: '2페이지로 이동' }))
+
+    await waitFor(() => {
+      expect(api.calls.at(-1)?.page).toBe(1)
+    })
+    // 같은 사진이 이 페이지에도 있다. 그래도 다이얼로그는 닫힌 채여야 한다.
+    await waitFor(() => {
+      expect(screen.getAllByText('2026 신입생 환영회').length).toBeGreaterThan(
+        0,
+      )
+    })
+    expect(dialog.open).toBe(false)
+  })
+
   /* 설명이 없는 사진도 열린다 — `aria-label`이 그때는 일반 문구가 된다. */
   it('설명이 없는 사진도 크게 볼 수 있다', async () => {
     renderGallery()
@@ -505,4 +557,191 @@ describe('활동사진 갤러리', () => {
 
     expect(await screen.findByText('등록된 사진이 없습니다.')).toBeVisible()
   })
+})
+
+/**
+ * 좋아요 (#351).
+ *
+ * D1 — **버튼은 라이트박스에만 있고 그리드에는 개수만 있다.** D2 — **낙관적으로 먼저
+ * 반영하고 실패하면 되돌린다.** 응답이 `204`라 최신 개수가 오지 않으므로 화면이 직접 센다
+ * (계약 §3-2-5).
+ *
+ * **상태는 이 화면 하나가 들고 있다.** 라이트박스에 따로 두면 그리드 숫자와 갈린다 —
+ * 아래 두 사례가 그 두 자리를 한 번에 본다.
+ */
+describe('갤러리 좋아요', () => {
+  /**
+   * 그리드 카드의 개수. 라이트박스 버튼과 같은 문구라 목록 안으로 좁혀 찾는다.
+   *
+   * **문구가 요소 둘에 나뉘어 있다** — "좋아요"는 읽는 기계용 `sr-only`이고 숫자는 그
+   * 옆의 텍스트다. 기본 매처는 자기 텍스트만 보므로 합쳐서 본다.
+   */
+  function gridCount(label: string): HTMLElement {
+    return within(screen.getByRole('list')).getByText(
+      (_, element) =>
+        element?.tagName === 'P' &&
+        element.textContent?.replace(/\s+/g, ' ').trim() === label,
+    )
+  }
+
+  it('그리드는 개수만 보여준다 — 0도 감추지 않고 버튼도 없다', async () => {
+    api.rows = [
+      photo(501, '환영회', { count: 3, mine: true }),
+      photo(502, null),
+    ]
+
+    renderGallery()
+
+    await screen.findByRole('list')
+    expect(gridCount('좋아요 3')).toBeVisible()
+    // 감추면 카드마다 이 줄의 폭이 달라져 그리드가 흔들린다.
+    expect(gridCount('좋아요 0')).toBeVisible()
+    // 훑다가 잘못 누르는 일이 없어야 한다 — 카드에 있는 버튼은 크게 보기뿐이다.
+    expect(
+      within(screen.getByRole('list')).queryByRole('button', {
+        name: /좋아요/,
+      }),
+    ).toBeNull()
+  })
+
+  it.each([
+    { mine: false, name: '좋아요 3', next: true, after: '좋아요 4' },
+    { mine: true, name: '좋아요 3', next: false, after: '좋아요 2' },
+  ])(
+    'likedByMe=$mine에서 누르면 라이트박스와 그리드가 함께 바뀌고 $next를 보낸다',
+    async ({ mine, name, next, after }) => {
+      api.rows = [photo(501, '환영회', { count: 3, mine })]
+      api.total = 1
+
+      renderGallery()
+      fireEvent.click(
+        await screen.findByRole('button', { name: '환영회 크게 보기' }),
+      )
+
+      const button = screen.getByRole('button', { name })
+      expect(button).toHaveAttribute('aria-pressed', String(mine))
+
+      fireEvent.click(button)
+
+      // 응답을 기다리지 않고 먼저 바뀐다 — 그게 낙관적 업데이트다.
+      expect(screen.getByRole('button', { name: after })).toHaveAttribute(
+        'aria-pressed',
+        String(next),
+      )
+      // 라이트박스에서 누른 결과가 뒤에 있는 카드 숫자에도 그대로 반영된다.
+      expect(gridCount(after)).toBeVisible()
+      await waitFor(() => {
+        expect(api.likes).toEqual([{ id: 501, liked: next }])
+      })
+    },
+  )
+
+  /*
+   * 연타하면 `POST`와 `DELETE`가 순서를 바꿔 도착해 서버 상태와 화면이 갈린다. 응답이
+   * `204`라 화면이 직접 세는 값도 함께 어긋난다 — 도는 동안 잠근다.
+   */
+  it('요청이 도는 동안 잠겨 연타해도 한 번만 보낸다', async () => {
+    api.rows = [photo(501, '환영회', { count: 3, mine: false })]
+    api.total = 1
+    let release = () => {}
+    api.likeGate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+
+    renderGallery()
+    fireEvent.click(
+      await screen.findByRole('button', { name: '환영회 크게 보기' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: '좋아요 3' }))
+
+    expect(screen.getByRole('button', { name: /좋아요/ })).toBeDisabled()
+    // **잠금은 눈에 보이는 것으로 끝나지 않는다.** 두 번째 클릭이 실제로 나가면 `POST`와
+    // `DELETE`가 순서를 바꿔 도착한다 — 요청 수를 센다.
+    fireEvent.click(screen.getByRole('button', { name: /좋아요/ }))
+    expect(api.likes).toHaveLength(1)
+
+    release()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /좋아요/ })).toBeEnabled()
+    })
+    expect(api.likes).toEqual([{ id: 501, liked: true }])
+  })
+
+  /*
+   * **양방향을 함께 본다.** 누르기만 되돌리고 취소를 빠뜨리면, 취소에 실패한 사진이
+   * 화면에서만 떼어진 채 남는다. 잠금이 `finally`에서 풀리는지도 여기서 잰다 — 실패가
+   * 버튼을 영영 잠그면 다시 시도할 길이 없다.
+   */
+  it.each([
+    { mine: false, after: '좋아요 4' },
+    { mine: true, after: '좋아요 2' },
+  ])(
+    'likedByMe=$mine에서 실패하면 두 자리 모두 되돌리고 버튼을 다시 연다',
+    async ({ mine, after }) => {
+      api.rows = [photo(501, '환영회', { count: 3, mine })]
+      api.total = 1
+      api.likeFails = true
+
+      renderGallery()
+      fireEvent.click(
+        await screen.findByRole('button', { name: '환영회 크게 보기' }),
+      )
+      fireEvent.click(screen.getByRole('button', { name: '좋아요 3' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        '좋아요를 바꾸지 못했습니다',
+      )
+      expect(screen.queryByRole('button', { name: after })).toBeNull()
+      const button = screen.getByRole('button', { name: '좋아요 3' })
+      expect(button).toHaveAttribute('aria-pressed', String(mine))
+      expect(button).toBeEnabled()
+      expect(gridCount('좋아요 3')).toBeVisible()
+    },
+  )
+
+  /*
+   * **응답은 그 사진에만 닿아야 한다.** 목록을 인덱스로 갈아 끼우거나 라이트박스가 제
+   * 상태를 들면, A를 누르고 닫은 뒤 연 B의 숫자가 A의 응답에 흔들린다.
+   */
+  it.each([
+    // 성공하면 A의 낙관적 +1이 그대로 남고, 실패하면 누르기 전 값으로 돌아온다.
+    { kind: '성공', fails: false, afterA: '좋아요 4' },
+    { kind: '실패', fails: true, afterA: '좋아요 3' },
+  ])(
+    'A의 좋아요 $kind 응답이 그 사이 연 B를 건드리지 않는다',
+    async ({ fails, afterA }) => {
+      api.rows = [
+        photo(501, 'A 사진', { count: 3, mine: false }),
+        photo(502, 'B 사진', { count: 7, mine: true }),
+      ]
+      api.total = 2
+      let settle = () => {}
+      api.likeGate = new Promise<void>((resolve, reject) => {
+        settle = () => (fails ? reject(new Error('network')) : resolve())
+      })
+
+      renderGallery()
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'A 사진 크게 보기' }),
+      )
+      fireEvent.click(screen.getByRole('button', { name: '좋아요 3' }))
+      // A의 응답을 붙잡은 채 닫고 B를 연다.
+      fireEvent.click(screen.getByRole('button', { name: '닫기' }))
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'B 사진 크게 보기' }),
+        ).toBeVisible()
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'B 사진 크게 보기' }))
+
+      settle()
+      await waitFor(() => {
+        expect(gridCount(afterA)).toBeVisible()
+      })
+      const button = screen.getByRole('button', { name: '좋아요 7' })
+      expect(button).toHaveAttribute('aria-pressed', 'true')
+      expect(gridCount('좋아요 7')).toBeVisible()
+      expect(api.likes).toEqual([{ id: 501, liked: true }])
+    },
+  )
 })
