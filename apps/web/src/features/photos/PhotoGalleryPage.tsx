@@ -91,6 +91,15 @@ export function PhotoGalleryPage() {
     let alive = true
     setData(null)
     setFailed(false)
+    /*
+     * **크게 보던 사진도 함께 놓는다** (#351). 목록이 비면 그 사진이 사라져 다이얼로그는
+     * 닫히지만, id를 남겨 두면 **같은 사진이 든 응답이 도착하는 순간 사용자가 아무것도
+     * 하지 않았는데 라이트박스가 다시 열린다** — 페이지를 옮겨 닫은 것이 되살아난다.
+     *
+     * 닫힘을 `close` 이벤트로 돌려받는 길에 기대지 않는다. 그 리스너는 매 렌더 새로
+     * 붙는데, 닫는 effect와 다시 붙는 effect 사이에 이벤트가 도착하면 아무도 못 듣는다.
+     */
+    setZoomedId(null)
     list({ page, size: PAGE_SIZE })
       .then((result) => {
         if (alive) setData(result)
