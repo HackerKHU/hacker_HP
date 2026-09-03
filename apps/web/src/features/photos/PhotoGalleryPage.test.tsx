@@ -573,14 +573,15 @@ describe('갤러리 좋아요', () => {
   /**
    * 그리드 카드의 개수. 라이트박스 버튼과 같은 문구라 목록 안으로 좁혀 찾는다.
    *
-   * **문구가 요소 둘에 나뉘어 있다** — "좋아요"는 읽는 기계용 `sr-only`이고 숫자는 그
-   * 옆의 텍스트다. 기본 매처는 자기 텍스트만 보므로 합쳐서 본다.
+   * **개수는 업로더·날짜 줄의 끝에 붙어 있다** (#384). 그 줄 전체가 한 문단이고 개수는
+   * 마지막 조각이라, 앞부분을 모르는 채로 **끝이 "좋아요 N"인 문단**을 찾는다.
    */
   function gridCount(label: string): HTMLElement {
     return within(screen.getByRole('list')).getByText(
       (_, element) =>
         element?.tagName === 'P' &&
-        element.textContent?.replace(/\s+/g, ' ').trim() === label,
+        (element.textContent?.replace(/\s+/g, ' ').trim().endsWith(label) ??
+          false),
     )
   }
 
@@ -596,6 +597,16 @@ describe('갤러리 좋아요', () => {
     expect(gridCount('좋아요 3')).toBeVisible()
     // 감추면 카드마다 이 줄의 폭이 달라져 그리드가 흔들린다.
     expect(gridCount('좋아요 0')).toBeVisible()
+    /*
+     * **캡션이 없는 카드에서도 개수가 마지막 줄이다** (#384). 개수를 따로 띄워 두면
+     * 캡션 유무에 따라 세로 위치가 어긋난다 — 업로더 줄로 흡수한 이유가 이것이다.
+     */
+    const captionless = screen.getAllByRole('listitem')[1]
+    const lines = captionless.querySelectorAll('p')
+    expect(lines).toHaveLength(1)
+    expect(lines[0].textContent?.replace(/\s+/g, ' ').trim()).toMatch(
+      /좋아요 0$/,
+    )
     // 훑다가 잘못 누르는 일이 없어야 한다 — 카드에 있는 버튼은 크게 보기뿐이다.
     expect(
       within(screen.getByRole('list')).queryByRole('button', {
