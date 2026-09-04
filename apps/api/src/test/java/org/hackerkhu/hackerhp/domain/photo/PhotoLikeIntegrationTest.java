@@ -182,6 +182,57 @@ class PhotoLikeIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.content[0].likedByMe").value(false));
   }
 
+  /* ------------------------------------------ 내가 좋아요한 사진 (#355) */
+
+  /** <b>{@code liked=true}는 내가 누른 사진만 준다</b> (#355 완료 조건). */
+  @Test
+  void likedReturnsOnlyWhatILiked() throws Exception {
+    Photo another = insertPhoto();
+    mockMvc.perform(like(me, photo.getId())).andExpect(status().isNoContent());
+    mockMvc.perform(like(other, another.getId())).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(PHOTOS)).param("liked", "true"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.page.totalElements").value(1))
+        .andExpect(jsonPath("$.content[0].id").value(photo.getId()));
+  }
+
+  /** <b>좋아요를 취소하면 이 목록에서도 빠진다</b> (#355 완료 조건). */
+  @Test
+  void unlikingRemovesItFromTheLikedList() throws Exception {
+    mockMvc.perform(like(me, photo.getId())).andExpect(status().isNoContent());
+
+    mockMvc.perform(unlike(me, photo.getId())).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(PHOTOS)).param("liked", "true"))
+        .andExpect(jsonPath("$.page.totalElements").value(0));
+  }
+
+  /** <b>한 사진을 여럿이 눌러도 한 번만 나온다</b> — 조인으로 짜면 좋아요 수만큼 중복된다. */
+  @Test
+  void likedDoesNotDuplicateWhenManyPeopleLikedIt() throws Exception {
+    mockMvc.perform(like(me, photo.getId())).andExpect(status().isNoContent());
+    mockMvc.perform(like(other, photo.getId())).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(PHOTOS)).param("liked", "true"))
+        .andExpect(jsonPath("$.page.totalElements").value(1));
+  }
+
+  /** <b>올리다 만 사진은 눌렀어도 목록에 없다.</b> 전체 목록이 임시 키 행을 걸러내는 규칙을 필터도 그대로 지켜야 유령 행이 안 샌다. */
+  @Test
+  void likedStillHidesUnfinishedUploads() throws Exception {
+    Photo pending =
+        photoRepository.saveAndFlush(Photo.upload(null, "photos/uploads/pending.jpg", admin));
+    mockMvc.perform(like(me, pending.getId())).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(PHOTOS)).param("liked", "true"))
+        .andExpect(jsonPath("$.page.totalElements").value(0));
+  }
+
   /* --------------------------------------------------------------- CASCADE */
 
   /** 사진이 지워지면 좋아요도 함께 사라진다 (완료 조건, {@code ON DELETE CASCADE}). */

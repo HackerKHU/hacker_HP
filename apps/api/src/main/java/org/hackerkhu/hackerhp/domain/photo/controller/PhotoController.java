@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -114,8 +115,10 @@ public class PhotoController {
   @GetMapping
   @PreAuthorize("isAuthenticated()")
   public PagedModel<PhotoResponse> list(
-      @AuthenticationPrincipal Long viewerId, @ParameterObject Pageable pageable) {
-    return new PagedModel<>(photoService.list(pageable, viewerId));
+      @AuthenticationPrincipal Long viewerId,
+      @RequestParam(defaultValue = "false") boolean liked,
+      @ParameterObject Pageable pageable) {
+    return new PagedModel<>(photoService.list(pageable, viewerId, liked));
   }
 
   @Operation(summary = "활동사진 삭제")

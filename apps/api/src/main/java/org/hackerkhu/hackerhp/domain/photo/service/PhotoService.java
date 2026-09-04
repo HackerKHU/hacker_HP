@@ -233,12 +233,18 @@ public class PhotoService {
    * PhotoRepository#findByStoredPathNotStartingWith} 참고.
    */
   @Transactional(readOnly = true)
-  public Page<PhotoResponse> list(Pageable pageable, Long viewerId) {
+  public Page<PhotoResponse> list(Pageable pageable, Long viewerId, boolean liked) {
     Sort newestFirst = Sort.by(Sort.Order.desc("createdAt"));
+    PageRequest request =
+        PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), newestFirst);
+    /*
+     * 내가 좋아요한 사진만 (#355, 3-3 결정 28). 두 갈래 모두 등록이 끝나지 않은 자리표시자 행을
+     * 빼고 같은 최신순을 쓴다 — 필터가 목록의 다른 규칙을 바꾸지 않는다.
+     */
     Page<Photo> page =
-        photoRepository.findCompleted(
-            TEMP_PREFIX,
-            PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), newestFirst));
+        liked
+            ? photoRepository.findCompletedLikedBy(TEMP_PREFIX, viewerId, request)
+            : photoRepository.findCompleted(TEMP_PREFIX, request);
     List<Long> ids = page.getContent().stream().map(Photo::getId).toList();
     Map<Long, Long> likeCounts = likeCountsOf(ids);
     Set<Long> likedByMe = likedIdsOf(viewerId, ids);

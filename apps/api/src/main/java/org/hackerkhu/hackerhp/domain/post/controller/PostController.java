@@ -87,8 +87,9 @@ public class PostController {
   public PagedModel<PostSummaryResponse> list(
       @AuthenticationPrincipal Long viewerId,
       @RequestParam(defaultValue = "false") boolean mine,
+      @RequestParam(defaultValue = "false") boolean liked,
       @ParameterObject Pageable pageable) {
-    return new PagedModel<>(postService.list(pageable, viewerId, mine));
+    return new PagedModel<>(postService.list(pageable, viewerId, mine, liked));
   }
 
   @Operation(

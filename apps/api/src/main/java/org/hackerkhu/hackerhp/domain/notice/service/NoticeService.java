@@ -46,10 +46,15 @@ public class NoticeService {
    * 정렬은 항상 {@link #FIXED_SORT}다 — {@code pageable}의 {@code sort}는 무시한다. {@code page}·{@code size}는
    * {@code spring.data.web.pageable}(§3-2-8)이 검증·상한을 이미 처리했으므로 여기서 다시 확인하지 않는다.
    */
-  public Page<NoticeResponse> list(Pageable pageable, Long viewerId) {
+  public Page<NoticeResponse> list(Pageable pageable, Long viewerId, boolean liked) {
+    PageRequest request =
+        PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), FIXED_SORT);
+    /*
+     * 내가 좋아요한 공지만 (#355, 3-3 결정 28). 정렬은 두 갈래가 같은 FIXED_SORT를 쓴다 —
+     * 필터를 켠다고 고정 공지가 위로 오는 규칙까지 달라지면 화면이 목록을 두 벌로 다뤄야 한다.
+     */
     Page<Notice> page =
-        noticeRepository.findAll(
-            PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), FIXED_SORT));
+        liked ? noticeRepository.findLikedBy(viewerId, request) : noticeRepository.findAll(request);
     List<Long> ids = page.getContent().stream().map(Notice::getId).toList();
     Map<Long, Long> counts = likeCountsOf(ids);
     Set<Long> likedByMe = likedIdsOf(viewerId, ids);
