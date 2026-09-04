@@ -29,7 +29,11 @@ erDiagram
   USERS ||--o{ BOOKMARKS : saves
   NOTES ||--o{ BOOKMARKS : saved_in
   NOTES ||--o{ NOTE_FILES : has
+  USERS ||--o{ NOTE_LIKES : likes
+  NOTES ||--o{ NOTE_LIKES : liked_in
   USERS |o--o{ NOTICES : writes
+  USERS ||--o{ NOTICE_LIKES : likes
+  NOTICES ||--o{ NOTICE_LIKES : liked_in
   USERS |o--o{ PHOTOS : uploads
   USERS |o--o{ POSTS : writes
   USERS ||--o{ POST_LIKES : likes
@@ -38,7 +42,7 @@ erDiagram
 
 `admin_actions`는 ERD에 넣지 않는다. `users`를 가리키지만 **FK가 없어 관계가 아니고**, 그렇게 둔 이유가 바로 "이력은 현재 상태에 종속되지 않는다"이기 때문이다 — 선으로 이으면 정반대로 읽힌다.
 
-**작성자 쪽이 `|o`(0 또는 1)인 것은 오타가 아니다.** 회원을 지워도 자료·공지·사진은 남고 작성자만 비므로([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)), 작성자가 없는 행이 정상으로 존재한다. `BOOKMARKS`와 좋아요 표(`POST_LIKES`)가 `||`인데, 담아 둔 것과 누른 것은 **주인과 함께 사라져** 주인 없는 행이 생기지 않기 때문이다 — 남길 표시("탈퇴한 회원")가 있는 작성자 자리와 다르다.
+**작성자 쪽이 `|o`(0 또는 1)인 것은 오타가 아니다.** 회원을 지워도 자료·공지·사진은 남고 작성자만 비므로([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)), 작성자가 없는 행이 정상으로 존재한다. `BOOKMARKS`와 좋아요 표(`NOTE_LIKES`·`NOTICE_LIKES`·`POST_LIKES`)가 `||`인데, 담아 둔 것과 누른 것은 **주인과 함께 사라져** 주인 없는 행이 생기지 않기 때문이다 — 남길 표시("탈퇴한 회원")가 있는 작성자 자리와 다르다.
 
 ## 3-2-2 테이블 정의
 
@@ -198,6 +202,18 @@ erDiagram
 복합 PK `(user_id, note_id)`로 중복 등록을 막는다. 양쪽 FK 모두 CASCADE를 건다 (MUST) — [2-1 §2-1-3](2-1-USER-STORIES.md)이 자료 삭제 시 즐겨찾기도 지워진다고 정의하고 있다.
 
 **작성자 FK가 `SET NULL`인데 여기만 `CASCADE`인 이유** — 즐겨찾기는 그 사람이 *본* 기록이지 *남긴* 것이 아니다. 주인이 없어지면 남길 이유도 없다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)).
+
+### note_likes
+
+**자료 좋아요** (2026-09-01 확정, #344). `bookmarks`와 <b>완전히 별개 자원</b>이다 (3-3 결정 25 D1) — 즐겨찾기는 "다시 보려고 담아둔다", 좋아요는 "품질에 공감한다"로 뜻이 다르다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `user_id` | bigint | PK, FK → users.id, **ON DELETE CASCADE** | |
+| `note_id` | bigint | PK, FK → notes.id, **ON DELETE CASCADE** | |
+| `created_at` | timestamp | NOT NULL | |
+
+복합 PK `(user_id, note_id)`로 중복 누름을 막는다. FK·CASCADE 판단은 `bookmarks`와 같다.
 
 ### notices
 
@@ -599,8 +615,10 @@ PostgreSQL의 `NOT NULL`·`UNIQUE`는 빈 문자열을 거부하지 않는다. �
 | GET | `/bookmarks` | ACTIVE | 내 즐겨찾기 목록 |
 | POST | `/notes/{id}/bookmark` | ACTIVE | 추가 |
 | DELETE | `/notes/{id}/bookmark` | ACTIVE | 해제 |
+| POST | `/notes/{id}/like` | ACTIVE | 좋아요 (#344, 즐겨찾기와 별개 자원) |
+| DELETE | `/notes/{id}/like` | ACTIVE | 좋아요 취소 (#344) |
 
-**이 표의 `ACTIVE`는 `INACTIVE`를 뺀다** (MUST, 2026-08-26 #228). 위 열한 경로가 **`403 INACTIVE`가 나가는 경로의 전부**다 — 비활동 부원은 이 갈래에서만 막히고 공지·활동사진·게시판은 그대로 쓴다 ([3-1 §3-1-3](3-1-DESIGN-ARCHITECTURE.md#3-1-3-권한-매트릭스)). **자료 경로가 늘면 여기도 늘어야 한다.**
+**이 표의 `ACTIVE`는 `INACTIVE`를 뺀다** (MUST, 2026-08-26 #228). 위 열세 경로가 **`403 INACTIVE`가 나가는 경로의 전부**다 — 비활동 부원은 이 갈래에서만 막히고 공지·활동사진·게시판은 그대로 쓴다 ([3-1 §3-1-3](3-1-DESIGN-ARCHITECTURE.md#3-1-3-권한-매트릭스)). **자료 경로가 늘면 여기도 늘어야 한다.**
 
 **`GET /notes` 쿼리 파라미터**
 
@@ -796,6 +814,16 @@ OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](
 **정렬은 내가 표시한 순서(최신)** 다 — 자료의 등록 시각이 아니다. 이 화면의 기준은 "언제 올라온 자료인가"가 아니라 "언제 내가 담았나"다. 마지막 기준으로 자료 `id`를 붙인다(§3-2-4의 정렬 규칙과 같은 이유). **`sort`를 받지 않으므로 조회수순도 없다.**
 
 **검색·필터는 받지 않는다.** 이미 본인이 추린 목록이다.
+
+### 좋아요 (2026-09-01 확정, #344, 3-3 결정 25)
+
+**즐겨찾기와 완전히 별개 자원이다** (MUST, D1). 즐겨찾기는 "다시 보려고 담아둔다", 좋아요는 "품질에 공감한다"로 뜻이 다르다 — 같은 `bookmarked` 플래그에 얹지 않고 별도 테이블·API·응답 필드로 둔다.
+
+**자료 목록·상세·등록·수정 응답에 `likeCount`(전체 좋아요 수)와 `likedByMe`(내가 눌렀는지)가 있다** (MUST) — `bookmarked`와 나란히, 같은 이유로 함께 온다.
+
+**`POST`·`DELETE /notes/{id}/like` 둘 다 멱등이고 토글이 아니다** (MUST) — 요청·오류·동시성 계약은 즐겨찾기와 완전히 같다. `POST`는 이미 눌렀어도 `204`, `DELETE`는 눌러져 있지 않거나 없는 자료여도 `204`다. 없는 자료에 `POST`만 `404 NOT_FOUND`다.
+
+**권한은 즐겨찾기와 같다** (`ACTIVE`, `INACTIVE` 제외) — 좋아요도 자료 갈래라 §3-2-4 표의 열세 경로에 포함된다.
 
 ## 3-2-5 API — 공지·사진·게시판
 

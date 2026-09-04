@@ -13,6 +13,7 @@ import org.hackerkhu.hackerhp.domain.note.dto.NoteSummaryResponse;
 import org.hackerkhu.hackerhp.domain.note.dto.Uploader;
 import org.hackerkhu.hackerhp.domain.note.entity.Note;
 import org.hackerkhu.hackerhp.domain.note.repository.BookmarkRepository;
+import org.hackerkhu.hackerhp.domain.note.repository.NoteLikeRepository;
 import org.hackerkhu.hackerhp.domain.note.repository.NoteRepository;
 import org.hackerkhu.hackerhp.domain.note.repository.NoteSpecifications;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
@@ -33,12 +34,17 @@ public class NoteQueryService {
   private final NoteRepository notes;
   private final UserRepository users;
   private final BookmarkRepository bookmarks;
+  private final NoteLikeRepository likes;
 
   public NoteQueryService(
-      NoteRepository notes, UserRepository users, BookmarkRepository bookmarks) {
+      NoteRepository notes,
+      UserRepository users,
+      BookmarkRepository bookmarks,
+      NoteLikeRepository likes) {
     this.notes = notes;
     this.users = users;
     this.bookmarks = bookmarks;
+    this.likes = likes;
   }
 
   /**
@@ -50,7 +56,7 @@ public class NoteQueryService {
       Long viewerId, NoteSearch search, NoteSort sort, Pageable pageable) {
     Page<Note> page =
         notes.findAll(NoteSpecifications.matching(search, sort), fixedOrder(pageable));
-    return toSummaries(page, bookmarkedIds(viewerId, page.getContent()));
+    return toSummaries(page, viewerId, bookmarkedIds(viewerId, page.getContent()));
   }
 
   /**
@@ -67,7 +73,7 @@ public class NoteQueryService {
      * 계약이 깨진다 (#189 리뷰). 질의도 하나 준다.
      */
     return toSummaries(
-        page, page.getContent().stream().map(Note::getId).collect(Collectors.toSet()));
+        page, viewerId, page.getContent().stream().map(Note::getId).collect(Collectors.toSet()));
   }
 
   /**
@@ -91,11 +97,15 @@ public class NoteQueryService {
         notes
             .findWithFilesById(id)
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "자료를 찾을 수 없습니다."));
+    NoteLikeSummary likeSummary =
+        likeSummariesOf(viewerId, List.of(id)).getOrDefault(id, NoteLikeSummary.NONE);
     return NoteDetailResponse.of(
         note,
         uploaderOf(note, uploaders(List.of(note))),
         bookmarks.existsByUserIdAndNoteId(viewerId, id),
-        note.getViewCount());
+        note.getViewCount(),
+        likeSummary.count(),
+        likeSummary.likedByMe());
   }
 
   /**
@@ -105,16 +115,23 @@ public class NoteQueryService {
    *
    * @param bookmarked 이 페이지에서 <b>내가 담은</b> 자료의 id. 부르는 쪽이 정한다 — 즐겨찾기 목록에서는 물어볼 필요가 없다
    */
-  private Page<NoteSummaryResponse> toSummaries(Page<Note> page, Set<Long> bookmarked) {
+  private Page<NoteSummaryResponse> toSummaries(
+      Page<Note> page, Long viewerId, Set<Long> bookmarked) {
     Map<Long, User> found = uploaders(page.getContent());
     Map<Long, Integer> fileCounts = fileCounts(page.getContent());
+    Map<Long, NoteLikeSummary> likeSummaries =
+        likeSummariesOf(viewerId, page.getContent().stream().map(Note::getId).toList());
     return page.map(
-        note ->
-            NoteSummaryResponse.of(
-                note,
-                uploaderOf(note, found),
-                fileCounts.getOrDefault(note.getId(), 0),
-                bookmarked.contains(note.getId())));
+        note -> {
+          NoteLikeSummary like = likeSummaries.getOrDefault(note.getId(), NoteLikeSummary.NONE);
+          return NoteSummaryResponse.of(
+              note,
+              uploaderOf(note, found),
+              fileCounts.getOrDefault(note.getId(), 0),
+              bookmarked.contains(note.getId()),
+              like.count(),
+              like.likedByMe());
+        });
   }
 
   private Set<Long> bookmarkedIds(Long viewerId, List<Note> found) {
@@ -123,6 +140,17 @@ public class NoteQueryService {
       return Set.of();
     }
     return Set.copyOf(bookmarks.findNoteIdsOf(viewerId, ids));
+  }
+
+  /**
+   * 좋아요 개수와 내 상태를 <b>한 번에</b> 모아 읽는다. 행마다 물으면 페이지 크기만큼 질의가 붙고, 개수와 내 상태를 따로 물으면 스냅샷이 갈려 모순된 응답이 나간다
+   * (#367 리뷰, {@link NoteLikeSummary}).
+   */
+  private Map<Long, NoteLikeSummary> likeSummariesOf(Long viewerId, List<Long> noteIds) {
+    if (noteIds.isEmpty()) {
+      return Map.of();
+    }
+    return NoteLikeSummary.byNoteId(likes.countWithMineByNoteIds(viewerId, noteIds));
   }
 
   /** 필터 옵션은 <b>실제 등록된 값</b>에서 만든다 (2-1 §2-1-1 MUST). */
