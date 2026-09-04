@@ -371,6 +371,68 @@ class PostIntegrationTest extends AbstractIntegrationTest {
     }
   }
 
+  /* ----------------------------------------------------- 내가 쓴 글 (#353) */
+
+  /** <b>{@code mine=true}는 내가 쓴 글만 준다</b> (#353 완료 조건). */
+  @Test
+  void mineReturnsOnlyMyPosts() throws Exception {
+    write(member, "내가 쓴 글", "본문");
+    write(admin, "남이 쓴 글", "본문");
+
+    mockMvc
+        .perform(sessions.as(member, get(POSTS)).param("mine", "true"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.page.totalElements").value(1))
+        .andExpect(jsonPath("$.content[0].title").value("내가 쓴 글"));
+  }
+
+  /** <b>기준은 세션이다</b> (MUST) — 같은 요청을 남이 보내면 그 사람의 글만 나온다. */
+  @Test
+  void mineFollowsTheSessionNotTheRequest() throws Exception {
+    write(member, "내가 쓴 글", "본문");
+    write(admin, "남이 쓴 글", "본문");
+
+    mockMvc
+        .perform(sessions.as(admin, get(POSTS)).param("mine", "true"))
+        .andExpect(jsonPath("$.page.totalElements").value(1))
+        .andExpect(jsonPath("$.content[0].title").value("남이 쓴 글"));
+  }
+
+  /** 끄면 전체가 그대로 나온다. */
+  @Test
+  void withoutMineTheWholeListStays() throws Exception {
+    write(member, "내가 쓴 글", "본문");
+    write(admin, "남이 쓴 글", "본문");
+
+    mockMvc
+        .perform(sessions.as(member, get(POSTS)))
+        .andExpect(jsonPath("$.page.totalElements").value(2));
+  }
+
+  /** <b>정렬은 전체 목록과 같은 최신순 고정이다</b> — 필터를 켠다고 순서 규칙이 달라지지 않는다. */
+  @Test
+  void mineKeepsTheSameFixedOrder() throws Exception {
+    write(member, "첫 글", "본문");
+    write(member, "둘째 글", "본문");
+    write(member, "셋째 글", "본문");
+
+    mockMvc
+        .perform(sessions.as(member, get(POSTS)).param("mine", "true").param("sort", "title,asc"))
+        .andExpect(jsonPath("$.content[0].title").value("셋째 글"))
+        .andExpect(jsonPath("$.content[2].title").value("첫 글"));
+  }
+
+  /** 쓴 글이 없으면 빈 목록이다 — 오류가 아니다. */
+  @Test
+  void mineIsEmptyWhenIWroteNothing() throws Exception {
+    write(admin, "남이 쓴 글", "본문");
+
+    mockMvc
+        .perform(sessions.as(member, get(POSTS)).param("mine", "true"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.page.totalElements").value(0));
+  }
+
   /** 이상한 `size`도 `500`이 되지 않는다 — 상한은 `spring.data.web.pageable`이 이미 잡는다 (§3-2-8). */
   @Test
   void oddPagingParametersDoNotBreakTheServer() throws Exception {

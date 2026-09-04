@@ -55,7 +55,7 @@ public class NoteQueryService {
   public Page<NoteSummaryResponse> list(
       Long viewerId, NoteSearch search, NoteSort sort, Pageable pageable) {
     Page<Note> page =
-        notes.findAll(NoteSpecifications.matching(search, sort), fixedOrder(pageable));
+        notes.findAll(NoteSpecifications.matching(search, sort, viewerId), fixedOrder(pageable));
     return toSummaries(page, viewerId, bookmarkedIds(viewerId, page.getContent()));
   }
 
