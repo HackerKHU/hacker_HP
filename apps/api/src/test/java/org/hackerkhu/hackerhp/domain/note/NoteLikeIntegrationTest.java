@@ -269,6 +269,63 @@ class NoteLikeIntegrationTest extends AbstractIntegrationTest {
     assertThat(likes.findAll()).isEmpty();
   }
 
+  /* ------------------------------------------- 내가 좋아요한 자료 (#355) */
+
+  /** <b>{@code liked=true}는 내가 누른 자료만 준다</b> (#355 완료 조건). */
+  @Test
+  void likedReturnsOnlyWhatILiked() throws Exception {
+    Long mine = insertNote("내가 누른 것");
+    Long theirs = insertNote("남이 누른 것");
+    mockMvc.perform(like(me, mine)).andExpect(status().isNoContent());
+    mockMvc.perform(like(other, theirs)).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(NOTES)).param("liked", "true"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.page.totalElements").value(1))
+        .andExpect(jsonPath("$.content[0].title").value("내가 누른 것"));
+  }
+
+  /** <b>좋아요를 취소하면 이 목록에서도 빠진다</b> (#355 완료 조건). */
+  @Test
+  void unlikingRemovesItFromTheLikedList() throws Exception {
+    Long noteId = insertNote("정리");
+    mockMvc.perform(like(me, noteId)).andExpect(status().isNoContent());
+
+    mockMvc.perform(unlike(me, noteId)).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(NOTES)).param("liked", "true"))
+        .andExpect(jsonPath("$.page.totalElements").value(0));
+  }
+
+  /** <b>한 자료를 여럿이 눌러도 한 번만 나온다</b> — 조인으로 짜면 좋아요 수만큼 중복된다. */
+  @Test
+  void likedDoesNotDuplicateWhenManyPeopleLikedIt() throws Exception {
+    Long noteId = insertNote("인기 자료");
+    mockMvc.perform(like(me, noteId)).andExpect(status().isNoContent());
+    mockMvc.perform(like(other, noteId)).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(NOTES)).param("liked", "true"))
+        .andExpect(jsonPath("$.page.totalElements").value(1));
+  }
+
+  /** 검색·필터와 AND로 함께 걸린다. */
+  @Test
+  void likedCombinesWithOtherFilters() throws Exception {
+    // 도구가 넣는 자료는 과목명이 모두 같으므로, 검색어는 제목으로만 갈리게 고른다.
+    Long mid = insertNote("중간고사 정리");
+    Long fin = insertNote("기말고사 정리");
+    mockMvc.perform(like(me, mid)).andExpect(status().isNoContent());
+    mockMvc.perform(like(me, fin)).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(NOTES)).param("liked", "true").param("q", "중간고사"))
+        .andExpect(jsonPath("$.page.totalElements").value(1))
+        .andExpect(jsonPath("$.content[0].title").value("중간고사 정리"));
+  }
+
   /* ------------------------------------------------------------------ 동시 */
 
   /** <b>동시에 눌러도 하나다.</b> */

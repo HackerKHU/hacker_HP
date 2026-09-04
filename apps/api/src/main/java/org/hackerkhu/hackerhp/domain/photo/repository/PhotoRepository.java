@@ -40,4 +40,35 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
       value = "select p from Photo p where p.storedPath not like concat(:prefix, '%')",
       countQuery = "select count(p) from Photo p where p.storedPath not like concat(:prefix, '%')")
   Page<Photo> findCompleted(@Param("prefix") String prefix, Pageable pageable);
+
+  /**
+   * <b>내가 좋아요한 사진만</b> (#355, 3-3 결정 28).
+   *
+   * <p>등록이 끝나지 않은 자리표시자 행을 빼는 조건은 {@link #findCompleted}와 같다 — 좋아요를 눌렀다고 해서 아직 완결되지 않은 행이 목록에 나오면 안
+   * 된다.
+   *
+   * <p><b>{@code EXISTS}로 본다.</b> 좋아요 표와 조인하면 사진이 좋아요 행 수만큼 중복돼 페이지 크기가 어긋난다.
+   *
+   * <p><b>업로더를 함께 가져오는 것도 {@link #findCompleted}와 같다.</b> {@code uploader}는 {@code LAZY}라 그냥 두면
+   * {@code PhotoService#toResponse}가 업로더 이름·id를 읽는 순간 <b>페이지에 실린 사진 수만큼 사용자 조회가 더 나간다</b> — 업로더가
+   * 제각각인 20건이면 그대로 20번이다. 전체 목록에만 걸어 두면 필터를 켰을 때만 조용히 N+1이 된다.
+   */
+  @EntityGraph(attributePaths = "uploader")
+  @Query(
+      value =
+          """
+          select p from Photo p
+          where p.storedPath not like concat(:prefix, '%')
+            and exists (select 1 from PhotoLike l
+                        where l.photoId = p.id and l.userId = :viewerId)
+          """,
+      countQuery =
+          """
+          select count(p) from Photo p
+          where p.storedPath not like concat(:prefix, '%')
+            and exists (select 1 from PhotoLike l
+                        where l.photoId = p.id and l.userId = :viewerId)
+          """)
+  Page<Photo> findCompletedLikedBy(
+      @Param("prefix") String prefix, @Param("viewerId") Long viewerId, Pageable pageable);
 }

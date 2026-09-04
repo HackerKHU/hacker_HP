@@ -26,7 +26,8 @@ public record NoteSearch(
     @Schema(description = "연도 필터") Integer year,
     @Schema(description = "학기 필터") Semester semester,
     @Schema(description = "시험 구분 필터") ExamType examType,
-    @Schema(description = "내가 올린 자료만") Boolean mine) {
+    @Schema(description = "내가 올린 자료만") Boolean mine,
+    @Schema(description = "내가 좋아요한 자료만") Boolean liked) {
 
   /**
    * 공백뿐인 값은 없는 것으로 본다. 그대로 두면 전체 목록에 무의미한 {@code LIKE '%%'}가 걸린다.
@@ -40,6 +41,7 @@ public record NoteSearch(
     subject = blankToNull(subject);
     professor = blankToNull(professor);
     mine = mine != null && mine;
+    liked = liked != null && liked;
   }
 
   private static String blankToNull(String value) {

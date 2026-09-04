@@ -193,6 +193,60 @@ class NoticeLikeIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.content[0].likedByMe").value(false));
   }
 
+  /* ------------------------------------------ 내가 좋아요한 공지 (#355) */
+
+  /** <b>{@code liked=true}는 내가 누른 공지만 준다</b> (#355 완료 조건). */
+  @Test
+  void likedReturnsOnlyWhatILiked() throws Exception {
+    Long mine = insertNotice("내가 누른 공지");
+    Long theirs = insertNotice("남이 누른 공지");
+    mockMvc.perform(like(me, mine)).andExpect(status().isNoContent());
+    mockMvc.perform(like(other, theirs)).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(NOTICES)).param("liked", "true"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.page.totalElements").value(1))
+        .andExpect(jsonPath("$.content[0].title").value("내가 누른 공지"));
+  }
+
+  /** <b>좋아요를 취소하면 이 목록에서도 빠진다</b> (#355 완료 조건). */
+  @Test
+  void unlikingRemovesItFromTheLikedList() throws Exception {
+    Long noticeId = insertNotice("공지");
+    mockMvc.perform(like(me, noticeId)).andExpect(status().isNoContent());
+
+    mockMvc.perform(unlike(me, noticeId)).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(NOTICES)).param("liked", "true"))
+        .andExpect(jsonPath("$.page.totalElements").value(0));
+  }
+
+  /** <b>한 공지를 여럿이 눌러도 한 번만 나온다</b> — 조인으로 짜면 좋아요 수만큼 중복된다. */
+  @Test
+  void likedDoesNotDuplicateWhenManyPeopleLikedIt() throws Exception {
+    Long noticeId = insertNotice("인기 공지");
+    mockMvc.perform(like(me, noticeId)).andExpect(status().isNoContent());
+    mockMvc.perform(like(other, noticeId)).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(NOTICES)).param("liked", "true"))
+        .andExpect(jsonPath("$.page.totalElements").value(1));
+  }
+
+  /** 작성자가 나간 공지도 그대로 나온다 — 목록이 {@code LEFT JOIN FETCH}로 읽는다는 계약이 여기서 지켜진다. */
+  @Test
+  void likedKeepsNoticesWhoseAuthorLeft() throws Exception {
+    Long noticeId = insertNotice("작성자 없는 공지");
+    mockMvc.perform(like(me, noticeId)).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(NOTICES)).param("liked", "true"))
+        .andExpect(jsonPath("$.page.totalElements").value(1))
+        .andExpect(jsonPath("$.content[0].authorName").value("탈퇴한 회원"));
+  }
+
   /* --------------------------------------------------------------- CASCADE */
 
   /** 공지가 지워지면 좋아요도 함께 사라진다 (완료 조건, {@code ON DELETE CASCADE}). */

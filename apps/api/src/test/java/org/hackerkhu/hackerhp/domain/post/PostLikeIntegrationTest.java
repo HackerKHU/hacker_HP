@@ -195,6 +195,66 @@ class PostLikeIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.likedByMe").value(true));
   }
 
+  /* ------------------------------------------- 내가 좋아요한 글 (#355) */
+
+  /** <b>{@code liked=true}는 내가 누른 글만 준다</b> (#355 완료 조건). */
+  @Test
+  void likedReturnsOnlyWhatILiked() throws Exception {
+    Post another =
+        postRepository.saveAndFlush(Post.write("남이 누른 글", "본문", me.getId(), Instant.now()));
+    mockMvc.perform(like(me, post.getId())).andExpect(status().isNoContent());
+    mockMvc.perform(like(other, another.getId())).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(POSTS)).param("liked", "true"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.page.totalElements").value(1))
+        .andExpect(jsonPath("$.content[0].id").value(post.getId()));
+  }
+
+  /** <b>좋아요를 취소하면 이 목록에서도 빠진다</b> (#355 완료 조건). */
+  @Test
+  void unlikingRemovesItFromTheLikedList() throws Exception {
+    mockMvc.perform(like(me, post.getId())).andExpect(status().isNoContent());
+
+    mockMvc.perform(unlike(me, post.getId())).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(POSTS)).param("liked", "true"))
+        .andExpect(jsonPath("$.page.totalElements").value(0));
+  }
+
+  /** <b>한 글을 여럿이 눌러도 한 번만 나온다</b> — 조인으로 짜면 좋아요 수만큼 중복된다. */
+  @Test
+  void likedDoesNotDuplicateWhenManyPeopleLikedIt() throws Exception {
+    mockMvc.perform(like(me, post.getId())).andExpect(status().isNoContent());
+    mockMvc.perform(like(other, post.getId())).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(POSTS)).param("liked", "true"))
+        .andExpect(jsonPath("$.page.totalElements").value(1));
+  }
+
+  /** <b>{@code mine}과 함께 걸면 AND다</b> — 내가 쓰고 내가 누른 글만 남는다 (#353·#355). */
+  @Test
+  void likedAndMineCombineWithAnd() throws Exception {
+    Post othersPost =
+        postRepository.saveAndFlush(Post.write("남이 쓴 글", "본문", other.getId(), Instant.now()));
+    // 내 글에는 좋아요를 누르지 않고, 남의 글에만 누른다.
+    mockMvc.perform(like(me, othersPost.getId())).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(POSTS)).param("mine", "true").param("liked", "true"))
+        .andExpect(jsonPath("$.page.totalElements").value(0));
+
+    mockMvc.perform(like(me, post.getId())).andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(me, get(POSTS)).param("mine", "true").param("liked", "true"))
+        .andExpect(jsonPath("$.page.totalElements").value(1))
+        .andExpect(jsonPath("$.content[0].id").value(post.getId()));
+  }
+
   /* --------------------------------------------------------------- CASCADE */
 
   /** 게시글이 지워지면 좋아요도 함께 사라진다 (완료 조건, {@code ON DELETE CASCADE}). */
