@@ -1,10 +1,8 @@
 package org.hackerkhu.hackerhp.domain.post.service;
 
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.hackerkhu.hackerhp.domain.post.dto.PostAuthor;
 import org.hackerkhu.hackerhp.domain.post.dto.PostCreateRequest;
 import org.hackerkhu.hackerhp.domain.post.dto.PostDetailResponse;
@@ -71,16 +69,17 @@ public class PostService {
         posts.findAll(
             PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST));
     Map<Long, User> found = AuthorLookup.of(page.getContent(), Post::getAuthorId, users);
-    List<Long> ids = page.getContent().stream().map(Post::getId).toList();
-    Map<Long, Long> likeCounts = likeCountsOf(ids);
-    Set<Long> likedByMe = likedIdsOf(viewerId, ids);
+    Map<Long, PostLikeSummary> likeSummaries =
+        likeSummariesOf(viewerId, page.getContent().stream().map(Post::getId).toList());
     return page.map(
-        post ->
-            PostSummaryResponse.of(
-                post,
-                AuthorLookup.authorOf(post.getAuthorId(), found),
-                likeCounts.getOrDefault(post.getId(), 0L),
-                likedByMe.contains(post.getId())));
+        post -> {
+          PostLikeSummary like = likeSummaries.getOrDefault(post.getId(), PostLikeSummary.NONE);
+          return PostSummaryResponse.of(
+              post,
+              AuthorLookup.authorOf(post.getAuthorId(), found),
+              like.count(),
+              like.likedByMe());
+        });
   }
 
   @Transactional(readOnly = true)
@@ -216,27 +215,20 @@ public class PostService {
 
   /** 게시글 하나에 좋아요 정보를 붙인다 — {@link #get}·{@link #edit}이 공유한다. */
   private PostDetailResponse withLikeInfo(Post post, PostAuthor author, Long viewerId) {
-    long count = likes.countByPostId(post.getId());
-    boolean liked = likes.existsByUserIdAndPostId(viewerId, post.getId());
-    return PostDetailResponse.of(post, author, count, liked);
+    PostLikeSummary like =
+        likeSummariesOf(viewerId, List.of(post.getId()))
+            .getOrDefault(post.getId(), PostLikeSummary.NONE);
+    return PostDetailResponse.of(post, author, like.count(), like.likedByMe());
   }
 
-  /** 좋아요 개수를 <b>한 번에</b> 모아 읽는다. 행마다 물으면 페이지 크기만큼 질의가 붙는다. */
-  private Map<Long, Long> likeCountsOf(List<Long> postIds) {
+  /**
+   * 좋아요 개수와 내 상태를 <b>한 번에</b> 모아 읽는다. 행마다 물으면 페이지 크기만큼 질의가 붙고, 개수와 내 상태를 따로 물으면 스냅샷이 갈려 모순된 응답이 나간다
+   * (#368 리뷰, {@link PostLikeSummary}).
+   */
+  private Map<Long, PostLikeSummary> likeSummariesOf(Long viewerId, List<Long> postIds) {
     if (postIds.isEmpty()) {
       return Map.of();
     }
-    Map<Long, Long> counts = new HashMap<>();
-    for (Object[] row : likes.countByPostIds(postIds)) {
-      counts.put((Long) row[0], (Long) row[1]);
-    }
-    return counts;
-  }
-
-  private Set<Long> likedIdsOf(Long viewerId, List<Long> postIds) {
-    if (postIds.isEmpty()) {
-      return Set.of();
-    }
-    return Set.copyOf(likes.findLikedPostIdsOf(viewerId, postIds));
+    return PostLikeSummary.byPostId(likes.countWithMineByPostIds(viewerId, postIds));
   }
 }

@@ -41,23 +41,22 @@ public interface PostLikeRepository extends JpaRepository<PostLike, PostLikeId> 
   @Query("DELETE FROM PostLike l WHERE l.userId = :userId AND l.postId = :postId")
   int deleteLike(@Param("userId") Long userId, @Param("postId") Long postId);
 
-  long countByPostId(Long postId);
-
   /**
-   * 그 페이지에 실린 게시글 중 <b>내가 좋아요를 누른</b> 것의 id.
+   * 게시글들의 <b>좋아요 개수와 내가 눌렀는지를 한 문장으로</b> 읽는다 (#368 리뷰).
    *
-   * <p>행마다 물으면 20건에 질의가 20번 붙는다 — 작성자를 한 번에 모아 읽는 것과 같은 이유(#52).
+   * <p><b>두 질의로 나누면 모순된 응답이 나간다.</b> 기본 {@code READ COMMITTED}에서는 문장마다 새 스냅샷을 잡으므로, 개수를 센 뒤 내 상태를
+   * 묻는 사이에 내가 누른 좋아요가 커밋되면 <b>{@code likeCount=0}인데 {@code likedByMe=true}</b>인 응답이 만들어진다 — 화면은 이
+   * 둘을 함께 믿고 숫자와 버튼을 그린다.
+   *
+   * <p>행마다 물으면 20건에 질의가 20번 붙으므로 페이지 전체를 한 번에 모은다 — 작성자를 모아 읽는 것과 같은 이유(#52). <b>상세·수정도 이 메서드를
+   * 쓴다</b> — id 하나짜리 목록일 뿐이라 질의를 따로 둘 이유가 없다.
+   *
+   * <p>{@code Object[]}의 각 원소는 {@code [postId, count, 내가 누른 수]}다. 뒤 값은 복합 PK 덕에 {@code 0} 아니면
+   * {@code 1}이다. 좋아요가 하나도 없는 게시글은 결과에 없으므로 부르는 쪽이 {@code 0}·{@code false}로 채운다.
    */
-  @Query("SELECT l.postId FROM PostLike l WHERE l.userId = :userId AND l.postId IN :postIds")
-  List<Long> findLikedPostIdsOf(
+  @Query(
+      "SELECT l.postId, COUNT(l), SUM(CASE WHEN l.userId = :userId THEN 1 ELSE 0 END)"
+          + " FROM PostLike l WHERE l.postId IN :postIds GROUP BY l.postId")
+  List<Object[]> countWithMineByPostIds(
       @Param("userId") Long userId, @Param("postIds") Collection<Long> postIds);
-
-  /**
-   * 그 페이지에 실린 게시글들의 좋아요 개수를 <b>한 번에</b> 센다.
-   *
-   * <p>{@code Object[]}의 각 원소는 {@code [postId, count]}다 — {@code
-   * NoteRepository#countFilesByNoteIds}와 같은 배치 집계 방식이다.
-   */
-  @Query("SELECT l.postId, COUNT(l) FROM PostLike l WHERE l.postId IN :postIds GROUP BY l.postId")
-  List<Object[]> countByPostIds(@Param("postIds") Collection<Long> postIds);
 }

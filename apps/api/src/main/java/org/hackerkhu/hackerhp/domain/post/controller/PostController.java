@@ -270,6 +270,20 @@ public class PostController {
           """)
   @ApiResponse(responseCode = "204", description = "눌렸다 (이미 눌러져 있던 경우 포함)")
   @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description = "CSRF 토큰이 없다 · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
       responseCode = "404",
       description = "`NOT_FOUND` — 없는 게시글",
       content =
@@ -287,6 +301,20 @@ public class PostController {
       summary = "게시글 좋아요 취소",
       description = "**눌러져 있지 않아도 성공이다.** 없는 게시글이어도 `404`를 주지 않는다 — 게시글이 지워지면 좋아요도 함께 사라진다.")
   @ApiResponse(responseCode = "204", description = "떼졌다 (눌러져 있지 않던 경우 포함)")
+  @ApiResponse(
+      responseCode = "401",
+      description = "`UNAUTHENTICATED` — 쿠키 두 개가 함께 있어야 한다",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @ApiResponse(
+      responseCode = "403",
+      description = "CSRF 토큰이 없다 · `SUSPENDED` — 정지된 계정 · `PENDING_APPROVAL` — 승인 대기 계정",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
   @DeleteMapping("/{id}/like")
   @ResponseStatus(HttpStatus.NO_CONTENT)
   @PreAuthorize("isAuthenticated()")
