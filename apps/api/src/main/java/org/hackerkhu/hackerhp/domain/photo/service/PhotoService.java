@@ -54,7 +54,8 @@ public class PhotoService {
   /** 원본 크기 상한. 계약이 정한 값이 아니라 방어적 상한이다 — 자료(§2-1-2)의 파일당 20MB와 같은 자릿수로 맞췄다. */
   private static final long MAX_ORIGINAL_BYTES = 20L * 1024 * 1024;
 
-  private static final String TEMP_PREFIX = "photos/uploads/";
+  /** 임시 원본이 놓이는 접두사. 최종 자리로 옮겨지지 않은 것은 이 접두사 아래 남는다 (#339의 고아 정리도 이 값으로 최종 위치를 가른다). */
+  public static final String TEMP_PREFIX = "photos/uploads/";
 
   /** HeadObject·GetObject가 없는 키에 응답 본문 없이 상태 코드만으로 답할 때의 값. */
   private static final int S3_NOT_FOUND = 404;
@@ -329,8 +330,11 @@ public class PhotoService {
   /**
    * {@code photos/{id}/{uuid}.jpg} → {@code photos/{id}/thumb/{uuid}.jpg} (spec 3-2 §3-2-2 저장 키
    * 형식). 본 이미지·썸네일 모두 항상 JPEG이므로({@link PhotoResizer}) 확장자를 조사하지 않고 {@code .jpg}로 고정한다.
+   *
+   * <p><b>{@code public}인 이유</b> — #339의 고아 정리 작업도 같은 규칙으로 썸네일 키를 유도해야, DB에 남은 본 이미지 경로 하나로 본
+   * 이미지·썸네일 둘 다를 "참조 중"으로 표시할 수 있다. 규칙을 두 곳에 따로 적으면 한쪽만 고쳐질 위험이 생긴다.
    */
-  private static String thumbnailKeyOf(String storedPath) {
+  public static String thumbnailKeyOf(String storedPath) {
     int lastSlash = storedPath.lastIndexOf('/');
     String dir = storedPath.substring(0, lastSlash + 1);
     String filename = storedPath.substring(lastSlash + 1);
