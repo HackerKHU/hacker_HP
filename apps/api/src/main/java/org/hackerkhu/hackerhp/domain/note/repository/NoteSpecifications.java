@@ -28,16 +28,30 @@ public final class NoteSpecifications {
 
   private NoteSpecifications() {}
 
-  public static Specification<Note> matching(NoteSearch search, NoteSort sort) {
+  /**
+   * @param viewerId {@code search.mine()}이 켜졌을 때 "내 것"의 기준. <b>요청이 아니라 인증 주체에서만 온다</b> (MUST, #353)
+   */
+  public static Specification<Note> matching(NoteSearch search, NoteSort sort, Long viewerId) {
     return (root, query, builder) -> {
       applyOrder(root, query, builder, sort);
-      return builder.and(conditions(search, root, builder).toArray(new Predicate[0]));
+      return builder.and(conditions(search, viewerId, root, builder).toArray(new Predicate[0]));
     };
   }
 
   private static List<Predicate> conditions(
-      NoteSearch search, Root<Note> root, CriteriaBuilder builder) {
+      NoteSearch search, Long viewerId, Root<Note> root, CriteriaBuilder builder) {
     List<Predicate> conditions = new ArrayList<>();
+
+    /*
+     * 내가 올린 자료만 (#353, 3-3 결정 28). 즐겨찾기가 별도 화면이 아니라 목록의 토글로 간
+     * 것과 같은 판단이라, 여기서도 새 경로가 아니라 조건 하나를 더한다 (2-1 §2-1-5, #261).
+     *
+     * 기준은 viewerId다 — NoteSearch에 업로더 id를 받는 필드를 두지 않는 이유가 이것이다.
+     * 받으면 남이 올린 자료를 "내 것" 목록으로 조회할 수 있다.
+     */
+    if (search.mine()) {
+      conditions.add(builder.equal(root.get("uploaderId"), viewerId));
+    }
 
     if (search.category() != null) {
       conditions.add(builder.equal(root.get("category"), search.category()));

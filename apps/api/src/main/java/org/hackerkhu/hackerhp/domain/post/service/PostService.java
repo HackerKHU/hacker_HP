@@ -64,10 +64,17 @@ public class PostService {
    * {@code page}·{@code size}는 {@code spring.data.web.pageable}이 상한까지 이미 처리했다.
    */
   @Transactional(readOnly = true)
-  public Page<PostSummaryResponse> list(Pageable pageable, Long viewerId) {
-    Page<Post> page =
-        posts.findAll(
-            PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST));
+  public Page<PostSummaryResponse> list(Pageable pageable, Long viewerId, boolean mine) {
+    PageRequest request =
+        PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST);
+    /*
+     * 내가 쓴 글만 (#353, 3-3 결정 28). 정렬은 두 갈래가 같은 NEWEST_FIRST를 쓴다 — 필터를
+     * 켜고 끌 때 순서 규칙까지 달라지면 화면이 같은 목록을 두 벌로 다뤄야 한다.
+     *
+     * 기준은 viewerId다. 작성자 id를 요청으로 받지 않는 이유는 자료 목록과 같다 — 받으면
+     * 남의 글을 "내 글" 목록으로 조회할 수 있다.
+     */
+    Page<Post> page = mine ? posts.findByAuthorId(viewerId, request) : posts.findAll(request);
     Map<Long, User> found = AuthorLookup.of(page.getContent(), Post::getAuthorId, users);
     Map<Long, PostLikeSummary> likeSummaries =
         likeSummariesOf(viewerId, page.getContent().stream().map(Post::getId).toList());

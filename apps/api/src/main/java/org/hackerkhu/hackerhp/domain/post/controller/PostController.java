@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -62,6 +63,9 @@ public class PostController {
 
           **본문은 담지 않는다.** 상세에서만 준다 — 본문 상한이 10,000자라 20건이면
           그것만으로 응답이 200KB가 된다.
+
+          `mine=true`를 붙이면 **내가 쓴 글만** 나온다 (#353). 작성자는 로그인한 사람으로
+          정해지며 요청으로 받지 않는다 — 정렬·페이징 규칙은 전체 목록과 같다.
           """)
   @ApiResponse(responseCode = "200", description = "조회 성공")
   @ApiResponse(
@@ -81,8 +85,10 @@ public class PostController {
   @GetMapping
   @PreAuthorize("isAuthenticated()")
   public PagedModel<PostSummaryResponse> list(
-      @AuthenticationPrincipal Long viewerId, @ParameterObject Pageable pageable) {
-    return new PagedModel<>(postService.list(pageable, viewerId));
+      @AuthenticationPrincipal Long viewerId,
+      @RequestParam(defaultValue = "false") boolean mine,
+      @ParameterObject Pageable pageable) {
+    return new PagedModel<>(postService.list(pageable, viewerId, mine));
   }
 
   @Operation(

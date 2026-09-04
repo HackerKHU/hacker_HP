@@ -424,4 +424,66 @@ class NoteQueryIntegrationTest extends AbstractIntegrationTest {
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("PENDING_APPROVAL"));
   }
+
+  /* --------------------------------------------------- 내가 올린 자료 (#353) */
+
+  /** <b>{@code mine=true}는 내가 올린 자료만 준다</b> (#353 완료 조건). */
+  @Test
+  void mineReturnsOnlyMyNotes() throws Exception {
+    subjectNote("내가 올린 것", "운영체제", null, member.getId());
+    subjectNote("남이 올린 것", "네트워크", null, uploader.getId());
+
+    mockMvc
+        .perform(sessions.as(member, get(PATH)).param("mine", "true"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.page.totalElements").value(1))
+        .andExpect(jsonPath("$.content[0].title").value("내가 올린 것"));
+  }
+
+  /** <b>기준은 세션이다</b> (MUST) — 같은 요청을 남이 보내면 그 사람의 것만 나온다. */
+  @Test
+  void mineFollowsTheSessionNotTheRequest() throws Exception {
+    subjectNote("내가 올린 것", "운영체제", null, member.getId());
+    subjectNote("남이 올린 것", "네트워크", null, uploader.getId());
+
+    mockMvc
+        .perform(sessions.as(uploader, get(PATH)).param("mine", "true"))
+        .andExpect(jsonPath("$.page.totalElements").value(1))
+        .andExpect(jsonPath("$.content[0].title").value("남이 올린 것"));
+  }
+
+  /** 끄면 전체가 그대로 나온다 — 필터 하나가 늘었을 뿐 기본 동작은 바뀌지 않는다. */
+  @Test
+  void withoutMineTheWholeListStays() throws Exception {
+    subjectNote("내가 올린 것", "운영체제", null, member.getId());
+    subjectNote("남이 올린 것", "네트워크", null, uploader.getId());
+
+    mockMvc
+        .perform(sessions.as(member, get(PATH)))
+        .andExpect(jsonPath("$.page.totalElements").value(2));
+  }
+
+  /** <b>검색·필터와 AND로 함께 걸린다</b> (2-1 §2-1-1 MUST) — 내 것 중에서 다시 추린다. */
+  @Test
+  void mineCombinesWithSearchAndFilters() throws Exception {
+    subjectNote("운영체제 정리", "운영체제", null, member.getId());
+    subjectNote("네트워크 정리", "네트워크", null, member.getId());
+    subjectNote("운영체제 정리", "운영체제", null, uploader.getId());
+
+    mockMvc
+        .perform(sessions.as(member, get(PATH)).param("mine", "true").param("subject", "운영체제"))
+        .andExpect(jsonPath("$.page.totalElements").value(1))
+        .andExpect(jsonPath("$.content[0].title").value("운영체제 정리"));
+  }
+
+  /** 올린 자료가 없으면 빈 목록이다 — 오류가 아니다. */
+  @Test
+  void mineIsEmptyWhenIUploadedNothing() throws Exception {
+    subjectNote("남이 올린 것", "네트워크", null, uploader.getId());
+
+    mockMvc
+        .perform(sessions.as(member, get(PATH)).param("mine", "true"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.page.totalElements").value(0));
+  }
 }
