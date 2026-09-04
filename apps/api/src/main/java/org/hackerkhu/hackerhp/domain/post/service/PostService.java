@@ -8,6 +8,7 @@ import org.hackerkhu.hackerhp.domain.post.dto.PostCreateRequest;
 import org.hackerkhu.hackerhp.domain.post.dto.PostDetailResponse;
 import org.hackerkhu.hackerhp.domain.post.dto.PostSummaryResponse;
 import org.hackerkhu.hackerhp.domain.post.entity.Post;
+import org.hackerkhu.hackerhp.domain.post.repository.PostLikeRepository;
 import org.hackerkhu.hackerhp.domain.post.repository.PostRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
@@ -47,10 +48,12 @@ public class PostService {
 
   private final PostRepository posts;
   private final UserRepository users;
+  private final PostLikeRepository likes;
 
-  public PostService(PostRepository posts, UserRepository users) {
+  public PostService(PostRepository posts, UserRepository users, PostLikeRepository likes) {
     this.posts = posts;
     this.users = users;
+    this.likes = likes;
   }
 
   /**
@@ -61,23 +64,32 @@ public class PostService {
    * {@code page}·{@code size}는 {@code spring.data.web.pageable}이 상한까지 이미 처리했다.
    */
   @Transactional(readOnly = true)
-  public Page<PostSummaryResponse> list(Pageable pageable) {
+  public Page<PostSummaryResponse> list(Pageable pageable, Long viewerId) {
     Page<Post> page =
         posts.findAll(
             PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST));
     Map<Long, User> found = AuthorLookup.of(page.getContent(), Post::getAuthorId, users);
+    Map<Long, PostLikeSummary> likeSummaries =
+        likeSummariesOf(viewerId, page.getContent().stream().map(Post::getId).toList());
     return page.map(
-        post -> PostSummaryResponse.of(post, AuthorLookup.authorOf(post.getAuthorId(), found)));
+        post -> {
+          PostLikeSummary like = likeSummaries.getOrDefault(post.getId(), PostLikeSummary.NONE);
+          return PostSummaryResponse.of(
+              post,
+              AuthorLookup.authorOf(post.getAuthorId(), found),
+              like.count(),
+              like.likedByMe());
+        });
   }
 
   @Transactional(readOnly = true)
-  public PostDetailResponse get(Long id) {
+  public PostDetailResponse get(Long id, Long viewerId) {
     Post post =
         posts
             .findById(id)
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "게시글을 찾을 수 없습니다."));
     Map<Long, User> found = AuthorLookup.of(List.of(post), Post::getAuthorId, users);
-    return PostDetailResponse.of(post, AuthorLookup.authorOf(post.getAuthorId(), found));
+    return withLikeInfo(post, AuthorLookup.authorOf(post.getAuthorId(), found), viewerId);
   }
 
   /**
@@ -120,8 +132,8 @@ public class PostService {
      * 이 줄이 남아 있어야 한다 — 실제 분포를 추측이 아니라 로그에서 본다.
      */
     log.info("게시글 등록: postId={} authorId={}", saved.getId(), authorId);
-    // author는 방금 잠근 그 행이다 — 다시 조회하지 않고 그대로 쓴다.
-    return PostDetailResponse.of(saved, PostAuthor.of(author));
+    // author는 방금 잠근 그 행이다 — 다시 조회하지 않고 그대로 쓴다. 방금 만든 글이라 좋아요는 아직 없다.
+    return PostDetailResponse.of(saved, PostAuthor.of(author), 0L, false);
   }
 
   /**
@@ -155,7 +167,7 @@ public class PostService {
     post.edit(request.title().trim(), request.content(), Instant.now());
     log.info("게시글 수정: postId={} authorId={}", id, requesterId);
     // requester는 방금 소유자로 확인한 그 행이다 — 다시 조회하지 않고 그대로 쓴다.
-    return PostDetailResponse.of(post, PostAuthor.of(requester));
+    return withLikeInfo(post, PostAuthor.of(requester), requesterId);
   }
 
   /**
@@ -199,5 +211,24 @@ public class PostService {
     }
     log.info("남의 게시글을 삭제하려 했다: requesterId={} postId={}", requesterId, post.getId());
     throw new BusinessException(ErrorCode.FORBIDDEN, "본인이 쓴 게시글만 삭제할 수 있습니다.");
+  }
+
+  /** 게시글 하나에 좋아요 정보를 붙인다 — {@link #get}·{@link #edit}이 공유한다. */
+  private PostDetailResponse withLikeInfo(Post post, PostAuthor author, Long viewerId) {
+    PostLikeSummary like =
+        likeSummariesOf(viewerId, List.of(post.getId()))
+            .getOrDefault(post.getId(), PostLikeSummary.NONE);
+    return PostDetailResponse.of(post, author, like.count(), like.likedByMe());
+  }
+
+  /**
+   * 좋아요 개수와 내 상태를 <b>한 번에</b> 모아 읽는다. 행마다 물으면 페이지 크기만큼 질의가 붙고, 개수와 내 상태를 따로 물으면 스냅샷이 갈려 모순된 응답이 나간다
+   * (#368 리뷰, {@link PostLikeSummary}).
+   */
+  private Map<Long, PostLikeSummary> likeSummariesOf(Long viewerId, List<Long> postIds) {
+    if (postIds.isEmpty()) {
+      return Map.of();
+    }
+    return PostLikeSummary.byPostId(likes.countWithMineByPostIds(viewerId, postIds));
   }
 }
