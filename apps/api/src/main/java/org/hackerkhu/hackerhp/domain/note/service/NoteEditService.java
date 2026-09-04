@@ -12,6 +12,7 @@ import org.hackerkhu.hackerhp.domain.note.dto.Uploader;
 import org.hackerkhu.hackerhp.domain.note.entity.Note;
 import org.hackerkhu.hackerhp.domain.note.entity.NoteFile;
 import org.hackerkhu.hackerhp.domain.note.repository.BookmarkRepository;
+import org.hackerkhu.hackerhp.domain.note.repository.NoteLikeRepository;
 import org.hackerkhu.hackerhp.domain.note.repository.NoteRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
@@ -45,6 +46,7 @@ public class NoteEditService {
 
   private final NoteRepository notes;
   private final BookmarkRepository bookmarks;
+  private final NoteLikeRepository likes;
   private final UserRepository users;
   private final StagedUploads staged;
   private final NoteUploadPolicy policy;
@@ -53,12 +55,14 @@ public class NoteEditService {
   public NoteEditService(
       NoteRepository notes,
       BookmarkRepository bookmarks,
+      NoteLikeRepository likes,
       UserRepository users,
       StagedUploads staged,
       NoteUploadPolicy policy,
       PlatformTransactionManager transactionManager) {
     this.notes = notes;
     this.bookmarks = bookmarks;
+    this.likes = likes;
     this.users = users;
     this.staged = staged;
     this.policy = policy;
@@ -309,10 +313,19 @@ public class NoteEditService {
   private NoteDetailResponse detailOf(Note note, Long viewerId) {
     Long uploaderId = note.getUploaderId();
     User uploader = uploaderId == null ? null : users.findById(uploaderId).orElse(null);
+    /*
+     * 개수와 내 상태를 한 문장에서 읽는다 (#367 리뷰). 따로 물으면 READ COMMITTED에서
+     * 스냅샷이 갈려 0개인데 내가 눌렀다고 답하는 수정 응답이 나갈 수 있다.
+     */
+    NoteLikeSummary like =
+        NoteLikeSummary.byNoteId(likes.countWithMineByNoteIds(viewerId, List.of(note.getId())))
+            .getOrDefault(note.getId(), NoteLikeSummary.NONE);
     return NoteDetailResponse.of(
         note,
         Uploader.of(uploader),
         bookmarks.existsByUserIdAndNoteId(viewerId, note.getId()),
-        note.getViewCount());
+        note.getViewCount(),
+        like.count(),
+        like.likedByMe());
   }
 }
