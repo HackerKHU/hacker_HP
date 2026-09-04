@@ -304,7 +304,7 @@ export function NoteDetailPage() {
               {note.examType && ` · ${EXAM_TYPE_LABEL[note.examType]}고사`}
             </dd>
             {/* 업로더 이름은 절대 비지 않는다 — 회원이 제거되면 "탈퇴한 회원"이다 (§3-2-2). */}
-            <dt className="text-muted-foreground">업로더</dt>
+            <dt className="text-muted-foreground">작성자</dt>
             <dd>{note.uploader.name}</dd>
             <dt className="text-muted-foreground">등록일</dt>
             <dd>{formatDate(note.createdAt)}</dd>

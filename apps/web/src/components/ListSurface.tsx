@@ -17,6 +17,9 @@ import { cn } from '@/lib/utils'
  *
  * **네 목록이 이 하나를 같이 쓴다** — 공지·자료게시판·자유게시판·회원 관리. 각자 클래스를
  * 들고 있으면 한 곳만 고쳐지고, 그 어긋남은 화면을 나란히 놓고 봐야 드러난다.
+ *
+ * 최소 높이는 각 목록 화면의 바깥 안정 영역이 맡는다. 이 표면까지 최소 높이를 가지면 행이
+ * 적을 때 빈 영역 끝에 아래 선이 남아, 실제 목록과 무관한 구분선처럼 보인다.
  */
 export function ListSurface({
   className,
@@ -25,7 +28,7 @@ export function ListSurface({
   return (
     <div
       className={cn(
-        'min-h-72 overflow-hidden border-y border-border',
+        'overflow-hidden border-y border-border',
         /*
          * **행 사이는 위아래 선보다 연하다.** 셋이 같은 굵기·같은 색이면 표가 다시
          * 격자처럼 읽힌다 — 바깥 선이 "여기까지가 목록"을 말하고 안쪽 선은 행을 가르기만

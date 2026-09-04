@@ -4,6 +4,7 @@ import {
   fixturePhotos,
   fixtureRegisterPhotos,
   fixtureRemovePhoto,
+  fixtureSetPhotoLike,
 } from './fixtures'
 import type { Page } from './types'
 
@@ -27,6 +28,10 @@ export interface Photo {
   /** **절대 비지 않는다.** 서버가 채운다 — 화면마다 문구가 갈리지 않게 (spec §3-2-2). */
   uploaderName: string
   createdAt: string
+  /** 전체 좋아요 수. 목록·등록 응답 모두에 있다 (spec §3-2-5). */
+  likeCount: number
+  /** 내가 눌렀는지. 없으면 화면이 버튼을 채울지 비울지 정할 수 없다 (spec §3-2-5). */
+  likedByMe: boolean
 }
 
 /** 목록. **정렬은 서버가 최신순으로 고정한다** (spec §2-1-7) — 화면이 정렬을 보내지 않는다. */
@@ -42,6 +47,21 @@ export function remove(id: number): Promise<void> {
   if (import.meta.env.VITE_USE_FIXTURES === 'true')
     return fixtureRemovePhoto(id)
   return request(`/photos/${id}`, { method: 'DELETE' })
+}
+
+/**
+ * 좋아요·취소. **토글이 아니다** (spec §3-2-5 MUST) — 같은 요청이 상태를 뒤집으면
+ * 재시도가 방금 누른 것을 조용히 뗀다. 화면이 현재 `likedByMe`를 보고 방향을 정한다.
+ *
+ * 둘 다 멱등이고 응답은 본문 없는 `204`다 — 최신 개수가 오지 않으므로 화면이 직접 센다.
+ *
+ * **업로드·삭제와 권한이 다르다** (spec §3-2-5) — 그쪽은 `ADMIN` 전용이지만 좋아요는
+ * 사진 조회와 같아 `ACTIVE`·`INACTIVE` 부원 누구나 누른다.
+ */
+export function setPhotoLike(id: number, liked: boolean): Promise<void> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true')
+    return fixtureSetPhotoLike(id, liked)
+  return request(`/photos/${id}/like`, { method: liked ? 'POST' : 'DELETE' })
 }
 
 // ── 업로드 ──────────────────────────────────────────────────────────────────
@@ -97,7 +117,7 @@ export function extensionOf(fileName: string): string {
  * **자료 업로드와 결정적으로 다른 점이다.** 자료의 presigned PUT은 `Content-Type`을
  * 서명에 넣지 않아 브라우저가 무엇을 보내든 통과하지만(`S3FileStorage.presignPut`),
  * 사진은 서버가 `PutObjectRequest`에 `contentType`을 실어 서명한다
- * (`S3StorageService.presignPut`) — SigV4의 `SignedHeaders`에 `content-type`이 들어가므로
+ * (`S3FileStorage.presignPut`) — SigV4의 `SignedHeaders`에 `content-type`이 들어가므로
  * **브라우저가 정확히 같은 값을 보내지 않으면 S3가 `SignatureDoesNotMatch`로 거절한다.**
  *
  * 그래서 `file.type`을 쓰지 않고 **확장자에서 다시 계산한다.** 둘은 어긋날 수 있다 —

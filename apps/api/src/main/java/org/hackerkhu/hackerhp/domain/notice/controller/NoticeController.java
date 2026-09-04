@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.hackerkhu.hackerhp.domain.notice.dto.NoticeRequest;
 import org.hackerkhu.hackerhp.domain.notice.dto.NoticeResponse;
+import org.hackerkhu.hackerhp.domain.notice.service.NoticeLikeService;
 import org.hackerkhu.hackerhp.domain.notice.service.NoticeService;
 import org.hackerkhu.hackerhp.global.error.ErrorResponse;
 import org.springdoc.core.annotations.ParameterObject;
@@ -40,9 +41,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class NoticeController {
 
   private final NoticeService noticeService;
+  private final NoticeLikeService noticeLikeService;
 
-  public NoticeController(NoticeService noticeService) {
+  public NoticeController(NoticeService noticeService, NoticeLikeService noticeLikeService) {
     this.noticeService = noticeService;
+    this.noticeLikeService = noticeLikeService;
   }
 
   @Operation(
@@ -51,12 +54,15 @@ public class NoticeController {
           """
           페이지네이션을 지원한다. 정렬은 항상 `is_pinned DESC, created_at DESC`로 고정되며
           클라이언트가 바꿀 수 없다.
+
+          각 항목은 `likeCount`(전체 좋아요 수)와 `likedByMe`(내가 눌렀는지)를 담는다.
           """)
   @ApiResponse(responseCode = "200", description = "조회 성공")
   @GetMapping
   @PreAuthorize("isAuthenticated()")
-  public PagedModel<NoticeResponse> list(@ParameterObject Pageable pageable) {
-    return new PagedModel<>(noticeService.list(pageable));
+  public PagedModel<NoticeResponse> list(
+      @AuthenticationPrincipal Long viewerId, @ParameterObject Pageable pageable) {
+    return new PagedModel<>(noticeService.list(pageable, viewerId));
   }
 
   @Operation(summary = "공지 상세 조회")
@@ -70,8 +76,8 @@ public class NoticeController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @GetMapping("/{id}")
   @PreAuthorize("isAuthenticated()")
-  public NoticeResponse get(@PathVariable Long id) {
-    return noticeService.get(id);
+  public NoticeResponse get(@AuthenticationPrincipal Long viewerId, @PathVariable Long id) {
+    return noticeService.get(id, viewerId);
   }
 
   @Operation(summary = "공지 등록", description = "작성자는 요청 본문이 아니라 인증 주체로 정한다.")
@@ -109,8 +115,11 @@ public class NoticeController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @PatchMapping("/{id}")
   @PreAuthorize("hasRole('ADMIN')")
-  public NoticeResponse update(@PathVariable Long id, @Valid @RequestBody NoticeRequest request) {
-    return noticeService.update(id, request);
+  public NoticeResponse update(
+      @AuthenticationPrincipal Long viewerId,
+      @PathVariable Long id,
+      @Valid @RequestBody NoticeRequest request) {
+    return noticeService.update(id, request, viewerId);
   }
 
   @Operation(summary = "공지 삭제")
@@ -140,7 +149,48 @@ public class NoticeController {
               schema = @Schema(implementation = ErrorResponse.class)))
   @PatchMapping("/{id}/pin")
   @PreAuthorize("hasRole('ADMIN')")
-  public NoticeResponse togglePin(@PathVariable Long id) {
-    return noticeService.togglePin(id);
+  public NoticeResponse togglePin(@AuthenticationPrincipal Long viewerId, @PathVariable Long id) {
+    return noticeService.togglePin(id, viewerId);
+  }
+
+  @Operation(
+      summary = "공지 좋아요",
+      description =
+          """
+          **이미 눌렀어도 성공이다.** 목록과 상세에서 각각 누르거나 두 번 누르는 일은 흔한데,
+          그때 오류를 주면 사용자에게 의미 없는 안내를 띄워야 한다.
+
+          **토글이 아니다.** 같은 요청이 상태를 뒤집으면 재시도가 방금 누른 것을 조용히 뗀다 —
+          화면은 응답의 `likedByMe`를 보고 누를지 뗄지 고른다.
+          """)
+  @ApiResponse(responseCode = "204", description = "눌렸다 (이미 눌러져 있던 경우 포함)")
+  @ApiResponse(
+      responseCode = "404",
+      description = "`NOT_FOUND` — 없는 공지",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
+  @PostMapping("/{id}/like")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  @PreAuthorize("isAuthenticated()")
+  public void like(@AuthenticationPrincipal Long viewerId, @PathVariable Long id) {
+    noticeLikeService.add(viewerId, id);
+  }
+
+  @Operation(
+      summary = "공지 좋아요 취소",
+      description =
+          """
+          **눌러져 있지 않아도 성공이다.** 없는 공지여도 `404`를 주지 않는다 — 공지가 지워지면
+          좋아요도 함께 사라지므로 뗄 것이 이미 없고, 오류를 주면 화면이 지울 수 없는 표시를
+          들고 있게 된다.
+          """)
+  @ApiResponse(responseCode = "204", description = "떼졌다 (눌러져 있지 않던 경우 포함)")
+  @DeleteMapping("/{id}/like")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  @PreAuthorize("isAuthenticated()")
+  public void unlike(@AuthenticationPrincipal Long viewerId, @PathVariable Long id) {
+    noticeLikeService.remove(viewerId, id);
   }
 }

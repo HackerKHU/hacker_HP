@@ -16,9 +16,11 @@ import org.springframework.validation.annotation.Validated;
  * @param bucket 자료·사진이 들어가는 버킷. <b>퍼블릭 액세스가 차단돼 있다</b> — presigned URL 말고는 여는 길이 없다
  * @param region 버킷 리전
  * @param presignTtl 업로드 URL의 수명. <b>짧게 둔다</b> — 새어나가도 창이 좁고, 만료되면 다시 발급받으면 된다 (#53 D5)
- * @param downloadPresignTtl 다운로드·조회 URL의 수명. <b>업로드보다 더 짧다</b> (#55 D3) — 업로드는 파일 여럿을 순차로 올리는 동안 살아
- *     있어야 하지만, 다운로드·조회는 발급받자마자 브라우저가 연다(활동사진의 {@code <img src>}도 같다). <b>전송이 이보다 오래 걸려도 끊기지 않는다</b>
- *     — S3는 요청이 시작될 때 서명을 보고, 그 뒤 전송은 만료와 무관하게 이어진다
+ * @param downloadPresignTtl 자료 다운로드 URL의 수명. <b>업로드보다 더 짧다</b> (#55 D3) — 업로드는 파일 여럿을 순차로 올리는 동안 살아
+ *     있어야 하지만, 자료 다운로드는 발급받자마자 브라우저가 연다. <b>전송이 이보다 오래 걸려도 끊기지 않는다</b> — S3는 요청이 시작될 때 서명을 보고, 그 뒤
+ *     전송은 만료와 무관하게 이어진다
+ * @param inlinePresignTtl 활동사진 조회 URL의 수명. 목록 응답이 URL을 담고 화면이 썸네일을 lazy-load하거나 나중에 원본을 열므로 자료
+ *     다운로드보다 길어야 한다. #213 통합 전 활동사진 계약인 10분을 보존한다
  * @param endpoint MinIO 등 S3 호환 엔드포인트. <b>로컬 전용이다</b> — 비어 있으면 실제 AWS S3를 쓴다. 활동사진은 서버가 원본을 내려받아
  *     리사이즈해 다시 올려야 해서 로컬에서도 실제로 검증할 S3 호환 서버가 필요하다(#213 이전에는 이 셋을 {@code PhotoStorageProperties}가
  *     따로 가졌다). 자료는 바이트를 만지지 않아 로컬에서 이 값을 쓰지 않는다
@@ -32,6 +34,7 @@ public record StorageProperties(
     @NotBlank String region,
     @NotNull Duration presignTtl,
     @NotNull Duration downloadPresignTtl,
+    @NotNull Duration inlinePresignTtl,
     String endpoint,
     String accessKey,
     String secretKey) {

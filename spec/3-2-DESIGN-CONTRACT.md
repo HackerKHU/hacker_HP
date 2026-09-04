@@ -213,6 +213,20 @@ erDiagram
 
 `author_id`도 `notes.uploader_id`와 같은 이유로 **`ON DELETE SET NULL`이다** (MUST). 공지는 동아리의 기록이라 작성한 관리자가 나가도 남아야 한다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)). **`V1__init.sql`은 `ON DELETE` 절 없이 만들어졌으므로 회원 제거 기능(#58)에서 마이그레이션으로 맞춘다.**
 
+### notice_likes
+
+**공지 좋아요** (2026-09-01 확정, #343). `bookmarks`와 같은 판단으로 만들었다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `user_id` | bigint | NOT NULL, FK → users.id, **ON DELETE CASCADE** | |
+| `notice_id` | bigint | NOT NULL, FK → notices.id, **ON DELETE CASCADE** | |
+| `created_at` | timestamp | NOT NULL | |
+
+복합 PK `(user_id, notice_id)`로 중복 누름을 막는다.
+
+**작성자 FK가 `SET NULL`인데 여기만 `CASCADE`인 이유는 `bookmarks`와 같다** — 좋아요는 그 사람이 *지금 누른* 기록이지 *남긴* 것이 아니다. 주인이 없어지면 누른 사실도 의미가 없다 ([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거), 3-3 결정 24).
+
 ### photos
 
 | 컬럼 | 타입 | 제약 | 설명 |
@@ -226,6 +240,18 @@ erDiagram
 저장 키 형식: `photos/{photoId}/{uuid}.jpg`, 썸네일은 `photos/{photoId}/thumb/{uuid}.jpg`. 업로드 경로(원본을 어디에 잠깐 두고 어떻게 리사이즈본으로 바뀌는지)는 [1-BACKGROUND §1-5](1-BACKGROUND.md) 확정 사항, API는 아래 `POST /photos/upload-url`·`POST /photos`를 따른다.
 
 `uploader_id`는 `ADMIN`만 채워진다(사진 업로드는 `ADMIN` 전용이다). 그래도 **`ON DELETE SET NULL`이다** (MUST) — 관리자도 삭제 대상이 될 수 있고, 활동사진은 아카이브라 남아야 한다.
+
+### photo_likes
+
+**활동사진 좋아요** (2026-09-01 확정, #346). `bookmarks`·`notice_likes`·`post_likes`와 같은 판단으로 만들었다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `user_id` | bigint | PK, FK → users.id, **ON DELETE CASCADE** | |
+| `photo_id` | bigint | PK, FK → photos.id, **ON DELETE CASCADE** | 사진이 지워지면 좋아요도 함께 지운다 |
+| `created_at` | timestamp | NOT NULL | |
+
+복합 PK `(user_id, photo_id)`로 중복 누름을 막는다. 업로드·삭제와 달리 좋아요는 `ADMIN` 전용이 아니다 — `ACTIVE`·`INACTIVE` 부원 누구나 남길 수 있다(3-3 결정 27).
 
 ### admin_bootstrap_attempts
 
@@ -319,6 +345,23 @@ Base path: `/api/v1`. 아래 표의 경로는 모두 이 base path 뒤에 붙는
 **`author_id`의 `ON DELETE SET NULL`은 MUST다.** 빠뜨리면 **글을 한 번이라도 쓴 회원은 삭제 자체가 FK 위반으로 실패한다** — `notices.author_id`가 `ON DELETE` 절 없이 만들어져 #58에서 뒤늦게 마이그레이션으로 고쳤다. 같은 실수를 두 번 하지 않는다.
 
 **본문 길이를 DB에서도 막는다** (MUST). `text`는 무제한이라 요청 검증만 두면 다른 경로로 들어온 값이 그대로 저장되고, **글 하나로 목록 응답이 망가진다.** 반대로 DB에만 두면 위반이 사용자 오류가 아니라 `500`으로 나간다 — 양쪽에 건다. **양쪽을 각각 확인한다** ([5-TESTING](5-TESTING.md) T-325·T-331) — API만 재면 `CHECK`를 빠뜨려도 통과한다.
+
+### post_comments
+
+**자유 게시판 댓글** (2026-08-31 확정, #347). `posts`와 같은 판단으로 만들었다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | bigint | PK, auto | |
+| `post_id` | bigint | NOT NULL, FK → posts.id, **ON DELETE CASCADE** | 게시글이 지워지면 댓글도 함께 지운다 |
+| `content` | text | NOT NULL, **CHECK(길이 ≤ 2000)** | 평문만 담는다. 댓글은 게시글보다 가벼운 콘텐츠라 상한을 더 낮게 잡는다 |
+| `author_id` | bigint | NULL, FK → users.id, **ON DELETE SET NULL** | `NULL`이면 탈퇴한 회원 |
+| `created_at` | timestamp | NOT NULL | |
+| `updated_at` | timestamp | NOT NULL | |
+
+인덱스: `(post_id, created_at ASC, id ASC)` — 목록의 고정 정렬(오래된순, 대화 순서)과 같다.
+
+**`post_id`의 `ON DELETE CASCADE`는 `posts.author_id`의 `ON DELETE SET NULL`과 의도적으로 다르다.** 작성자는 지워도 글이 남아야 하지만(2-2 §2-2-4), 게시글이 지워졌는데 그 댓글만 남으면 **존재하지 않는 글을 가리키는 고아 행**이 된다 — 댓글은 게시글에 종속된 콘텐츠다 ([3-3 결정 23](3-3-DESIGN-DECISIONS.md#3-3-24-결정-23--자유-게시판-댓글을-신설한다) D4).
 
 ## 3-2-3 API — 인증
 
@@ -750,15 +793,23 @@ OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](
 | PATCH | `/notices/{id}` | ADMIN | 수정 |
 | DELETE | `/notices/{id}` | ADMIN | 삭제 |
 | PATCH | `/notices/{id}/pin` | ADMIN | 고정 토글 |
+| POST | `/notices/{id}/like` | ACTIVE·INACTIVE | 좋아요 (#343) |
+| DELETE | `/notices/{id}/like` | ACTIVE·INACTIVE | 좋아요 취소 (#343) |
 | GET | `/photos` | ACTIVE | 목록 |
 | POST | `/photos/upload-url` | ADMIN | 원본 파일별 presigned PUT URL 발급 (다중) |
 | POST | `/photos` | ADMIN | 메타데이터 등록 (JSON) — body에 업로드 완료된 원본 파일 키 목록. 서버가 그 키들을 S3에서 읽어 리사이즈한 뒤 최종 위치에 저장하고 사진마다 행을 만든다 |
 | DELETE | `/photos/{id}` | ADMIN | 삭제 |
+| POST | `/photos/{id}/like` | ACTIVE·INACTIVE | 좋아요 (#346) |
+| DELETE | `/photos/{id}/like` | ACTIVE·INACTIVE | 좋아요 취소 (#346) |
 | GET | `/posts` | ACTIVE | 자유 게시판 목록 (최신순 고정) |
 | GET | `/posts/{id}` | ACTIVE | 게시글 상세 |
 | POST | `/posts` | ACTIVE | 게시글 등록 |
 | PATCH | `/posts/{id}` | ACTIVE·INACTIVE (작성자 본인만) | 게시글 수정 (통째로 교체, #256) |
 | DELETE | `/posts/{id}` | ACTIVE·INACTIVE 작성자 본인 / ACTIVE ADMIN | 게시글 삭제 (완전 삭제, #238) |
+| GET | `/posts/{postId}/comments` | ACTIVE | 댓글 목록 (오래된순 고정, #347) |
+| POST | `/posts/{postId}/comments` | ACTIVE | 댓글 등록 (#347) |
+| PATCH | `/posts/{postId}/comments/{id}` | ACTIVE·INACTIVE (작성자 본인만) | 댓글 수정 (통째로 교체, #347) |
+| DELETE | `/posts/{postId}/comments/{id}` | ACTIVE·INACTIVE 작성자 본인 / ACTIVE ADMIN | 댓글 삭제 (완전 삭제, #347) |
 
 ### `POST /photos` — 업로드 경로 (확정, [1-BACKGROUND §1-5](1-BACKGROUND.md) #5)
 
@@ -778,12 +829,16 @@ OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](
 
 `POST /photos`는 §3-2-6 일괄 승인과 같은 원칙이다 — 원본 하나의 실패(원본 없음, 손상된 이미지, 상한 초과)가 이미 등록된 나머지를 되돌리지 않는다. 실패를 예외로 던지면 한 건 때문에 스무 장을 한 번에 올린 요청이 통째로 실패한다.
 
+**`url`·`thumbnailUrl`의 presigned GET 수명은 10분이다** (MUST). `GET /photos` 응답이 두 URL을 미리 담고, 화면은 썸네일을 lazy-load하며 사용자가 나중에 원본을 열 수 있다. 발급 직후 여는 자료 다운로드의 1분 설정과 분리한다.
+
 ```json
 {
-  "registered": [{ "id": 12, "caption": null, "url": "...", "thumbnailUrl": "...", "uploaderId": 3, "uploaderName": "홍길동", "createdAt": "..." }],
+  "registered": [{ "id": 12, "caption": null, "url": "...", "thumbnailUrl": "...", "uploaderId": 3, "uploaderName": "홍길동", "createdAt": "...", "likeCount": 0, "likedByMe": false }],
   "failed": [{ "key": "photos/uploads/abc.png", "reason": "NOT_FOUND" }]
 }
 ```
+
+**활동사진 응답도 `likeCount`·`likedByMe`를 담는다** (MUST, 2026-09-01 확정, #346, 3-3 결정 27) — 공지·게시글과 같은 판단이다. `GET /photos` 목록과 `POST /photos`의 `registered` 배열 모두에 있다. 방금 등록한 사진은 좋아요가 있을 수 없으므로 `0`·`false`로 시작한다.
 
 | 항목 | 이유 |
 |---|---|
@@ -807,6 +862,28 @@ OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](
 `POST /notices`, `PATCH /notices/{id}`, `PATCH /notices/{id}/pin`은 저장된 공지를 본문으로 돌려준다 (확정, 2026-08-13, #33·#34) — `POST`는 `201`, 두 `PATCH`는 `200`이다. 화면은 등록·수정 응답 본문의 `id`로 상세 화면으로 이동한다. `DELETE /notices/{id}`는 본문 없이 `204`다.
 
 공지 응답은 **`authorId`(`null` 가능)와 `authorName`(`null` 아님)을 함께 담는다** (MUST, #58) — 규칙은 [§3-2-2 "작성자를 내려주는 규칙"](#작성자를-내려주는-규칙)과 같다. 작성자가 제거되어 `author_id`가 `NULL`이면 서버가 `authorName`에 `"탈퇴한 회원"`을 넣는다.
+
+**공지 응답은 `likeCount`(전체 좋아요 수)와 `likedByMe`(내가 눌렀는지)도 함께 담는다** (MUST, 2026-09-01 확정, #343, 3-3 결정 24). 목록·상세·등록·수정·고정 토글 응답 전부에 있다 — 개수만 보이고 내가 눌렀는지 모르면 화면이 좋아요 버튼을 채울지 비울지 정할 수 없다.
+
+### 공지 좋아요 (2026-09-01 확정, #343, 3-3 결정 24)
+
+**`POST /notices/{id}/like`는 이미 눌렀어도 성공이다** (MUST, `bookmarks`의 즐겨찾기 추가와 같은 판단). **토글이 아니다** — 같은 요청이 상태를 뒤집으면 재시도가 방금 누른 것을 조용히 뗀다. 성공 시 본문 없이 `204`다. 없는 공지면 `404 NOT_FOUND`다.
+
+**`DELETE /notices/{id}/like`는 눌러져 있지 않아도, 없는 공지여도 성공이다** (MUST) — 공지가 지워지면 좋아요도 함께 사라지므로(`ON DELETE CASCADE`) 뗄 것이 이미 없고, 오류를 주면 화면이 지울 수 없는 표시를 들고 있게 된다. 성공 시 본문 없이 `204`다.
+
+**권한은 공지 조회와 같다** (`ACTIVE`·`INACTIVE`) — 공지는 자료 갈래가 아니라 `INACTIVE`도 좋아요를 누를 수 있다. `PENDING`·`SUSPENDED`는 필터가 먼저 막는다.
+
+**동시에 눌러도 좋아요는 하나다.** 확인하고 저장하는 방식으로는 안 된다 — `bookmarks`의 담기와 같은 이유로 `INSERT ... ON CONFLICT DO NOTHING`을 DB에 맡긴다. 떼기도 확인 없이 `DELETE`를 바로 실행한다.
+
+### 활동사진 좋아요 (2026-09-01 확정, #346, 3-3 결정 27)
+
+**`POST /photos/{id}/like`는 이미 눌렀어도 성공이다** (MUST, 공지 좋아요와 같은 판단). **토글이 아니다.** 성공 시 본문 없이 `204`다. 없는 사진이면 `404 NOT_FOUND`다.
+
+**`DELETE /photos/{id}/like`는 눌러져 있지 않아도, 없는 사진이어도 성공이다** (MUST) — 사진이 지워지면 좋아요도 함께 사라지므로(`ON DELETE CASCADE`) 뗄 것이 이미 없다. 성공 시 본문 없이 `204`다.
+
+**권한은 사진 조회와 같다** (`ACTIVE`·`INACTIVE`) — 활동사진은 자료 갈래가 아니라 `INACTIVE`도 좋아요를 누를 수 있다. **업로드·삭제(`ADMIN` 전용)와는 다른 권한 레벨이다** — 필터의 경로 매칭도 정확한 경로(`/photos`, `/photos/upload-url`, `/photos/{id}`)로만 `ADMIN`을 막고, `/photos/{id}/like`는 그 밖이라 컨트롤러의 `isAuthenticated()`가 그대로 적용된다.
+
+**동시에 눌러도 좋아요는 하나다.** 공지·게시글 좋아요와 같은 이유로 `INSERT ... ON CONFLICT DO NOTHING`을 DB에 맡긴다.
 
 ### 자유 게시판 (2026-08-23 확정, #235 · 수정은 #256 · 삭제는 #238)
 
@@ -858,6 +935,48 @@ OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](
 | `401 UNAUTHENTICATED` | 쿠키 두 개가 함께 있어야 한다 |
 | `403` | `PENDING_APPROVAL` · `SUSPENDED` · CSRF 토큰 없음 |
 | `404 NOT_FOUND` | 없는 게시글 |
+
+### 자유 게시판 댓글 (2026-08-31 확정, #347)
+
+| Method | Path | 권한 | 설명 |
+|---|---|---|---|
+| GET | `/posts/{postId}/comments` | ACTIVE | 목록 (오래된순 고정 — 대화 순서로 읽는다, 게시글 목록과 반대다) |
+| POST | `/posts/{postId}/comments` | ACTIVE | 등록 |
+| PATCH | `/posts/{postId}/comments/{id}` | ACTIVE·INACTIVE (작성자 본인만) | 수정 |
+| DELETE | `/posts/{postId}/comments/{id}` | ACTIVE·INACTIVE 작성자 본인 / ACTIVE ADMIN | 삭제 |
+
+**게시글과 같은 권한 모델이다** ([3-3 결정 23](3-3-DESIGN-DECISIONS.md#3-3-24-결정-23--자유-게시판-댓글을-신설한다)). 수정은 작성자 본인만, 삭제는 활성 관리자 또는 작성자 본인이 할 수 있다 — 관리자도 남의 댓글은 고칠 수 없다. 조회·등록·수정·삭제 모두 `ACTIVE`·`INACTIVE`가 열려 있고 `PENDING`·`SUSPENDED`는 필터가 먼저 막는다(게시글과 같다, 자료 갈래가 아니다).
+
+**댓글 id가 경로의 `postId` 아래 있지 않으면 있어도 `404 NOT_FOUND`다.** 다른 글의 댓글 id로 수정·삭제를 시도해도 그 댓글을 찾을 수 없는 것처럼 다룬다.
+
+**게시글이 삭제되면 그 댓글도 함께 삭제된다** (CASCADE, [3-3 결정 23](3-3-DESIGN-DECISIONS.md#3-3-24-결정-23--자유-게시판-댓글을-신설한다) D4). 별도 API 호출이 필요 없다 — `DELETE /posts/{id}`가 지운 게시글의 댓글은 DB가 알아서 함께 지운다.
+
+**`GET /posts/{postId}/comments` 응답** — 배열이다(페이지네이션 없음). 각 항목은 `id`·`content`·`author`·`createdAt`·`updatedAt`이다. 게시글과 달리 목록·상세를 나누지 않는다 — 본문 상한이 2,000자라 목록에 그대로 담아도 게시글 목록이 겪는 응답 크기 문제가 생기지 않는다.
+
+**`POST /posts/{postId}/comments` 요청·응답**
+
+```json
+// 요청
+{ "content": "저도 참여하고 싶어요!" }
+
+// 응답 201
+{ "id": 3, "content": "저도 참여하고 싶어요!",
+  "author": { "id": 9, "name": "이부원23" },
+  "createdAt": "2026-08-31T09:00:00Z", "updatedAt": "2026-08-31T09:00:00Z" }
+```
+
+`PATCH`는 같은 모양을 요청·응답 양쪽에 쓴다 — 수정은 보낸 것으로 통째로 바꾼다.
+
+**작성자를 요청으로 받지 않는다** (MUST). 인증 주체의 id로만 정한다 — 게시글과 같은 규칙이다.
+
+**본문은 평문이다** (MUST, 3-3 결정 16·23). 상한은 코드포인트로 센다(MUST) — 게시글과 같은 이유다.
+
+| 오류 | 언제 |
+|---|---|
+| `400 VALIDATION_ERROR` | 내용이 비었거나 상한(2,000자)을 넘었다 |
+| `401 UNAUTHENTICATED` | 쿠키 두 개가 함께 있어야 한다 |
+| `403` | `PENDING_APPROVAL` · `SUSPENDED` · CSRF 토큰 없음 · (수정·삭제) 권한 없음 |
+| `404 NOT_FOUND` | 없는 게시글이거나, 그 게시글 아래에 없는 댓글 |
 
 ## 3-2-6 API — 회원 관리
 
