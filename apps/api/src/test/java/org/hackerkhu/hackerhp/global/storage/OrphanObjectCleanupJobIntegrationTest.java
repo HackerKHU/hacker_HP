@@ -24,6 +24,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 /**
  * {@link OrphanObjectCleanupJob}의 나열·삭제 왕복을 실제 S3 호환 서버(MinIO)로 본다 (#339).
@@ -93,12 +94,24 @@ class OrphanObjectCleanupJobIntegrationTest extends AbstractIntegrationTest {
         PutObjectRequest.builder().bucket(BUCKET).key(key).build(), RequestBody.fromString("x"));
   }
 
+  /**
+   * <b>{@code HeadObject}의 404는 {@code NoSuchKeyException}이 아닐 수 있다</b> (#342 리뷰).
+   *
+   * <p>HEAD 응답에는 본문이 없어 SDK가 오류 코드를 읽지 못한다 — 없는 키인데도 상태 코드 404만 단 밋밋한 {@link S3Exception}이 올라올 수
+   * 있다. 그것까지 잡지 않으면 <b>삭제를 확인하려던 사례가 assertion에 닿기도 전에 예외로 실패한다.</b> 같은 저장소의 {@code
+   * S3FileStorage#describe}도 정확히 같은 이유로 {@code statusCode()}를 본다.
+   */
   private boolean exists(String key) {
     try {
       s3.headObject(HeadObjectRequest.builder().bucket(BUCKET).key(key).build());
       return true;
     } catch (NoSuchKeyException e) {
       return false;
+    } catch (S3Exception e) {
+      if (e.statusCode() == 404) {
+        return false;
+      }
+      throw e;
     }
   }
 

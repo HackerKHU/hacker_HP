@@ -77,7 +77,11 @@ public class OrphanObjectCleanupJob {
     this.transaction = new TransactionTemplate(transactionManager);
   }
 
-  @Scheduled(cron = "${app.storage.orphan-cleanup.cron}")
+  /**
+   * <b>시간대를 명시한다</b> (#342 리뷰). 컨테이너에는 {@code TZ}가 없어 JVM 기본 시간대가 UTC다 — 적지 않으면 "새벽 4시"로 적은 cron이
+   * <b>한국 시간 오후 1시</b>에 돌아, 사용량이 적은 시간을 고른 의도와 정반대로 S3 전체 나열·삭제가 한낮 요청과 겹친다.
+   */
+  @Scheduled(cron = "${app.storage.orphan-cleanup.cron}", zone = "Asia/Seoul")
   public void run() {
     Boolean acted =
         transaction.execute(
