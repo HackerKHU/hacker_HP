@@ -48,7 +48,12 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
    * 된다.
    *
    * <p><b>{@code EXISTS}로 본다.</b> 좋아요 표와 조인하면 사진이 좋아요 행 수만큼 중복돼 페이지 크기가 어긋난다.
+   *
+   * <p><b>업로더를 함께 가져오는 것도 {@link #findCompleted}와 같다.</b> {@code uploader}는 {@code LAZY}라 그냥 두면
+   * {@code PhotoService#toResponse}가 업로더 이름·id를 읽는 순간 <b>페이지에 실린 사진 수만큼 사용자 조회가 더 나간다</b> — 업로더가
+   * 제각각인 20건이면 그대로 20번이다. 전체 목록에만 걸어 두면 필터를 켰을 때만 조용히 N+1이 된다.
    */
+  @EntityGraph(attributePaths = "uploader")
   @Query(
       value =
           """

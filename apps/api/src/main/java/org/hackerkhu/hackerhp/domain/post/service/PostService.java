@@ -62,6 +62,12 @@ public class PostService {
    * <p><b>들어온 {@code Pageable}의 정렬을 버린다</b> (MUST). 그대로 흘리면 두 가지가 깨진다 — 없는 속성 이름 하나에 {@code 500}이
    * 나고(자료 목록이 {@code sort=bogus}로 겪었다, #52), 유효한 이름({@code sort=title})이면 <b>고정 정렬 계약이 조용히 깨진다.</b>
    * {@code page}·{@code size}는 {@code spring.data.web.pageable}이 상한까지 이미 처리했다.
+   *
+   * <p><b>페이지와 좋아요 요약은 서로 다른 스냅샷에서 읽는다</b> (의도한 것이다). 트랜잭션은 하나지만 격리 수준이 {@code READ COMMITTED}라
+   * 문장마다 스냅샷이 새로 잡힌다 — {@code liked=true}로 조회하는 도중에 본인이 다른 탭에서 좋아요를 떼면, 그 글이 목록에는 남은 채 {@code
+   * likedByMe=false}·{@code likeCount=0}으로 그려질 수 있다. <b>고치지 않는다:</b> 두 문장을 한 스냅샷으로 묶으려면 목록 요청마다 격리
+   * 수준을 올리는 왕복이 한 번 더 붙는데, 되돌아오는 것은 <b>본인이 방금 한 취소가 한 번 늦게 반영되는</b> 화면 하나다. 새로고침이 곧바로 바로잡고, 남에게 잘못된
+   * 상태를 보여주지도 않는다. 한 문장으로 합치는 것은 네 도메인의 응답 조립을 모두 프로젝션으로 바꾸는 일이라 값이 더 크다.
    */
   @Transactional(readOnly = true)
   public Page<PostSummaryResponse> list(
