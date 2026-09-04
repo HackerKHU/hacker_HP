@@ -31,6 +31,8 @@ const NOTICE: Notice = {
   authorName: '관리자',
   createdAt: '2026-08-05T09:00:00Z',
   updatedAt: '2026-08-05T09:00:00Z',
+  likeCount: 0,
+  likedByMe: false,
 }
 
 const api = vi.hoisted(() => ({

@@ -1,7 +1,8 @@
-import { X } from 'lucide-react'
+import { ThumbsUp, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import type { Photo } from '@/api/photos'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 /**
  * 사진을 화면 위에서 크게 보는 오버레이 (#270).
@@ -21,9 +22,18 @@ import { Button } from '@/components/ui/button'
 export function PhotoLightbox({
   photo,
   onClose,
+  onToggleLike,
+  liking,
 }: {
   photo: Photo | null
   onClose: () => void
+  /**
+   * 좋아요·취소. **이 컴포넌트는 상태를 들지 않는다** — 개수를 여기서도 세면 그리드의
+   * 숫자와 갈린다. 누른 결과는 부모가 한 곳에서 고치고 `photo`로 다시 내려온다.
+   */
+  onToggleLike: () => void
+  /** 요청이 도는 동안 잠근다. 연타하면 POST와 DELETE가 순서를 바꿔 도착한다. */
+  liking: boolean
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
 
@@ -114,6 +124,36 @@ export function PhotoLightbox({
               {photo.caption}
             </p>
           )}
+
+          {/*
+           * **버튼은 이 자리에만 둔다** (#351 D1). 그리드 카드에는 개수만 보여준다 —
+           * 카드마다 버튼을 두면 훑는 사람이 사진을 고르다 잘못 누른다.
+           *
+           * 채움/비움과 `aria-pressed`로 내가 눌렀는지 보인다 — 무채색 팔레트라 색으로
+           * 가를 수 없다. 따봉인 이유는 공지 좋아요와 같다 (3-3 결정 24 D4).
+           *
+           * **닫기 X와 같은 처리다** (#384). 한때 `outline`이라 어두운 오버레이 위에 흰
+           * 알약으로 떴는데, 그것이 위 닫기 버튼이 피한 바로 그 문제다 — 배경 상자가
+           * 하나 더 생겨 사진 모서리를 가린다. 배경을 지우고 흰 글씨에 그림자를 준다.
+           *
+           * **잠긴 동안에도 읽혀야 한다.** 기본 `disabled:opacity-50`은 어두운 뒤를 두고
+           * 흰 글씨가 너무 흐려져 요청이 도는 몇 초간 개수가 안 보인다.
+           */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="shrink-0 text-white drop-shadow-md hover:bg-transparent hover:text-white/70 disabled:opacity-70 dark:hover:bg-transparent"
+            disabled={liking}
+            aria-pressed={photo.likedByMe}
+            onClick={onToggleLike}
+          >
+            <ThumbsUp
+              className={cn('size-4', photo.likedByMe && 'fill-current')}
+              aria-hidden="true"
+            />
+            좋아요 {photo.likeCount}
+          </Button>
         </div>
       )}
     </dialog>
