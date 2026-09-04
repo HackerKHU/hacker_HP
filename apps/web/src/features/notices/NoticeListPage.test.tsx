@@ -46,6 +46,8 @@ function notice(
   title: string,
   isPinned: boolean,
   daysAgo: number,
+  likeCount = 0,
+  likedByMe = false,
 ): Notice {
   const at = new Date(Date.now() - daysAgo * DAY_MS).toISOString()
   return {
@@ -57,6 +59,8 @@ function notice(
     authorName: '관리자',
     createdAt: at,
     updatedAt: at,
+    likeCount,
+    likedByMe,
   }
 }
 
@@ -65,7 +69,7 @@ const PAGES: Page<Notice>[] = [
   {
     content: [
       notice(1, '고정된 공지', true, 30),
-      notice(2, '최근 공지', false, 1),
+      notice(2, '최근 공지', false, 1, 7, true),
       notice(3, '일반 공지', false, 30),
     ],
     page: { size: 10, number: 0, totalElements: 12, totalPages: 2 },
@@ -162,7 +166,7 @@ function resetPages() {
     ...PAGES[0],
     content: [
       notice(1, '고정된 공지', true, 30),
-      notice(2, '최근 공지', false, 1),
+      notice(2, '최근 공지', false, 1, 7, true),
       notice(3, '일반 공지', false, 30),
     ],
   }
@@ -190,10 +194,34 @@ describe('공지 목록', () => {
     renderList()
 
     const title = await screen.findByText(longTitle)
-    const link = title.closest('a')
     expect(title.className).toContain('truncate')
     expect(title).toHaveAttribute('title', longTitle)
-    expect(link?.className).toContain('min-w-0')
+    /*
+     * 표에서 잘림은 **셀이 폭을 0으로 잡아야** 성립한다 (`table-fixed` + `max-w-0`) —
+     * 자료 목록의 제목 셀과 같다. 셀이 내용만큼 늘어나면 `truncate`가 걸릴 자리가 없다.
+     */
+    expect(title.closest('td')?.className).toContain('max-w-0')
+  })
+
+  /*
+   * **목록의 좋아요는 숫자만이다** (#348 D1). 목록은 훑는 화면이고 반응은 글을 읽고
+   * 남기는 것이라, 누르는 자리는 상세에만 둔다. 표는 행이 링크가 아니라 버튼을 넣어도
+   * 안전하지만 **넣지 않는 것이 이 결정이다** — 그래서 여기서 잠근다.
+   */
+  it('좋아요 열은 숫자만 보여주고 누르는 버튼을 두지 않는다', async () => {
+    renderList()
+
+    const row = (
+      await screen.findByRole('link', { name: /최근 공지/ })
+    ).closest('tr') as HTMLElement
+    expect(within(row).getByText('7')).toBeVisible()
+    // 관리 모드가 아닌 목록에는 버튼이 아예 없다 — 좋아요도 예외가 아니다.
+    expect(within(row).queryByRole('button')).toBeNull()
+    // 열 제목이 이미 "좋아요"라고 말한다 — 아이콘을 겹쳐 두지 않는다.
+    expect(row.querySelector('svg')).toBeNull()
+    expect(
+      screen.getByRole('columnheader', { name: '좋아요' }),
+    ).toBeInTheDocument()
   })
 
   it('조회 상태가 바뀌어도 목록 surface와 pager 자리를 유지한다', async () => {
@@ -236,9 +264,12 @@ describe('공지 목록', () => {
     const pinned = await screen.findByRole('link', { name: /고정된 공지/ })
     const normal = screen.getByRole('link', { name: /일반 공지/ })
 
-    // 무채색 팔레트라 색이 아니라 좌측 바와 핀 아이콘으로 가른다.
-    expect(pinned.className).toContain('border-l-primary')
-    expect(normal.className).not.toContain('border-l-primary')
+    /*
+     * 무채색 팔레트라 색이 아니라 좌측 바와 핀 아이콘으로 가른다. **바는 제목 셀이
+     * 든다** — 표로 바뀌면서 행 전체를 감싸던 링크가 없어졌다.
+     */
+    expect(pinned.closest('td')?.className).toContain('border-l-primary')
+    expect(normal.closest('td')?.className).not.toContain('border-l-primary')
     // 아이콘만 두면 스크린리더가 못 읽으므로 의미가 텍스트로 남아 있어야 한다.
     expect(within(pinned).getByText('고정')).toBeInTheDocument()
     expect(within(normal).queryByText('고정')).toBeNull()
@@ -398,7 +429,7 @@ describe('공지 목록', () => {
      * 고정되면 `is_pinned DESC, created_at DESC`에서 반드시 맨 앞이다 — 같은 날짜끼리
      * 앞뒤가 흔들리는 자리를 고르면 순서 단언이 실행마다 달라진다.
      */
-    const row = screen.getByRole('link', { name: /최근 공지/ }).closest('li')
+    const row = screen.getByRole('link', { name: /최근 공지/ }).closest('tr')
     if (!row) throw new Error('목록 행을 찾지 못했다')
     fireEvent.click(within(row).getByRole('button', { name: '고정' }))
 

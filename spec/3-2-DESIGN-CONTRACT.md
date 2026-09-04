@@ -257,6 +257,18 @@ erDiagram
 
 `uploader_id`는 `ADMIN`만 채워진다(사진 업로드는 `ADMIN` 전용이다). 그래도 **`ON DELETE SET NULL`이다** (MUST) — 관리자도 삭제 대상이 될 수 있고, 활동사진은 아카이브라 남아야 한다.
 
+### photo_likes
+
+**활동사진 좋아요** (2026-09-01 확정, #346). `bookmarks`·`notice_likes`·`post_likes`와 같은 판단으로 만들었다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `user_id` | bigint | PK, FK → users.id, **ON DELETE CASCADE** | |
+| `photo_id` | bigint | PK, FK → photos.id, **ON DELETE CASCADE** | 사진이 지워지면 좋아요도 함께 지운다 |
+| `created_at` | timestamp | NOT NULL | |
+
+복합 PK `(user_id, photo_id)`로 중복 누름을 막는다. 업로드·삭제와 달리 좋아요는 `ADMIN` 전용이 아니다 — `ACTIVE`·`INACTIVE` 부원 누구나 남길 수 있다(3-3 결정 27).
+
 ### admin_bootstrap_attempts
 
 관리자 승격 시도 (#144). 한 행은 **"자리를 잡았다"** 는 뜻이고, 승격에 성공하면 그 계정의 것을 지우므로 남아 있는 것은 실질적으로 실패한 시도다. 성공한 조작은 `admin_actions`에 남는다 — 목적도 보존 주기도 달라 섞지 않는다.
@@ -815,6 +827,8 @@ OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](
 | POST | `/photos/upload-url` | ADMIN | 원본 파일별 presigned PUT URL 발급 (다중) |
 | POST | `/photos` | ADMIN | 메타데이터 등록 (JSON) — body에 업로드 완료된 원본 파일 키 목록. 서버가 그 키들을 S3에서 읽어 리사이즈한 뒤 최종 위치에 저장하고 사진마다 행을 만든다 |
 | DELETE | `/photos/{id}` | ADMIN | 삭제 |
+| POST | `/photos/{id}/like` | ACTIVE·INACTIVE | 좋아요 (#346) |
+| DELETE | `/photos/{id}/like` | ACTIVE·INACTIVE | 좋아요 취소 (#346) |
 | GET | `/posts` | ACTIVE | 자유 게시판 목록 (최신순 고정) |
 | GET | `/posts/{id}` | ACTIVE | 게시글 상세 |
 | POST | `/posts` | ACTIVE | 게시글 등록 |
@@ -847,10 +861,12 @@ OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](
 
 ```json
 {
-  "registered": [{ "id": 12, "caption": null, "url": "...", "thumbnailUrl": "...", "uploaderId": 3, "uploaderName": "홍길동", "createdAt": "..." }],
+  "registered": [{ "id": 12, "caption": null, "url": "...", "thumbnailUrl": "...", "uploaderId": 3, "uploaderName": "홍길동", "createdAt": "...", "likeCount": 0, "likedByMe": false }],
   "failed": [{ "key": "photos/uploads/abc.png", "reason": "NOT_FOUND" }]
 }
 ```
+
+**활동사진 응답도 `likeCount`·`likedByMe`를 담는다** (MUST, 2026-09-01 확정, #346, 3-3 결정 27) — 공지·게시글과 같은 판단이다. `GET /photos` 목록과 `POST /photos`의 `registered` 배열 모두에 있다. 방금 등록한 사진은 좋아요가 있을 수 없으므로 `0`·`false`로 시작한다.
 
 | 항목 | 이유 |
 |---|---|
@@ -886,6 +902,16 @@ OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](
 **권한은 공지 조회와 같다** (`ACTIVE`·`INACTIVE`) — 공지는 자료 갈래가 아니라 `INACTIVE`도 좋아요를 누를 수 있다. `PENDING`·`SUSPENDED`는 필터가 먼저 막는다.
 
 **동시에 눌러도 좋아요는 하나다.** 확인하고 저장하는 방식으로는 안 된다 — `bookmarks`의 담기와 같은 이유로 `INSERT ... ON CONFLICT DO NOTHING`을 DB에 맡긴다. 떼기도 확인 없이 `DELETE`를 바로 실행한다.
+
+### 활동사진 좋아요 (2026-09-01 확정, #346, 3-3 결정 27)
+
+**`POST /photos/{id}/like`는 이미 눌렀어도 성공이다** (MUST, 공지 좋아요와 같은 판단). **토글이 아니다.** 성공 시 본문 없이 `204`다. 없는 사진이면 `404 NOT_FOUND`다.
+
+**`DELETE /photos/{id}/like`는 눌러져 있지 않아도, 없는 사진이어도 성공이다** (MUST) — 사진이 지워지면 좋아요도 함께 사라지므로(`ON DELETE CASCADE`) 뗄 것이 이미 없다. 성공 시 본문 없이 `204`다.
+
+**권한은 사진 조회와 같다** (`ACTIVE`·`INACTIVE`) — 활동사진은 자료 갈래가 아니라 `INACTIVE`도 좋아요를 누를 수 있다. **업로드·삭제(`ADMIN` 전용)와는 다른 권한 레벨이다** — 필터의 경로 매칭도 정확한 경로(`/photos`, `/photos/upload-url`, `/photos/{id}`)로만 `ADMIN`을 막고, `/photos/{id}/like`는 그 밖이라 컨트롤러의 `isAuthenticated()`가 그대로 적용된다.
+
+**동시에 눌러도 좋아요는 하나다.** 공지·게시글 좋아요와 같은 이유로 `INSERT ... ON CONFLICT DO NOTHING`을 DB에 맡긴다.
 
 ### 자유 게시판 (2026-08-23 확정, #235 · 수정은 #256 · 삭제는 #238)
 

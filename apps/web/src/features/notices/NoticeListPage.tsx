@@ -14,6 +14,14 @@ import {
 } from '@/components/Pager'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 
 const PAGE_SIZE = 10
@@ -218,85 +226,121 @@ export function NoticeListPage() {
 
         {data !== null && data.content.length > 0 && (
           <ListSurface>
-            <ul>
-              {data.content.map((notice) => (
-                <li
-                  key={notice.id}
-                  className="flex items-center border-b border-border last:border-b-0"
-                >
-                  <Link
-                    to={`/notices/${notice.id}`}
-                    className={cn(
-                      'flex min-w-0 flex-1 items-center gap-4 py-3 pr-2 pl-3 transition-colors hover:bg-accent',
-                      /*
-                       * **포커스 표시를 안쪽에 그린다.** 카드가 `overflow-hidden`이라 밖으로
-                       * 나가는 브라우저 기본 `outline`이 경계에서 잘려, 키보드로 훑을 때 지금
-                       * 어느 행에 있는지 보이지 않는다.
-                       *
-                       * 다른 컨트롤과 같은 링을 쓰되 `ring-inset`으로 안쪽에 둔다.
-                       */
-                      'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset',
-                      // 무채색 팔레트라 색으로 구분할 수 없다. 고정 공지는 좌측 세로 바와
-                      // 핀 아이콘, 순검정 제목으로 가른다.
-                      notice.isPinned
-                        ? 'border-l-[3px] border-l-primary'
-                        : 'border-l-[3px] border-l-transparent',
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'flex min-w-0 flex-1 items-center gap-2 text-sm',
-                        notice.isPinned
-                          ? 'font-medium text-primary'
-                          : 'text-foreground',
-                      )}
-                    >
-                      {notice.isPinned && (
-                        <>
-                          <Pin
-                            className="size-3.5 shrink-0"
-                            aria-hidden="true"
-                          />
-                          {/* 아이콘만 두면 스크린리더가 못 읽는다. 의미는 남긴다. */}
-                          <span className="sr-only">고정</span>
-                        </>
-                      )}
-                      <span className="truncate" title={notice.title}>
-                        {notice.title}
-                      </span>
-                      {isNew(notice.createdAt) && (
-                        // 고정(핀 + 세로 바)이 강한 표시라 새글은 테두리만 있는 약한 라벨로
-                        // 둔다. 둘 다 채우면 위계가 사라져 아무것도 안 튄다.
-                        <Badge
-                          variant="outline"
-                          className="shrink-0 rounded-sm px-1.5 py-0 text-[10px] leading-none tracking-wide text-muted-foreground"
-                        >
-                          NEW
-                        </Badge>
-                      )}
-                    </span>
-                    <time
-                      dateTime={notice.createdAt}
-                      className="shrink-0 text-sm text-muted-foreground"
-                    >
-                      {formatDate(notice.createdAt)}
-                    </time>
-                  </Link>
-
+            {/*
+             * **자료게시판과 같은 표다** (`NoteTable`). 행 전체를 링크로 만들지 않고
+             * **제목 셀만 링크로 둔다** — 좋아요·작성자 같은 열이 링크 안에 들어가면
+             * 훑는 눈이 어디를 눌러야 상세로 가는지 알 수 없다.
+             *
+             * `table-fixed` + `min-w`는 좁은 화면에서 열이 뭉개지지 않게 하고, 넘치는
+             * 만큼은 `Table`의 컨테이너가 가로로 스크롤한다.
+             */}
+            {/*
+             * **열 이름은 전부 가운데, 내용은 제목만 왼쪽이다.** 제목까지 가운데로 두면
+             * 글 길이마다 왼쪽 끝이 달라져 목록을 훑는 눈이 행마다 자리를 다시 잡는다 —
+             * 한국어 게시판 목록이 제목 내용만 왼쪽에 두는 이유다.
+             *
+             * 표에 `text-center`를 걸어 `<td>`로 상속시키고, `TableHead`가 들고 있는
+             * `text-left`는 열마다 덮는다. 제목 열은 셀에서만 `text-left`로 되돌린다.
+             */}
+            <Table className="table-fixed min-w-[640px] text-center">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-center">제목</TableHead>
+                  <TableHead className="w-28 text-center">작성자</TableHead>
+                  {/* 조회수 열은 아직 없다: 공지 응답에 필드가 없다 (#375). */}
+                  <TableHead className="w-20 text-center">좋아요</TableHead>
+                  <TableHead className="w-28 text-center">등록일</TableHead>
+                  {/* 고정 토글 열은 이름이 없다 — 버튼만 있는 칸이라 이름을 붙이면 폭만 먹는다. */}
                   {managing && isAdmin && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="ml-2 shrink-0"
-                      disabled={pinning}
-                      onClick={() => handleTogglePin(notice.id)}
-                    >
-                      {notice.isPinned ? '고정 해제' : '고정'}
-                    </Button>
+                    <TableHead className="w-24 text-center" />
                   )}
-                </li>
-              ))}
-            </ul>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.content.map((notice) => (
+                  <TableRow key={notice.id}>
+                    {/*
+                     * 무채색 팔레트라 색으로 구분할 수 없다. 고정 공지는 좌측 세로 바와
+                     * 핀 아이콘, 순검정 제목으로 가른다. **바는 첫 셀이 든다** — 행이 더는
+                     * 링크가 아니라서 예전에 바를 들고 있던 요소가 없어졌다.
+                     */}
+                    <TableCell
+                      className={cn(
+                        'max-w-0 border-l-[3px] text-left font-medium',
+                        notice.isPinned
+                          ? 'border-l-primary'
+                          : 'border-l-transparent',
+                      )}
+                    >
+                      <Link
+                        to={`/notices/${notice.id}`}
+                        className={cn(
+                          'flex items-center gap-2 underline-offset-4 hover:underline',
+                          notice.isPinned ? 'text-primary' : 'text-foreground',
+                        )}
+                      >
+                        {notice.isPinned && (
+                          <>
+                            <Pin
+                              className="size-3.5 shrink-0"
+                              aria-hidden="true"
+                            />
+                            {/* 아이콘만 두면 스크린리더가 못 읽는다. 의미는 남긴다. */}
+                            <span className="sr-only">고정</span>
+                          </>
+                        )}
+                        <span className="min-w-0 truncate" title={notice.title}>
+                          {notice.title}
+                        </span>
+                        {isNew(notice.createdAt) && (
+                          // 고정(핀 + 세로 바)이 강한 표시라 새글은 테두리만 있는 약한
+                          // 라벨로 둔다. 둘 다 채우면 위계가 사라져 아무것도 안 튄다.
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 rounded-sm px-1.5 py-0 text-[10px] leading-none tracking-wide text-muted-foreground"
+                          >
+                            NEW
+                          </Badge>
+                        )}
+                      </Link>
+                    </TableCell>
+
+                    {/* 작성자 이름은 절대 비지 않는다 — 제거되면 "탈퇴한 회원"이다 (§3-2-2). */}
+                    <TableCell className="truncate text-muted-foreground">
+                      {notice.authorName}
+                    </TableCell>
+
+                    {/*
+                     * **숫자만이다.** 목록은 훑는 화면이고 반응은 글을 읽고 남기는 것이라,
+                     * 누르는 자리는 상세에만 둔다 (#348 D1). 아이콘도 두지 않는다 — 열
+                     * 제목이 이미 "좋아요"라고 말한다.
+                     */}
+                    <TableCell className="tabular-nums">
+                      {notice.likeCount}
+                    </TableCell>
+
+                    <TableCell className="whitespace-nowrap text-muted-foreground">
+                      <time dateTime={notice.createdAt}>
+                        {formatDate(notice.createdAt)}
+                      </time>
+                    </TableCell>
+
+                    {managing && isAdmin && (
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={pinning}
+                          onClick={() => handleTogglePin(notice.id)}
+                        >
+                          {notice.isPinned ? '고정 해제' : '고정'}
+                        </Button>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </ListSurface>
         )}
       </div>
