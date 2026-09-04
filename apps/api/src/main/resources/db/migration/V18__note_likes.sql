@@ -9,3 +9,8 @@ CREATE TABLE note_likes (
     -- 복합 PK로 (회원, 자료) 중복을 막는다 — bookmarks와 같은 판단(spec 3-2 §3-2-2).
     PRIMARY KEY (user_id, note_id)
 );
+
+-- note_id로 들어오는 조회를 위한 인덱스 (#367 리뷰). 복합 PK는 선두 열이 user_id라
+-- 이 방향을 받쳐주지 못한다 — 목록·상세의 좋아요 개수 집계와 자료 삭제의 FK CASCADE가
+-- 모두 note_id로 찾으므로, 없으면 좋아요가 쌓일수록 매 요청이 전체 스캔이 된다.
+CREATE INDEX idx_note_likes_note_id ON note_likes (note_id);

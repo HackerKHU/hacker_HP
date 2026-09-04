@@ -313,12 +313,19 @@ public class NoteEditService {
   private NoteDetailResponse detailOf(Note note, Long viewerId) {
     Long uploaderId = note.getUploaderId();
     User uploader = uploaderId == null ? null : users.findById(uploaderId).orElse(null);
+    /*
+     * 개수와 내 상태를 한 문장에서 읽는다 (#367 리뷰). 따로 물으면 READ COMMITTED에서
+     * 스냅샷이 갈려 0개인데 내가 눌렀다고 답하는 수정 응답이 나갈 수 있다.
+     */
+    NoteLikeSummary like =
+        NoteLikeSummary.byNoteId(likes.countWithMineByNoteIds(viewerId, List.of(note.getId())))
+            .getOrDefault(note.getId(), NoteLikeSummary.NONE);
     return NoteDetailResponse.of(
         note,
         Uploader.of(uploader),
         bookmarks.existsByUserIdAndNoteId(viewerId, note.getId()),
         note.getViewCount(),
-        likes.countByNoteId(note.getId()),
-        likes.existsByUserIdAndNoteId(viewerId, note.getId()));
+        like.count(),
+        like.likedByMe());
   }
 }

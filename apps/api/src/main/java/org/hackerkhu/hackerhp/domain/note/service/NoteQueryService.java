@@ -1,6 +1,5 @@
 package org.hackerkhu.hackerhp.domain.note.service;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -98,13 +97,15 @@ public class NoteQueryService {
         notes
             .findWithFilesById(id)
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "자료를 찾을 수 없습니다."));
+    NoteLikeSummary likeSummary =
+        likeSummariesOf(viewerId, List.of(id)).getOrDefault(id, NoteLikeSummary.NONE);
     return NoteDetailResponse.of(
         note,
         uploaderOf(note, uploaders(List.of(note))),
         bookmarks.existsByUserIdAndNoteId(viewerId, id),
         note.getViewCount(),
-        likes.countByNoteId(id),
-        likes.existsByUserIdAndNoteId(viewerId, id));
+        likeSummary.count(),
+        likeSummary.likedByMe());
   }
 
   /**
@@ -118,17 +119,19 @@ public class NoteQueryService {
       Page<Note> page, Long viewerId, Set<Long> bookmarked) {
     Map<Long, User> found = uploaders(page.getContent());
     Map<Long, Integer> fileCounts = fileCounts(page.getContent());
-    Map<Long, Long> likeCounts = likeCountsOf(page.getContent());
-    Set<Long> likedByMe = likedIdsOf(viewerId, page.getContent());
+    Map<Long, NoteLikeSummary> likeSummaries =
+        likeSummariesOf(viewerId, page.getContent().stream().map(Note::getId).toList());
     return page.map(
-        note ->
-            NoteSummaryResponse.of(
-                note,
-                uploaderOf(note, found),
-                fileCounts.getOrDefault(note.getId(), 0),
-                bookmarked.contains(note.getId()),
-                likeCounts.getOrDefault(note.getId(), 0L),
-                likedByMe.contains(note.getId())));
+        note -> {
+          NoteLikeSummary like = likeSummaries.getOrDefault(note.getId(), NoteLikeSummary.NONE);
+          return NoteSummaryResponse.of(
+              note,
+              uploaderOf(note, found),
+              fileCounts.getOrDefault(note.getId(), 0),
+              bookmarked.contains(note.getId()),
+              like.count(),
+              like.likedByMe());
+        });
   }
 
   private Set<Long> bookmarkedIds(Long viewerId, List<Note> found) {
@@ -139,25 +142,15 @@ public class NoteQueryService {
     return Set.copyOf(bookmarks.findNoteIdsOf(viewerId, ids));
   }
 
-  /** 좋아요 개수를 <b>한 번에</b> 모아 읽는다. 행마다 물으면 페이지 크기만큼 질의가 붙는다. */
-  private Map<Long, Long> likeCountsOf(List<Note> found) {
-    List<Long> ids = found.stream().map(Note::getId).toList();
-    if (ids.isEmpty()) {
+  /**
+   * 좋아요 개수와 내 상태를 <b>한 번에</b> 모아 읽는다. 행마다 물으면 페이지 크기만큼 질의가 붙고, 개수와 내 상태를 따로 물으면 스냅샷이 갈려 모순된 응답이 나간다
+   * (#367 리뷰, {@link NoteLikeSummary}).
+   */
+  private Map<Long, NoteLikeSummary> likeSummariesOf(Long viewerId, List<Long> noteIds) {
+    if (noteIds.isEmpty()) {
       return Map.of();
     }
-    Map<Long, Long> counts = new HashMap<>();
-    for (Object[] row : likes.countByNoteIds(ids)) {
-      counts.put((Long) row[0], (Long) row[1]);
-    }
-    return counts;
-  }
-
-  private Set<Long> likedIdsOf(Long viewerId, List<Note> found) {
-    List<Long> ids = found.stream().map(Note::getId).toList();
-    if (ids.isEmpty()) {
-      return Set.of();
-    }
-    return Set.copyOf(likes.findLikedNoteIdsOf(viewerId, ids));
+    return NoteLikeSummary.byNoteId(likes.countWithMineByNoteIds(viewerId, noteIds));
   }
 
   /** 필터 옵션은 <b>실제 등록된 값</b>에서 만든다 (2-1 §2-1-1 MUST). */

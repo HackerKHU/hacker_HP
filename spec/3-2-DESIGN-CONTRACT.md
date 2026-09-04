@@ -29,14 +29,18 @@ erDiagram
   USERS ||--o{ BOOKMARKS : saves
   NOTES ||--o{ BOOKMARKS : saved_in
   NOTES ||--o{ NOTE_FILES : has
+  USERS ||--o{ NOTE_LIKES : likes
+  NOTES ||--o{ NOTE_LIKES : liked_in
   USERS |o--o{ NOTICES : writes
+  USERS ||--o{ NOTICE_LIKES : likes
+  NOTICES ||--o{ NOTICE_LIKES : liked_in
   USERS |o--o{ PHOTOS : uploads
   USERS |o--o{ POSTS : writes
 ```
 
 `admin_actions`는 ERD에 넣지 않는다. `users`를 가리키지만 **FK가 없어 관계가 아니고**, 그렇게 둔 이유가 바로 "이력은 현재 상태에 종속되지 않는다"이기 때문이다 — 선으로 이으면 정반대로 읽힌다.
 
-**작성자 쪽이 `|o`(0 또는 1)인 것은 오타가 아니다.** 회원을 지워도 자료·공지·사진은 남고 작성자만 비므로([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)), 작성자가 없는 행이 정상으로 존재한다. `BOOKMARKS`만 `||`인데, 즐겨찾기는 주인과 함께 사라져 주인 없는 행이 생기지 않기 때문이다.
+**작성자 쪽이 `|o`(0 또는 1)인 것은 오타가 아니다.** 회원을 지워도 자료·공지·사진은 남고 작성자만 비므로([2-2 §2-2-4](2-2-OPERATOR-REQUIREMENTS.md#2-2-4-회원-제거)), 작성자가 없는 행이 정상으로 존재한다. `BOOKMARKS`와 좋아요 표(`NOTE_LIKES`·`NOTICE_LIKES`)가 `||`인데, 담아 둔 것과 누른 것은 **주인과 함께 사라져** 주인 없는 행이 생기지 않기 때문이다 — 남길 표시("탈퇴한 회원")가 있는 작성자 자리와 다르다.
 
 ## 3-2-2 테이블 정의
 
