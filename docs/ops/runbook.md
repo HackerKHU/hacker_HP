@@ -261,7 +261,7 @@ aws logs filter-log-events --log-group-name /ecs/hacker-api \
 
 ## S3 고아 오브젝트 정리 (#339)
 
-**매일 새벽 4시(서버 시간대)에 자동으로 돈다** — API 컨테이너 안에서 `OrphanObjectCleanupJob`이 실행되는 것이지 별도 배치 인프라가 아니다. 이 저장소에 있는 유일한 `@Scheduled` 사용처다.
+**매일 새벽 4시(한국 시간)에 자동으로 돈다** — API 컨테이너 안에서 `OrphanObjectCleanupJob`이 실행되는 것이지 별도 배치 인프라가 아니다. 이 저장소에 있는 유일한 `@Scheduled` 사용처다. **컨테이너 시간대와 무관하다** — `@Scheduled(zone = "Asia/Seoul")`로 못박아 두었다(#342 리뷰). 운영 이미지는 `TZ`를 설정하지 않아 JVM 기본이 UTC이므로, 이 지정이 없으면 같은 cron이 한국 시간 오후 1시에 돈다.
 
 **무엇을 하는가.** `notes/`·`photos/`의 **최종 위치**(`notes/uploads/`·`photos/uploads/` 임시 위치는 제외)를 훑어, DB(`note_files.stored_path`, `photos.stored_path` + 유도한 썸네일 키)가 참조하지 않고 **1시간(`app.storage.orphan-cleanup.safety-margin`) 넘게** 지난 오브젝트를 지운다. 등록 롤백·자료 수정·사진 삭제의 보상 S3 삭제가 실패하면(`StagedUploads`·`PhotoService`가 `log.error`로 남기는 자리) 이 작업이 다음 새벽에 대신 정리한다.
 
