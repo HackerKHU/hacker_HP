@@ -103,6 +103,20 @@ describe('LiveAlertProvider', () => {
     expect(css).not.toContain('env(safe-area-inset')
   })
 
+  /*
+   * **뷰포트가 안전 영역 보호를 끄지 않는가** (#390 검수).
+   *
+   * 위 값들은 브라우저가 레이아웃 뷰포트를 이미 안전 영역 안쪽으로 잘라 준다는 전제
+   * 위에 서 있고, **`viewport-fit=cover`는 정확히 그 전제를 끄는 스위치다.** 누군가
+   * 그것을 켜면 안전 영역을 피하는 일이 우리 몫이 되는데, 이 알림은 그럴 준비가 되어
+   * 있지 않다 — 그 순간 여기서 실패해 결정을 다시 보게 한다.
+   */
+  it('뷰포트가 안전 영역 보호를 끄지 않는다', () => {
+    const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf-8')
+
+    expect(html).not.toContain('viewport-fit')
+  })
+
   it('provider 밖의 hook 사용을 조용히 삼키지 않는다', () => {
     expect(() => render(<OutsideProbe />)).toThrow(
       'useLiveAlert은 LiveAlertProvider 안에서만 쓸 수 있다.',
