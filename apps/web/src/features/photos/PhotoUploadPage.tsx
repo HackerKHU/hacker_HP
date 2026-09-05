@@ -318,7 +318,7 @@ export function PhotoUploadPage() {
             onChange={(event) => addFiles(event.target.files)}
             aria-invalid={error !== null}
             aria-describedby={error ? 'photo-files-error' : undefined}
-            className="block w-full text-muted-foreground file:mr-3 file:rounded-md file:border file:border-input file:bg-transparent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground hover:file:bg-accent"
+            className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:border-input file:bg-transparent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground hover:file:bg-accent"
           />
           <p className="text-xs text-muted-foreground">
             {PHOTO_EXTENSIONS.join(', ')} · 장당 20MB · 최대 {PHOTO_MAX_COUNT}장

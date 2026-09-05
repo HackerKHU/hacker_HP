@@ -1006,7 +1006,7 @@ export function MemberListPage() {
             id="member-status"
             value={toFilterValue(status, applied)}
             onChange={(event) => setStatusFilter(event.target.value)}
-            className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
           >
             {STATUS_FILTERS.map((filter) => (
               <option key={filter.value} value={filter.value}>
@@ -1022,7 +1022,7 @@ export function MemberListPage() {
             id="member-role"
             value={role}
             onChange={(event) => setParam('role', event.target.value)}
-            className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
           >
             <option value="">전체</option>
             {Object.entries(ROLE_LABEL).map(([value, label]) => (
@@ -1039,7 +1039,7 @@ export function MemberListPage() {
             id="member-sort"
             value={sort}
             onChange={(event) => setParam('sort', event.target.value)}
-            className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
           >
             {SORTS.map((option) => (
               <option key={option.value} value={option.value}>
