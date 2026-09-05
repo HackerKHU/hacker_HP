@@ -200,12 +200,38 @@ html body[data-scroll-locked] {
 /*
  * 짧은 비동기 작업 결과. 문서 흐름 밖의 viewport 고정 레이어라 알림의 등장·소멸이
  * 목록·폼·pager를 밀지 않는다. 바깥은 클릭을 통과시키고 카드만 조작을 받는다.
- * 5rem 헤더 뒤 12px 간격을 두되 safe area가 그보다 크면 그 안쪽에 둔다.
- * z-30은 일반 콘텐츠보다 높고, 공개·내부 헤더와 그 모바일 메뉴(z-40),
- * AlertDialog·dropdown(z-50)보다 낮다.
+ * 5rem 헤더 뒤 12px 간격을 둔다. z-30은 일반 콘텐츠보다 높고, 공개·내부 헤더와 그
+ * 모바일 메뉴(z-40), AlertDialog·dropdown(z-50)보다 낮다.
+ *
+ * ── safe area를 여기서 다루지 않는 이유 (#388) ──────────────────────────────
+ *
+ * 한때 여백을 `max(0.75rem, env(safe-area-inset-*))`로 적었는데 **그 `env()`는 대상
+ * 환경(데스크톱 Chrome·Edge)에서 언제나 0이다.** 값이 0이 아니려면 뷰포트가
+ * `viewport-fit=cover`이거나 PWA가 standalone으로 떠야 하는데 우리는 둘 다 아니다 —
+ * `index.html`의 뷰포트는 `width=device-width, initial-scale=1.0`뿐이고 웹 매니페스트도
+ * `apple-mobile-web-app-capable`도 없다.
+ *
+ * **기본값(`viewport-fit=auto`)에서는 브라우저가 레이아웃 뷰포트를 이미 안전 영역
+ * 안쪽으로 잘라 준다.** 콘텐츠가 노치·홈 인디케이터를 침범할 일이 없고, 보정할 것이
+ * 없으니 `env()`도 0을 돌려준다. 즉 그 코드는 아무 일도 하지 않으면서 "우리는 안전
+ * 영역을 다룬다"고 말하고 있었다 — **다음 사람이 그 말을 믿게 되는 쪽이 더 나쁘다.**
+ *
+ * **"어디서나 0"은 아니다.** iOS MobileSafari는 `auto`인데도 좌우 인셋에 0이 아닌 값을
+ * 돌려주는 버그가 있다 (WebKit 272779, 미해결 — 명세대로면 `cover`에서만 0이 아니어야
+ * 한다). 그 환경에서 예전 식은 좌우 여백을 조금 더 넓게 잡았을 것이다. 다만 **거기서도
+ * 뷰포트는 이미 잘려 있어** 알림이 노치에 걸리는 일은 없었다 — 사라지는 것은 보호가
+ * 아니라 여백 몇 px이고, 그 환경은 대상 밖이다.
+ *
+ * `viewport-fit=cover`를 켜서 살리지 않는 이유는, 그것이 브라우저에게 **보호를
+ * 그만두라고** 말하는 것이기 때문이다. 켜는 순간 안전 영역을 피하는 일이 우리 몫이
+ * 되고 sticky 헤더·라이트박스·랜딩까지 전부 따라와야 한다. 그 작업은 범위 밖이다
+ * (spec 3-3-7 대상 환경: 데스크톱 Chrome·Edge, 모바일 예외는 두 헤더와 자료 갈래 메뉴).
+ *
+ * **되살릴 조건은 하나다** — 대상 환경이 모바일을 포함하도록 바뀌어 `viewport-fit=cover`를
+ * 켤 때. 그때는 이 알림만이 아니라 화면 전체를 함께 다룬다.
  */
 .live-alert-viewport {
-  --live-alert-block-start: calc(max(5rem, env(safe-area-inset-top)) + 0.75rem);
+  --live-alert-block-start: calc(5rem + 0.75rem);
 
   position: fixed;
   z-index: 30;
@@ -214,23 +240,16 @@ html body[data-scroll-locked] {
   display: flex;
   justify-content: center;
   pointer-events: none;
-  padding-inline-start: max(0.75rem, env(safe-area-inset-left));
-  padding-inline-end: max(0.75rem, env(safe-area-inset-right));
+  padding-inline-start: 0.75rem;
+  padding-inline-end: 0.75rem;
 }
 
 .live-alert-card {
   width: min(100%, 28rem);
   min-width: 0;
-  max-height: calc(
-    100dvh -
-    var(--live-alert-block-start) -
-    max(0.75rem, env(safe-area-inset-bottom))
-  );
-  max-width: calc(
-    100vw -
-    max(0.75rem, env(safe-area-inset-left)) -
-    max(0.75rem, env(safe-area-inset-right))
-  );
+  max-height: calc(100dvh - var(--live-alert-block-start) - 0.75rem);
+  /* 좌우 0.75rem 여백 두 벌을 뺀 값이다. */
+  max-width: calc(100vw - 1.5rem);
   overflow-y: auto;
   pointer-events: auto;
 }
