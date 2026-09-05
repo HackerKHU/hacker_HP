@@ -207,7 +207,7 @@ export function PhotoGalleryPage() {
          * 화면 이름은 **갤러리**다 (2026-08-23). 담고 있는 것은 여전히 활동사진이고
          * (spec §2-1-7) 라우트도 `/photos`지만, 사용자에게 보이는 이름은 이 하나로 통일한다.
          */}
-        <h1 className="text-2xl font-semibold tracking-tight">갤러리</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">갤러리</h1>
         {/*
          * **업로드는 `ADMIN` 전용이다** (spec §3-1-3 매트릭스). 자료와 다른 점이다 —
          * 자료는 부원 누구나 올린다. 진입점도 `/admin` 아래에 둔다.
@@ -291,7 +291,7 @@ export function PhotoGalleryPage() {
                   </button>
 
                   <div className="mt-2 flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1 text-sm">
+                    <div className="min-w-0 flex-1">
                       {photo.caption && (
                         <p className="truncate" title={photo.caption}>
                           {photo.caption}

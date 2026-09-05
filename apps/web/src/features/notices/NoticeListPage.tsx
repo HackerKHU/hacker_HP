@@ -170,7 +170,7 @@ export function NoticeListPage() {
   return (
     <section>
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">공지사항</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">공지사항</h1>
 
         {/*
          * 관리 버튼은 ADMIN에게만 보인다. **노출 제어일 뿐 권한 통제가 아니다**

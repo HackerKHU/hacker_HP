@@ -137,7 +137,7 @@ export function NoticeFormPage() {
         ← {editing ? '공지로' : '공지 목록'}
       </Link>
 
-      <h1 className="mt-6 text-2xl font-semibold tracking-tight">
+      <h1 className="mt-6 text-3xl font-semibold tracking-tight">
         {editing ? '공지 수정' : '새 공지'}
       </h1>
 

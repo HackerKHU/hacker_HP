@@ -291,7 +291,7 @@ export function PhotoUploadPage() {
         ← 갤러리
       </Link>
 
-      <h1 className="mt-6 text-2xl font-semibold tracking-tight">
+      <h1 className="mt-6 text-3xl font-semibold tracking-tight">
         사진 올리기
       </h1>
 

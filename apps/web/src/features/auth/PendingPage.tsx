@@ -324,7 +324,7 @@ export function PendingPage() {
     return (
       // 아래 본 화면과 같은 폭·정렬이다. 다르면 로딩이 끝나는 순간 화면이 좌우로 튄다.
       <section className={CONTAINER}>
-        <h1 className="text-2xl font-semibold tracking-tight">가입 신청</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">가입 신청</h1>
         {unknownFailed ? (
           <>
             <p className="mt-6 text-sm text-muted-foreground">
@@ -364,7 +364,7 @@ export function PendingPage() {
 
   return (
     <section className={CONTAINER}>
-      <h1 className="text-2xl font-semibold tracking-tight">
+      <h1 className="text-3xl font-semibold tracking-tight">
         {showForm ? '가입 신청' : '승인 대기 중'}
       </h1>
 
@@ -544,13 +544,13 @@ export function PendingPage() {
         </>
       ) : (
         <>
-          <p className="mt-3 text-sm leading-7 text-muted-foreground">
+          <p className="mt-3 leading-7 text-muted-foreground">
             신청서를 받았습니다. 운영진이 확인한 뒤 승인합니다.
           </p>
 
           {/* 폼과 같은 순서다 (#293). 제출 전후로 값이 자리를 옮기면 무엇이 저장됐는지 다시 훑게 된다. */}
           {user && (
-            <dl className="mt-8 space-y-3 border-t border-border pt-6 text-sm">
+            <dl className="mt-8 space-y-3 border-t border-border pt-6">
               <div className="flex gap-4">
                 <dt className="w-16 shrink-0 text-muted-foreground">이름</dt>
                 <dd>{user.name}</dd>
@@ -574,7 +574,7 @@ export function PendingPage() {
            * **저절로 바뀌지 않는다는 것을 알린다** (spec §3-1-6 MUST). 버튼만 두고
            * 설명이 없으면 누를 이유를 모르고, 승인된 뒤에도 이 화면에 머문다.
            */}
-          <p className="mt-8 text-sm leading-7 text-muted-foreground">
+          <p className="mt-8 leading-7 text-muted-foreground">
             승인되어도 이 화면은 저절로 바뀌지 않습니다. 아래 버튼으로 다시
             확인해 주세요.
           </p>

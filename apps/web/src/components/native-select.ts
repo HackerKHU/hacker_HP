@@ -12,7 +12,7 @@
  * 붙어 있어 이 이슈에서 건드리지 않았다 — 다음에 손댈 때 이걸로 옮긴다.
  */
 export const SELECT_CLASS =
-  'h-9 w-full min-w-0 appearance-none rounded-md border border-input bg-transparent bg-no-repeat px-3 py-1 pr-9 text-base shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30'
+  'h-9 w-full min-w-0 appearance-none rounded-md border border-input bg-transparent bg-no-repeat px-3 py-1 pr-9 text-base shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30'
 
 /**
  * 화살표. `currentColor`를 쓸 수 없어(배경 이미지다) 무채색 팔레트의 중간 값을 직접 넣는다.

@@ -331,7 +331,7 @@ export function NoteFormPage() {
         ← {editing ? '자료로' : '자료게시판'}
       </Link>
 
-      <h1 className="mt-6 text-2xl font-semibold tracking-tight">
+      <h1 className="mt-6 text-3xl font-semibold tracking-tight">
         {editing ? '자료 수정' : '업로드'}
       </h1>
 
@@ -544,7 +544,7 @@ export function NoteFormPage() {
                     key={`kept-${file.id}`}
                     className="flex items-center justify-between gap-4 py-2"
                   >
-                    <span className="min-w-0 truncate text-sm">
+                    <span className="min-w-0 truncate">
                       {file.originalName}
                     </span>
                     <span className="flex shrink-0 items-center gap-3">
@@ -575,7 +575,7 @@ export function NoteFormPage() {
                     key={`added-${file.name}-${file.lastModified}`}
                     className="flex items-center justify-between gap-4 py-2"
                   >
-                    <span className="min-w-0 truncate text-sm">
+                    <span className="min-w-0 truncate">
                       {file.name}
                       <span className="ml-2 text-xs text-muted-foreground">
                         새 파일
