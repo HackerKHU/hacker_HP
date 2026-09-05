@@ -297,7 +297,7 @@ export function NoticeListPage() {
                           // 라벨로 둔다. 둘 다 채우면 위계가 사라져 아무것도 안 튄다.
                           <Badge
                             variant="outline"
-                            className="shrink-0 rounded-sm px-1.5 py-0 text-[10px] leading-none tracking-wide text-muted-foreground"
+                            className="shrink-0 rounded-sm px-1.5 py-0 leading-none tracking-wide text-muted-foreground"
                           >
                             NEW
                           </Badge>

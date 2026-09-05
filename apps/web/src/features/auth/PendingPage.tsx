@@ -4,6 +4,7 @@ import { ApiError } from '@/api/client'
 import { getDepartments } from '@/api/departments'
 import { hasApplied, useSession } from '@/auth/session'
 import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
+import { SELECT_CLASS, SelectArrow } from '@/components/native-select'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -77,30 +78,10 @@ const READONLY_CLASS =
  * `<select>`인 이유이고, 그래서 `maxLength` 같은 상한도 두지 않는다 — 고를 수 있는 값이
  * 전부 유효하다.
  *
- * **shadcn `Select`를 들이지 않고 네이티브 `<select>`를 쓴다.** 항목이 103개라 모바일에서는
- * OS 기본 피커가 커스텀 리스트박스보다 낫고(휠·검색·한 손 조작), radix 의존성도 늘지
- * 않는다. 모양은 `Input`과 맞춰 폼 안에서 결이 어긋나지 않게 한다.
- *
- * `appearance-none`으로 기본 화살표를 지우고 배경 이미지로 직접 그린다. 지우지 않으면
- * 브라우저마다 다른 화살표가 붙어 다른 입력들과 높이·여백이 어긋난다.
+ * **모양은 `components/native-select.ts`가 정한다** (#98 검수). 이 화면이 같은 문자열을
+ * 사본으로 들고 있었고, 실제로 갈렸다 — 공용 쪽에서 `md:text-sm`을 걷어 16px로 올렸는데
+ * 여기만 데스크톱에서 14px로 남아 있었다. 두 벌이면 한 곳만 고쳐진다.
  */
-const SELECT_CLASS =
-  'h-9 w-full min-w-0 appearance-none rounded-md border border-input bg-transparent bg-no-repeat px-3 py-1 pr-9 text-base shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30'
-
-/**
- * 화살표. `currentColor`를 쓸 수 없어(배경 이미지다) 무채색 팔레트의 중간 값을 직접 넣는다.
- * 라이트/다크 어느 쪽에서도 배경과 충분히 구분된다.
- *
- * **위치·크기도 여기서 준다.** Tailwind 임의값(`bg-[position:...]`)으로 쓰면 밑줄 이스케이프를
- * 한 글자만 틀려도 값이 조용히 버려져 화살표가 왼쪽 끝에 붙는다 — 실제로 그랬다. 이미지와
- * 한 곳에 두면 셋이 같이 움직인다.
- */
-const SELECT_ARROW = {
-  backgroundImage:
-    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23888' stroke-width='1.5'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E\")",
-  backgroundPosition: 'right 0.625rem center',
-  backgroundSize: '1rem',
-} as const
 
 /**
  * 화면 컨테이너. **로그인 화면과 같은 폭·정렬이다** — 로그인에서 여기로 넘어오는 흐름에서
@@ -444,7 +425,7 @@ export function PendingPage() {
               <select
                 id="application-department"
                 className={SELECT_CLASS}
-                style={SELECT_ARROW}
+                style={SelectArrow}
                 value={values.department}
                 /*
                  * 아직 못 받았으면 고를 수 없다. 열리는데 안이 비어 있으면 "학과가 없다"로

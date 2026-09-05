@@ -8,8 +8,11 @@
  * `appearance-none`으로 기본 화살표를 지우고 배경 이미지로 직접 그린다. 지우지 않으면
  * 브라우저마다 다른 화살표가 붙어 다른 입력들과 높이·여백이 어긋난다.
  *
- * ponytail: 신청 화면과 회원 관리도 같은 모양을 각자 들고 있다. 두 화면 모두 테스트가
- * 붙어 있어 이 이슈에서 건드리지 않았다 — 다음에 손댈 때 이걸로 옮긴다.
+ * 신청 화면이 이걸 쓴다 (#98에서 옮겼다 — 사본으로 두었더니 공용 쪽만 16px로 올라가고
+ * 그 화면은 14px로 남았다).
+ *
+ * ponytail: 회원 관리의 select는 아직 각자 들고 있다. 화살표 없는 다른 모양이라 여기 합치려면
+ * 변형을 하나 만들어야 해서 남겼다 — 그 화면을 다시 손댈 때 옮긴다.
  */
 export const SELECT_CLASS =
   'h-9 w-full min-w-0 appearance-none rounded-md border border-input bg-transparent bg-no-repeat px-3 py-1 pr-9 text-base shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30'

@@ -323,9 +323,7 @@ export function NoteDetailPage() {
                 key={file.id}
                 className="flex items-center justify-between gap-4 py-3"
               >
-                <span className="min-w-0 truncate">
-                  {file.originalName}
-                </span>
+                <span className="min-w-0 truncate">{file.originalName}</span>
                 <span className="flex shrink-0 items-center gap-3">
                   <span className="text-sm tabular-nums text-muted-foreground">
                     {formatSize(file.sizeBytes)}
