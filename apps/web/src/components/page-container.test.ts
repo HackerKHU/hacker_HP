@@ -33,6 +33,17 @@ function sourceFiles(dir: string): string[] {
   })
 }
 
+/**
+ * 정렬선 위에 서야 하는 네 곳. **이 목록이 곧 "같이 움직여야 하는 것들"이다** —
+ * 파일이 옮겨지면 여기서 소리가 나야 하고, 그때 새 자리가 여전히 상수를 쓰는지 본다.
+ */
+const CONSUMERS = [
+  'components/header-nav.ts',
+  'components/layout/AppLayout.tsx',
+  'components/layout/SiteFooter.tsx',
+  'features/landing/LandingPage.tsx',
+]
+
 describe('화면 정렬선', () => {
   it('폭을 정하는 곳이 하나뿐이다', () => {
     expect(WIDTH).toBeDefined()
@@ -43,5 +54,19 @@ describe('화면 정렬선', () => {
       .map((path) => relative(SRC, path))
 
     expect(strays).toEqual([])
+  })
+
+  /*
+   * **위 검사만으로는 "값이 복제됐는가"만 본다** (#391 검수). 어느 한 곳이 상수를 버리고
+   * `max-w-[1100px]`처럼 **다른** 값을 적으면 찾을 문자열이 달라 그물에 걸리지 않는다.
+   * 정렬이 어긋나는 데는 같은 값을 베끼는 것이나 다른 값을 적는 것이나 마찬가지다.
+   */
+  it('정렬선 위의 네 곳이 그 상수를 쓴다', () => {
+    const missing = CONSUMERS.filter(
+      (rel) =>
+        !readFileSync(resolve(SRC, rel), 'utf-8').includes('PAGE_CONTAINER'),
+    )
+
+    expect(missing).toEqual([])
   })
 })
