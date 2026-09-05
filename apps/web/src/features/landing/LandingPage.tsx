@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { SiteFooter } from '@/components/layout/SiteFooter'
+import { PAGE_CONTAINER } from '@/components/page-container'
 import {
   Accordion,
   AccordionContent,
@@ -12,8 +13,8 @@ import { cn } from '@/lib/utils'
 import { ACTIVITIES, CLUB, FAQS, STATS, SUPPORT } from './content'
 import { PublicHeader } from './PublicHeader'
 
-/** 본문 컨테이너. 다른 섹션과 좌우 정렬을 맞추는 기준이다. */
-const CONTAINER = 'mx-auto w-full max-w-[1152px] px-6'
+/** 본문 컨테이너. 헤더·푸터와 같은 정렬선을 쓴다 (#389). */
+const CONTAINER = PAGE_CONTAINER
 
 /** 섹션 제목이 고정 헤더에 가리지 않도록 여백을 준다 (`scroll-mt-*`). */
 const SECTION = `${CONTAINER} scroll-mt-24 py-28`

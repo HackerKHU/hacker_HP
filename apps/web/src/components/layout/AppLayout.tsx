@@ -1,4 +1,5 @@
 import { Outlet } from 'react-router-dom'
+import { PAGE_CONTAINER } from '@/components/page-container'
 import { AppHeader } from './AppHeader'
 import { SiteFooter } from './SiteFooter'
 
@@ -37,7 +38,7 @@ export function AppLayout() {
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <AppHeader />
-      <main className="mx-auto flex w-full max-w-[1152px] flex-1 flex-col px-6 py-8">
+      <main className={`${PAGE_CONTAINER} flex flex-1 flex-col py-8`}>
         <Outlet />
       </main>
 
