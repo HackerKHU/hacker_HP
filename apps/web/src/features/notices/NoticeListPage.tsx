@@ -170,7 +170,7 @@ export function NoticeListPage() {
   return (
     <section>
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">공지사항</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">공지사항</h1>
 
         {/*
          * 관리 버튼은 ADMIN에게만 보인다. **노출 제어일 뿐 권한 통제가 아니다**
@@ -297,7 +297,7 @@ export function NoticeListPage() {
                           // 라벨로 둔다. 둘 다 채우면 위계가 사라져 아무것도 안 튄다.
                           <Badge
                             variant="outline"
-                            className="shrink-0 rounded-sm px-1.5 py-0 text-[10px] leading-none tracking-wide text-muted-foreground"
+                            className="shrink-0 rounded-sm px-1.5 py-0 leading-none tracking-wide text-muted-foreground"
                           >
                             NEW
                           </Badge>

@@ -154,7 +154,7 @@ export function NoticeDetailPage() {
       {status === 'loaded' && notice && (
         <>
           <h1
-            className="mt-6 line-clamp-2 break-all text-2xl font-semibold tracking-tight"
+            className="mt-6 line-clamp-2 break-all text-3xl font-semibold tracking-tight"
             title={notice.title}
           >
             {notice.title}
@@ -255,7 +255,7 @@ export function NoticeDetailPage() {
           </div>
 
           {/* 본문은 평문이다. 리치 텍스트는 범위 밖이고, 줄바꿈만 보존한다. */}
-          <div className="mt-8 whitespace-pre-wrap border-t border-border pt-8 text-sm leading-7">
+          <div className="mt-8 whitespace-pre-wrap border-t border-border pt-8 leading-7">
             {notice.content}
           </div>
         </>

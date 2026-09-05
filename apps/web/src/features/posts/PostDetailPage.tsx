@@ -144,7 +144,7 @@ export function PostDetailPage() {
       {status === 'loaded' && post && (
         <>
           <h1
-            className="mt-6 line-clamp-2 break-all text-2xl font-semibold tracking-tight"
+            className="mt-6 line-clamp-2 break-all text-3xl font-semibold tracking-tight"
             title={post.title}
           >
             {post.title}
@@ -228,7 +228,7 @@ export function PostDetailPage() {
            * **평문이다.** 중괄호 안의 문자열은 React가 텍스트 노드로 넣으므로 `<script>`를
            * 써도 글자 그대로 보인다. 여기에 `dangerouslySetInnerHTML`을 넣지 말 것.
            */}
-          <div className="mt-8 whitespace-pre-wrap border-t border-border pt-8 text-sm leading-7">
+          <div className="mt-8 whitespace-pre-wrap border-t border-border pt-8 leading-7">
             {post.content}
           </div>
 

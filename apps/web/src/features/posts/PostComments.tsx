@@ -211,7 +211,7 @@ export function PostComments({ postId }: { postId: number }) {
       className="mt-12 border-t border-border pt-8"
       data-comment-surface="post"
     >
-      <h2 className="text-lg font-semibold tracking-tight">
+      <h2 className="text-xl font-semibold tracking-tight">
         댓글 {status === 'loaded' && comments.length}
       </h2>
 
@@ -375,7 +375,7 @@ export function PostComments({ postId }: { postId: number }) {
                  * **평문이다.** 중괄호 안의 문자열은 React가 텍스트 노드로 넣으므로
                  * `<script>`를 써도 글자 그대로 보인다. 게시글 본문과 같은 규칙이다.
                  */
-                <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-7">
+                <p className="mt-3 whitespace-pre-wrap break-words leading-7">
                   {comment.content}
                 </p>
               )}
@@ -391,7 +391,7 @@ export function PostComments({ postId }: { postId: number }) {
       <form onSubmit={handleSubmit} className="mt-8 space-y-2">
         <div className="flex items-baseline justify-between">
           {/* 상한을 눌러 막기만 하면 왜 안 써지는지 알 수 없다. 남은 양을 보여준다. */}
-          <span className="text-sm font-medium">댓글 쓰기</span>
+          <span className="font-medium">댓글 쓰기</span>
           <span className="text-xs tabular-nums text-muted-foreground">
             {draftCount.toLocaleString('ko-KR')}/
             {COMMENT_CONTENT_MAX.toLocaleString('ko-KR')}

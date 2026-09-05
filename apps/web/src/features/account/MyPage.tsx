@@ -67,14 +67,14 @@ export function MyPage() {
      * 폭이 다르면 승인 전후로 같은 정보가 다른 화면처럼 보인다.
      */
     <section className="mx-auto max-w-sm">
-      <h1 className="text-2xl font-semibold tracking-tight">내 정보</h1>
+      <h1 className="text-3xl font-semibold tracking-tight">내 정보</h1>
 
       {/*
         **고칠 수 있는 입력란이 없다** (spec 5-TESTING T-387 MUST). `<dl>`인 것이 그
         결정을 형태로 말한다 — 읽기 전용 `<input>`을 늘어놓으면 "지금은 못 고친다"로
         읽혀, 고치는 기능을 안 만든 것이 아니라 덜 만든 것처럼 보인다.
       */}
-      <dl className="mt-8 space-y-3 border-t border-border pt-6 text-sm">
+      <dl className="mt-8 space-y-3 border-t border-border pt-6">
         {[
           ['이름', user.name],
           ['이메일', user.email],
@@ -100,7 +100,7 @@ export function MyPage() {
         **고치는 길이 없다는 것을 알린다.** 적지 않으면 "어디서 고치지"를 찾다가 못 찾고,
         운영진에게 묻는 대신 화면이 고장난 줄 안다.
       */}
-      <p className="mt-8 text-sm leading-7 text-muted-foreground">
+      <p className="mt-8 leading-7 text-muted-foreground">
         여기 있는 정보는 직접 고칠 수 없습니다. 잘못된 값이 있으면 운영진에게
         문의해 주세요.
       </p>

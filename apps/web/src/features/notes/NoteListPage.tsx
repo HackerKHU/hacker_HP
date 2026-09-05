@@ -305,7 +305,7 @@ export function NoteListPage() {
   return (
     <section>
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">자료게시판</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">자료게시판</h1>
         {/*
          * 등록은 `ACTIVE`면 누구나 할 수 있다 (spec §3-1-3 매트릭스 — 자료 업로드는
          * USER·ADMIN 모두 `O`). 관리자 전용이 아니므로 `/admin` 아래에 두지 않는다.

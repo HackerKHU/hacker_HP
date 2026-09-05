@@ -982,7 +982,7 @@ export function MemberListPage() {
   return (
     <section>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">회원 관리</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">회원 관리</h1>
       </div>
 
       <form
