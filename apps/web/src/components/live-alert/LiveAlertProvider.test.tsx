@@ -62,7 +62,14 @@ afterEach(() => {
 })
 
 describe('LiveAlertProvider', () => {
-  it('fixed viewport를 5rem 헤더 아래 safe area 안쪽에 두고 조작은 카드만 받는다', () => {
+  /*
+   * **safe area를 단언하지 않는다** (#388). 예전에는 여백이
+   * `max(0.75rem, env(safe-area-inset-*))`였는데 그 `env()`는 우리 뷰포트에서 언제나 0이라
+   * 계산 결과가 `0.75rem`과 같았다 — 아무 일도 하지 않는 코드를 테스트가 붙잡고 있었다.
+   * 안전 영역은 기본 뷰포트(`viewport-fit=auto`)에서 브라우저가 맡는다. 자세한 이유는
+   * `index.css`의 `.live-alert-viewport` 주석에 있다.
+   */
+  it('fixed viewport를 5rem 헤더 아래에 두고 조작은 카드만 받는다', () => {
     const raw = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf-8')
     const css = raw.replace(/\/\*[\s\S]*?\*\//g, '')
     const viewport = css
@@ -72,25 +79,28 @@ describe('LiveAlertProvider', () => {
       .match(/\.live-alert-card\s*\{([^}]*)\}/)?.[1]
       ?.replace(/\s+/g, ' ')
 
-    expect(viewport).toContain(
-      '--live-alert-block-start: calc(max(5rem, env(safe-area-inset-top)) + 0.75rem)',
-    )
+    expect(viewport).toContain('--live-alert-block-start: calc(5rem + 0.75rem)')
     expect(viewport).toContain('top: var(--live-alert-block-start)')
     expect(viewport).toContain('z-index: 30')
     expect(viewport).toContain('pointer-events: none')
-    expect(viewport).toContain(
-      'padding-inline-start: max(0.75rem, env(safe-area-inset-left))',
-    )
-    expect(viewport).toContain(
-      'padding-inline-end: max(0.75rem, env(safe-area-inset-right))',
-    )
+    expect(viewport).toContain('padding-inline-start: 0.75rem')
+    expect(viewport).toContain('padding-inline-end: 0.75rem')
     expect(viewport).not.toContain('bottom:')
     expect(viewport).not.toContain('padding-block-end:')
 
     expect(card).toContain('width: min(100%, 28rem)')
     expect(card).toContain('var(--live-alert-block-start)')
-    expect(card).toContain('env(safe-area-inset-bottom)')
+    expect(card).toContain('max-width: calc(100vw - 1.5rem)')
     expect(card).toContain('pointer-events: auto')
+
+    /*
+     * **죽은 `env()`가 다시 생기면 여기서 걸린다.** 되살리려면 `index.html`의 뷰포트에
+     * `viewport-fit=cover`를 켜야 하고, 그 결정은 이 파일 하나로 끝나지 않는다.
+     *
+     * 주석을 걷은 `css`로 본다 — 왜 걷었는지를 적은 주석 자체가 `env(safe-area-inset-*)`를
+     * 인용하고 있어서, 원문으로 보면 설명이 규칙을 깨는 꼴이 된다.
+     */
+    expect(css).not.toContain('env(safe-area-inset')
   })
 
   it('provider 밖의 hook 사용을 조용히 삼키지 않는다', () => {
