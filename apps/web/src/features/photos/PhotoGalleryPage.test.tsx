@@ -882,3 +882,40 @@ it('좋아요를 켠 채 다음 페이지로 이동해도 조건을 유지한다
     expect(api.calls.at(-1)).toMatchObject({ page: 1, liked: true }),
   )
 })
+
+it('이전 목록의 취소 응답은 페이지 이동 후 추가 재조회를 예약하지 않는다', async () => {
+  api.rows = [photo(501, '이전 페이지 사진', { count: 1, mine: true })]
+  api.totalPages = 2
+  let finish: () => void = () => undefined
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  api.likeGate = pending
+  renderGallery('/photos?liked=true')
+  fireEvent.click(
+    await screen.findByRole('button', { name: '이전 페이지 사진 크게 보기' }),
+  )
+  fireEvent.click(screen.getByRole('button', { name: '좋아요 1' }))
+  expect(api.likes).toEqual([{ id: 501, liked: false }])
+
+  // 취소는 아직 진행 중이다. 닫고 다음 페이지를 조회해 목록 세대를 바꾼다.
+  fireEvent.click(screen.getByRole('button', { name: '닫기' }))
+  api.rows = [photo(502, '새 페이지 사진', { count: 2, mine: true })]
+  fireEvent.click(screen.getByRole('link', { name: '다음 페이지로 이동' }))
+  await screen.findByRole('button', { name: '새 페이지 사진 크게 보기' })
+  expect(api.calls).toEqual([
+    { page: 0, size: 20, liked: true },
+    { page: 1, size: 20, liked: true },
+  ])
+
+  // liked는 계속 켜져 있어야 세대 비교를 지웠을 때 세 번째 조회가 발생한다.
+  // act가 성공 응답과 뒤따르는 effect까지 반영한 뒤 호출 횟수를 검사한다.
+  await act(async () => {
+    finish()
+    await pending
+  })
+  expect(api.calls).toHaveLength(2)
+  expect(
+    screen.getByRole('button', { name: '새 페이지 사진 크게 보기' }),
+  ).toBeVisible()
+})
