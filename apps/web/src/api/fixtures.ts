@@ -486,15 +486,18 @@ for (const [index, topic] of TOPICS.entries()) {
 export function fixtureNotices(
   page = 0,
   size = FIXTURE_PAGE_SIZE,
+  liked = false,
 ): Promise<Page<Notice>> {
+  // 먼저 거른 뒤 페이징해야 총 건수와 페이지가 실제 목록과 맞는다.
+  const rows = NOTICES.filter((notice) => !liked || notice.likedByMe)
   const start = page * size
   return Promise.resolve({
-    content: NOTICES.slice(start, start + size),
+    content: rows.slice(start, start + size),
     page: {
       size,
       number: page,
-      totalElements: NOTICES.length,
-      totalPages: Math.ceil(NOTICES.length / size),
+      totalElements: rows.length,
+      totalPages: Math.ceil(rows.length / size),
     },
   })
 }
@@ -1338,6 +1341,7 @@ function toSummary(note: FixtureNote): NoteSummary {
 }
 
 function matchesNote(note: FixtureNote, query: NoteQuery): boolean {
+  if (query.liked && !note.likedByMe) return false
   const keyword = query.q?.trim().toLowerCase()
   /*
    * **통합 검색이다** (spec §2-1-1 MUST) — 제목·과목명·교수명을 한 낱말로 훑는다.
@@ -1897,21 +1901,21 @@ const PHOTOS: FixturePhoto[] = Array.from({ length: 25 }, (_, index) => {
 
 /** 목록은 **최신순 고정**이다 (spec §2-1-7) — 화면이 정렬을 고르지 않는다. */
 export function fixturePhotos(
-  query: { page?: number; size?: number } = {},
+  query: { page?: number; size?: number; liked?: boolean } = {},
 ): Promise<Page<Photo>> {
   const size = query.size ?? FIXTURE_PAGE_SIZE
   const page = query.page ?? 0
   const start = page * size
-  const sorted = [...PHOTOS].sort((a, b) =>
-    b.createdAt.localeCompare(a.createdAt),
+  const sorted = PHOTOS.filter((row) => !query.liked || row.likedByMe).sort(
+    (a, b) => b.createdAt.localeCompare(a.createdAt),
   )
   return Promise.resolve({
     content: sorted.slice(start, start + size),
     page: {
       size,
       number: page,
-      totalElements: PHOTOS.length,
-      totalPages: Math.ceil(PHOTOS.length / size),
+      totalElements: sorted.length,
+      totalPages: Math.ceil(sorted.length / size),
     },
   })
 }
@@ -2122,12 +2126,12 @@ const POSTS: FixturePost[] = Array.from({ length: 25 }, (_, index) => {
 
 /** 최신순 고정 (spec §2-1-8 MUST) — 화면이 정렬을 고르지 않는다. */
 export function fixturePosts(
-  query: { page?: number; size?: number } = {},
+  query: { page?: number; size?: number; liked?: boolean } = {},
 ): Promise<Page<PostSummary>> {
   const size = query.size ?? FIXTURE_PAGE_SIZE
   const page = query.page ?? 0
   const start = page * size
-  const rows = [...POSTS]
+  const rows = POSTS.filter((row) => !query.liked || row.likedByMe)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
     // **목록은 본문을 담지 않는다** (계약 §3-2-5 MUST). 픽스처가 담으면 화면이 그것에 기댄다.
     .map(({ content: _content, updatedAt: _updatedAt, ...rest }) => rest)
@@ -2136,8 +2140,8 @@ export function fixturePosts(
     page: {
       size,
       number: page,
-      totalElements: POSTS.length,
-      totalPages: Math.ceil(POSTS.length / size),
+      totalElements: rows.length,
+      totalPages: Math.ceil(rows.length / size),
     },
   })
 }

@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -21,7 +22,7 @@ import { PhotoGalleryPage } from './PhotoGalleryPage'
 
 const api = vi.hoisted(() => ({
   rows: [] as Photo[],
-  calls: [] as { page?: number; size?: number }[],
+  calls: [] as { page?: number; size?: number; liked?: boolean }[],
   removed: [] as number[],
   total: 0,
   totalPages: 1,
@@ -53,7 +54,7 @@ function photo(
 }
 
 vi.mock('@/api/photos', () => ({
-  list: (query: { page?: number; size?: number }) => {
+  list: (query: { page?: number; size?: number; liked?: boolean }) => {
     if (api.listError) return Promise.reject(api.listError)
     api.calls.push(query)
     return Promise.resolve({
@@ -754,5 +755,130 @@ describe('갤러리 좋아요', () => {
       expect(gridCount('좋아요 7')).toBeVisible()
       expect(api.likes).toEqual([{ id: 501, liked: true }])
     },
+  )
+})
+
+it('좋아요 토글은 다른 URL 조건을 보존하고 page만 초기화하며 서버 조회에 반영된다', async () => {
+  api.totalPages = 3
+  renderGallery('/photos?page=1&marker=keep')
+  const toggle = await screen.findByRole('link', { name: '좋아요' })
+  const target = new URL(
+    toggle.getAttribute('href') ?? '',
+    'https://test.local',
+  )
+  expect(target.searchParams.get('liked')).toBe('true')
+  expect(target.searchParams.get('marker')).toBe('keep')
+  expect(target.searchParams.has('page')).toBe(false)
+  fireEvent.click(toggle)
+  await waitFor(() =>
+    expect(api.calls.at(-1)).toMatchObject({ page: 0, liked: true }),
+  )
+  expect(screen.getByRole('link', { name: '좋아요' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
+  const off = new URL(
+    screen.getByRole('link', { name: '좋아요' }).getAttribute('href') ?? '',
+    'https://test.local',
+  )
+  expect(off.searchParams.has('liked')).toBe(false)
+  expect(off.searchParams.get('marker')).toBe('keep')
+  fireEvent.click(screen.getByRole('link', { name: '좋아요' }))
+  await waitFor(() => expect(api.calls.at(-1)?.liked).not.toBe(true))
+  const current = new URLSearchParams(
+    screen.getByTestId('search').textContent ?? '',
+  )
+  expect(current.has('liked')).toBe(false)
+  expect(current.has('page')).toBe(false)
+  expect(current.get('marker')).toBe('keep')
+})
+
+it('좋아요 필터가 켜진 빈 결과는 모으는 방법을 안내한다', async () => {
+  api.rows = []
+  api.totalPages = 0
+  renderGallery('/photos?liked=true')
+  expect(await screen.findByText(/좋아요한 사진이 없습니다\./)).toBeVisible()
+  await waitFor(() => expect(api.calls.at(-1)).toMatchObject({ liked: true }))
+})
+
+it.each([false, true])(
+  '좋아요 필터에서 취소 후 닫으면 서버 재조회한다 (응답 전 닫기=%s)',
+  async (closeFirst) => {
+    api.rows = [photo(501, '필터 사진', { count: 1, mine: true })]
+    let finish: () => void = () => undefined
+    api.likeGate = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    renderGallery('/photos?liked=true')
+    fireEvent.click(
+      await screen.findByRole('button', { name: '필터 사진 크게 보기' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: '좋아요 1' }))
+    expect(api.calls).toHaveLength(1)
+    if (closeFirst)
+      fireEvent.click(screen.getByRole('button', { name: '닫기' }))
+    // 다음 조회만 비게 한다. 화면이 로컬에서 빼지 않고 서버 결과를 읽는지 확인한다.
+    api.rows = []
+    api.total = 0
+    api.totalPages = 0
+    await act(async () => {
+      finish()
+      await api.likeGate
+    })
+    if (!closeFirst) {
+      expect(api.calls).toHaveLength(1)
+      expect(
+        screen.getByRole('button', { name: '필터 사진 크게 보기' }),
+      ).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: '닫기' }))
+    }
+    expect(await screen.findByText(/좋아요한 사진이 없습니다/)).toBeVisible()
+    expect(api.calls).toHaveLength(2)
+    expect(api.calls[1]).toMatchObject({ liked: true })
+  },
+)
+
+it.each(['실패', '전체 목록', '조작 없음'])(
+  '%s이면 라이트박스를 닫아도 목록을 다시 읽지 않는다',
+  async (kind) => {
+    api.rows = [photo(501, '필터 사진', { count: 1, mine: true })]
+    api.likeFails = kind === '실패'
+    renderGallery(kind === '전체 목록' ? '/photos' : '/photos?liked=true')
+    fireEvent.click(
+      await screen.findByRole('button', { name: '필터 사진 크게 보기' }),
+    )
+    if (kind !== '조작 없음') {
+      fireEvent.click(screen.getByRole('button', { name: '좋아요 1' }))
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', {
+            name: kind === '실패' ? '좋아요 1' : '좋아요 0',
+          }),
+        ).toBeEnabled(),
+      )
+    }
+    fireEvent.click(screen.getByRole('button', { name: '닫기' }))
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: '닫기' }),
+      ).not.toBeInTheDocument(),
+    )
+    expect(api.calls).toHaveLength(1)
+  },
+)
+
+it('좋아요를 켠 채 다음 페이지로 이동해도 조건을 유지한다', async () => {
+  api.totalPages = 3
+  renderGallery('/photos?liked=true&marker=keep')
+  await waitFor(() =>
+    expect(api.calls.at(-1)).toMatchObject({ page: 0, liked: true }),
+  )
+  const next = await screen.findByRole('link', { name: '다음 페이지로 이동' })
+  const url = new URL(next.getAttribute('href') ?? '', 'https://test.local')
+  expect(url.searchParams.get('liked')).toBe('true')
+  expect(url.searchParams.get('marker')).toBe('keep')
+  fireEvent.click(next)
+  await waitFor(() =>
+    expect(api.calls.at(-1)).toMatchObject({ page: 1, liked: true }),
   )
 })

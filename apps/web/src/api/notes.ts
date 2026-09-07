@@ -70,6 +70,7 @@ export interface NoteDetail extends Omit<NoteSummary, 'fileCount'> {
 }
 
 export type NoteQuery = {
+  liked?: boolean
   category?: Category
   /** 제목·과목명·교수명 통합 검색어. 필드를 나눠 보내지 않는다 (spec §2-1-1 MUST). */
   q?: string
@@ -94,7 +95,9 @@ export type NoteSortValue = (typeof NOTE_SORTS)[number]
 export function list(query: NoteQuery = {}): Promise<Page<NoteSummary>> {
   // 플래그는 함수 안에서 리터럴로 평가한다 — 이유는 `auth.ts` 상단 주석에 있다.
   if (import.meta.env.VITE_USE_FIXTURES === 'true') return fixtureNotes(query)
-  return request<Page<NoteSummary>>(`/notes${toQuery({ ...query })}`)
+  return request<Page<NoteSummary>>(
+    `/notes${toQuery({ ...query, liked: query.liked || undefined })}`,
+  )
 }
 
 export function get(id: number): Promise<NoteDetail> {

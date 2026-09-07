@@ -3,6 +3,7 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { list, type PostSummary } from '@/api/posts'
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
+import { LikeFilterLink } from '@/components/LikeFilterLink'
 import { ListSurface } from '@/components/ListSurface'
 import {
   KOREAN_PAGER_LABELS,
@@ -33,14 +34,9 @@ const PAGE_SIZE = 20
  * **본문 미리보기도 없다.** 목록 응답에 `content`가 아예 없다 (§3-2-5) — 자를 위치를
  * 서버가 정하게 되고, 길이를 바꾸면 계약이 바뀐다.
  */
-/**
- * 이 화면의 주소에는 `page` 말고 다른 조회 조건이 없다. 그래서 매번 새로 만든다.
- *
- * <b>컴포넌트 밖에 둔다</b> — 안에 두면 렌더마다 새 함수가 되어, 이것을 쓰는 effect가 매 렌더
- * 다시 돌거나 의존성에서 빠진 채 남는다.
- */
-function pageParams(next: number): URLSearchParams {
-  const params = new URLSearchParams()
+/** 페이지 이동은 좋아요를 포함한 현재 조회 조건을 보존한다. */
+function pageParams(current: URLSearchParams, next: number): URLSearchParams {
+  const params = new URLSearchParams(current)
   writePage(params, next)
   return params
 }
@@ -50,6 +46,7 @@ export function PostListPage() {
   const { pathname } = useLocation()
   const { reportApiError } = useSession()
 
+  const onlyLiked = searchParams.get('liked') === 'true'
   const page = parsePage(searchParams.get('page'))
   const [data, setData] = useState<Page<PostSummary> | null>(null)
   const [failed, setFailed] = useState(false)
@@ -60,7 +57,7 @@ export function PostListPage() {
     let alive = true
     setData(null)
     setFailed(false)
-    list({ page, size: PAGE_SIZE })
+    list({ page, size: PAGE_SIZE, ...(onlyLiked ? { liked: true } : {}) })
       .then((result) => {
         if (alive) setData(result)
       })
@@ -73,7 +70,7 @@ export function PostListPage() {
     return () => {
       alive = false
     }
-  }, [page, reloadKey, reportApiError])
+  }, [page, onlyLiked, reloadKey, reportApiError])
 
   /**
    * F-2 — 범위를 넘은 `page`로 들어오면 마지막 유효 페이지로 되돌린다. 그냥 두면 글이
@@ -83,12 +80,14 @@ export function PostListPage() {
     if (!data) return
     const { totalPages } = data.page
     if (totalPages >= 1 && page >= totalPages) {
-      setSearchParams(pageParams(totalPages - 1), { replace: true })
+      setSearchParams(pageParams(searchParams, totalPages - 1), {
+        replace: true,
+      })
     }
-  }, [data, page, setSearchParams])
+  }, [data, page, searchParams, setSearchParams])
 
   function pageHref(next: number): string {
-    const query = pageParams(next).toString()
+    const query = pageParams(searchParams, next).toString()
     return query === '' ? pathname : `${pathname}?${query}`
   }
 
@@ -100,9 +99,14 @@ export function PostListPage() {
          * 글쓰기는 `ACTIVE`면 누구나 한다 (spec §3-1-3 매트릭스 — 게시판 작성은 USER·ADMIN
          * 모두 `O`). 관리자 전용이 아니므로 `/admin` 아래에 두지 않는다.
          */}
-        <Button variant="outline" size="sm" asChild>
-          <Link to="/posts/new">글쓰기</Link>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2">
+            <LikeFilterLink />
+          </div>
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/posts/new">글쓰기</Link>
+          </Button>
+        </div>
       </div>
 
       <div className="mt-6 min-h-72" data-list-surface="posts">
@@ -128,7 +132,9 @@ export function PostListPage() {
 
         {data !== null && data.content.length === 0 && (
           <p className="mt-8 text-sm text-muted-foreground">
-            아직 올라온 글이 없습니다. 첫 글을 써보세요.
+            {onlyLiked
+              ? '좋아요한 글이 없습니다. 상세에서 좋아요를 누르면 여기 모입니다.'
+              : '아직 올라온 글이 없습니다. 첫 글을 써보세요.'}
           </p>
         )}
 
@@ -194,7 +200,7 @@ export function PostListPage() {
         page={page}
         totalPages={data?.page.totalPages ?? 0}
         hrefFor={pageHref}
-        onGo={(next) => setSearchParams(pageParams(next))}
+        onGo={(next) => setSearchParams(pageParams(searchParams, next))}
         labels={KOREAN_PAGER_LABELS}
       />
     </section>

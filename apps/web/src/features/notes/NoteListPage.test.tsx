@@ -924,3 +924,89 @@ describe('자료 목록', () => {
     expect(alert).not.toHaveTextContent('잠시 후 다시 시도')
   })
 })
+
+it('좋아요 토글은 다른 URL 조건을 보존하고 page만 초기화하며 서버 조회에 반영된다', async () => {
+  renderList('/notes?page=1&marker=keep')
+  const toggle = await screen.findByRole('link', { name: '좋아요' })
+  const target = new URL(
+    toggle.getAttribute('href') ?? '',
+    'https://test.local',
+  )
+  expect(target.searchParams.get('liked')).toBe('true')
+  expect(target.searchParams.get('marker')).toBe('keep')
+  expect(target.searchParams.has('page')).toBe(false)
+  fireEvent.click(toggle)
+  await waitFor(() =>
+    expect(api.queries.at(-1)).toMatchObject({ page: 0, liked: true }),
+  )
+  expect(screen.getByRole('link', { name: '좋아요' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
+  const off = new URL(
+    screen.getByRole('link', { name: '좋아요' }).getAttribute('href') ?? '',
+    'https://test.local',
+  )
+  expect(off.searchParams.has('liked')).toBe(false)
+  expect(off.searchParams.get('marker')).toBe('keep')
+  fireEvent.click(screen.getByRole('link', { name: '좋아요' }))
+  await waitFor(() => expect(api.queries.at(-1)?.liked).not.toBe(true))
+  const current = new URLSearchParams(
+    screen.getByTestId('query').textContent ?? '',
+  )
+  expect(current.has('liked')).toBe(false)
+  expect(current.has('page')).toBe(false)
+  expect(current.get('marker')).toBe('keep')
+})
+
+it('좋아요 필터가 켜진 빈 결과는 모으는 방법을 안내한다', async () => {
+  api.content = []
+  api.totalPages = 0
+  renderList('/notes?liked=true')
+  expect(await screen.findByText(/좋아요한 자료가 없습니다\./)).toBeVisible()
+  await waitFor(() => expect(api.queries.at(-1)).toMatchObject({ liked: true }))
+})
+
+it('좋아요는 자료 검색·정렬과 AND이며 즐겨찾기와 서로 배타다', async () => {
+  renderList('/notes?category=EXAM&q=운영체제&sort=views&year=2026&page=1')
+  fireEvent.click(await screen.findByRole('link', { name: '좋아요' }))
+  await waitFor(() =>
+    expect(api.queries.at(-1)).toMatchObject({
+      liked: true,
+      q: '운영체제',
+      sort: 'views',
+      year: 2026,
+      page: 0,
+    }),
+  )
+  fireEvent.click(screen.getByRole('link', { name: '즐겨찾기' }))
+  await waitFor(() => expect(api.bookmarkCalls.length).toBeGreaterThan(0))
+  expect(
+    new URLSearchParams(screen.getByTestId('query').textContent ?? '').has(
+      'liked',
+    ),
+  ).toBe(false)
+  fireEvent.click(screen.getByRole('link', { name: '좋아요' }))
+  await waitFor(() => expect(api.queries.at(-1)).toMatchObject({ liked: true }))
+  expect(
+    new URLSearchParams(screen.getByTestId('query').textContent ?? '').has(
+      'bookmarked',
+    ),
+  ).toBe(false)
+})
+
+it('좋아요를 켠 채 다음 페이지로 이동해도 조건을 유지한다', async () => {
+  api.totalPages = 3
+  renderList('/notes?liked=true&marker=keep')
+  await waitFor(() =>
+    expect(api.queries.at(-1)).toMatchObject({ page: 0, liked: true }),
+  )
+  const next = await screen.findByRole('link', { name: '다음 페이지로 이동' })
+  const url = new URL(next.getAttribute('href') ?? '', 'https://test.local')
+  expect(url.searchParams.get('liked')).toBe('true')
+  expect(url.searchParams.get('marker')).toBe('keep')
+  fireEvent.click(next)
+  await waitFor(() =>
+    expect(api.queries.at(-1)).toMatchObject({ page: 1, liked: true }),
+  )
+})

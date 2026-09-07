@@ -2252,3 +2252,64 @@ describe('게시글 좋아요 픽스처 권한 거부', () => {
     }
   })
 })
+
+it('네 좋아요 목록은 페이징 전에 거르고 기존 순서·총 건수를 보존한다', async () => {
+  const f = await loadFixtures('user')
+  const readers = [
+    (liked: boolean) => f.fixtureNotes({ size: 100, liked }),
+    (liked: boolean) => f.fixturePosts({ size: 100, liked }),
+    (liked: boolean) => f.fixturePhotos({ size: 100, liked }),
+    (liked: boolean) => f.fixtureNotices(0, 100, liked),
+  ]
+  for (const read of readers) {
+    const all = await read(false)
+    const expected = all.content
+      .filter((row) => row.likedByMe)
+      .map((row) => row.id)
+    expect(expected.length).toBeGreaterThan(0)
+    expect(expected.length).toBeLessThan(all.content.length)
+    const filtered = await read(true)
+    expect(filtered.content.map((row) => row.id)).toEqual(expected)
+    expect(filtered.page.totalElements).toBe(expected.length)
+    expect(new Set(filtered.content.map((row) => row.id)).size).toBe(
+      expected.length,
+    )
+  }
+  const notes = await f.fixtureNotes({
+    liked: true,
+    q: '컴퓨터네트워크',
+    size: 100,
+  })
+  expect(notes.content.length).toBeGreaterThan(0)
+  expect(
+    notes.content.every(
+      (row) => row.likedByMe && row.subjectName === '컴퓨터네트워크',
+    ),
+  ).toBe(true)
+  const one = await f.fixturePosts({ liked: true, size: 1 })
+  expect(one.content).toHaveLength(1)
+  expect(one.page.totalElements).toBeGreaterThan(1)
+  expect(one.page.totalPages).toBe(one.page.totalElements)
+})
+
+it('네 좋아요 목록은 취소 후 빈 결과와 0건을 돌려준다', async () => {
+  const f = await loadFixtures('user')
+  const notes = await f.fixtureNotes({ liked: true, size: 100 })
+  for (const row of notes.content) await f.fixtureSetNoteLike(row.id, false)
+  const posts = await f.fixturePosts({ liked: true, size: 100 })
+  for (const row of posts.content) await f.fixtureSetPostLike(row.id, false)
+  const photos = await f.fixturePhotos({ liked: true, size: 100 })
+  for (const row of photos.content) await f.fixtureSetPhotoLike(row.id, false)
+  const notices = await f.fixtureNotices(0, 100, true)
+  for (const row of notices.content) await f.fixtureSetNoticeLike(row.id, false)
+  for (const result of [
+    await f.fixtureNotes({ liked: true }),
+    await f.fixturePosts({ liked: true }),
+    await f.fixturePhotos({ liked: true }),
+    await f.fixtureNotices(0, 20, true),
+  ]) {
+    expect(result.content).toEqual([])
+    expect(result.page.totalElements).toBe(0)
+    expect(result.page.totalPages).toBe(0)
+  }
+})

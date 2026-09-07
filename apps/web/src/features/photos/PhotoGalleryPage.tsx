@@ -1,10 +1,11 @@
 import { Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { ApiError } from '@/api/client'
 import { list, type Photo, remove, setPhotoLike } from '@/api/photos'
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
+import { LikeFilterLink } from '@/components/LikeFilterLink'
 import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import {
   KOREAN_PAGER_LABELS,
@@ -50,14 +51,9 @@ function formatDate(iso: string): string {
  * 조회는 `ACTIVE`면 누구나, **삭제는 `ADMIN`만** 보인다 (spec §3-1-3 매트릭스). 노출
  * 제어일 뿐 권한 통제가 아니다 (§3-1-7) — 서버가 같은 조건으로 다시 막는다.
  */
-/**
- * 이 화면의 주소에는 `page` 말고 다른 조회 조건이 없다. 그래서 매번 새로 만든다.
- *
- * <b>컴포넌트 밖에 둔다</b> — 안에 두면 렌더마다 새 함수가 되어, 이것을 쓰는 effect가 매 렌더
- * 다시 돌거나 의존성에서 빠진 채 남는다.
- */
-function pageParams(next: number): URLSearchParams {
-  const params = new URLSearchParams()
+/** 페이지 이동은 좋아요를 포함한 현재 조회 조건을 보존한다. */
+function pageParams(current: URLSearchParams, next: number): URLSearchParams {
+  const params = new URLSearchParams(current)
   writePage(params, next)
   return params
 }
@@ -69,6 +65,7 @@ export function PhotoGalleryPage() {
   const alert = useLiveAlert()
   const isAdmin = state.kind === 'active' && state.user.role === 'ADMIN'
 
+  const onlyLiked = searchParams.get('liked') === 'true'
   const page = parsePage(searchParams.get('page'))
   const [data, setData] = useState<Page<Photo> | null>(null)
   const [failed, setFailed] = useState(false)
@@ -82,6 +79,8 @@ export function PhotoGalleryPage() {
    */
   const [zoomedId, setZoomedId] = useState<number | null>(null)
   // 진행 중에 또 누르면 POST와 DELETE가 순서를 바꿔 도착해 서버 상태와 화면이 갈린다.
+  const listGeneration = useRef(0)
+  const [refreshAfterUnlike, setRefreshAfterUnlike] = useState(false)
   const [liking, setLiking] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const zoomed = data?.content.find((photo) => photo.id === zoomedId) ?? null
@@ -89,6 +88,8 @@ export function PhotoGalleryPage() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey는 본문에서 읽지 않고 재조회 트리거로만 쓴다.
   useEffect(() => {
     let alive = true
+    listGeneration.current += 1
+    setRefreshAfterUnlike(false)
     setData(null)
     setFailed(false)
     /*
@@ -100,7 +101,7 @@ export function PhotoGalleryPage() {
      * 붙는데, 닫는 effect와 다시 붙는 effect 사이에 이벤트가 도착하면 아무도 못 듣는다.
      */
     setZoomedId(null)
-    list({ page, size: PAGE_SIZE })
+    list({ page, size: PAGE_SIZE, ...(onlyLiked ? { liked: true } : {}) })
       .then((result) => {
         if (alive) setData(result)
       })
@@ -113,7 +114,14 @@ export function PhotoGalleryPage() {
     return () => {
       alive = false
     }
-  }, [page, reloadKey, reportApiError])
+  }, [page, onlyLiked, reloadKey, reportApiError])
+
+  // 취소가 성공하고 크게 보기도 끝난 뒤 서버 목록을 읽는다. 요청 중 먼저 닫아도 놓치지 않는다.
+  useEffect(() => {
+    if (!refreshAfterUnlike || zoomedId !== null) return
+    setRefreshAfterUnlike(false)
+    if (onlyLiked) setReloadKey((key) => key + 1)
+  }, [refreshAfterUnlike, zoomedId, onlyLiked])
 
   /**
    * 마지막 페이지의 마지막 사진을 지우면 그 페이지가 사라진다. 되돌리지 않으면 사진이
@@ -123,12 +131,14 @@ export function PhotoGalleryPage() {
     if (!data) return
     const { totalPages } = data.page
     if (totalPages >= 1 && page >= totalPages) {
-      setSearchParams(pageParams(totalPages - 1), { replace: true })
+      setSearchParams(pageParams(searchParams, totalPages - 1), {
+        replace: true,
+      })
     }
-  }, [data, page, setSearchParams])
+  }, [data, page, searchParams, setSearchParams])
 
   function pageHref(next: number): string {
-    const query = pageParams(next).toString()
+    const query = pageParams(searchParams, next).toString()
     return query === '' ? pathname : `${pathname}?${query}`
   }
 
@@ -153,6 +163,7 @@ export function PhotoGalleryPage() {
    * 같지가 않다. 실패하면 누르기 전 사진으로 되돌린다.
    */
   async function toggleLike(photo: Photo) {
+    const generation = listGeneration.current
     const next = !photo.likedByMe
     setLiking(true)
     replacePhoto({
@@ -162,6 +173,10 @@ export function PhotoGalleryPage() {
     })
     try {
       await setPhotoLike(photo.id, next)
+      // 다른 페이지로 이동한 뒤 끝난 요청이 새 목록을 다시 읽게 하지 않는다.
+      if (generation === listGeneration.current && onlyLiked && !next) {
+        setRefreshAfterUnlike(true)
+      }
     } catch (caught: unknown) {
       replacePhoto(photo)
       if (!reportApiError(caught)) {
@@ -212,11 +227,16 @@ export function PhotoGalleryPage() {
          * **업로드는 `ADMIN` 전용이다** (spec §3-1-3 매트릭스). 자료와 다른 점이다 —
          * 자료는 부원 누구나 올린다. 진입점도 `/admin` 아래에 둔다.
          */}
-        {isAdmin && (
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/admin/photos/new">업로드</Link>
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2">
+            <LikeFilterLink />
+          </div>
+          {isAdmin && (
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/admin/photos/new">업로드</Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="mt-6 min-h-[32rem]" data-list-surface="photos">
@@ -242,7 +262,9 @@ export function PhotoGalleryPage() {
 
         {data !== null && data.content.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            등록된 사진이 없습니다.
+            {onlyLiked
+              ? '좋아요한 사진이 없습니다. 사진을 크게 보고 좋아요를 누르면 여기 모입니다.'
+              : '등록된 사진이 없습니다.'}
           </p>
         )}
 
@@ -391,7 +413,7 @@ export function PhotoGalleryPage() {
         page={page}
         totalPages={data?.page.totalPages ?? 0}
         hrefFor={pageHref}
-        onGo={(next) => setSearchParams(pageParams(next))}
+        onGo={(next) => setSearchParams(pageParams(searchParams, next))}
         labels={KOREAN_PAGER_LABELS}
       />
     </section>
