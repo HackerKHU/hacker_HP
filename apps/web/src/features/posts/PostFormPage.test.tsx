@@ -54,6 +54,8 @@ vi.mock('@/api/posts', async (importOriginal) => {
       api.created.push(body)
       return Promise.resolve({
         id: 801,
+        likeCount: 0,
+        likedByMe: false,
         title: body.title,
         content: body.content,
         author: { id: 1, name: '홍길동' },
@@ -110,6 +112,8 @@ vi.mock('@/api/auth', () => ({
 
 const EXISTING = {
   id: 701,
+  likeCount: 4,
+  likedByMe: true,
   title: '  기존 제목  ',
   content: '\n  기존 본문\n',
   author: { id: BASE.id, name: BASE.name },

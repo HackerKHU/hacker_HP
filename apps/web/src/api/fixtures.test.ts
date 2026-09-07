@@ -2152,3 +2152,59 @@ it('자료 좋아요 픽스처는 멱등이고 즐겨찾기·수정과 별개다
   })
   expect(created).toMatchObject({ likeCount: 0, likedByMe: false })
 })
+
+it.each(['user', 'inactive'])(
+  '%s 게시글 좋아요는 멱등이며 등록·수정·목록 응답에 반영된다',
+  async (scenario) => {
+    const f = await loadFixtures(scenario)
+    const before = { ...(await f.fixturePost(701)) }
+    await f.fixtureSetPostLike(701, true)
+    await f.fixtureSetPostLike(701, true)
+    expect(await f.fixturePost(701)).toMatchObject({
+      likeCount: before.likeCount + 1,
+      likedByMe: true,
+    })
+    const updated = await f.fixtureEditPost(701, {
+      title: '고친 글',
+      content: '고친 본문',
+    })
+    expect(updated).toMatchObject({
+      likeCount: before.likeCount + 1,
+      likedByMe: true,
+    })
+    const page = await f.fixturePosts()
+    expect(page.content.find((post) => post.id === 701)).toMatchObject({
+      likeCount: before.likeCount + 1,
+      likedByMe: true,
+    })
+    await f.fixtureSetPostLike(701, false)
+    await f.fixtureSetPostLike(701, false)
+    expect(await f.fixturePost(701)).toMatchObject({
+      likeCount: before.likeCount,
+      likedByMe: false,
+    })
+    // 남이 남긴 반응은 내가 취소해도 그대로다.
+    const other = { ...(await f.fixturePost(703)) }
+    expect(other.likedByMe).toBe(false)
+    expect(other.likeCount).toBeGreaterThan(0)
+    await f.fixtureSetPostLike(703, false)
+    expect(await f.fixturePost(703)).toMatchObject(other)
+    await expect(f.fixtureSetPostLike(99999, true)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    await expect(f.fixtureSetPostLike(99999, false)).resolves.toBeUndefined()
+    const created = await f.fixtureCreatePost({
+      title: '새 글',
+      content: '본문',
+    })
+    expect(created).toMatchObject({ likeCount: 0, likedByMe: false })
+    await f.fixtureSetPostLike(created.id, true)
+    await f.fixtureRemovePost(created.id)
+    await expect(
+      f.fixtureSetPostLike(created.id, false),
+    ).resolves.toBeUndefined()
+    await expect(f.fixtureSetPostLike(created.id, true)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+  },
+)

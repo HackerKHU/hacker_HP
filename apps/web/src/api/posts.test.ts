@@ -9,6 +9,7 @@ import {
   list,
   remove,
   removeComment,
+  setPostLike,
   update,
   updateComment,
 } from './posts'
@@ -260,3 +261,18 @@ describe('코드 포인트 계수', () => {
     expect(countCodePoints('🎉🎉🎉')).toBe(3)
   })
 })
+
+it.each([
+  [true, 'POST'],
+  [false, 'DELETE'],
+] as const)(
+  '좋아요 %s는 %s /posts/{id}/like로 보내고 204를 받는다',
+  async (liked, method) => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }))
+    await expect(setPostLike(701, liked)).resolves.toBeUndefined()
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/posts/701/like',
+      expect.objectContaining({ method }),
+    )
+  },
+)

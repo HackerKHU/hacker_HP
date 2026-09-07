@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -21,6 +22,7 @@ import { PostDetailPage } from './PostDetailPage'
 
 const api = vi.hoisted(() => ({
   post: null as PostDetail | null,
+  like: vi.fn<(id: number, liked: boolean) => Promise<void>>(),
   remove: vi.fn<(id: number) => Promise<void>>(),
 }))
 
@@ -41,6 +43,8 @@ const auth = vi.hoisted(() => ({ me: null as User | null }))
 
 const POST: PostDetail = {
   id: 701,
+  likeCount: 4,
+  likedByMe: false,
   title: '이번 학기 스터디 모집합니다',
   content: '매주 수요일 저녁 7시입니다.\n관심 있으신 분 연락 주세요.',
   // 관리자는 작성자가 아니어도 삭제할 수 있어야 한다.
@@ -50,6 +54,7 @@ const POST: PostDetail = {
 }
 
 vi.mock('@/api/posts', () => ({
+  setPostLike: api.like,
   get: () =>
     api.post
       ? Promise.resolve(api.post)
@@ -114,6 +119,8 @@ async function openDeleteDialog() {
 }
 
 beforeEach(() => {
+  api.like.mockReset()
+  api.like.mockResolvedValue()
   api.post = POST
   api.remove.mockReset()
   api.remove.mockResolvedValue()
@@ -449,5 +456,69 @@ describe('관리자·작성자 게시글 삭제', () => {
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.queryByRole('status')).toBeNull()
     expect(screen.getByTestId('navigation')).toHaveTextContent('/posts/701')
+  })
+})
+
+// Promise를 직접 끝내 응답 전에 바뀌는지와 연타가 실제 요청을 늘리지 않는지를 본다.
+describe('게시글 좋아요', () => {
+  it.each([false, true])(
+    'likedByMe=%s에서 방향·개수를 먼저 바꾸고 연타를 막는다',
+    async (initial) => {
+      api.post = { ...POST, likedByMe: initial }
+      let finish: () => void = () => undefined
+      const pending = new Promise<void>((resolve) => {
+        finish = resolve
+      })
+      api.like.mockReturnValue(pending)
+      renderDetail()
+      const button = await screen.findByRole('button', { name: '좋아요 4' })
+      expect(button).toHaveAttribute('aria-pressed', String(initial))
+      fireEvent.click(button)
+      const changed = screen.getByRole('button', {
+        name: `좋아요 ${initial ? 3 : 5}`,
+      })
+      expect(changed).toHaveAttribute('aria-pressed', String(!initial))
+      expect(changed).toBeDisabled()
+      fireEvent.click(changed)
+      expect(api.like).toHaveBeenCalledExactlyOnceWith(701, !initial)
+      await act(async () => {
+        finish()
+        await pending
+      })
+      expect(changed).toBeEnabled()
+    },
+  )
+
+  it.each([false, true])(
+    'likedByMe=%s에서 실패하면 스냅샷을 복원하고 오류를 알린다',
+    async (initial) => {
+      api.post = { ...POST, likedByMe: initial }
+      api.like.mockRejectedValue(new Error('network'))
+      renderDetail()
+      fireEvent.click(await screen.findByRole('button', { name: '좋아요 4' }))
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('좋아요를 바꾸지 못했습니다')
+      expect(alert.closest('[data-live-alert-viewport="true"]')).not.toBeNull()
+      const button = screen.getByRole('button', { name: '좋아요 4' })
+      expect(button).toHaveAttribute('aria-pressed', String(initial))
+      expect(button).toBeEnabled()
+    },
+  )
+
+  it('INACTIVE 일반 부원도 남의 글에 좋아요를 누를 수 있다', async () => {
+    auth.me = { ...BASE, status: 'INACTIVE' }
+    renderDetail()
+    fireEvent.click(await screen.findByRole('button', { name: '좋아요 4' }))
+    await waitFor(() =>
+      expect(api.like).toHaveBeenCalledExactlyOnceWith(701, true),
+    )
+    expect(screen.getByRole('button', { name: '좋아요 5' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(screen.queryByRole('link', { name: '수정' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: '삭제' }),
+    ).not.toBeInTheDocument()
   })
 })

@@ -152,6 +152,7 @@ export function PostListPage() {
                 <TableRow>
                   <TableHead className="text-center">제목</TableHead>
                   <TableHead className="w-28 text-center">작성자</TableHead>
+                  <TableHead className="w-20 text-center">좋아요</TableHead>
                   <TableHead className="w-28 text-center">등록일</TableHead>
                 </TableRow>
               </TableHeader>
@@ -170,6 +171,10 @@ export function PostListPage() {
                     {/* 작성자 이름은 절대 비지 않는다 — 제거되면 "탈퇴한 회원"이다 (§2-1-8). */}
                     <TableCell className="truncate text-muted-foreground">
                       {post.author.name}
+                    </TableCell>
+                    {/* 목록은 숫자만 보여준다. 반응은 글을 읽은 뒤 상세에서 남긴다 (#350 D1). */}
+                    <TableCell className="tabular-nums">
+                      {post.likeCount}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-muted-foreground">
                       <time dateTime={post.createdAt}>
