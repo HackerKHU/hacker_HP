@@ -1,7 +1,8 @@
+import { ThumbsUp } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '@/api/client'
-import { get, type PostDetail, remove } from '@/api/posts'
+import { get, type PostDetail, remove, setPostLike } from '@/api/posts'
 import { useSession } from '@/auth/session'
 import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import {
@@ -16,6 +17,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { formatDateTime } from './format'
 import { PostComments } from './PostComments'
 
@@ -45,6 +47,7 @@ export function PostDetailPage() {
 
   const [post, setPost] = useState<PostDetail | null>(null)
   const [status, setStatus] = useState<Status>('loading')
+  const [liking, setLiking] = useState(false)
   const [deleting, setDeleting] = useState(false)
   // React가 disabled를 다시 그리기 전의 연속 확인도 한 요청으로 접는다.
   const deletingRef = useRef(false)
@@ -80,6 +83,32 @@ export function PostDetailPage() {
       alive = false
     }
   }, [id, reportApiError])
+
+  /**
+   * 응답은 204라 최신 개수가 없다. 공지처럼 먼저 반영하고 실패하면 스냅샷으로 되돌린다.
+   * 요청 중 버튼을 잠가 POST/DELETE가 순서를 바꿔 도착하지 않게 한다.
+   */
+  async function toggleLike() {
+    if (!post) return
+    const before = post
+    const next = !post.likedByMe
+    setLiking(true)
+    setPost({
+      ...post,
+      likedByMe: next,
+      likeCount: post.likeCount + (next ? 1 : -1),
+    })
+    try {
+      await setPostLike(post.id, next)
+    } catch (caught: unknown) {
+      setPost((current) => (current?.id === before.id ? before : current))
+      if (!reportApiError(caught)) {
+        alert.error('좋아요를 바꾸지 못했습니다. 다시 시도해 주세요.')
+      }
+    } finally {
+      setLiking(false)
+    }
+  }
 
   async function handleDelete() {
     if (deletingRef.current) return
@@ -164,64 +193,73 @@ export function PostDetailPage() {
               )}
             </div>
 
-            {(canEdit || canDelete) && (
-              <div className="flex shrink-0 items-center gap-2">
-                {canEdit && (
-                  <Button variant="outline" size="sm" asChild>
-                    <Link to={`/posts/${post.id}/edit`}>수정</Link>
-                  </Button>
-                )}
-                {canDelete && (
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={liking || deleting}
+                aria-pressed={post.likedByMe}
+                onClick={toggleLike}
+              >
+                <ThumbsUp
+                  className={cn('size-4', post.likedByMe && 'fill-current')}
+                  aria-hidden="true"
+                />
+                좋아요 {post.likeCount}
+              </Button>
+              {canEdit && (
+                <Button variant="outline" size="sm" asChild>
+                  <Link to={`/posts/${post.id}/edit`}>수정</Link>
+                </Button>
+              )}
+              {canDelete && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={deleting}
+                    >
+                      삭제
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>게시글을 삭제할까요?</AlertDialogTitle>
+                      <AlertDialogDescription asChild>
+                        <div>
+                          <span className="block">
+                            다음 게시글을 완전히 삭제합니다.
+                          </span>
+                          <span
+                            className="mt-1 block truncate font-medium text-foreground"
+                            title={post.title}
+                          >
+                            「{post.title}」
+                          </span>
+                          <span className="mt-1 block">
+                            되돌릴 수 없습니다.
+                          </span>
+                        </div>
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel disabled={deleting}>
+                        취소
+                      </AlertDialogCancel>
+                      <AlertDialogAction
                         variant="destructive"
-                        size="sm"
-                        className="shrink-0"
                         disabled={deleting}
+                        onClick={handleDelete}
                       >
                         삭제
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>
-                          게시글을 삭제할까요?
-                        </AlertDialogTitle>
-                        <AlertDialogDescription asChild>
-                          <div>
-                            <span className="block">
-                              다음 게시글을 완전히 삭제합니다.
-                            </span>
-                            <span
-                              className="mt-1 block truncate font-medium text-foreground"
-                              title={post.title}
-                            >
-                              「{post.title}」
-                            </span>
-                            <span className="mt-1 block">
-                              되돌릴 수 없습니다.
-                            </span>
-                          </div>
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel disabled={deleting}>
-                          취소
-                        </AlertDialogCancel>
-                        <AlertDialogAction
-                          variant="destructive"
-                          disabled={deleting}
-                          onClick={handleDelete}
-                        >
-                          삭제
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                )}
-              </div>
-            )}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+            </div>
           </div>
 
           {/*

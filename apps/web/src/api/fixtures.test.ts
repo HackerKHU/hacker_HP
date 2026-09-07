@@ -2152,3 +2152,103 @@ it('자료 좋아요 픽스처는 멱등이고 즐겨찾기·수정과 별개다
   })
   expect(created).toMatchObject({ likeCount: 0, likedByMe: false })
 })
+
+it.each(['user', 'inactive'])(
+  '%s 게시글 좋아요는 멱등이며 등록·수정·목록 응답에 반영된다',
+  async (scenario) => {
+    const f = await loadFixtures(scenario)
+    const before = { ...(await f.fixturePost(701)) }
+    await f.fixtureSetPostLike(701, true)
+    await f.fixtureSetPostLike(701, true)
+    expect(await f.fixturePost(701)).toMatchObject({
+      likeCount: before.likeCount + 1,
+      likedByMe: true,
+    })
+    const updated = await f.fixtureEditPost(701, {
+      title: '고친 글',
+      content: '고친 본문',
+    })
+    expect(updated).toMatchObject({
+      likeCount: before.likeCount + 1,
+      likedByMe: true,
+    })
+    const page = await f.fixturePosts()
+    expect(page.content.find((post) => post.id === 701)).toMatchObject({
+      likeCount: before.likeCount + 1,
+      likedByMe: true,
+    })
+    await f.fixtureSetPostLike(701, false)
+    await f.fixtureSetPostLike(701, false)
+    expect(await f.fixturePost(701)).toMatchObject({
+      likeCount: before.likeCount,
+      likedByMe: false,
+    })
+    // 남이 남긴 반응은 내가 취소해도 그대로다.
+    const other = { ...(await f.fixturePost(703)) }
+    expect(other.likedByMe).toBe(false)
+    expect(other.likeCount).toBeGreaterThan(0)
+    await f.fixtureSetPostLike(703, false)
+    expect(await f.fixturePost(703)).toMatchObject(other)
+    await expect(f.fixtureSetPostLike(99999, true)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    await expect(f.fixtureSetPostLike(99999, false)).resolves.toBeUndefined()
+    const created = await f.fixtureCreatePost({
+      title: '새 글',
+      content: '본문',
+    })
+    expect(created).toMatchObject({ likeCount: 0, likedByMe: false })
+    await f.fixtureSetPostLike(created.id, true)
+    await f.fixtureRemovePost(created.id)
+    await expect(
+      f.fixtureSetPostLike(created.id, false),
+    ).resolves.toBeUndefined()
+    await expect(f.fixtureSetPostLike(created.id, true)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+  },
+)
+
+// T-550: 허용 시나리오만 검사하면 거부 분기를 지워도 통과한다.
+// 존재하는 글로 두 방향을 호출해 NOT_FOUND나 무조건 성공이 권한 오류를 대신하지 못하게 한다.
+describe('게시글 좋아요 픽스처 권한 거부', () => {
+  it.each([
+    ['guest', 401, 'UNAUTHENTICATED'],
+    ['pending', 403, 'PENDING_APPROVAL'],
+  ] as const)(
+    '%s는 추가·취소 모두 %s %s로 거부한다',
+    async (scenario, status, code) => {
+      const f = await loadFixtures(scenario)
+      for (const liked of [true, false]) {
+        await expect(f.fixtureSetPostLike(701, liked)).rejects.toMatchObject({
+          status,
+          code,
+        })
+      }
+    },
+  )
+
+  it('관리 계정의 권한을 회수하고 정지하면 추가·취소 모두 403 SUSPENDED다', async () => {
+    const f = await loadFixtures('admin')
+    // 관리자 직접 정지는 금지되어 있으므로 기존 게시글 삭제 테스트처럼 권한부터 회수한다.
+    await f.fixtureUpdateUserRole(2, 'USER')
+    await f.fixtureUpdateUserStatus(2, 'SUSPENDED')
+    for (const liked of [true, false]) {
+      await expect(f.fixtureSetPostLike(701, liked)).rejects.toMatchObject({
+        status: 403,
+        code: 'SUSPENDED',
+      })
+    }
+  })
+
+  it('관리 계정을 제거하면 추가·취소 모두 401 UNAUTHENTICATED다', async () => {
+    const f = await loadFixtures('admin')
+    await f.fixtureRemoveUser(2)
+    for (const liked of [true, false]) {
+      await expect(f.fixtureSetPostLike(701, liked)).rejects.toMatchObject({
+        status: 401,
+        code: 'UNAUTHENTICATED',
+      })
+    }
+  })
+})

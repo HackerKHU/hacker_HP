@@ -29,6 +29,8 @@ const api = vi.hoisted(() => ({
 
 const POST: PostSummary = {
   id: 701,
+  likeCount: 4,
+  likedByMe: false,
   title: '이번 학기 스터디 모집합니다',
   author: { id: 1, name: '홍길동' },
   createdAt: '2026-08-01T09:00:00Z',
@@ -120,7 +122,7 @@ describe('자유 게시판 목록', () => {
 
     expect(
       screen.getAllByRole('columnheader').map((cell) => cell.textContent),
-    ).toEqual(['제목', '작성자', '등록일'])
+    ).toEqual(['제목', '작성자', '좋아요', '등록일'])
 
     const row = screen
       .getByRole('link', { name: POST.title })
@@ -286,3 +288,21 @@ describe('자유 게시판 목록', () => {
     expect(await screen.findByText(/아직 올라온 글이 없습니다/)).toBeVisible()
   })
 })
+
+it.each([0, 4])(
+  '목록은 좋아요 %s를 숫자 셀로만 표시한다',
+  async (likeCount) => {
+    api.rows = [{ ...POST, likeCount }]
+    renderList()
+    const link = await screen.findByRole('link', { name: POST.title })
+    const row = link.closest('tr')
+    if (!row) throw new Error('게시글 행이 없다')
+    const cell = within(row).getAllByRole('cell')[2]
+    expect(cell).toHaveTextContent(String(likeCount))
+    expect(cell).toHaveClass('tabular-nums')
+    expect(cell.querySelector('button, svg')).toBeNull()
+    expect(screen.getByRole('columnheader', { name: '좋아요' })).toHaveClass(
+      'w-20',
+    )
+  },
+)

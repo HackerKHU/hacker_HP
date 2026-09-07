@@ -9,6 +9,7 @@ import {
   fixturePosts,
   fixtureRemoveComment,
   fixtureRemovePost,
+  fixtureSetPostLike,
 } from './fixtures'
 import type { Page } from './types'
 
@@ -31,6 +32,9 @@ export interface PostAuthor {
  * 자를 위치를 서버가 정하게 되고, 길이를 바꾸면 계약이 바뀐다.
  */
 export interface PostSummary {
+  /** 목록·상세·등록·수정이 함께 주는 반응 요약이다 (spec §3-2-5). */
+  likeCount: number
+  likedByMe: boolean
   id: number
   title: string
   author: PostAuthor
@@ -183,4 +187,14 @@ export function removeComment(
   if (import.meta.env.VITE_USE_FIXTURES === 'true')
     return fixtureRemoveComment(postId, commentId)
   return request(`/posts/${postId}/comments/${commentId}`, { method: 'DELETE' })
+}
+
+/**
+ * 좋아요·취소. 토글이 아니라 원하는 상태를 보낸다 (spec §3-2-5 MUST).
+ * 둘 다 멱등이므로 재시도가 방금 누른 반응을 취소하지 않는다.
+ */
+export function setPostLike(id: number, liked: boolean): Promise<void> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true')
+    return fixtureSetPostLike(id, liked)
+  return request(`/posts/${id}/like`, { method: liked ? 'POST' : 'DELETE' })
 }

@@ -2103,6 +2103,9 @@ const POSTS: FixturePost[] = Array.from({ length: 25 }, (_, index) => {
   const owner = index % 3
   return {
     id: 701 + index,
+    // 0·내 반응·남의 반응을 섞어 채움과 비움을 모두 확인한다.
+    likeCount: index % 4,
+    likedByMe: index % 4 === 1,
     title: `${POST_TITLES[index % POST_TITLES.length]}${index >= POST_TITLES.length ? ` (${index + 1})` : ''}`,
     content: POST_BODIES[index % POST_BODIES.length],
     author:
@@ -2283,6 +2286,8 @@ export function fixtureCreatePost(body: {
   const now = new Date().toISOString()
   const created: FixturePost = {
     id: nextPostId++,
+    likeCount: 0,
+    likedByMe: false,
     /*
      * **제목은 다듬고 본문은 그대로 둔다** — 서버가 그렇게 한다 (§3-2-5 MUST,
      * `PostService` — "본문은 trim하지 않는다"). 픽스처가 본문을 털면 들여쓴 코드가
@@ -2476,5 +2481,48 @@ export function fixtureRemoveComment(
     )
   }
   COMMENTS.splice(COMMENTS.indexOf(found), 1)
+  return Promise.resolve()
+}
+
+/**
+ * 공지와 같은 멱등 반응이다. INACTIVE도 게시판을 읽고 반응할 수 있으므로
+ * 자료 접근 검사를 쓰지 않는다 (spec §3-2-5). 없는 글은 취소만 성공한다.
+ */
+export function fixtureSetPostLike(id: number, liked: boolean): Promise<void> {
+  if (SCENARIO === 'guest') {
+    return Promise.reject(
+      new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
+    )
+  }
+  if (PENDING_SCENARIOS.includes(SCENARIO)) {
+    return Promise.reject(
+      new ApiError('PENDING_APPROVAL', 403, '가입 승인 대기 중입니다.'),
+    )
+  }
+  // 관리 시나리오도 정지·제거 이후에는 반응할 수 없다. 삭제와 같은 최신 명부를 본다.
+  const requester =
+    SCENARIO === 'admin'
+      ? MEMBERS.find((member) => member.id === SELF_ID)
+      : viewer()
+  if (!requester) {
+    return Promise.reject(
+      new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
+    )
+  }
+  if (requester.status === 'SUSPENDED') {
+    return Promise.reject(new ApiError('SUSPENDED', 403, '정지된 계정입니다.'))
+  }
+  const found = POSTS.find((post) => post.id === id)
+  if (!found) {
+    return liked
+      ? Promise.reject(
+          new ApiError('NOT_FOUND', 404, '게시글을 찾을 수 없습니다.'),
+        )
+      : Promise.resolve()
+  }
+  if (found.likedByMe !== liked) {
+    found.likedByMe = liked
+    found.likeCount += liked ? 1 : -1
+  }
   return Promise.resolve()
 }
