@@ -2208,3 +2208,47 @@ it.each(['user', 'inactive'])(
     })
   },
 )
+
+// T-550: 허용 시나리오만 검사하면 거부 분기를 지워도 통과한다.
+// 존재하는 글로 두 방향을 호출해 NOT_FOUND나 무조건 성공이 권한 오류를 대신하지 못하게 한다.
+describe('게시글 좋아요 픽스처 권한 거부', () => {
+  it.each([
+    ['guest', 401, 'UNAUTHENTICATED'],
+    ['pending', 403, 'PENDING_APPROVAL'],
+  ] as const)(
+    '%s는 추가·취소 모두 %s %s로 거부한다',
+    async (scenario, status, code) => {
+      const f = await loadFixtures(scenario)
+      for (const liked of [true, false]) {
+        await expect(f.fixtureSetPostLike(701, liked)).rejects.toMatchObject({
+          status,
+          code,
+        })
+      }
+    },
+  )
+
+  it('관리 계정의 권한을 회수하고 정지하면 추가·취소 모두 403 SUSPENDED다', async () => {
+    const f = await loadFixtures('admin')
+    // 관리자 직접 정지는 금지되어 있으므로 기존 게시글 삭제 테스트처럼 권한부터 회수한다.
+    await f.fixtureUpdateUserRole(2, 'USER')
+    await f.fixtureUpdateUserStatus(2, 'SUSPENDED')
+    for (const liked of [true, false]) {
+      await expect(f.fixtureSetPostLike(701, liked)).rejects.toMatchObject({
+        status: 403,
+        code: 'SUSPENDED',
+      })
+    }
+  })
+
+  it('관리 계정을 제거하면 추가·취소 모두 401 UNAUTHENTICATED다', async () => {
+    const f = await loadFixtures('admin')
+    await f.fixtureRemoveUser(2)
+    for (const liked of [true, false]) {
+      await expect(f.fixtureSetPostLike(701, liked)).rejects.toMatchObject({
+        status: 401,
+        code: 'UNAUTHENTICATED',
+      })
+    }
+  })
+})
