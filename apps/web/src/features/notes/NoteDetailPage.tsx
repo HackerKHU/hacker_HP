@@ -1,4 +1,4 @@
-import { Download, Star } from 'lucide-react'
+import { Download, Star, ThumbsUp } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '@/api/client'
@@ -8,6 +8,7 @@ import {
   type NoteDetail,
   remove,
   setBookmark,
+  setNoteLike,
 } from '@/api/notes'
 import { isInactive, useSession } from '@/auth/session'
 import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
@@ -156,6 +157,33 @@ export function NoteDetailPage() {
     }
   }
 
+  /**
+   * 좋아요는 `likedByMe`로 방향을 정하고 낙관적으로 반영한다 (계약 §3-2-4).
+   * 응답이 `204`라 개수는 직접 센다. 상세 GET을 다시 하면 조회수까지 오르므로 부르지 않는다.
+   * 기존 busy로 조작을 잠가 요청 순서가 뒤집히거나 롤백이 즐겨찾기를 덮어쓰지 않게 한다.
+   */
+  async function toggleLike() {
+    if (!note) return
+    const next = !note.likedByMe
+    const before = note
+    setBusy(true)
+    setNote({
+      ...note,
+      likedByMe: next,
+      likeCount: note.likeCount + (next ? 1 : -1),
+    })
+    try {
+      await setNoteLike(note.id, next)
+    } catch (caught: unknown) {
+      setNote((current) => (current?.id === before.id ? before : current))
+      if (!reportApiError(caught)) {
+        alert.error('좋아요를 바꾸지 못했습니다. 다시 시도해 주세요.')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
   /** 삭제는 되돌릴 수 없다. 확인 단계를 거친 뒤에만 여기 도달한다. */
   async function handleDelete() {
     if (!note) return
@@ -235,6 +263,20 @@ export function NoteDetailPage() {
                   aria-hidden="true"
                 />
                 {note.bookmarked ? '즐겨찾기 해제' : '즐겨찾기'}
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                aria-pressed={note.likedByMe}
+                onClick={toggleLike}
+              >
+                <ThumbsUp
+                  className={cn('size-4', note.likedByMe && 'fill-current')}
+                  aria-hidden="true"
+                />
+                좋아요 {note.likeCount}
               </Button>
 
               {/*

@@ -8,6 +8,7 @@ import {
   fixtureNotes,
   fixtureRemoveNote,
   fixtureSetBookmark,
+  fixtureSetNoteLike,
   fixtureUpdateNote,
   fixtureUploadUrls,
 } from './fixtures'
@@ -46,6 +47,9 @@ export interface NoteSummary {
   fileCount: number
   viewCount: number
   bookmarked: boolean
+  /** 즐겨찾기와 별개인 반응이다 (spec §3-2-4). 목록·상세·등록·수정이 함께 준다. */
+  likeCount: number
+  likedByMe: boolean
   createdAt: string
 }
 
@@ -326,4 +330,16 @@ export function bookmarks(
   if (import.meta.env.VITE_USE_FIXTURES === 'true')
     return fixtureBookmarks(query)
   return request<Page<NoteSummary>>(`/bookmarks${toQuery({ ...query })}`)
+}
+
+/**
+ * 좋아요·취소. **토글이 아니다** (spec §3-2-4 MUST) — 화면이 `likedByMe`로 방향을
+ * 정한다. 둘 다 멱등이라 재시도해도 방금 누른 좋아요가 취소되지 않는다.
+ */
+export function setNoteLike(id: number, liked: boolean): Promise<void> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true')
+    return fixtureSetNoteLike(id, liked)
+  return request(`/notes/${id}/like`, {
+    method: liked ? 'POST' : 'DELETE',
+  })
 }

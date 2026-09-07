@@ -1294,6 +1294,9 @@ const NOTES: FixtureNote[] = Array.from({ length: 23 }, (_, index) => {
           : { id: null, name: '탈퇴한 회원' },
     // 조회수가 다른 자료와 동률인 자료를 모두 둔다. `views` 정렬의 1·2차 기준을 함께 볼 수 있다.
     viewCount: (index % 5) * 25,
+    // 0·내 반응·남의 반응을 섞는다. 즐겨찾기와 별개임을 화면에서 확인할 수 있어야 한다.
+    likeCount: index % 4,
+    likedByMe: index % 4 === 1,
     files: [
       {
         id: 1000 + index * 2,
@@ -1479,6 +1482,29 @@ export function fixtureBookmarks(
   return Promise.resolve(pageOf(rows, query.page, query.size))
 }
 
+/**
+ * 좋아요는 즐겨찾기와 별개다. 자료 접근 검사를 먼저 하고, 없는 자료의 취소도 성공시킨다
+ * (계약 §3-2-4). 같은 방향의 재요청은 개수를 바꾸지 않아야 멱등이다.
+ */
+export function fixtureSetNoteLike(id: number, liked: boolean): Promise<void> {
+  const denied = requireNoteAccess()
+  if (denied) return Promise.reject(denied)
+
+  const found = NOTES.find((note) => note.id === id)
+  if (!found) {
+    return liked
+      ? Promise.reject(
+          new ApiError('NOT_FOUND', 404, '자료를 찾을 수 없습니다.'),
+        )
+      : Promise.resolve()
+  }
+  if (found.likedByMe !== liked) {
+    found.likedByMe = liked
+    found.likeCount += liked ? 1 : -1
+  }
+  return Promise.resolve()
+}
+
 export function fixtureSetBookmark(id: number, next: boolean): Promise<void> {
   const denied = requireNoteAccess()
   if (denied) return Promise.reject(denied)
@@ -1592,6 +1618,8 @@ function toDetail(
     examType: body.category === 'EXAM' ? body.examType : null,
     uploader,
     viewCount,
+    likeCount: 0,
+    likedByMe: false,
     files,
     createdAt,
     updatedAt: new Date().toISOString(),
@@ -1682,6 +1710,9 @@ export function fixtureUpdateNote(
     // 메타데이터를 고치는 것은 조회가 아니다. 저장된 조회수를 그대로 옮긴다.
     found.viewCount,
   )
+  // 메타데이터 수정은 반응을 초기화하지 않는다 — 등록 때만 0/false로 시작한다.
+  updated.likeCount = found.likeCount
+  updated.likedByMe = found.likedByMe
   NOTES[NOTES.indexOf(found)] = updated
   return Promise.resolve(withBookmark(updated))
 }
