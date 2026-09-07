@@ -188,10 +188,13 @@ export function LoginPage() {
           {/*
            * **`tracking-tight`를 쓰지 않는다.** `로그인`은 세 글자의 아래 가로획
            * (`로`의 ㅗ, `그`의 ㅡ, `인`의 ㄴ 밑변)이 같은 높이에 놓인다. 자간을 좁히면
-           * 그 사이 틈이 메워져 **밑줄 하나로 읽히고 링크처럼 보인다.** 32px·600으로
-           * 키운 뒤 더 뚜렷해졌다. 기본 자간이면 틈이 남아 세 글자로 읽힌다.
+           * 그 사이 틈이 메워져 **밑줄 하나로 읽히고 링크처럼 보인다.** 화면 제목 크기
+           * (30px·600)로 키운 뒤 더 뚜렷해졌다. 기본 자간이면 틈이 남아 세 글자로 읽힌다.
+           *
+           * 한때 `text-[32px]`였다 — 24와 30 사이에 칸이 없어 스케일 밖으로 나간 값이었다.
+           * 제목이 30px으로 정해지며 그 칸이 생겼다 (#98).
            */}
-          <h1 className="mt-6 text-[32px] leading-tight font-semibold lg:mt-0">
+          <h1 className="mt-6 text-3xl leading-tight font-semibold lg:mt-0">
             로그인
           </h1>
           <p className="mt-3 text-base leading-7 text-muted-foreground">

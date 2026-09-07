@@ -95,7 +95,7 @@ export function PostListPage() {
   return (
     <section>
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">자유게시판</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">자유게시판</h1>
         {/*
          * 글쓰기는 `ACTIVE`면 누구나 한다 (spec §3-1-3 매트릭스 — 게시판 작성은 USER·ADMIN
          * 모두 `O`). 관리자 전용이 아니므로 `/admin` 아래에 두지 않는다.

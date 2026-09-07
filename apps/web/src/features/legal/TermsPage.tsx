@@ -27,7 +27,7 @@ export function TermsPage() {
         <dl className="mt-12 space-y-12">
           {TERMS_SECTIONS.map((section) => (
             <div key={section.title}>
-              <dt className="text-lg font-semibold tracking-tight">
+              <dt className="text-xl font-semibold tracking-tight">
                 {section.title}
               </dt>
               <dd className="mt-4 space-y-4">
@@ -44,7 +44,7 @@ export function TermsPage() {
           ))}
 
           <div>
-            <dt className="text-lg font-semibold tracking-tight">8. 시행일</dt>
+            <dt className="text-xl font-semibold tracking-tight">8. 시행일</dt>
             <dd className="mt-4">
               <p className="leading-8 text-muted-foreground">
                 이 약관은 {TERMS_UPDATED.effectiveDate}부터 시행합니다.
