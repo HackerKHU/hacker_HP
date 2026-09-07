@@ -55,7 +55,7 @@ function fixtureRow(name: string): HTMLElement {
 
 async function promoteFixtureMember(name: string) {
   const trigger = within(fixtureRow(name)).getByRole('button', {
-    name: `${name} 관리 메뉴`,
+    name: /관리 메뉴$/,
   })
   fireEvent.pointerDown(
     trigger,
@@ -67,7 +67,7 @@ async function promoteFixtureMember(name: string) {
   fireEvent.click(within(dialog).getByRole('button', { name: '관리자 지정' }))
   await waitFor(() =>
     expect(screen.getByRole('status')).toHaveTextContent(
-      `${name} 회원을 활동 관리자로 지정했습니다.`,
+      new RegExp(`^${name}\\(\\d+\\) 회원을 활동 관리자로 지정했습니다\\.$`),
     ),
   )
   await waitFor(() => {
@@ -77,7 +77,7 @@ async function promoteFixtureMember(name: string) {
 
   fireEvent.pointerDown(
     within(fixtureRow(name)).getByRole('button', {
-      name: `${name} 관리 메뉴`,
+      name: /관리 메뉴$/,
     }),
     new MouseEvent('pointerdown', { bubbles: true, button: 0 }),
   )
@@ -114,7 +114,7 @@ it('실제 admin fixture의 신청 완료 PENDING도 inline 버튼 없이 승인
   expect(within(pending).queryByRole('button', { name: '승인' })).toBeNull()
   expect(within(pending).queryByRole('button', { name: '거부' })).toBeNull()
   fireEvent.pointerDown(
-    within(pending).getByRole('button', { name: '강도현 관리 메뉴' }),
+    within(pending).getByRole('button', { name: /관리 메뉴$/ }),
     new MouseEvent('pointerdown', { bubbles: true, button: 0 }),
   )
   const menu = await screen.findByRole('menu')
@@ -134,7 +134,7 @@ it('실제 admin fixture의 신청 완료 PENDING도 inline 버튼 없이 승인
 
 it('실제 admin fixture에서 페이지 번호를 직접 눌러 다음 페이지로 이동한다', async () => {
   renderFixturePage()
-  await screen.findByRole('checkbox', { name: '오세림 선택' })
+  await screen.findByRole('checkbox', { name: /^오세림.* 선택$/ })
   expect(screen.getByRole('link', { name: '1페이지로 이동' })).toHaveAttribute(
     'aria-current',
     'page',
@@ -158,14 +158,14 @@ it('실제 admin fixture에서 페이지 번호를 직접 눌러 다음 페이�
 it('실제 admin fixture에서 비활동·정지 USER 승격은 재조회 뒤 활동 관리자이며 권한 회수만 남는다', async () => {
   renderFixturePage()
 
-  await screen.findByRole('checkbox', { name: '오세림 선택' })
+  await screen.findByRole('checkbox', { name: /^오세림.* 선택$/ })
   await promoteFixtureMember('오세림')
   await promoteFixtureMember('신동하')
 }, 15_000)
 
 it('실제 admin fixture의 선택 승인·거부는 상태를 미리 거르지 않고 부분 실패를 안내한다', async () => {
   renderFixturePage('/admin/members?sort=name')
-  await screen.findByRole('checkbox', { name: '강도현 선택' })
+  await screen.findByRole('checkbox', { name: /^강도현.* 선택$/ })
 
   fireEvent.click(within(fixtureRow('강도현')).getByRole('checkbox'))
   fireEvent.click(within(fixtureRow('윤태경')).getByRole('checkbox'))
@@ -197,7 +197,7 @@ it('실제 admin fixture의 선택 승인·거부는 상태를 미리 거르지 
     expect(cells[3]).toHaveTextContent('—')
     expect(cells[7]).toHaveTextContent('—')
     expect(
-      within(resetRow).getByRole('checkbox', { name: '김서연 선택' }),
+      within(resetRow).getByRole('checkbox', { name: /^김서연.* 선택$/ }),
     ).not.toBeChecked()
   })
 }, 15_000)

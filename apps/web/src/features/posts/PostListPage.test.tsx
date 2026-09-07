@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PostSummary } from '@/api/posts'
 import type { User } from '@/api/types'
@@ -23,6 +29,8 @@ const api = vi.hoisted(() => ({
 
 const POST: PostSummary = {
   id: 701,
+  likeCount: 4,
+  likedByMe: false,
   title: '이번 학기 스터디 모집합니다',
   author: { id: 1, name: '홍길동' },
   createdAt: '2026-08-01T09:00:00Z',
@@ -93,10 +101,34 @@ describe('자유 게시판 목록', () => {
     renderList()
 
     const title = await screen.findByText(longTitle)
-    const link = title.closest('a')
     expect(title.className).toContain('truncate')
     expect(title).toHaveAttribute('title', longTitle)
-    expect(link?.className).toContain('min-w-0')
+    /*
+     * 표에서 잘림은 **셀이 폭을 0으로 잡아야** 성립한다 (`table-fixed` + `max-w-0`) —
+     * 자료·공지 목록의 제목 셀과 같다. 셀이 내용만큼 늘어나면 `truncate`가 걸릴 자리가 없다.
+     */
+    expect(title.closest('td')?.className).toContain('max-w-0')
+  })
+
+  /*
+   * **열 제목이 있어야 한다** (#373 완료 조건). 예전 `<ul>` 행에는 이름과 날짜가 오른쪽에
+   * 그냥 붙어 있어 각각 무엇인지 화면만 보고는 알 수 없었다.
+   *
+   * **제목 셀만 링크다** — 행 전체를 링크로 만들면 작성자·날짜까지 링크 안에 들어간다.
+   */
+  it('열 제목을 보여주고 제목 셀만 링크로 둔다', async () => {
+    renderList()
+    await screen.findByRole('link', { name: POST.title })
+
+    expect(
+      screen.getAllByRole('columnheader').map((cell) => cell.textContent),
+    ).toEqual(['제목', '작성자', '좋아요', '등록일'])
+
+    const row = screen
+      .getByRole('link', { name: POST.title })
+      .closest('tr') as HTMLElement
+    expect(within(row).getAllByRole('link')).toHaveLength(1)
+    expect(within(row).getByText(POST.author.name)).toBeVisible()
   })
 
   it('조회 상태와 무관하게 목록 surface와 pager 자리를 유지한다', async () => {
@@ -256,3 +288,21 @@ describe('자유 게시판 목록', () => {
     expect(await screen.findByText(/아직 올라온 글이 없습니다/)).toBeVisible()
   })
 })
+
+it.each([0, 4])(
+  '목록은 좋아요 %s를 숫자 셀로만 표시한다',
+  async (likeCount) => {
+    api.rows = [{ ...POST, likeCount }]
+    renderList()
+    const link = await screen.findByRole('link', { name: POST.title })
+    const row = link.closest('tr')
+    if (!row) throw new Error('게시글 행이 없다')
+    const cell = within(row).getAllByRole('cell')[2]
+    expect(cell).toHaveTextContent(String(likeCount))
+    expect(cell).toHaveClass('tabular-nums')
+    expect(cell.querySelector('button, svg')).toBeNull()
+    expect(screen.getByRole('columnheader', { name: '좋아요' })).toHaveClass(
+      'w-20',
+    )
+  },
+)

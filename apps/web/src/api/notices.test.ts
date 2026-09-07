@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearCookies, setCookie } from '@/test/cookies'
-import { create, get, list, remove, togglePin, update } from './notices'
+import {
+  create,
+  get,
+  list,
+  remove,
+  setNoticeLike,
+  togglePin,
+  update,
+} from './notices'
 
 /**
  * 공지 API 어댑터가 **실제로 어떤 method와 경로로 나가는지.**
@@ -99,6 +107,26 @@ describe('공지 API method와 경로', () => {
     await togglePin(7)
 
     expect(lastCall(fetchMock)).toEqual(['/api/v1/notices/7/pin', 'PATCH'])
+  })
+
+  /*
+   * **좋아요는 토글이 아니다** (계약 §3-2-5 MUST). 하나의 엔드포인트에 method 둘이라
+   * 방향이 뒤집히면 재시도가 방금 누른 것을 조용히 뗀다 — 여기서 잡는다.
+   */
+  it('좋아요는 POST /api/v1/notices/{id}/like', async () => {
+    const fetchMock = stubFetch()
+
+    await setNoticeLike(7, true)
+
+    expect(lastCall(fetchMock)).toEqual(['/api/v1/notices/7/like', 'POST'])
+  })
+
+  it('좋아요 취소는 DELETE /api/v1/notices/{id}/like', async () => {
+    const fetchMock = stubFetch()
+
+    await setNoticeLike(7, false)
+
+    expect(lastCall(fetchMock)).toEqual(['/api/v1/notices/7/like', 'DELETE'])
   })
 
   it('절대 URL을 만들지 않는다 — Vercel rewrites 프록시를 타야 한다', async () => {

@@ -194,10 +194,15 @@ public class SecurityConfig {
                    * 활동사진 쓰기(#57)도 같은 이유로 필터에서 한 번 더 막는다 — PhotoController의
                    * @PreAuthorize는 본문을 역직렬화한 뒤에야 걸리므로, ACTIVE 회원이 깨진 본문을
                    * 보내면 @PreAuthorize에 닿기도 전에 400이 나가 "권한 없으면 403" 계약이 깨진다.
+                   *
+                   * **`**`가 아니라 정확한 경로다** (#346 리뷰). 좋아요(`POST`·`DELETE
+                   * /photos/{id}/like`)는 ACTIVE·INACTIVE에게 열려야 하는데, 와일드카드로 두면
+                   * 그 경로까지 ADMIN 전용으로 막혀 컨트롤러의 @PreAuthorize("isAuthenticated()")에
+                   * 닿기도 전에 여기서 거절된다.
                    */
-                  .requestMatchers(HttpMethod.POST, "/api/v1/photos/**")
+                  .requestMatchers(HttpMethod.POST, "/api/v1/photos", "/api/v1/photos/upload-url")
                   .hasRole("ADMIN")
-                  .requestMatchers(HttpMethod.DELETE, "/api/v1/photos/**")
+                  .requestMatchers(HttpMethod.DELETE, "/api/v1/photos/*")
                   .hasRole("ADMIN")
                   .anyRequest()
                   .authenticated();

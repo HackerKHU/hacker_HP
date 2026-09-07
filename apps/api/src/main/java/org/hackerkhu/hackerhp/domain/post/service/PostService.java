@@ -3,14 +3,12 @@ package org.hackerkhu.hackerhp.domain.post.service;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.stream.Collectors;
 import org.hackerkhu.hackerhp.domain.post.dto.PostAuthor;
 import org.hackerkhu.hackerhp.domain.post.dto.PostCreateRequest;
 import org.hackerkhu.hackerhp.domain.post.dto.PostDetailResponse;
 import org.hackerkhu.hackerhp.domain.post.dto.PostSummaryResponse;
 import org.hackerkhu.hackerhp.domain.post.entity.Post;
+import org.hackerkhu.hackerhp.domain.post.repository.PostLikeRepository;
 import org.hackerkhu.hackerhp.domain.post.repository.PostRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
 import org.hackerkhu.hackerhp.domain.user.entity.Status;
@@ -50,10 +48,12 @@ public class PostService {
 
   private final PostRepository posts;
   private final UserRepository users;
+  private final PostLikeRepository likes;
 
-  public PostService(PostRepository posts, UserRepository users) {
+  public PostService(PostRepository posts, UserRepository users, PostLikeRepository likes) {
     this.posts = posts;
     this.users = users;
+    this.likes = likes;
   }
 
   /**
@@ -62,23 +62,49 @@ public class PostService {
    * <p><b>들어온 {@code Pageable}의 정렬을 버린다</b> (MUST). 그대로 흘리면 두 가지가 깨진다 — 없는 속성 이름 하나에 {@code 500}이
    * 나고(자료 목록이 {@code sort=bogus}로 겪었다, #52), 유효한 이름({@code sort=title})이면 <b>고정 정렬 계약이 조용히 깨진다.</b>
    * {@code page}·{@code size}는 {@code spring.data.web.pageable}이 상한까지 이미 처리했다.
+   *
+   * <p><b>페이지와 좋아요 요약은 서로 다른 스냅샷에서 읽는다</b> (의도한 것이다). 트랜잭션은 하나지만 격리 수준이 {@code READ COMMITTED}라
+   * 문장마다 스냅샷이 새로 잡힌다 — {@code liked=true}로 조회하는 도중에 본인이 다른 탭에서 좋아요를 떼면, 그 글이 목록에는 남은 채 {@code
+   * likedByMe=false}·{@code likeCount=0}으로 그려질 수 있다. <b>고치지 않는다:</b> 두 문장을 한 스냅샷으로 묶으려면 목록 요청마다 격리
+   * 수준을 올리는 왕복이 한 번 더 붙는데, 되돌아오는 것은 <b>본인이 방금 한 취소가 한 번 늦게 반영되는</b> 화면 하나다. 새로고침이 곧바로 바로잡고, 남에게 잘못된
+   * 상태를 보여주지도 않는다. 한 문장으로 합치는 것은 네 도메인의 응답 조립을 모두 프로젝션으로 바꾸는 일이라 값이 더 크다.
    */
   @Transactional(readOnly = true)
-  public Page<PostSummaryResponse> list(Pageable pageable) {
-    Page<Post> page =
-        posts.findAll(
-            PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST));
-    Map<Long, User> found = authors(page.getContent());
-    return page.map(post -> PostSummaryResponse.of(post, authorOf(post, found)));
+  public Page<PostSummaryResponse> list(
+      Pageable pageable, Long viewerId, boolean mine, boolean liked) {
+    PageRequest request =
+        PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST);
+    /*
+     * 내가 쓴 글·내가 좋아요한 글 (#353·#355, 3-3 결정 28). 정렬은 어느 조합이든 같은
+     * NEWEST_FIRST를 쓴다 — 필터를 켜고 끌 때 순서 규칙까지 달라지면 화면이 같은 목록을
+     * 두 벌로 다뤄야 한다.
+     *
+     * 기준은 viewerId다. 작성자 id를 요청으로 받지 않는 이유는 자료 목록과 같다 — 받으면
+     * 남의 글을 "내 글" 목록으로 조회할 수 있다.
+     */
+    Page<Post> page = posts.findFiltered(viewerId, mine, liked, request);
+    Map<Long, User> found = AuthorLookup.of(page.getContent(), Post::getAuthorId, users);
+    Map<Long, PostLikeSummary> likeSummaries =
+        likeSummariesOf(viewerId, page.getContent().stream().map(Post::getId).toList());
+    return page.map(
+        post -> {
+          PostLikeSummary like = likeSummaries.getOrDefault(post.getId(), PostLikeSummary.NONE);
+          return PostSummaryResponse.of(
+              post,
+              AuthorLookup.authorOf(post.getAuthorId(), found),
+              like.count(),
+              like.likedByMe());
+        });
   }
 
   @Transactional(readOnly = true)
-  public PostDetailResponse get(Long id) {
+  public PostDetailResponse get(Long id, Long viewerId) {
     Post post =
         posts
             .findById(id)
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "게시글을 찾을 수 없습니다."));
-    return PostDetailResponse.of(post, authorOf(post, authors(List.of(post))));
+    Map<Long, User> found = AuthorLookup.of(List.of(post), Post::getAuthorId, users);
+    return withLikeInfo(post, AuthorLookup.authorOf(post.getAuthorId(), found), viewerId);
   }
 
   /**
@@ -121,7 +147,8 @@ public class PostService {
      * 이 줄이 남아 있어야 한다 — 실제 분포를 추측이 아니라 로그에서 본다.
      */
     log.info("게시글 등록: postId={} authorId={}", saved.getId(), authorId);
-    return PostDetailResponse.of(saved, authorOf(saved, authors(List.of(saved))));
+    // author는 방금 잠근 그 행이다 — 다시 조회하지 않고 그대로 쓴다. 방금 만든 글이라 좋아요는 아직 없다.
+    return PostDetailResponse.of(saved, PostAuthor.of(author), 0L, false);
   }
 
   /**
@@ -154,7 +181,8 @@ public class PostService {
     // 제목은 자르고 본문은 그대로 둔다 — write()와 같은 규칙이다 (§3-2-5).
     post.edit(request.title().trim(), request.content(), Instant.now());
     log.info("게시글 수정: postId={} authorId={}", id, requesterId);
-    return PostDetailResponse.of(post, authorOf(post, authors(List.of(post))));
+    // requester는 방금 소유자로 확인한 그 행이다 — 다시 조회하지 않고 그대로 쓴다.
+    return withLikeInfo(post, PostAuthor.of(requester), requesterId);
   }
 
   /**
@@ -200,23 +228,22 @@ public class PostService {
     throw new BusinessException(ErrorCode.FORBIDDEN, "본인이 쓴 게시글만 삭제할 수 있습니다.");
   }
 
-  /**
-   * 작성자 이름을 <b>한 번에 모아 읽는다.</b> 행마다 읽으면 20건에 질의가 20번 붙는다.
-   *
-   * <p><b>계정이 사라진 글은 여기 없다.</b> 그래서 {@link PostAuthor#of}가 그 자리를 "탈퇴한 회원"으로 채운다 (2-2 §2-2-4).
-   */
-  private Map<Long, User> authors(List<Post> found) {
-    Set<Long> ids =
-        found.stream().map(Post::getAuthorId).filter(Objects::nonNull).collect(Collectors.toSet());
-    if (ids.isEmpty()) {
-      return Map.of();
-    }
-    return users.findAllById(ids).stream()
-        .collect(Collectors.toMap(User::getId, user -> user, (first, second) -> first));
+  /** 게시글 하나에 좋아요 정보를 붙인다 — {@link #get}·{@link #edit}이 공유한다. */
+  private PostDetailResponse withLikeInfo(Post post, PostAuthor author, Long viewerId) {
+    PostLikeSummary like =
+        likeSummariesOf(viewerId, List.of(post.getId()))
+            .getOrDefault(post.getId(), PostLikeSummary.NONE);
+    return PostDetailResponse.of(post, author, like.count(), like.likedByMe());
   }
 
-  private PostAuthor authorOf(Post post, Map<Long, User> found) {
-    Long authorId = post.getAuthorId();
-    return PostAuthor.of(authorId == null ? null : found.get(authorId));
+  /**
+   * 좋아요 개수와 내 상태를 <b>한 번에</b> 모아 읽는다. 행마다 물으면 페이지 크기만큼 질의가 붙고, 개수와 내 상태를 따로 물으면 스냅샷이 갈려 모순된 응답이 나간다
+   * (#368 리뷰, {@link PostLikeSummary}).
+   */
+  private Map<Long, PostLikeSummary> likeSummariesOf(Long viewerId, List<Long> postIds) {
+    if (postIds.isEmpty()) {
+      return Map.of();
+    }
+    return PostLikeSummary.byPostId(likes.countWithMineByPostIds(viewerId, postIds));
   }
 }

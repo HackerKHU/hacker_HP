@@ -47,6 +47,8 @@ const MINE: NoteDetail = {
   viewCount: 17,
   files: [{ id: 1000, originalName: '기존.pdf', sizeBytes: 1_048_576 }],
   bookmarked: false,
+  likeCount: 4,
+  likedByMe: false,
   createdAt: '2026-08-01T09:00:00Z',
   updatedAt: '2026-08-01T09:00:00Z',
 }

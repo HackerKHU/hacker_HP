@@ -14,15 +14,20 @@ public record PostDetailResponse(
     String content,
     PostAuthor author,
     Instant createdAt,
-    Instant updatedAt) {
+    Instant updatedAt,
+    long likeCount,
+    boolean likedByMe) {
 
-  public static PostDetailResponse of(Post post, PostAuthor author) {
+  public static PostDetailResponse of(
+      Post post, PostAuthor author, long likeCount, boolean likedByMe) {
     return new PostDetailResponse(
         post.getId(),
         post.getTitle(),
         post.getContent(),
         author,
         post.getCreatedAt(),
-        post.getUpdatedAt());
+        post.getUpdatedAt(),
+        likeCount,
+        likedByMe);
   }
 }

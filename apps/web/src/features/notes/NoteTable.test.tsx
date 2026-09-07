@@ -22,6 +22,8 @@ const NOTE: NoteSummary = {
   fileCount: 2,
   viewCount: 123,
   bookmarked: true,
+  likeCount: 4,
+  likedByMe: false,
   createdAt: '2026-08-01T09:00:00Z',
 }
 

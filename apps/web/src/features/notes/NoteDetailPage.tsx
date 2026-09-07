@@ -1,4 +1,4 @@
-import { Download, Star } from 'lucide-react'
+import { Download, Star, ThumbsUp } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '@/api/client'
@@ -8,6 +8,7 @@ import {
   type NoteDetail,
   remove,
   setBookmark,
+  setNoteLike,
 } from '@/api/notes'
 import { isInactive, useSession } from '@/auth/session'
 import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
@@ -156,6 +157,33 @@ export function NoteDetailPage() {
     }
   }
 
+  /**
+   * 좋아요는 `likedByMe`로 방향을 정하고 낙관적으로 반영한다 (계약 §3-2-4).
+   * 응답이 `204`라 개수는 직접 센다. 상세 GET을 다시 하면 조회수까지 오르므로 부르지 않는다.
+   * 기존 busy로 조작을 잠가 요청 순서가 뒤집히거나 롤백이 즐겨찾기를 덮어쓰지 않게 한다.
+   */
+  async function toggleLike() {
+    if (!note) return
+    const next = !note.likedByMe
+    const before = note
+    setBusy(true)
+    setNote({
+      ...note,
+      likedByMe: next,
+      likeCount: note.likeCount + (next ? 1 : -1),
+    })
+    try {
+      await setNoteLike(note.id, next)
+    } catch (caught: unknown) {
+      setNote((current) => (current?.id === before.id ? before : current))
+      if (!reportApiError(caught)) {
+        alert.error('좋아요를 바꾸지 못했습니다. 다시 시도해 주세요.')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
   /** 삭제는 되돌릴 수 없다. 확인 단계를 거친 뒤에만 여기 도달한다. */
   async function handleDelete() {
     if (!note) return
@@ -215,7 +243,7 @@ export function NoteDetailPage() {
             <div className="min-w-0 flex-1">
               <Badge variant="outline">{CATEGORY_LABEL[note.category]}</Badge>
               <h1
-                className="mt-2 line-clamp-2 break-all text-2xl font-semibold tracking-tight"
+                className="mt-2 line-clamp-2 break-all text-3xl font-semibold tracking-tight"
                 title={note.title}
               >
                 {note.title}
@@ -235,6 +263,20 @@ export function NoteDetailPage() {
                   aria-hidden="true"
                 />
                 {note.bookmarked ? '즐겨찾기 해제' : '즐겨찾기'}
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                aria-pressed={note.likedByMe}
+                onClick={toggleLike}
+              >
+                <ThumbsUp
+                  className={cn('size-4', note.likedByMe && 'fill-current')}
+                  aria-hidden="true"
+                />
+                좋아요 {note.likeCount}
               </Button>
 
               {/*
@@ -293,7 +335,7 @@ export function NoteDetailPage() {
           </div>
 
           {/* 메타데이터. 목록의 열과 같은 낱말을 쓴다 — 두 화면이 갈리면 같은 값이 달라 보인다. */}
-          <dl className="mt-8 grid grid-cols-[6rem_1fr] gap-y-3 border-t border-border pt-6 text-sm sm:grid-cols-[6rem_1fr_6rem_1fr]">
+          <dl className="mt-8 grid grid-cols-[6rem_1fr] gap-y-3 border-t border-border pt-6 sm:grid-cols-[6rem_1fr_6rem_1fr]">
             <dt className="text-muted-foreground">과목</dt>
             <dd>{note.subjectName}</dd>
             <dt className="text-muted-foreground">교수</dt>
@@ -304,7 +346,7 @@ export function NoteDetailPage() {
               {note.examType && ` · ${EXAM_TYPE_LABEL[note.examType]}고사`}
             </dd>
             {/* 업로더 이름은 절대 비지 않는다 — 회원이 제거되면 "탈퇴한 회원"이다 (§3-2-2). */}
-            <dt className="text-muted-foreground">업로더</dt>
+            <dt className="text-muted-foreground">작성자</dt>
             <dd>{note.uploader.name}</dd>
             <dt className="text-muted-foreground">등록일</dt>
             <dd>{formatDate(note.createdAt)}</dd>
@@ -314,7 +356,7 @@ export function NoteDetailPage() {
             <dd>{formatDate(note.updatedAt)}</dd>
           </dl>
 
-          <h2 className="mt-10 text-sm font-medium">
+          <h2 className="mt-10 text-xl font-semibold tracking-tight">
             첨부파일 {note.files.length}개
           </h2>
           <ul className="mt-3 divide-y divide-border border-y border-border">
@@ -323,9 +365,7 @@ export function NoteDetailPage() {
                 key={file.id}
                 className="flex items-center justify-between gap-4 py-3"
               >
-                <span className="min-w-0 truncate text-sm">
-                  {file.originalName}
-                </span>
+                <span className="min-w-0 truncate">{file.originalName}</span>
                 <span className="flex shrink-0 items-center gap-3">
                   <span className="text-sm tabular-nums text-muted-foreground">
                     {formatSize(file.sizeBytes)}

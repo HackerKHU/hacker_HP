@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { list, NOTE_SORTS } from './notes'
+import { clearCookies, setCookie } from '@/test/cookies'
+import { list, NOTE_SORTS, setNoteLike } from './notes'
 
 /**
  * 자료 API 래퍼의 실제 경로. 화면 테스트는 이 모듈을 mock하므로
@@ -21,6 +22,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  clearCookies()
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
 })
@@ -40,3 +42,20 @@ describe('자료 API 경로', () => {
     expect(NOTE_SORTS).toEqual(['latest', 'title', 'views'])
   })
 })
+
+// 화면 mock을 통과해도 실제 요청의 POST/DELETE 방향이 뒤집히면 여기서 실패한다.
+it.each([
+  [true, 'POST'],
+  [false, 'DELETE'],
+] as const)(
+  '좋아요 %s는 %s /notes/{id}/like로 보낸다',
+  async (liked, method) => {
+    setCookie('XSRF-TOKEN', 'test-csrf')
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }))
+    await setNoteLike(301, liked)
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/notes/301/like',
+      expect.objectContaining({ method }),
+    )
+  },
+)

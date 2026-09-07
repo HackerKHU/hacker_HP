@@ -60,6 +60,9 @@ const PHOTO = {
   uploaderId: 2,
   uploaderName: '김관리',
   createdAt: '2026-08-01T09:00:00Z',
+  // 방금 등록한 사진은 좋아요가 있을 수 없다 (계약 §3-2-5).
+  likeCount: 0,
+  likedByMe: false,
 }
 
 const ADMIN: User = {

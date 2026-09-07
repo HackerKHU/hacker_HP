@@ -10,18 +10,21 @@ import java.time.Instant;
 import java.util.Optional;
 import org.hackerkhu.hackerhp.domain.post.dto.PostCreateRequest;
 import org.hackerkhu.hackerhp.domain.post.entity.Post;
+import org.hackerkhu.hackerhp.domain.post.repository.PostLikeRepository;
 import org.hackerkhu.hackerhp.domain.post.repository.PostRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /** 게시글 수정의 잠금 상호작용 계약. 실제 경쟁 결과는 {@code PostIntegrationTest} T-492가 검증한다. */
 class PostServiceTest {
 
   private final PostRepository posts = mock(PostRepository.class);
   private final UserRepository users = mock(UserRepository.class);
-  private final PostService service = new PostService(posts, users);
+  private final PostLikeRepository likes = mock(PostLikeRepository.class);
+  private final PostService service = new PostService(posts, users, likes);
 
   /** T-492 — 일반 조회로 되돌아가면 통합 테스트의 직렬화 근거가 사라진다. */
   @Test
@@ -30,6 +33,11 @@ class PostServiceTest {
     long postId = 2L;
     User requester = Accounts.approved("post-lock", "post-lock@khu.ac.kr", "20250001", "작성자");
     Post post = Post.write("제목", "본문", requesterId, Instant.parse("2026-08-31T00:00:00Z"));
+    /*
+     * 잠금으로 읽어 온 글에는 언제나 id가 있다 — 팩토리로 만든 것은 아직 저장 전이라 비어
+     * 있으므로, DB에서 온 행처럼 채운다. 응답을 만들 때 이 id로 좋아요를 모아 읽는다.
+     */
+    ReflectionTestUtils.setField(post, "id", postId);
     when(users.findByIdForUpdate(requesterId)).thenReturn(Optional.of(requester));
     when(posts.findByIdForUpdate(postId)).thenReturn(Optional.of(post));
     service.edit(requesterId, postId, new PostCreateRequest("고친 제목", "고친 본문"));

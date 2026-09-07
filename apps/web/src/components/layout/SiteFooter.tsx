@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { PAGE_CONTAINER } from '@/components/page-container'
 import { CLUB } from '@/features/landing/content'
 
 /**
@@ -18,7 +19,9 @@ export function SiteFooter() {
   return (
     <footer className="border-t border-border">
       {/* 모바일은 세로로 쌓는다. 가로 고정이면 주소와 링크가 찌그러진다 (#174). */}
-      <div className="mx-auto flex w-full max-w-[1152px] flex-col gap-8 px-6 py-10 text-sm text-muted-foreground sm:flex-row sm:items-start sm:justify-between">
+      <div
+        className={`${PAGE_CONTAINER} flex flex-col gap-8 py-10 text-sm text-muted-foreground sm:flex-row sm:items-start sm:justify-between`}
+      >
         <address className="not-italic">
           <span className="block text-foreground">{CLUB.fullName}</span>
           <span className="mt-2 block">

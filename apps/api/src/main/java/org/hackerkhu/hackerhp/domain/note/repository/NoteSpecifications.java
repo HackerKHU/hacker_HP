@@ -5,11 +5,13 @@ import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
 import java.util.ArrayList;
 import java.util.List;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteSearch;
 import org.hackerkhu.hackerhp.domain.note.dto.NoteSort;
 import org.hackerkhu.hackerhp.domain.note.entity.Note;
+import org.hackerkhu.hackerhp.domain.note.entity.NoteLike;
 import org.springframework.data.jpa.domain.Specification;
 
 /**
@@ -28,16 +30,51 @@ public final class NoteSpecifications {
 
   private NoteSpecifications() {}
 
-  public static Specification<Note> matching(NoteSearch search, NoteSort sort) {
+  /**
+   * @param viewerId {@code search.mine()}·{@code search.liked()}가 켜졌을 때 "내 것"의 기준. <b>요청이 아니라 인증
+   *     주체에서만 온다</b> (MUST, #353·#355)
+   */
+  public static Specification<Note> matching(NoteSearch search, NoteSort sort, Long viewerId) {
     return (root, query, builder) -> {
       applyOrder(root, query, builder, sort);
-      return builder.and(conditions(search, root, builder).toArray(new Predicate[0]));
+      return builder.and(
+          conditions(search, viewerId, root, query, builder).toArray(new Predicate[0]));
     };
   }
 
   private static List<Predicate> conditions(
-      NoteSearch search, Root<Note> root, CriteriaBuilder builder) {
+      NoteSearch search,
+      Long viewerId,
+      Root<Note> root,
+      CriteriaQuery<?> query,
+      CriteriaBuilder builder) {
     List<Predicate> conditions = new ArrayList<>();
+
+    /*
+     * 내가 올린 자료만 (#353, 3-3 결정 28). 즐겨찾기가 별도 화면이 아니라 목록의 토글로 간
+     * 것과 같은 판단이라, 여기서도 새 경로가 아니라 조건 하나를 더한다 (2-1 §2-1-5, #261).
+     *
+     * 기준은 viewerId다 — NoteSearch에 업로더 id를 받는 필드를 두지 않는 이유가 이것이다.
+     * 받으면 남이 올린 자료를 "내 것" 목록으로 조회할 수 있다.
+     */
+    if (search.mine()) {
+      conditions.add(builder.equal(root.get("uploaderId"), viewerId));
+    }
+
+    /*
+     * 내가 좋아요한 자료만 (#355, 결정 28). 조인이 아니라 EXISTS 서브질의를 쓴다 — 조인하면
+     * 좋아요 행 수만큼 자료가 중복돼 페이지 크기가 어긋나고, 그것을 distinct로 덮으면 정렬·
+     * 카운트 질의까지 함께 손봐야 한다. 여기서 필요한 것은 "그 조합이 있나"뿐이다.
+     */
+    if (search.liked()) {
+      Subquery<Long> liked = query.subquery(Long.class);
+      Root<NoteLike> like = liked.from(NoteLike.class);
+      liked.select(like.get("noteId"));
+      liked.where(
+          builder.equal(like.get("userId"), viewerId),
+          builder.equal(like.get("noteId"), root.get("id")));
+      conditions.add(builder.exists(liked));
+    }
 
     if (search.category() != null) {
       conditions.add(builder.equal(root.get("category"), search.category()));

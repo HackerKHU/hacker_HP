@@ -219,7 +219,7 @@ function renderAt(path = '/admin/members') {
 }
 
 function loaded() {
-  return screen.findByRole('checkbox', { name: '신청완료 선택' })
+  return screen.findByRole('checkbox', { name: /^신청완료.* 선택$/ })
 }
 
 function row(name: string): HTMLElement {
@@ -228,9 +228,13 @@ function row(name: string): HTMLElement {
   return found
 }
 
+/*
+ * **접미사로 찾는다.** 라벨은 `이름(학번) 관리 메뉴`라 이름만으로는 맞지 않고(#302),
+ * 이미 `within(row(...))`로 한 행에 갇혀 있어 그 행의 메뉴 버튼은 하나뿐이다.
+ */
 function openRowMenu(name: string) {
   const trigger = within(row(name)).getByRole('button', {
-    name: `${name} 관리 메뉴`,
+    name: /관리 메뉴$/,
   })
   fireEvent.pointerDown(
     trigger,
@@ -287,6 +291,96 @@ beforeEach(() => {
   api.totalElements = 42
   api.totalPages = 3
   auth.role = 'ADMIN'
+})
+
+/*
+ * **동명이인을 가려낼 수 있어야 한다** (#302).
+ *
+ * 목록에는 학번 열이 있지만 **확인 창이 열리는 순간 행이 가려진다** — 되돌릴 수 없는
+ * 제거를 이름만 보고 누르게 된다. 스크린리더는 애초에 그 열을 읽지 않아 `aria-label`도
+ * 같은 문제다.
+ */
+describe('동명이인 구별', () => {
+  const TWINS: User[] = [
+    member({
+      id: 11,
+      name: '권승원',
+      status: 'PENDING',
+      studentNo: '2021111111',
+      approvedAt: null,
+    }),
+    member({
+      id: 12,
+      name: '권승원',
+      status: 'PENDING',
+      studentNo: '2022222222',
+      approvedAt: null,
+    }),
+    member({
+      id: 13,
+      name: '학번없음',
+      status: 'PENDING',
+      studentNo: null,
+      department: null,
+      appliedAt: null,
+      approvedAt: null,
+    }),
+  ]
+
+  async function openRemoveFor(label: string) {
+    const trigger = await screen.findByRole('button', {
+      name: `${label} 관리 메뉴`,
+    })
+    fireEvent.pointerDown(
+      trigger,
+      new MouseEvent('pointerdown', { bubbles: true, button: 0 }),
+    )
+    fireEvent.click(await screen.findByRole('menuitem', { name: '제거' }))
+    return screen.findByRole('alertdialog')
+  }
+
+  beforeEach(() => {
+    members = TWINS.map((user) => ({ ...user }))
+  })
+
+  it('이름이 같은 두 회원의 제거 확인 문구가 서로 다르다', async () => {
+    renderAt()
+
+    const second = await openRemoveFor('권승원(2022222222)')
+    expect(second).toHaveTextContent(
+      '권승원(2022222222) 회원의 계정을 지웁니다',
+    )
+    // 같은 이름의 다른 계정이 문구에 섞여 들지 않는다.
+    expect(second).not.toHaveTextContent('2021111111')
+  })
+
+  it('선택 체크박스와 관리 메뉴 이름도 학번으로 갈린다', async () => {
+    renderAt()
+    await screen.findByRole('checkbox', { name: '권승원(2021111111) 선택' })
+
+    // 이름만 쓰면 스크린리더가 두 계정을 같은 것으로 듣는다.
+    expect(
+      screen.getByRole('checkbox', { name: '권승원(2022222222) 선택' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: '권승원(2021111111) 관리 메뉴' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: '권승원(2022222222) 관리 메뉴' }),
+    ).toBeInTheDocument()
+  })
+
+  /*
+   * 신청 전 계정은 학번이 없다. 표의 `—`를 문장에 그대로 넣으면
+   * "학번없음(—) 회원의 계정을 지웁니다"가 된다.
+   */
+  it('학번이 없는 계정은 이름만 쓴다', async () => {
+    renderAt()
+
+    const dialog = await openRemoveFor('학번없음')
+    expect(dialog).toHaveTextContent('학번없음 회원의 계정을 지웁니다')
+    expect(dialog).not.toHaveTextContent('—')
+  })
 })
 
 describe('회원 목록과 선택', () => {
@@ -792,7 +886,7 @@ describe('선택 상태 일괄 조작', () => {
 
     api.releaseBulk?.()
     expect(await screen.findByRole('status')).toHaveTextContent(
-      '활동회원 회원을 정지했습니다',
+      '활동회원(2021123456) 회원을 정지했습니다',
     )
   })
 
@@ -1284,7 +1378,7 @@ describe('행 조작과 목록 회귀', () => {
       renderAt()
       await loaded()
       const trigger = within(row('신청완료')).getByRole('button', {
-        name: '신청완료 관리 메뉴',
+        name: /관리 메뉴$/,
       })
       trigger.focus()
 
@@ -1326,7 +1420,7 @@ describe('행 조작과 목록 회귀', () => {
     renderAt()
     await loaded()
     const trigger = within(row('활동회원')).getByRole('button', {
-      name: '활동회원 관리 메뉴',
+      name: /관리 메뉴$/,
     })
     const bodyStyle = () => ({
       overflow: document.body.style.overflow,
@@ -1618,7 +1712,7 @@ describe('행 조작과 목록 회귀', () => {
       )
 
       expect(await screen.findByRole('status')).toHaveTextContent(
-        `${name} 회원을 활동 관리자로 지정했습니다.`,
+        `${name}(2021123456) 회원을 활동 관리자로 지정했습니다.`,
       )
       await waitFor(() => {
         expect(within(row(name)).getByText('활동중')).toBeInTheDocument()
@@ -1680,7 +1774,7 @@ describe('행 조작과 목록 회귀', () => {
       renderAt()
       await loaded()
       const trigger = within(row(name)).getByRole('button', {
-        name: `${name} 관리 메뉴`,
+        name: /관리 메뉴$/,
       })
       trigger.focus()
 

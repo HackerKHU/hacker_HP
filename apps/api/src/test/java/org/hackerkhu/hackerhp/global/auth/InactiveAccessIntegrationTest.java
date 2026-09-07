@@ -134,7 +134,7 @@ class InactiveAccessIntegrationTest extends AbstractIntegrationTest {
   /* --------------------------------------------------------------- 막히는 것 */
 
   /**
-   * T-336 ~ T-338. <b>§3-2-4 표의 열한 경로 전부</b>를 한 번씩 두드린다.
+   * T-336 ~ T-338. <b>§3-2-4 표의 열세 경로 전부</b>를 한 번씩 두드린다.
    *
    * <p><b>목록을 손으로 옮겨 적었다.</b> 필터가 접두사로 막으므로, 그 접두사를 기대값으로 쓰면 아무것도 재지 않는 것과 같다 — 계약이 세는 경로가 실제로 그
    * 접두사 아래에 있는지가 이 사례가 보는 전부다.
@@ -152,7 +152,7 @@ class InactiveAccessIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$.code").value("INACTIVE"));
   }
 
-  /** 출처: `spec/3-2-DESIGN-CONTRACT.md` §3-2-4 API 표의 열한 행. */
+  /** 출처: `spec/3-2-DESIGN-CONTRACT.md` §3-2-4 API 표의 열세 행. */
   private static List<Object[]> noteAndBookmarkPaths() {
     return List.of(
         new Object[] {HttpMethod.GET, "/api/v1/notes"},
@@ -165,7 +165,9 @@ class InactiveAccessIntegrationTest extends AbstractIntegrationTest {
         new Object[] {HttpMethod.DELETE, "/api/v1/notes/1"},
         new Object[] {HttpMethod.POST, "/api/v1/notes/1/bookmark"},
         new Object[] {HttpMethod.DELETE, "/api/v1/notes/1/bookmark"},
-        new Object[] {HttpMethod.GET, "/api/v1/bookmarks"});
+        new Object[] {HttpMethod.GET, "/api/v1/bookmarks"},
+        new Object[] {HttpMethod.POST, "/api/v1/notes/1/like"},
+        new Object[] {HttpMethod.DELETE, "/api/v1/notes/1/like"});
   }
 
   /** 같은 경로가 {@code ACTIVE}에게는 열려 있다 — 위가 "전부 막는다"로 고쳐지면 여기가 깨진다. */

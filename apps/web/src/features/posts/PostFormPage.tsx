@@ -185,7 +185,7 @@ export function PostFormPage() {
         ← {editing ? '게시글로' : '자유게시판'}
       </Link>
 
-      <h1 className="mt-6 text-2xl font-semibold tracking-tight">
+      <h1 className="mt-6 text-3xl font-semibold tracking-tight">
         {editing ? '게시글 수정' : '글쓰기'}
       </h1>
 

@@ -30,6 +30,8 @@ public record NoteDetailResponse(
     List<NoteFileResponse> files,
     @Schema(description = "내가 즐겨찾기했는지") boolean bookmarked,
     @Schema(description = "이 조회를 **포함한** 횟수") long viewCount,
+    @Schema(description = "전체 좋아요 수") long likeCount,
+    @Schema(description = "내가 좋아요했는지") boolean likedByMe,
     Instant createdAt,
     Instant updatedAt) {
 
@@ -37,7 +39,12 @@ public record NoteDetailResponse(
    * @param viewCount <b>이 조회를 반영한 값</b>이다. 엔티티의 값을 그대로 넘기면 목록으로 돌아갔을 때 1 큰 숫자가 보여 두 화면이 어긋난다
    */
   public static NoteDetailResponse of(
-      Note note, Uploader uploader, boolean bookmarked, long viewCount) {
+      Note note,
+      Uploader uploader,
+      boolean bookmarked,
+      long viewCount,
+      long likeCount,
+      boolean likedByMe) {
     return new NoteDetailResponse(
         note.getId(),
         note.getCategory(),
@@ -51,6 +58,8 @@ public record NoteDetailResponse(
         note.getFiles().stream().map(NoteFileResponse::from).toList(),
         bookmarked,
         viewCount,
+        likeCount,
+        likedByMe,
         note.getCreatedAt(),
         note.getUpdatedAt());
   }
@@ -78,6 +87,8 @@ public record NoteDetailResponse(
         files,
         bookmarked,
         viewCount + 1,
+        likeCount,
+        likedByMe,
         createdAt,
         updatedAt);
   }

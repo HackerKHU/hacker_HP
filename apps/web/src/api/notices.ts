@@ -4,6 +4,7 @@ import {
   fixtureNotice,
   fixtureNotices,
   fixtureRemoveNotice,
+  fixtureSetNoticeLike,
   fixtureTogglePin,
   fixtureUpdateNotice,
 } from './fixtures'
@@ -20,6 +21,10 @@ export interface Notice {
   authorName: string
   createdAt: string
   updatedAt: string
+  /** 전체 좋아요 수. 목록·상세·등록·수정·고정 토글 응답 전부에 있다 (spec §3-2-5). */
+  likeCount: number
+  /** 내가 눌렀는지. 없으면 화면이 버튼을 채울지 비울지 정할 수 없다 (spec §3-2-5). */
+  likedByMe: boolean
 }
 
 export type NoticeQuery = {
@@ -78,4 +83,16 @@ export function remove(id: number): Promise<void> {
 export function togglePin(id: number): Promise<Notice> {
   if (import.meta.env.VITE_USE_FIXTURES === 'true') return fixtureTogglePin(id)
   return request<Notice>(`/notices/${id}/pin`, { method: 'PATCH' })
+}
+
+/**
+ * 좋아요·취소. **토글이 아니다** (spec §3-2-5 MUST) — 같은 요청이 상태를 뒤집으면
+ * 재시도가 방금 누른 것을 조용히 뗀다. 화면이 현재 `likedByMe`를 보고 방향을 정한다.
+ *
+ * 둘 다 멱등이고 응답은 본문 없는 `204`다 — 최신 개수가 오지 않으므로 화면이 직접 센다.
+ */
+export function setNoticeLike(id: number, liked: boolean): Promise<void> {
+  if (import.meta.env.VITE_USE_FIXTURES === 'true')
+    return fixtureSetNoticeLike(id, liked)
+  return request(`/notices/${id}/like`, { method: liked ? 'POST' : 'DELETE' })
 }

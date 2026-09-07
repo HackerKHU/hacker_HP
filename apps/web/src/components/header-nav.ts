@@ -1,4 +1,5 @@
 import type { Role } from '@/api/types'
+import { PAGE_CONTAINER } from '@/components/page-container'
 import { lookup } from '@/lib/lookup'
 
 /**
@@ -131,11 +132,12 @@ export const HEADER_NAV_DIVIDER_STACKED = 'my-2 h-px bg-border'
  *
  * 320px 뷰포트의 고정 스크롤바 환경은 실제 콘텐츠 폭이 305px뿐이다. `gap-x-2`면
  * `px-6` 안의 257px에 44px 로고 링크·44px 메뉴 버튼·상태 조작이 함께 들어간다. 심볼은
- * 링크 안에서 27px 폭을 유지한다. `px-6`은 랜딩 본문·푸터와 같은 정렬선이라 좁은
- * 화면에서도 줄이지 않는다 (#247, #249).
+ * 링크 안에서 27px 폭을 유지한다.
+ *
+ * **폭과 좌우 여백은 `PAGE_CONTAINER`가 정한다** (#389) — 랜딩 본문·푸터와 같은 정렬선
+ * 위에 서야 하므로 여기서 따로 적지 않는다 (#247, #249).
  */
-export const HEADER_CONTAINER =
-  'mx-auto grid h-20 w-full max-w-[1152px] grid-cols-[auto_1fr_auto] items-center gap-x-2 px-6 lg:flex lg:flex-nowrap lg:gap-8'
+export const HEADER_CONTAINER = `${PAGE_CONTAINER} grid h-20 grid-cols-[auto_1fr_auto] items-center gap-x-2 lg:flex lg:flex-nowrap lg:gap-8`
 
 /** 1024px 미만에서는 심볼, 그 이상에서는 기존 가로 락업을 쓸 때의 공통 크기다. */
 export const HEADER_LOGO = 'h-8 w-[27px] lg:w-auto'

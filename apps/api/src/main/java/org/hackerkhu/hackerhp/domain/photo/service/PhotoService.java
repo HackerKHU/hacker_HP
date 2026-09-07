@@ -1,8 +1,10 @@
 package org.hackerkhu.hackerhp.domain.photo.service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -13,6 +15,7 @@ import org.hackerkhu.hackerhp.domain.photo.dto.PhotoRegisterResponse.Reason;
 import org.hackerkhu.hackerhp.domain.photo.dto.PhotoResponse;
 import org.hackerkhu.hackerhp.domain.photo.dto.PhotoUploadUrlResponse;
 import org.hackerkhu.hackerhp.domain.photo.entity.Photo;
+import org.hackerkhu.hackerhp.domain.photo.repository.PhotoLikeRepository;
 import org.hackerkhu.hackerhp.domain.photo.repository.PhotoRepository;
 import org.hackerkhu.hackerhp.domain.user.dto.DisplayName;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
@@ -51,23 +54,27 @@ public class PhotoService {
   /** 원본 크기 상한. 계약이 정한 값이 아니라 방어적 상한이다 — 자료(§2-1-2)의 파일당 20MB와 같은 자릿수로 맞췄다. */
   private static final long MAX_ORIGINAL_BYTES = 20L * 1024 * 1024;
 
-  private static final String TEMP_PREFIX = "photos/uploads/";
+  /** 임시 원본이 놓이는 접두사. 최종 자리로 옮겨지지 않은 것은 이 접두사 아래 남는다 (#339의 고아 정리도 이 값으로 최종 위치를 가른다). */
+  public static final String TEMP_PREFIX = "photos/uploads/";
 
   /** HeadObject·GetObject가 없는 키에 응답 본문 없이 상태 코드만으로 답할 때의 값. */
   private static final int S3_NOT_FOUND = 404;
 
   private final PhotoRepository photoRepository;
   private final UserRepository userRepository;
+  private final PhotoLikeRepository photoLikeRepository;
   private final FileStorage storage;
   private final TransactionTemplate transactionTemplate;
 
   public PhotoService(
       PhotoRepository photoRepository,
       UserRepository userRepository,
+      PhotoLikeRepository photoLikeRepository,
       FileStorage storage,
       PlatformTransactionManager transactionManager) {
     this.photoRepository = photoRepository;
     this.userRepository = userRepository;
+    this.photoLikeRepository = photoLikeRepository;
     this.storage = storage;
     this.transactionTemplate = new TransactionTemplate(transactionManager);
   }
@@ -194,7 +201,8 @@ public class PhotoService {
                 requireActiveAdmin(uploaderId);
                 Photo managed = photoRepository.getReferenceById(photoId);
                 managed.assignStoredPath(finalKey);
-                return toResponse(managed);
+                // 방금 등록한 사진이라 좋아요는 아직 없다.
+                return toResponse(managed, 0L, false);
               });
     } catch (RuntimeException e) {
       // 업로드 실패든 권한 재확인 실패든, 완결되지 못한 행은 남기지 않는다. 임시 원본은 그대로
@@ -225,13 +233,46 @@ public class PhotoService {
    * PhotoRepository#findByStoredPathNotStartingWith} 참고.
    */
   @Transactional(readOnly = true)
-  public Page<PhotoResponse> list(Pageable pageable) {
+  public Page<PhotoResponse> list(Pageable pageable, Long viewerId, boolean liked) {
     Sort newestFirst = Sort.by(Sort.Order.desc("createdAt"));
-    return photoRepository
-        .findCompleted(
-            TEMP_PREFIX,
-            PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), newestFirst))
-        .map(this::toResponse);
+    PageRequest request =
+        PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), newestFirst);
+    /*
+     * 내가 좋아요한 사진만 (#355, 3-3 결정 28). 두 갈래 모두 등록이 끝나지 않은 자리표시자 행을
+     * 빼고 같은 최신순을 쓴다 — 필터가 목록의 다른 규칙을 바꾸지 않는다.
+     */
+    Page<Photo> page =
+        liked
+            ? photoRepository.findCompletedLikedBy(TEMP_PREFIX, viewerId, request)
+            : photoRepository.findCompleted(TEMP_PREFIX, request);
+    List<Long> ids = page.getContent().stream().map(Photo::getId).toList();
+    Map<Long, Long> likeCounts = likeCountsOf(ids);
+    Set<Long> likedByMe = likedIdsOf(viewerId, ids);
+    return page.map(
+        photo ->
+            toResponse(
+                photo,
+                likeCounts.getOrDefault(photo.getId(), 0L),
+                likedByMe.contains(photo.getId())));
+  }
+
+  /** 좋아요 개수를 <b>한 번에</b> 모아 읽는다. 행마다 물으면 페이지 크기만큼 질의가 붙는다. */
+  private Map<Long, Long> likeCountsOf(List<Long> photoIds) {
+    if (photoIds.isEmpty()) {
+      return Map.of();
+    }
+    Map<Long, Long> counts = new HashMap<>();
+    for (Object[] row : photoLikeRepository.countByPhotoIds(photoIds)) {
+      counts.put((Long) row[0], (Long) row[1]);
+    }
+    return counts;
+  }
+
+  private Set<Long> likedIdsOf(Long viewerId, List<Long> photoIds) {
+    if (photoIds.isEmpty()) {
+      return Set.of();
+    }
+    return Set.copyOf(photoLikeRepository.findLikedPhotoIdsOf(viewerId, photoIds));
   }
 
   /**
@@ -269,7 +310,7 @@ public class PhotoService {
     }
   }
 
-  private PhotoResponse toResponse(Photo photo) {
+  private PhotoResponse toResponse(Photo photo, long likeCount, boolean likedByMe) {
     User uploader = photo.getUploader();
     /*
      * 표시 이름은 DisplayName 한 곳에서만 만든다 (3-2 §3-2-2 MUST, #301). 예전에는 여기서
@@ -287,14 +328,19 @@ public class PhotoService {
         thumbnailUrl,
         uploaderId,
         uploaderName,
-        photo.getCreatedAt());
+        photo.getCreatedAt(),
+        likeCount,
+        likedByMe);
   }
 
   /**
    * {@code photos/{id}/{uuid}.jpg} → {@code photos/{id}/thumb/{uuid}.jpg} (spec 3-2 §3-2-2 저장 키
    * 형식). 본 이미지·썸네일 모두 항상 JPEG이므로({@link PhotoResizer}) 확장자를 조사하지 않고 {@code .jpg}로 고정한다.
+   *
+   * <p><b>{@code public}인 이유</b> — #339의 고아 정리 작업도 같은 규칙으로 썸네일 키를 유도해야, DB에 남은 본 이미지 경로 하나로 본
+   * 이미지·썸네일 둘 다를 "참조 중"으로 표시할 수 있다. 규칙을 두 곳에 따로 적으면 한쪽만 고쳐질 위험이 생긴다.
    */
-  private static String thumbnailKeyOf(String storedPath) {
+  public static String thumbnailKeyOf(String storedPath) {
     int lastSlash = storedPath.lastIndexOf('/');
     String dir = storedPath.substring(0, lastSlash + 1);
     String filename = storedPath.substring(lastSlash + 1);

@@ -1,5 +1,6 @@
 package org.hackerkhu.hackerhp.domain.photo.repository;
 
+import java.util.List;
 import org.hackerkhu.hackerhp.domain.photo.entity.Photo;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -9,6 +10,19 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface PhotoRepository extends JpaRepository<Photo, Long> {
+
+  /**
+   * 지금 DB가 참조하는 사진의 S3 키 전체 (#339의 고아 오브젝트 정리가 쓴다).
+   *
+   * <p><b>등록이 끝나지 않은 자리표시자 행도 포함한다</b> — {@link #findCompleted}와 달리 여기서는 뺄 이유가 없다. 자리표시자 행의 {@code
+   * storedPath}는 아직 임시 키({@code photos/uploads/…})라, 그 값을 참조 목록에 넣어 두면 등록이 진행 중인 원본을 고아로 오판해 지우는
+   * 사고를 막는다 — 어차피 정리 작업은 임시 접두사 자체를 건드리지 않지만, 이중으로 안전하다.
+   *
+   * <p>썸네일 키는 여기 없다 — {@code photos} 테이블에 별도 컬럼이 없고, 본 이미지 키에서 규칙대로 유도한다 ({@link
+   * org.hackerkhu.hackerhp.domain.photo.service.PhotoService#thumbnailKeyOf}).
+   */
+  @Query("select p.storedPath from Photo p")
+  List<String> findAllStoredPaths();
 
   /**
    * 목록에서 업로더를 함께 가져오고, <b>등록이 끝나지 않은 자리표시자 행은 뺀다.</b>
@@ -26,4 +40,35 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
       value = "select p from Photo p where p.storedPath not like concat(:prefix, '%')",
       countQuery = "select count(p) from Photo p where p.storedPath not like concat(:prefix, '%')")
   Page<Photo> findCompleted(@Param("prefix") String prefix, Pageable pageable);
+
+  /**
+   * <b>내가 좋아요한 사진만</b> (#355, 3-3 결정 28).
+   *
+   * <p>등록이 끝나지 않은 자리표시자 행을 빼는 조건은 {@link #findCompleted}와 같다 — 좋아요를 눌렀다고 해서 아직 완결되지 않은 행이 목록에 나오면 안
+   * 된다.
+   *
+   * <p><b>{@code EXISTS}로 본다.</b> 좋아요 표와 조인하면 사진이 좋아요 행 수만큼 중복돼 페이지 크기가 어긋난다.
+   *
+   * <p><b>업로더를 함께 가져오는 것도 {@link #findCompleted}와 같다.</b> {@code uploader}는 {@code LAZY}라 그냥 두면
+   * {@code PhotoService#toResponse}가 업로더 이름·id를 읽는 순간 <b>페이지에 실린 사진 수만큼 사용자 조회가 더 나간다</b> — 업로더가
+   * 제각각인 20건이면 그대로 20번이다. 전체 목록에만 걸어 두면 필터를 켰을 때만 조용히 N+1이 된다.
+   */
+  @EntityGraph(attributePaths = "uploader")
+  @Query(
+      value =
+          """
+          select p from Photo p
+          where p.storedPath not like concat(:prefix, '%')
+            and exists (select 1 from PhotoLike l
+                        where l.photoId = p.id and l.userId = :viewerId)
+          """,
+      countQuery =
+          """
+          select count(p) from Photo p
+          where p.storedPath not like concat(:prefix, '%')
+            and exists (select 1 from PhotoLike l
+                        where l.photoId = p.id and l.userId = :viewerId)
+          """)
+  Page<Photo> findCompletedLikedBy(
+      @Param("prefix") String prefix, @Param("viewerId") Long viewerId, Pageable pageable);
 }

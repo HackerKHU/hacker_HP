@@ -33,6 +33,8 @@ const NOTE: NoteDetail = {
   viewCount: 12_346,
   files: [],
   bookmarked: false,
+  likeCount: 4,
+  likedByMe: false,
   createdAt: '2026-08-01T09:00:00Z',
   updatedAt: '2026-08-01T09:00:00Z',
 }

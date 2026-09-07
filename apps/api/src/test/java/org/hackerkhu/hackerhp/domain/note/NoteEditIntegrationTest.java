@@ -531,4 +531,49 @@ class NoteEditIntegrationTest extends AbstractIntegrationTest {
             "SELECT COUNT(*) FROM note_files WHERE note_id = ?", Integer.class, noteId);
     return count == null ? 0 : count;
   }
+
+  /* ------------------------------------------------------------- 좋아요 (#344) */
+
+  /**
+   * <b>등록 응답도 좋아요 필드를 담는다</b> (#367 리뷰).
+   *
+   * <p>목록·상세만 재면 등록 경로의 배선이 빠져도 전체 테스트가 통과한다 — 갓 만든 자료라 값은 {@code 0}·{@code false}로 정해져 있지만, <b>필드가
+   * 응답에 있다는 것</b>이 계약이다.
+   */
+  @Test
+  void theCreationResponseCarriesAnEmptyLikeState() throws Exception {
+    JsonNode created = createNote(owner, "새 정리본.pdf");
+
+    assertThat(created.path("likeCount").asLong()).isZero();
+    assertThat(created.path("likedByMe").asBoolean()).isFalse();
+  }
+
+  /**
+   * <b>수정해도 좋아요 개수와 내 상태가 그대로다</b> (#367 리뷰).
+   *
+   * <p>수정 응답은 목록·상세와 <b>다른 조회 경로</b>({@code NoteEditService})를 탄다 — 여기서 좋아요를 다시 세지 않으면 방금까지 보이던 숫자와
+   * 버튼이 수정 직후에만 사라진다.
+   */
+  @Test
+  void editingKeepsTheLikeCountAndMyState() throws Exception {
+    mockMvc
+        .perform(Csrf.with(sessions.as(owner, post(NOTES + "/" + noteId + "/like"))))
+        .andExpect(status().isNoContent());
+    mockMvc
+        .perform(Csrf.with(sessions.as(other, post(NOTES + "/" + noteId + "/like"))))
+        .andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(updateRequest(owner, noteId, keepExisting(fileId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.likeCount").value(2))
+        .andExpect(jsonPath("$.likedByMe").value(true));
+
+    // 누르지 않은 사람이 고치면 개수는 같고 내 상태만 다르다 — 두 값이 따로 계산된다는 근거다.
+    mockMvc
+        .perform(updateRequest(admin, noteId, keepExisting(fileId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.likeCount").value(2))
+        .andExpect(jsonPath("$.likedByMe").value(false));
+  }
 }

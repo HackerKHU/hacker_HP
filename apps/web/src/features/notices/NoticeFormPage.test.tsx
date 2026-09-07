@@ -36,6 +36,8 @@ const EXISTING: Notice = {
   authorName: '관리자',
   createdAt: '2026-03-02T09:00:00Z',
   updatedAt: '2026-03-02T09:00:00Z',
+  likeCount: 0,
+  likedByMe: false,
 }
 
 vi.mock('@/api/notices', () => ({
