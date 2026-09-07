@@ -28,6 +28,7 @@ export interface Notice {
 }
 
 export type NoticeQuery = {
+  liked?: boolean
   page?: number
   size?: number
 }
@@ -36,9 +37,11 @@ export type NoticeQuery = {
 export function list(query: NoticeQuery = {}): Promise<Page<Notice>> {
   // 플래그는 함수 안에서 리터럴로 평가한다 — 이유는 `auth.ts` 상단 주석에 있다.
   if (import.meta.env.VITE_USE_FIXTURES === 'true') {
-    return fixtureNotices(query.page, query.size)
+    return fixtureNotices(query.page, query.size, query.liked)
   }
-  return request<Page<Notice>>(`/notices${toQuery(query)}`)
+  return request<Page<Notice>>(
+    `/notices${toQuery({ ...query, liked: query.liked || undefined })}`,
+  )
 }
 
 export function get(id: number): Promise<Notice> {

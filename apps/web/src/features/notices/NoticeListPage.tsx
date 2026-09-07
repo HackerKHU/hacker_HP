@@ -4,6 +4,7 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { list, type Notice, togglePin } from '@/api/notices'
 import type { Page } from '@/api/types'
 import { useSession } from '@/auth/session'
+import { LikeFilterLink } from '@/components/LikeFilterLink'
 import { ListSurface } from '@/components/ListSurface'
 import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import {
@@ -48,14 +49,9 @@ function formatDate(iso: string): string {
   })
 }
 
-/**
- * 이 화면의 주소에는 `page` 말고 다른 조회 조건이 없다. 그래서 매번 새로 만든다.
- *
- * <b>컴포넌트 밖에 둔다</b> — 안에 두면 렌더마다 새 함수가 되어, 이것을 쓰는 effect가 매 렌더
- * 다시 돌거나 의존성에서 빠진 채 남는다.
- */
-function pageParams(next: number): URLSearchParams {
-  const params = new URLSearchParams()
+/** 페이지 이동은 좋아요를 포함한 현재 조회 조건을 보존한다. */
+function pageParams(current: URLSearchParams, next: number): URLSearchParams {
+  const params = new URLSearchParams(current)
   writePage(params, next)
   return params
 }
@@ -68,6 +64,7 @@ export function NoticeListPage() {
   // 더해 보여준다 — URL과 API 사이에 변환을 두면 그 자리가 off-by-one이 사는 곳이 된다.
   const [searchParams, setSearchParams] = useSearchParams()
   const { pathname } = useLocation()
+  const onlyLiked = searchParams.get('liked') === 'true'
   const page = parsePage(searchParams.get('page'))
 
   const { state, reportApiError } = useSession()
@@ -95,7 +92,7 @@ export function NoticeListPage() {
     let alive = true
     setData(null)
     setFailed(false)
-    list({ page, size: PAGE_SIZE })
+    list({ page, size: PAGE_SIZE, ...(onlyLiked ? { liked: true } : {}) })
       .then((result) => {
         if (alive) setData(result)
       })
@@ -108,7 +105,7 @@ export function NoticeListPage() {
     return () => {
       alive = false
     }
-  }, [page, reloadKey, reportApiError])
+  }, [page, onlyLiked, reloadKey, reportApiError])
 
   /**
    * F-2 — 범위를 넘은 `page`로 들어오면 마지막 유효 페이지로 되돌린다.
@@ -122,9 +119,11 @@ export function NoticeListPage() {
     if (!data) return
     const { totalPages } = data.page
     if (totalPages >= 1 && page >= totalPages) {
-      setSearchParams(pageParams(totalPages - 1), { replace: true })
+      setSearchParams(pageParams(searchParams, totalPages - 1), {
+        replace: true,
+      })
     }
-  }, [data, page, setSearchParams])
+  }, [data, page, searchParams, setSearchParams])
 
   /**
    * 페이지 파라미터를 만드는 **유일한 규칙**. `goTo`(클릭 이동)와 `hrefFor`(링크 주소)가
@@ -132,7 +131,7 @@ export function NoticeListPage() {
    * 0페이지는 파라미터를 빼서 주소가 깨끗해진다.
    */
   function goTo(next: number) {
-    setSearchParams(pageParams(next))
+    setSearchParams(pageParams(searchParams, next))
   }
 
   /**
@@ -141,7 +140,7 @@ export function NoticeListPage() {
    * 클릭은 여전히 `preventDefault` 후 `setSearchParams`를 타므로 전체 새로고침이 나지 않는다.
    */
   function hrefFor(next: number): string {
-    const search = pageParams(next).toString()
+    const search = pageParams(searchParams, next).toString()
     return search === '' ? pathname : `${pathname}?${search}`
   }
 
@@ -180,21 +179,26 @@ export function NoticeListPage() {
          * 평소 목록은 읽기 화면으로 깨끗하게 둔다 — 토글을 항상 노출하면 읽으러 온
          * 관리자가 실수로 누른다.
          */}
-        {isAdmin && (
-          <div className="flex shrink-0 gap-2">
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/admin/notices/new">글쓰기</Link>
-            </Button>
-            <Button
-              variant={managing ? 'secondary' : 'outline'}
-              size="sm"
-              aria-pressed={managing}
-              onClick={() => setManaging((on) => !on)}
-            >
-              관리
-            </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2">
+            <LikeFilterLink />
           </div>
-        )}
+          {isAdmin && (
+            <div className="flex shrink-0 gap-2">
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/admin/notices/new">글쓰기</Link>
+              </Button>
+              <Button
+                variant={managing ? 'secondary' : 'outline'}
+                size="sm"
+                aria-pressed={managing}
+                onClick={() => setManaging((on) => !on)}
+              >
+                관리
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mt-6 min-h-72" data-list-surface="notices">
@@ -220,7 +224,9 @@ export function NoticeListPage() {
 
         {data !== null && data.content.length === 0 && (
           <p className="mt-8 text-sm text-muted-foreground">
-            등록된 공지가 없습니다.
+            {onlyLiked
+              ? '좋아요한 공지가 없습니다. 상세에서 좋아요를 누르면 여기 모입니다.'
+              : '등록된 공지가 없습니다.'}
           </p>
         )}
 

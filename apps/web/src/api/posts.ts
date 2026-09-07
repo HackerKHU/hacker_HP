@@ -74,11 +74,13 @@ export function countCodePoints(text: string): number {
  * 자리가 없다** — 자료 목록이 `sort=bogus` 하나로 `500`이 났던 적이 있다 (#52).
  */
 export function list(
-  query: { page?: number; size?: number } = {},
+  query: { page?: number; size?: number; liked?: boolean } = {},
 ): Promise<Page<PostSummary>> {
   // 플래그는 함수 안에서 리터럴로 평가한다 — 이유는 `auth.ts` 상단 주석에 있다.
   if (import.meta.env.VITE_USE_FIXTURES === 'true') return fixturePosts(query)
-  return request<Page<PostSummary>>(`/posts${toQuery({ ...query })}`)
+  return request<Page<PostSummary>>(
+    `/posts${toQuery({ ...query, liked: query.liked || undefined })}`,
+  )
 }
 
 export function get(id: number): Promise<PostDetail> {

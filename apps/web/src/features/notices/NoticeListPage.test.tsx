@@ -18,6 +18,8 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 const api = vi.hoisted(() => ({
   calls: [] as (number | undefined)[],
+  queries: [] as { page?: number; liked?: boolean }[],
+  empty: false,
   listError: null as unknown,
   role: 'USER' as 'USER' | 'ADMIN',
   togglePinFails: false,
@@ -81,7 +83,13 @@ const PAGES: Page<Notice>[] = [
 ]
 
 vi.mock('@/api/notices', () => ({
-  list: ({ page }: { page?: number }) => {
+  list: ({ page, liked }: { page?: number; liked?: boolean }) => {
+    api.queries.push({ page, liked })
+    if (api.empty)
+      return Promise.resolve({
+        content: [],
+        page: { size: 20, number: page ?? 0, totalElements: 0, totalPages: 0 },
+      })
     if (api.listError) return Promise.reject(api.listError)
     api.calls.push(page)
     const index = page ?? 0
@@ -173,6 +181,8 @@ function resetPages() {
 }
 
 beforeEach(() => {
+  api.queries = []
+  api.empty = false
   resetPages()
   api.calls = []
   api.listError = null
@@ -488,4 +498,61 @@ describe('공지 목록', () => {
       document.querySelector('[data-live-alert-viewport="true"]'),
     ).not.toBeInTheDocument()
   })
+})
+
+it('좋아요 토글은 다른 URL 조건을 보존하고 page만 초기화하며 서버 조회에 반영된다', async () => {
+  renderList('/notices?page=1&marker=keep')
+  const toggle = await screen.findByRole('link', { name: '좋아요' })
+  const target = new URL(
+    toggle.getAttribute('href') ?? '',
+    'https://test.local',
+  )
+  expect(target.searchParams.get('liked')).toBe('true')
+  expect(target.searchParams.get('marker')).toBe('keep')
+  expect(target.searchParams.has('page')).toBe(false)
+  fireEvent.click(toggle)
+  await waitFor(() =>
+    expect(api.queries.at(-1)).toMatchObject({ page: 0, liked: true }),
+  )
+  expect(screen.getByRole('link', { name: '좋아요' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
+  const off = new URL(
+    screen.getByRole('link', { name: '좋아요' }).getAttribute('href') ?? '',
+    'https://test.local',
+  )
+  expect(off.searchParams.has('liked')).toBe(false)
+  expect(off.searchParams.get('marker')).toBe('keep')
+  fireEvent.click(screen.getByRole('link', { name: '좋아요' }))
+  await waitFor(() => expect(api.queries.at(-1)?.liked).not.toBe(true))
+  const current = new URLSearchParams(
+    screen.getByTestId('search').textContent ?? '',
+  )
+  expect(current.has('liked')).toBe(false)
+  expect(current.has('page')).toBe(false)
+  expect(current.get('marker')).toBe('keep')
+})
+
+it('좋아요 필터가 켜진 빈 결과는 모으는 방법을 안내한다', async () => {
+  api.empty = true
+  renderList('/notices?liked=true')
+  expect(await screen.findByText(/좋아요한 공지가 없습니다\./)).toBeVisible()
+  await waitFor(() => expect(api.queries.at(-1)).toMatchObject({ liked: true }))
+})
+
+it('좋아요를 켠 채 다음 페이지로 이동해도 조건을 유지한다', async () => {
+  api.totalPages = 3
+  renderList('/notices?liked=true&marker=keep')
+  await waitFor(() =>
+    expect(api.queries.at(-1)).toMatchObject({ page: 0, liked: true }),
+  )
+  const next = await screen.findByRole('link', { name: '다음 페이지로 이동' })
+  const url = new URL(next.getAttribute('href') ?? '', 'https://test.local')
+  expect(url.searchParams.get('liked')).toBe('true')
+  expect(url.searchParams.get('marker')).toBe('keep')
+  fireEvent.click(next)
+  await waitFor(() =>
+    expect(api.queries.at(-1)).toMatchObject({ page: 1, liked: true }),
+  )
 })

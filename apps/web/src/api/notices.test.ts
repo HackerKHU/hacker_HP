@@ -137,3 +137,26 @@ describe('공지 API method와 경로', () => {
     expect(lastCall(fetchMock)[0]).not.toMatch(/^https?:\/\//)
   })
 })
+
+it.each([true, false, undefined])(
+  'liked=%s는 true일 때만 목록 쿼리에 담긴다',
+  async (liked) => {
+    const requestMock = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        content: [],
+        page: { number: 2, size: 10, totalElements: 0, totalPages: 0 },
+      }),
+    )
+    vi.stubGlobal('fetch', requestMock)
+    vi.stubEnv('VITE_USE_FIXTURES', 'false')
+    await list({ page: 2, size: 10, liked })
+    const url = new URL(
+      String(requestMock.mock.calls[0][0]),
+      'https://test.local',
+    )
+    expect(url.pathname).toBe('/api/v1/notices')
+    expect(url.searchParams.get('liked')).toBe(liked ? 'true' : null)
+    expect(url.searchParams.get('page')).toBe('2')
+    expect(url.searchParams.get('size')).toBe('10')
+  },
+)

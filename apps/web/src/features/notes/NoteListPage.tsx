@@ -16,6 +16,7 @@ import {
 import type { Page } from '@/api/types'
 import { isInactive, useSession } from '@/auth/session'
 import { clampedOutOfRange } from '@/components/clampPage'
+import { LikeFilterLink } from '@/components/LikeFilterLink'
 import { useLiveAlert } from '@/components/live-alert/LiveAlertProvider'
 import { SELECT_CLASS, SelectArrow } from '@/components/native-select'
 import {
@@ -97,6 +98,7 @@ export function NoteListPage() {
    * 갈래와 같은 이유로 URL에 남긴다 — 새로고침·뒤로가기·링크 공유에 살아남아야 한다.
    */
   const onlyBookmarked = searchParams.get('bookmarked') === 'true'
+  const onlyLiked = !onlyBookmarked && searchParams.get('liked') === 'true'
   const page = parsePage(searchParams.get('page'))
   const q = searchParams.get('q') ?? ''
   const subject = searchParams.get('subject') ?? ''
@@ -149,6 +151,7 @@ export function NoteListPage() {
     const query = onlyBookmarked
       ? bookmarks({ page, size: PAGE_SIZE })
       : list({
+          ...(onlyLiked ? { liked: true } : {}),
           category,
           q: q || undefined,
           subject: subject || undefined,
@@ -193,6 +196,7 @@ export function NoteListPage() {
     }
   }, [
     onlyBookmarked,
+    onlyLiked,
     category,
     q,
     subject,
@@ -346,7 +350,7 @@ export function NoteListPage() {
             {(Object.keys(CATEGORY_LABEL) as Category[]).map((value) => (
               <Link
                 key={value}
-                to={categoryHref(value, sort)}
+                to={`${categoryHref(value, sort)}${onlyLiked ? '&liked=true' : ''}`}
                 aria-current={value === category ? 'page' : undefined}
                 className={cn(
                   '-mb-px flex min-h-11 shrink-0 items-center whitespace-nowrap border-b-2 px-1 py-2 text-sm transition-colors sm:px-4',
@@ -371,24 +375,27 @@ export function NoteListPage() {
          * **켜면 검색·필터를 떨군다.** `GET /bookmarks`가 그것을 받지 않으므로 들고 가면
          * 조건이 걸린 것처럼 보이는데 실제로는 무시된다.
          */}
-        <Link
-          to={
-            onlyBookmarked ? categoryPath(category) : '/notes?bookmarked=true'
-          }
-          aria-current={onlyBookmarked ? 'page' : undefined}
-          className={cn(
-            'flex min-h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-1 py-1.5 text-sm transition-colors sm:gap-1.5 sm:px-3',
-            onlyBookmarked
-              ? 'bg-accent font-medium text-foreground'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          <Star
-            className={cn('size-4', onlyBookmarked && 'fill-current')}
-            aria-hidden="true"
-          />
-          즐겨찾기
-        </Link>
+        <div className="flex flex-wrap items-center justify-end gap-1">
+          <Link
+            to={
+              onlyBookmarked ? categoryPath(category) : '/notes?bookmarked=true'
+            }
+            aria-current={onlyBookmarked ? 'page' : undefined}
+            className={cn(
+              'flex min-h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-1 py-1.5 text-sm transition-colors sm:gap-1.5 sm:px-3',
+              onlyBookmarked
+                ? 'bg-accent font-medium text-foreground'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <Star
+              className={cn('size-4', onlyBookmarked && 'fill-current')}
+              aria-hidden="true"
+            />
+            즐겨찾기
+          </Link>
+          <LikeFilterLink exclusiveBookmark />
+        </div>
       </div>
 
       {/*
@@ -560,11 +567,13 @@ export function NoteListPage() {
            * "등록된 자료가 없습니다"라고 하면 검색어를 지워볼 생각을 못 한다.
            */
           <p className="mt-8 text-sm text-muted-foreground">
-            {onlyBookmarked
-              ? '담아둔 자료가 없습니다. 목록에서 별표를 눌러 담아보세요.'
-              : filtered
-                ? '조건에 맞는 자료가 없습니다. 검색어나 필터를 바꿔 보세요.'
-                : '등록된 자료가 없습니다.'}
+            {onlyLiked
+              ? '좋아요한 자료가 없습니다. 상세에서 좋아요를 누르면 여기 모입니다.'
+              : onlyBookmarked
+                ? '담아둔 자료가 없습니다. 목록에서 별표를 눌러 담아보세요.'
+                : filtered
+                  ? '조건에 맞는 자료가 없습니다. 검색어나 필터를 바꿔 보세요.'
+                  : '등록된 자료가 없습니다.'}
           </p>
         )}
 

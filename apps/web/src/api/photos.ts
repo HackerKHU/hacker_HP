@@ -36,11 +36,13 @@ export interface Photo {
 
 /** 목록. **정렬은 서버가 최신순으로 고정한다** (spec §2-1-7) — 화면이 정렬을 보내지 않는다. */
 export function list(
-  query: { page?: number; size?: number } = {},
+  query: { page?: number; size?: number; liked?: boolean } = {},
 ): Promise<Page<Photo>> {
   // 플래그는 함수 안에서 리터럴로 평가한다 — 이유는 `auth.ts` 상단 주석에 있다.
   if (import.meta.env.VITE_USE_FIXTURES === 'true') return fixturePhotos(query)
-  return request<Page<Photo>>(`/photos${toQuery({ ...query })}`)
+  return request<Page<Photo>>(
+    `/photos${toQuery({ ...query, liked: query.liked || undefined })}`,
+  )
 }
 
 export function remove(id: number): Promise<void> {
