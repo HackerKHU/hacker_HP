@@ -1958,6 +1958,8 @@ describe('비활동 시나리오 픽스처', () => {
       ['상세', () => fixtures.fixtureNote(1)],
       ['필터 옵션', () => fixtures.fixtureNoteFilters()],
       ['즐겨찾기 목록', () => fixtures.fixtureBookmarks()],
+      ['좋아요', () => fixtures.fixtureSetNoteLike(1, true)],
+      ['좋아요 취소', () => fixtures.fixtureSetNoteLike(1, false)],
       ['즐겨찾기 담기', () => fixtures.fixtureSetBookmark(1, true)],
       ['업로드 URL 발급', () => fixtures.fixtureUploadUrls([])],
       [
@@ -2115,4 +2117,38 @@ describe('댓글 픽스처', () => {
     expect(caught).toBeInstanceOf(ApiError)
     expect((caught as InstanceType<typeof ApiError>).code).toBe('NOT_FOUND')
   })
+})
+
+it('자료 좋아요 픽스처는 멱등이고 즐겨찾기·수정과 별개다', async () => {
+  const f = await loadFixtures('user')
+  const before = await f.fixtureNote(301)
+  await f.fixtureSetNoteLike(301, true)
+  await f.fixtureSetNoteLike(301, true)
+  const liked = await f.fixtureNote(301)
+  expect(liked.likeCount).toBe(before.likeCount + 1)
+  expect(liked.likedByMe).toBe(true)
+  expect(liked.bookmarked).toBe(before.bookmarked)
+  const updated = await f.fixtureUpdateNote(301, {
+    ...liked,
+    title: '수정한 자료',
+    files: liked.files.map((file) => ({ fileId: file.id })),
+  })
+  expect(updated).toMatchObject({ likeCount: liked.likeCount, likedByMe: true })
+  await f.fixtureSetNoteLike(301, false)
+  await f.fixtureSetNoteLike(301, false)
+  expect(await f.fixtureNote(301)).toMatchObject({
+    likeCount: before.likeCount,
+    likedByMe: false,
+    bookmarked: before.bookmarked,
+  })
+  await expect(f.fixtureSetNoteLike(99999, false)).resolves.toBeUndefined()
+  await expect(f.fixtureSetNoteLike(99999, true)).rejects.toMatchObject({
+    code: 'NOT_FOUND',
+  })
+  const created = await f.fixtureCreateNote({
+    ...liked,
+    title: '새 자료',
+    files: [{ key: 'notes/uploads/1/a.pdf', originalName: 'a.pdf' }],
+  })
+  expect(created).toMatchObject({ likeCount: 0, likedByMe: false })
 })

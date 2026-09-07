@@ -32,6 +32,9 @@ const api = vi.hoisted(() => ({
   downloadError: null as unknown,
   bookmarkError: null as unknown,
   removeError: null as unknown,
+  likes: [] as { id: number; liked: boolean }[],
+  likeError: null as unknown,
+  likePending: null as Promise<void> | null,
 }))
 
 const MINE: NoteDetail = {
@@ -47,6 +50,8 @@ const MINE: NoteDetail = {
   viewCount: 12_345,
   files: [{ id: 1000, originalName: '정리본.pdf', sizeBytes: 1_048_576 }],
   bookmarked: false,
+  likeCount: 4,
+  likedByMe: false,
   createdAt: '2026-08-01T09:00:00Z',
   updatedAt: '2026-08-01T09:00:00Z',
 }
@@ -60,6 +65,11 @@ const OTHER: NoteDetail = {
 }
 
 vi.mock('@/api/notes', () => ({
+  setNoteLike: (id: number, liked: boolean) => {
+    api.likes.push({ id, liked })
+    if (api.likeError) return Promise.reject(api.likeError)
+    return api.likePending ?? Promise.resolve()
+  },
   get: (id: number) => {
     api.gets.push(id)
     const pending = api.pending.get(id)
@@ -180,6 +190,9 @@ beforeEach(() => {
   api.downloadError = null
   api.bookmarkError = null
   api.removeError = null
+  api.likes = []
+  api.likeError = null
+  api.likePending = null
   auth.me = BASE
   vi.stubGlobal('open', vi.fn())
 })
@@ -491,5 +504,83 @@ describe('자료 상세', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '자료를 찾을 수 없습니다',
     )
+  })
+})
+
+// 실제 HTTP 메서드는 api/notes.test.ts에서, 화면이 정하는 방향과 반응은 여기서 검증한다.
+describe('자료 좋아요', () => {
+  it.each([false, true])(
+    'likedByMe=%s에서 응답 전에 개수·상태를 바꾸고 연타를 막는다',
+    async (initial) => {
+      api.note = { ...MINE, likedByMe: initial }
+      let finish: () => void = () => undefined
+      api.likePending = new Promise<void>((resolve) => {
+        finish = resolve
+      })
+      renderDetail()
+      const button = await screen.findByRole('button', { name: '좋아요 4' })
+      expect(button).toHaveAttribute('aria-pressed', String(initial))
+      fireEvent.click(button)
+      const changed = screen.getByRole('button', {
+        name: `좋아요 ${initial ? 3 : 5}`,
+      })
+      expect(changed).toHaveAttribute('aria-pressed', String(!initial))
+      expect(changed).toBeDisabled()
+      fireEvent.click(changed)
+      expect(api.likes).toEqual([{ id: 301, liked: !initial }])
+      await act(async () => {
+        finish()
+        await api.likePending
+      })
+      expect(changed).toBeEnabled()
+      expect(api.gets).toEqual([301])
+    },
+  )
+
+  it.each([false, true])(
+    'likedByMe=%s에서 실패하면 개수·상태를 되돌리고 fixed 오류를 알린다',
+    async (initial) => {
+      api.note = { ...MINE, likedByMe: initial }
+      api.likeError = new Error('network')
+      renderDetail()
+      fireEvent.click(await screen.findByRole('button', { name: '좋아요 4' }))
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('좋아요를 바꾸지 못했습니다')
+      expect(alert.closest('[data-live-alert-viewport="true"]')).not.toBeNull()
+      const button = screen.getByRole('button', { name: '좋아요 4' })
+      expect(button).toHaveAttribute('aria-pressed', String(initial))
+      expect(button).toBeEnabled()
+    },
+  )
+
+  it.each([false, true])(
+    'T-535: bookmarked=%s에서 좋아요를 눌러도 즐겨찾기는 그대로다',
+    async (bookmarked) => {
+      api.note = { ...MINE, bookmarked }
+      renderDetail()
+      fireEvent.click(await screen.findByRole('button', { name: '좋아요 4' }))
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: '좋아요 5' })).toBeEnabled(),
+      )
+      expect(
+        screen.getByRole('button', {
+          name: bookmarked ? '즐겨찾기 해제' : '즐겨찾기',
+        }),
+      ).toHaveAttribute('aria-pressed', String(bookmarked))
+      expect(api.bookmarked).toEqual([])
+    },
+  )
+
+  it('INACTIVE 상세 조회가 거절되면 좋아요 버튼을 보여주지 않는다', async () => {
+    auth.me = { ...BASE, status: 'INACTIVE' }
+    const pending = controlNote(301)
+    renderDetail()
+    await act(async () => {
+      pending.reject(new ApiError('INACTIVE', 403, '비활동 부원입니다.'))
+    })
+    expect(await screen.findByRole('alert')).toHaveTextContent('이번 학기')
+    expect(
+      screen.queryByRole('button', { name: /좋아요/ }),
+    ).not.toBeInTheDocument()
   })
 })
