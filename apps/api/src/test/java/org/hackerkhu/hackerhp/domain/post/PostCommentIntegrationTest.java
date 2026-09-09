@@ -469,6 +469,102 @@ class PostCommentIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$[0].author.name").value("탈퇴한 회원"));
   }
 
+  /* ------------------------------------------------- 목록의 댓글 수 (#374) */
+
+  /** <b>목록의 각 행이 그 글의 댓글 수를 담는다</b> (#374 완료 조건). */
+  @Test
+  void theListCarriesEachPostsCommentCount() throws Exception {
+    Post quiet =
+        postRepository.saveAndFlush(Post.write("댓글 없는 글", "본문", member.getId(), Instant.now()));
+    write(member, post.getId(), "첫 댓글");
+    write(admin, post.getId(), "둘째 댓글");
+
+    mockMvc
+        .perform(sessions.as(member, get(POSTS)))
+        .andExpect(status().isOk())
+        // 최신순 고정이라 방금 만든 quiet이 먼저다.
+        .andExpect(jsonPath("$.content[0].id").value(quiet.getId()))
+        .andExpect(jsonPath("$.content[0].commentCount").value(0))
+        .andExpect(jsonPath("$.content[1].id").value(post.getId()))
+        .andExpect(jsonPath("$.content[1].commentCount").value(2));
+  }
+
+  /**
+   * <b>댓글이 없으면 {@code 0}이다</b> — 필드가 빠지거나 {@code null}로 오면 안 된다. 집계 질의는 댓글이 없는 글을 결과에 담지 않으므로, 부르는
+   * 쪽이 채우지 않으면 여기서 드러난다.
+   */
+  @Test
+  void aPostWithoutCommentsCountsZero() throws Exception {
+    mockMvc
+        .perform(sessions.as(member, get(POSTS)))
+        .andExpect(jsonPath("$.content[0].commentCount").value(0));
+  }
+
+  /** <b>댓글을 지우면 수가 따라 준다</b> (#374 완료 조건). 카운터 열이 아니라 세기 때문에 공짜로 지켜진다. */
+  @Test
+  void deletingACommentBringsTheCountDown() throws Exception {
+    long first = write(member, post.getId(), "첫 댓글");
+    write(member, post.getId(), "둘째 댓글");
+
+    mockMvc
+        .perform(Csrf.with(sessions.as(member, delete(commentsUrl(post.getId()) + "/" + first))))
+        .andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(member, get(POSTS)))
+        .andExpect(jsonPath("$.content[0].commentCount").value(1));
+  }
+
+  /**
+   * <b>게시글을 지워도 남은 글의 수는 그대로다</b> (#374 완료 조건). T-518이 지워진 쪽을 보고, 이 사례는 <b>남은 쪽</b>을 본다 — 카운터 열이었다면
+   * CASCADE가 그 열을 건드리지 않아 어긋날 자리다.
+   */
+  @Test
+  void deletingAPostLeavesOtherPostsCountsAlone() throws Exception {
+    Post doomed =
+        postRepository.saveAndFlush(Post.write("지울 글", "본문", member.getId(), Instant.now()));
+    write(member, doomed.getId(), "함께 사라질 댓글");
+    write(member, post.getId(), "남을 댓글");
+
+    mockMvc
+        .perform(Csrf.with(sessions.as(admin, delete(POSTS + "/" + doomed.getId()))))
+        .andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(sessions.as(member, get(POSTS)))
+        .andExpect(jsonPath("$.page.totalElements").value(1))
+        .andExpect(jsonPath("$.content[0].id").value(post.getId()))
+        .andExpect(jsonPath("$.content[0].commentCount").value(1));
+  }
+
+  /** <b>남의 글의 댓글이 내 글의 수로 새지 않는다.</b> 집계를 글별로 묶지 않으면 한 숫자가 모든 행에 붙는다. */
+  @Test
+  void commentsAreCountedPerPost() throws Exception {
+    Post other =
+        postRepository.saveAndFlush(Post.write("다른 글", "본문", admin.getId(), Instant.now()));
+    write(member, post.getId(), "이 글의 댓글");
+    write(member, other.getId(), "저 글의 댓글");
+    write(member, other.getId(), "저 글의 댓글 둘");
+
+    mockMvc
+        .perform(sessions.as(member, get(POSTS)))
+        .andExpect(jsonPath("$.content[0].id").value(other.getId()))
+        .andExpect(jsonPath("$.content[0].commentCount").value(2))
+        .andExpect(jsonPath("$.content[1].id").value(post.getId()))
+        .andExpect(jsonPath("$.content[1].commentCount").value(1));
+  }
+
+  /** 좋아요 수와 서로 섞이지 않는다 — 둘 다 같은 행에 실려 나가므로 한 번은 함께 본다. */
+  @Test
+  void commentCountAndLikeCountDoNotGetSwapped() throws Exception {
+    write(member, post.getId(), "댓글 하나");
+
+    mockMvc
+        .perform(sessions.as(member, get(POSTS)))
+        .andExpect(jsonPath("$.content[0].commentCount").value(1))
+        .andExpect(jsonPath("$.content[0].likeCount").value(0));
+  }
+
   /* ---------------------------------------------------------------- CASCADE */
 
   /** 게시글이 지워지면 댓글도 함께 지운다 (3-3 결정 23 D4). */
