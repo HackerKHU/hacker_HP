@@ -1,6 +1,7 @@
 package org.hackerkhu.hackerhp.domain.post.service;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.hackerkhu.hackerhp.domain.post.dto.PostAuthor;
@@ -8,6 +9,7 @@ import org.hackerkhu.hackerhp.domain.post.dto.PostCreateRequest;
 import org.hackerkhu.hackerhp.domain.post.dto.PostDetailResponse;
 import org.hackerkhu.hackerhp.domain.post.dto.PostSummaryResponse;
 import org.hackerkhu.hackerhp.domain.post.entity.Post;
+import org.hackerkhu.hackerhp.domain.post.repository.PostCommentRepository;
 import org.hackerkhu.hackerhp.domain.post.repository.PostLikeRepository;
 import org.hackerkhu.hackerhp.domain.post.repository.PostRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
@@ -49,11 +51,17 @@ public class PostService {
   private final PostRepository posts;
   private final UserRepository users;
   private final PostLikeRepository likes;
+  private final PostCommentRepository comments;
 
-  public PostService(PostRepository posts, UserRepository users, PostLikeRepository likes) {
+  public PostService(
+      PostRepository posts,
+      UserRepository users,
+      PostLikeRepository likes,
+      PostCommentRepository comments) {
     this.posts = posts;
     this.users = users;
     this.likes = likes;
+    this.comments = comments;
   }
 
   /**
@@ -84,8 +92,9 @@ public class PostService {
      */
     Page<Post> page = posts.findFiltered(viewerId, mine, liked, request);
     Map<Long, User> found = AuthorLookup.of(page.getContent(), Post::getAuthorId, users);
-    Map<Long, PostLikeSummary> likeSummaries =
-        likeSummariesOf(viewerId, page.getContent().stream().map(Post::getId).toList());
+    List<Long> postIds = page.getContent().stream().map(Post::getId).toList();
+    Map<Long, PostLikeSummary> likeSummaries = likeSummariesOf(viewerId, postIds);
+    Map<Long, Long> commentCounts = commentCountsOf(postIds);
     return page.map(
         post -> {
           PostLikeSummary like = likeSummaries.getOrDefault(post.getId(), PostLikeSummary.NONE);
@@ -93,7 +102,8 @@ public class PostService {
               post,
               AuthorLookup.authorOf(post.getAuthorId(), found),
               like.count(),
-              like.likedByMe());
+              like.likedByMe(),
+              commentCounts.getOrDefault(post.getId(), 0L));
         });
   }
 
@@ -245,5 +255,22 @@ public class PostService {
       return Map.of();
     }
     return PostLikeSummary.byPostId(likes.countWithMineByPostIds(viewerId, postIds));
+  }
+
+  /**
+   * 그 페이지에 실린 글들의 댓글 수를 <b>한 번에</b> 모아 읽는다 (#374, 3-3 결정 30). 행마다 물으면 페이지 크기만큼 질의가 붙는다 — {@link
+   * #likeSummariesOf}와 같은 이유다.
+   *
+   * <p>댓글이 없는 글은 질의 결과에 아예 없다. 부르는 쪽이 {@code 0}으로 채우므로 여기서는 있는 것만 옮긴다.
+   */
+  private Map<Long, Long> commentCountsOf(List<Long> postIds) {
+    if (postIds.isEmpty()) {
+      return Map.of();
+    }
+    Map<Long, Long> counts = new HashMap<>();
+    for (Object[] row : comments.countByPostIds(postIds)) {
+      counts.put((Long) row[0], ((Number) row[1]).longValue());
+    }
+    return counts;
   }
 }
