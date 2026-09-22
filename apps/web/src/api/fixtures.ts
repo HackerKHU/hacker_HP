@@ -1917,22 +1917,55 @@ export function fixturePhotos(
 }
 
 /** 업로드·삭제는 `ADMIN` 전용이다 (계약 §3-2-5). 픽스처가 통과시키면 그 가드를 확인할 수 없다. */
-function requirePhotoAdmin(): ApiError | null {
-  return SCENARIO === 'admin'
-    ? null
-    : new ApiError('FORBIDDEN', 403, '관리자만 할 수 있습니다.')
+/**
+ * 사진을 쓸 수 있는 계정인가 — **부원 전체** (계약 §3-2-5, #400).
+ *
+ * 예전에는 `requirePhotoAdmin()`이 `ADMIN`이 아닌 모두를 거절했다. 업로드가 부원 전체에게
+ * 열리면서 그 규칙이 **계약과 반대**가 됐다 — 픽스처는 백엔드 없이 도는 로컬·QA의 서버
+ * 대역이라, 여기만 엄격하면 **화면은 막히는데 실제 서버는 받는다.**
+ *
+ * `PENDING`·`SUSPENDED`는 `AccountStatusFilter`가 앞에서 막는 몫이라 여기서 보지 않는다 —
+ * 그 시나리오는 갤러리 자체에 닿지 못한다.
+ */
+function requirePhotoWritable(): ApiError | null {
+  return SCENARIO === 'guest'
+    ? new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.')
+    : null
+}
+
+/**
+ * 그 사진을 지울 수 있는가 — **본인이 올린 것만. `ADMIN`은 전체** (#400).
+ *
+ * **업로더가 비어 있는 사진**(탈퇴한 회원의 것)은 `ADMIN`만 지운다. 주인이 없어 "본인"이
+ * 성립하지 않는다 — 자료와 같은 규칙이다 (계약 §3-2-4).
+ */
+function requirePhotoDeletable(photo: {
+  uploaderId: number | null
+}): ApiError | null {
+  if (SCENARIO === 'admin') return null
+  const me = SCENARIO === 'guest' ? null : USERS[SCENARIO]
+  if (me && photo.uploaderId === me.id) return null
+  return new ApiError(
+    'FORBIDDEN',
+    403,
+    '본인이 올린 사진만 삭제할 수 있습니다.',
+  )
 }
 
 export function fixtureRemovePhoto(id: number): Promise<void> {
-  const denied = requirePhotoAdmin()
-  if (denied) return Promise.reject(denied)
-
+  /*
+   * 없는 사진을 먼저 가른다. 소유자를 보려면 그 사진이 있어야 하고, 순서를 뒤집으면
+   * 없는 id에 403이 나가 화면이 "남의 것"으로 읽는다.
+   */
   const at = PHOTOS.findIndex((photo) => photo.id === id)
   if (at === -1) {
     return Promise.reject(
       new ApiError('NOT_FOUND', 404, '사진을 찾을 수 없습니다.'),
     )
   }
+  const denied = requirePhotoDeletable(PHOTOS[at])
+  if (denied) return Promise.reject(denied)
+
   PHOTOS.splice(at, 1)
   return Promise.resolve()
 }
@@ -1941,7 +1974,7 @@ export function fixtureRemovePhoto(id: number): Promise<void> {
  * 좋아요·취소. **없는 사진이어도 둘 다 실패는 아니다** — 누르기는 `404`, 취소는 성공이다
  * (계약 §3-2-5). 사진이 지워지면 좋아요도 함께 사라져 뗄 것이 이미 없다.
  *
- * **`requirePhotoAdmin`을 쓰지 않는다** (계약 §3-2-5) — 업로드·삭제와 달리 좋아요는
+ * **쓰기 가능 여부를 따로 보지 않는다** (계약 §3-2-5) — 업로드·삭제와 달리 좋아요는
  * `ACTIVE`·`INACTIVE` 부원 누구나 누른다. 픽스처가 막으면 일반 부원 시나리오에서
  * 화면을 확인할 수 없다.
  */
@@ -1972,7 +2005,7 @@ const PHOTO_MAX_COUNT_FIXTURE = 20
 export function fixtureIssuePhotoUploadUrls(
   extensions: string[],
 ): Promise<PhotoUpload[]> {
-  const denied = requirePhotoAdmin()
+  const denied = requirePhotoWritable()
   if (denied) return Promise.reject(denied)
 
   if (extensions.length === 0 || extensions.length > PHOTO_MAX_COUNT_FIXTURE) {
@@ -2021,7 +2054,7 @@ let nextPhotoId = 601
 export function fixtureRegisterPhotos(
   photos: { key: string; caption: string | null }[],
 ): Promise<PhotoRegisterResult> {
-  const denied = requirePhotoAdmin()
+  const denied = requirePhotoWritable()
   if (denied) return Promise.reject(denied)
 
   if (photos.length === 0 || photos.length > PHOTO_MAX_COUNT_FIXTURE) {
