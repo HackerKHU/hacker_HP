@@ -16,6 +16,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MinIOContainer;
+import org.testcontainers.utility.DockerImageName;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -41,7 +42,23 @@ class OrphanObjectCleanupJobIntegrationTest extends AbstractIntegrationTest {
 
   private static final String BUCKET = "hacker-uploads-cleanup-test";
 
-  private static final MinIOContainer MINIO = new MinIOContainer("minio/minio:latest");
+  /**
+   * MinIO 컨테이너.
+   *
+   * <p><b>{@code quay.io}에서 받고 태그를 고정한다</b> (2026-09-22). 예전에는 {@code minio/minio:latest}였는데,
+   * Docker Hub의 그 저장소가 사라져 <b>CI가 이미지를 받지 못하고 통째로 실패했다</b> — 코드를 한 줄도 건드리지 않은 PR에서도 그랬다. MinIO의 공식
+   * 배포처는 {@code quay.io}다.
+   *
+   * <p><b>{@code latest}로 두지 않는다.</b> 그것이 이번 고장의 원인이다 — 태그가 떠 있으면 <b>우리가 아무것도 안 해도 어느 날 깨진다.</b> 올릴
+   * 때는 여기 적힌 태그를 실제로 받아 보고 바꾼다.
+   *
+   * <p>{@code asCompatibleSubstituteFor}가 필요한 이유는 Testcontainers가 {@code MinIOContainer}에 기대하는 이름이
+   * {@code minio/minio}라서다. 레지스트리만 다르고 같은 이미지다.
+   */
+  private static final MinIOContainer MINIO =
+      new MinIOContainer(
+          DockerImageName.parse("quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z")
+              .asCompatibleSubstituteFor("minio/minio"));
 
   static {
     MINIO.start();

@@ -177,7 +177,12 @@
 
 - 최신순 그리드로 표시하며 페이지네이션을 지원한다.
 - 각 이미지는 개별 레코드로 저장된다. **앨범 그룹은 두지 않는다.**
-- 업로드·삭제는 `ADMIN` 전용이다.
+- **업로드는 부원 누구나 한다** (2026-09-03, [#400](https://github.com/HackerKHU/hacker_HP/issues/400)). `ACTIVE`·`INACTIVE` 둘 다다 — 활동사진은 자료 갈래가 아니라 비활동 부원도 쓴다.
+- **삭제는 본인이 올린 것만이다.** `ADMIN`은 전체를 지운다. 업로더가 비어 있는 사진(탈퇴한 회원의 것)은 `ADMIN`만 지운다.
+
+> **소모임장이 사진을 올릴 수 있게 하려고 열었다.** 그 하나 때문에 관리자 권한을 주는 것은 너무 크다 — 관리자는 회원 승인·정지·권한 부여·공지 작성까지 할 수 있다 ([3-3 결정 30](3-3-DESIGN-DECISIONS.md#3-3-31-결정-30--활동사진-업로드를-부원-전체에게-연다)).
+
+> 그 대가로 **올릴 수 있는 사람이 수십 명으로 는다.** 도배 대비는 여기서 다루지 않는다 — 근거 없이 상한을 정하면 정상 사용자가 막힌다 ([#255](https://github.com/HackerKHU/hacker_HP/issues/255)).
 
 **리사이즈** — 서버가 업로드된 이미지를 변환 후 저장한다 (MUST). 권장 기준은 가로 최대 1920px, 비율 유지, JPEG 품질 85이며, 기준 미만 이미지는 원본을 유지한다. 허용 형식은 `jpg`, `jpeg`, `png`다.
 
@@ -187,7 +192,7 @@
 
 ### 좋아요
 
-**갤러리에서 사진에 좋아요를 누르고 뗄 수 있다** ([3-3 결정 27](3-3-DESIGN-DECISIONS.md#3-3-28-결정-27--활동사진에-좋아요를-더한다), [#346](https://github.com/HackerKHU/hacker_HP/issues/346)). 업로드·삭제와 달리 `ADMIN` 전용이 아니다 — 부원 누구나 남길 수 있다.
+**갤러리에서 사진에 좋아요를 누르고 뗄 수 있다** ([3-3 결정 27](3-3-DESIGN-DECISIONS.md#3-3-28-결정-27--활동사진에-좋아요를-더한다), [#346](https://github.com/HackerKHU/hacker_HP/issues/346)). 업로드와 같은 범위다 ([#400](https://github.com/HackerKHU/hacker_HP/issues/400)) — 부원 누구나 남길 수 있다. **삭제만 소유자로 갈린다.**
 
 **누르는 자리는 크게 보기이고, 그리드 카드에는 개수만 보인다** ([#351](https://github.com/HackerKHU/hacker_HP/issues/351)). 그리드는 사진을 훑는 화면이라 카드마다 버튼을 두면 고르려던 손이 반응을 남긴다. 개수는 좋아요가 없어도 `0`으로 보여준다 — 감추면 카드마다 그 줄의 폭이 달라져 그리드가 흔들린다.
 
@@ -329,7 +334,7 @@
 | Post Launch | 자료 | 자료 상세 | ACTIVE |
 | Post Launch | 자료 | 자료 등록 / 수정 | ACTIVE |
 | Post Launch | 사진 | 갤러리 | ACTIVE |
-| Post Launch | 사진 | 사진 업로드 | ADMIN |
+| Post Launch | 사진 | 사진 업로드 | ACTIVE·INACTIVE |
 | Post Launch | 게시판 | 자유 게시판 목록 | ACTIVE |
 | Post Launch | 게시판 | 게시글 상세 | ACTIVE |
 | Post Launch | 게시판 | 글쓰기 | ACTIVE |

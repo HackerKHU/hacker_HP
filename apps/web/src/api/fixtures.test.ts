@@ -1373,27 +1373,98 @@ describe('활동사진 픽스처', () => {
   })
 
   /*
-   * **업로드·삭제는 `ADMIN` 전용이다** (계약 §3-2-5). 픽스처가 통과시키면 그 가드가
-   * 화면에서 확인되지 않는다.
+   * **업로드는 부원 전체에게 열려 있다** (계약 §3-2-5, #400).
+   *
+   * 예전에는 정반대를 단언했다 — `user`·`pending` 시나리오가 `FORBIDDEN`을 받는지 봤다.
+   * 소모임장이 사진을 올릴 수 있게 하려고 열면서 뒤집혔다 (3-3 결정 30).
+   *
+   * 픽스처는 백엔드 없이 도는 로컬·QA의 서버 대역이라, 여기만 엄격하면 **화면은 막히는데
+   * 실제 서버는 받는다.**
    */
-  it.each(['user', 'pending'])(
-    '%s 시나리오는 업로드·삭제가 FORBIDDEN이다',
-    async (scenario) => {
-      const { fixtureIssuePhotoUploadUrls, fixtureRemovePhoto, ApiError } =
-        await loadFixtures(scenario)
+  it('일반 부원도 업로드 URL을 받는다', async () => {
+    const { fixtureIssuePhotoUploadUrls } = await loadFixtures('user')
 
-      const issued = await fixtureIssuePhotoUploadUrls(['jpg']).catch(
-        (caught: unknown) => caught,
-      )
-      expect(issued).toBeInstanceOf(ApiError)
-      expect((issued as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+    const issued = await fixtureIssuePhotoUploadUrls(['jpg'])
 
-      const removed = await fixtureRemovePhoto(501).catch(
-        (caught: unknown) => caught,
-      )
-      expect((removed as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
-    },
-  )
+    expect(issued).toHaveLength(1)
+    expect(issued[0].key).toContain('photos/uploads/')
+  })
+
+  /*
+   * **삭제는 본인이 올린 것만이다** (#400). 역할이 아니라 소유자로 가른다 — 픽스처가
+   * `ADMIN` 여부로만 보면 "남의 사진을 못 지운다"를 화면에서 확인할 수 없다.
+   */
+  it('남이 올린 사진은 지울 수 없다', async () => {
+    const { fixtureRemovePhoto, fixturePhotos, ApiError } =
+      await loadFixtures('user')
+
+    const page = await fixturePhotos()
+    const someoneElses = page.content.find(
+      (photo) => photo.uploaderId !== null && photo.uploaderId !== 1,
+    )
+    expect(someoneElses).toBeDefined()
+
+    const removed = await fixtureRemovePhoto(
+      (someoneElses as { id: number }).id,
+    ).catch((caught: unknown) => caught)
+
+    expect(removed).toBeInstanceOf(ApiError)
+    expect((removed as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+  })
+
+  /*
+   * **업로더가 비어 있는 사진**(탈퇴한 회원의 것)은 `ADMIN`만 지운다 — 주인이 없어
+   * "본인"이 성립하지 않는다 (계약 §3-2-4의 자료 규칙과 같다).
+   */
+  it('업로더가 없는 사진은 일반 부원이 지울 수 없다', async () => {
+    const { fixtureRemovePhoto, fixturePhotos, ApiError } =
+      await loadFixtures('user')
+
+    const page = await fixturePhotos()
+    const orphan = page.content.find((photo) => photo.uploaderId === null)
+    expect(orphan).toBeDefined()
+
+    const removed = await fixtureRemovePhoto(
+      (orphan as { id: number }).id,
+    ).catch((caught: unknown) => caught)
+
+    expect(removed).toBeInstanceOf(ApiError)
+    expect((removed as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
+  })
+
+  /*
+   * **올린 사람이 업로더로 기록된다** (#402 리뷰). `USERS.admin`으로 박아 두면 일반 부원이
+   * 올린 사진이 관리자 것으로 표시되고, **본인이 지우려 할 때 `403`** 이 된다.
+   *
+   * 등록과 삭제를 한 사례에서 이어 본다 — 따로 재면 그 조합이 드러나지 않는다.
+   */
+  it('일반 부원이 등록한 사진은 본인이 지울 수 있다', async () => {
+    const { fixtureRegisterPhotos, fixtureRemovePhoto } =
+      await loadFixtures('user')
+
+    const result = await fixtureRegisterPhotos([
+      { key: 'photos/uploads/fixture-x.jpg', caption: '소모임 사진' },
+    ])
+
+    expect(result.registered).toHaveLength(1)
+    expect(result.registered[0].uploaderId).toBe(1)
+
+    await expect(
+      fixtureRemovePhoto(result.registered[0].id),
+    ).resolves.toBeUndefined()
+  })
+
+  /* 없는 사진은 소유자를 보기 전에 `404`다 — 순서가 뒤집히면 화면이 "남의 것"으로 읽는다. */
+  it('없는 사진은 404다', async () => {
+    const { fixtureRemovePhoto, ApiError } = await loadFixtures('user')
+
+    const removed = await fixtureRemovePhoto(999_999).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(removed).toBeInstanceOf(ApiError)
+    expect((removed as InstanceType<typeof ApiError>).code).toBe('NOT_FOUND')
+  })
 
   /*
    * 서버가 받는 것은 `jpg`·`jpeg`·`png`뿐이다 (계약 §3-2-5) — 디코딩해 리사이즈해야
