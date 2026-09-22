@@ -883,9 +883,9 @@ OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](
 
 절차:
 
-1. 관리자가 `POST /photos/upload-url`을 불러 올릴 개수만큼 presigned PUT URL을 받는다. 원본은 `photos/uploads/{uuid}.{ext}`에 임시로 쓴다 — 이 시점엔 `photoId`가 없다 (`note_files`의 `notes/{uuid}.{ext}`와 같은 이유, §3-2-2).
+1. **올리는 부원이** `POST /photos/upload-url`을 불러 올릴 개수만큼 presigned PUT URL을 받는다. 원본은 `photos/uploads/{uuid}.{ext}`에 임시로 쓴다 — 이 시점엔 `photoId`가 없다 (`note_files`의 `notes/{uuid}.{ext}`와 같은 이유, §3-2-2).
 2. 브라우저가 각 URL로 원본을 S3에 직접 올린다.
-3. 관리자가 `POST /photos`를 불러 업로드된 원본 키 목록(과 캡션)을 보낸다.
+3. 같은 사람이 `POST /photos`를 불러 업로드된 원본 키 목록(과 캡션)을 보낸다. **업로더는 인증 주체로만 정한다** (MUST) — 본문으로 받으면 남의 이름으로 올릴 수 있다.
 4. **서버가 그 요청 처리 중에** 각 원본을 S3에서 읽어(이 트래픽도 Vercel을 거치지 않는다) 리사이즈하고, 최종 키(`photos/{photoId}/{uuid}.jpg`, 썸네일 `photos/{photoId}/thumb/{uuid}.jpg`)에 다시 쓴 뒤 DB 행을 만든다.
 5. 리사이즈가 끝나면 임시 원본(`photos/uploads/...`)을 지운다 — 남겨 둘 이유가 없고, 쌓이면 스토리지 비용만 는다.
 

@@ -130,6 +130,7 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
 
   private User admin;
   private User member;
+  private User resting;
 
   @BeforeEach
   void createAccounts() {
@@ -145,6 +146,9 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
     member =
         userRepository.saveAndFlush(
             Accounts.approved("sub-member", "member@khu.ac.kr", "20240002"));
+    resting =
+        userRepository.saveAndFlush(
+            Accounts.inactive("sub-resting", "resting@khu.ac.kr", "20230003"));
   }
 
   @AfterEach
@@ -321,6 +325,38 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
         .andExpect(status().isForbidden());
 
     assertThat(photoRepository.count()).as("완결되지 않은 행이 남지 않는다").isZero();
+  }
+
+  /**
+   * T-605 (등록 경로) — <b>{@code INACTIVE} 부원도 실제로 등록한다.</b>
+   *
+   * <p>{@code /upload-url}만 두드리는 것으로는 부족하다 (#402 리뷰). {@code registerOne}의 {@code requireWritable}이
+   * {@code INACTIVE}를 거절하도록 바뀌거나 업로더 저장이 어긋나도, 발급만 재는 사례는 그대로 통과한다.
+   *
+   * <p>활동사진은 자료 갈래가 아니라 비활동 부원도 그대로 쓴다 (#228) — 여기서만 빼면 <i>"자료만 막는다"</i> 가 어긋난다.
+   */
+  @Test
+  void anInactiveMemberRegistersAPhoto() throws Exception {
+    String key = uploadOriginal(resting, image(640, 480, "png"), "png");
+
+    String body =
+        mockMvc
+            .perform(
+                write(
+                    resting,
+                    post("/api/v1/photos"),
+                    "{\"photos\":[{\"key\":\"%s\",\"caption\":null}]}".formatted(key)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.registered[0].uploaderId").value(resting.getId()))
+            .andExpect(jsonPath("$.failed.length()").value(0))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    Long photoId = objectMapper.readTree(body).get("registered").get(0).get("id").asLong();
+
+    assertThat(photoRepository.findById(photoId).orElseThrow().getStoredPath())
+        .as("완결된 최종 키다")
+        .startsWith("photos/" + photoId + "/");
   }
 
   @Test

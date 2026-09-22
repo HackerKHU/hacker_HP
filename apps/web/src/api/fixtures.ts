@@ -2063,6 +2063,7 @@ export function fixtureRegisterPhotos(
     )
   }
 
+  const uploader = SCENARIO === 'admin' ? USERS.admin : USERS.user
   const registered: Photo[] = []
   const failed: PhotoRegisterResult['failed'] = []
   photos.forEach((item, index) => {
@@ -2085,9 +2086,15 @@ export function fixtureRegisterPhotos(
       caption: item.caption,
       url: image,
       thumbnailUrl: image,
-      // 업로더는 인증 주체로만 정한다 (계약 §3-2-5 MUST). 본문으로 받지 않는다.
-      uploaderId: USERS.admin.id,
-      uploaderName: USERS.admin.name,
+      /*
+       * 업로더는 인증 주체로만 정한다 (계약 §3-2-5 MUST). 본문으로 받지 않는다.
+       *
+       * **지금 시나리오의 사람이다** (#402 리뷰). `USERS.admin`으로 박아 두면 일반 부원이
+       * 올린 사진이 **관리자 것으로 표시되고**, 이어서 본인이 지우려 하면 `403`이 된다 —
+       * 업로드가 부원 전체에게 열린 뒤로는(#400) 그 조합이 실제로 생긴다.
+       */
+      uploaderId: uploader.id,
+      uploaderName: uploader.name,
       createdAt: new Date().toISOString(),
       // 방금 등록한 사진은 좋아요가 있을 수 없다 (계약 §3-2-5).
       likeCount: 0,

@@ -192,7 +192,7 @@
 
 ### 좋아요
 
-**갤러리에서 사진에 좋아요를 누르고 뗄 수 있다** ([3-3 결정 27](3-3-DESIGN-DECISIONS.md#3-3-28-결정-27--활동사진에-좋아요를-더한다), [#346](https://github.com/HackerKHU/hacker_HP/issues/346)). 업로드·삭제와 달리 `ADMIN` 전용이 아니다 — 부원 누구나 남길 수 있다.
+**갤러리에서 사진에 좋아요를 누르고 뗄 수 있다** ([3-3 결정 27](3-3-DESIGN-DECISIONS.md#3-3-28-결정-27--활동사진에-좋아요를-더한다), [#346](https://github.com/HackerKHU/hacker_HP/issues/346)). 업로드와 같은 범위다 ([#400](https://github.com/HackerKHU/hacker_HP/issues/400)) — 부원 누구나 남길 수 있다. **삭제만 소유자로 갈린다.**
 
 **누르는 자리는 크게 보기이고, 그리드 카드에는 개수만 보인다** ([#351](https://github.com/HackerKHU/hacker_HP/issues/351)). 그리드는 사진을 훑는 화면이라 카드마다 버튼을 두면 고르려던 손이 반응을 남긴다. 개수는 좋아요가 없어도 `0`으로 보여준다 — 감추면 카드마다 그 줄의 폭이 달라져 그리드가 흔들린다.
 
@@ -334,7 +334,7 @@
 | Post Launch | 자료 | 자료 상세 | ACTIVE |
 | Post Launch | 자료 | 자료 등록 / 수정 | ACTIVE |
 | Post Launch | 사진 | 갤러리 | ACTIVE |
-| Post Launch | 사진 | 사진 업로드 | ADMIN |
+| Post Launch | 사진 | 사진 업로드 | ACTIVE·INACTIVE |
 | Post Launch | 게시판 | 자유 게시판 목록 | ACTIVE |
 | Post Launch | 게시판 | 게시글 상세 | ACTIVE |
 | Post Launch | 게시판 | 글쓰기 | ACTIVE |

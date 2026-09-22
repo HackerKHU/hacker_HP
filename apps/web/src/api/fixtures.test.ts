@@ -1432,6 +1432,28 @@ describe('활동사진 픽스처', () => {
     expect((removed as InstanceType<typeof ApiError>).code).toBe('FORBIDDEN')
   })
 
+  /*
+   * **올린 사람이 업로더로 기록된다** (#402 리뷰). `USERS.admin`으로 박아 두면 일반 부원이
+   * 올린 사진이 관리자 것으로 표시되고, **본인이 지우려 할 때 `403`** 이 된다.
+   *
+   * 등록과 삭제를 한 사례에서 이어 본다 — 따로 재면 그 조합이 드러나지 않는다.
+   */
+  it('일반 부원이 등록한 사진은 본인이 지울 수 있다', async () => {
+    const { fixtureRegisterPhotos, fixtureRemovePhoto } =
+      await loadFixtures('user')
+
+    const result = await fixtureRegisterPhotos([
+      { key: 'photos/uploads/fixture-x.jpg', caption: '소모임 사진' },
+    ])
+
+    expect(result.registered).toHaveLength(1)
+    expect(result.registered[0].uploaderId).toBe(1)
+
+    await expect(
+      fixtureRemovePhoto(result.registered[0].id),
+    ).resolves.toBeUndefined()
+  })
+
   /* 없는 사진은 소유자를 보기 전에 `404`다 — 순서가 뒤집히면 화면이 "남의 것"으로 읽는다. */
   it('없는 사진은 404다', async () => {
     const { fixtureRemovePhoto, ApiError } = await loadFixtures('user')
