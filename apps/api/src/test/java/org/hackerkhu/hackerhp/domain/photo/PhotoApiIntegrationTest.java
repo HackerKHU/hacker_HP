@@ -188,12 +188,21 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$[0].uploadUrl").isNotEmpty());
   }
 
+  /**
+   * <b>일반 부원도 발급받는다</b> (2026-09-03, #400).
+   *
+   * <p>예전에는 정반대를 단언했다 — {@code memberCannotIssueUploadUrls}가 {@code 403 FORBIDDEN}을 기대했다. 소모임장이 사진을
+   * 올릴 수 있게 하려고 업로드를 부원 전체에게 열면서 뒤집혔다 (3-3 결정 30).
+   *
+   * <p>권한이 갈리는 지점 전체는 {@code PhotoWritePermissionIntegrationTest}가 본다 (T-604 ~ T-612). 여기서는 이 API의
+   * 겉모습만 확인한다.
+   */
   @Test
-  void memberCannotIssueUploadUrls() throws Exception {
+  void aMemberCanIssueUploadUrls() throws Exception {
     mockMvc
         .perform(write(member, post("/api/v1/photos/upload-url"), "{\"extensions\":[\"jpg\"]}"))
-        .andExpect(status().isForbidden())
-        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].uploadUrl").isNotEmpty());
   }
 
   @Test

@@ -257,7 +257,7 @@ erDiagram
 
 저장 키 형식: `photos/{photoId}/{uuid}.jpg`, 썸네일은 `photos/{photoId}/thumb/{uuid}.jpg`. 업로드 경로(원본을 어디에 잠깐 두고 어떻게 리사이즈본으로 바뀌는지)는 [1-BACKGROUND §1-5](1-BACKGROUND.md) 확정 사항, API는 아래 `POST /photos/upload-url`·`POST /photos`를 따른다.
 
-`uploader_id`는 `ADMIN`만 채워진다(사진 업로드는 `ADMIN` 전용이다). 그래도 **`ON DELETE SET NULL`이다** (MUST) — 관리자도 삭제 대상이 될 수 있고, 활동사진은 아카이브라 남아야 한다.
+`uploader_id`에는 **올린 부원이 들어간다** (2026-09-03 [#400](https://github.com/HackerKHU/hacker_HP/issues/400) — 업로드가 `ADMIN` 전용에서 부원 전체로 열렸다). **`ON DELETE SET NULL`이다** (MUST) — 관리자도 삭제 대상이 될 수 있고, 활동사진은 아카이브라 남아야 한다.
 
 ### photo_likes
 
@@ -269,7 +269,7 @@ erDiagram
 | `photo_id` | bigint | PK, FK → photos.id, **ON DELETE CASCADE** | 사진이 지워지면 좋아요도 함께 지운다 |
 | `created_at` | timestamp | NOT NULL | |
 
-복합 PK `(user_id, photo_id)`로 중복 누름을 막는다. 업로드·삭제와 달리 좋아요는 `ADMIN` 전용이 아니다 — `ACTIVE`·`INACTIVE` 부원 누구나 남길 수 있다(3-3 결정 27).
+복합 PK `(user_id, photo_id)`로 중복 누름을 막는다. `ACTIVE`·`INACTIVE` 부원 누구나 남길 수 있다(3-3 결정 27) — **업로드도 같은 범위다** ([#400](https://github.com/HackerKHU/hacker_HP/issues/400)).
 
 ### admin_bootstrap_attempts
 
@@ -844,9 +844,9 @@ OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](
 | POST | `/notices/{id}/like` | ACTIVE·INACTIVE | 좋아요 (#343) |
 | DELETE | `/notices/{id}/like` | ACTIVE·INACTIVE | 좋아요 취소 (#343) |
 | GET | `/photos` | ACTIVE | 목록 |
-| POST | `/photos/upload-url` | ADMIN | 원본 파일별 presigned PUT URL 발급 (다중) |
-| POST | `/photos` | ADMIN | 메타데이터 등록 (JSON) — body에 업로드 완료된 원본 파일 키 목록. 서버가 그 키들을 S3에서 읽어 리사이즈한 뒤 최종 위치에 저장하고 사진마다 행을 만든다 |
-| DELETE | `/photos/{id}` | ADMIN | 삭제 |
+| POST | `/photos/upload-url` | ACTIVE·INACTIVE | 원본 파일별 presigned PUT URL 발급 (다중) |
+| POST | `/photos` | ACTIVE·INACTIVE | 메타데이터 등록 (JSON) — body에 업로드 완료된 원본 파일 키 목록. 서버가 그 키들을 S3에서 읽어 리사이즈한 뒤 최종 위치에 저장하고 사진마다 행을 만든다 |
+| DELETE | `/photos/{id}` | 본인/ADMIN | 삭제 — **본인이 올린 것만.** `ADMIN`은 전체 |
 | POST | `/photos/{id}/like` | ACTIVE·INACTIVE | 좋아요 (#346) |
 | DELETE | `/photos/{id}/like` | ACTIVE·INACTIVE | 좋아요 취소 (#346) |
 | GET | `/posts` | ACTIVE | 자유 게시판 목록 (최신순 고정) |
@@ -947,7 +947,7 @@ OpenAPI `maxLength`로 거짓 상한을 선언하지 않는다 ([3-3 결정 22](
 
 **`DELETE /photos/{id}/like`는 눌러져 있지 않아도, 없는 사진이어도 성공이다** (MUST) — 사진이 지워지면 좋아요도 함께 사라지므로(`ON DELETE CASCADE`) 뗄 것이 이미 없다. 성공 시 본문 없이 `204`다.
 
-**권한은 사진 조회와 같다** (`ACTIVE`·`INACTIVE`) — 활동사진은 자료 갈래가 아니라 `INACTIVE`도 좋아요를 누를 수 있다. **업로드·삭제(`ADMIN` 전용)와는 다른 권한 레벨이다** — 필터의 경로 매칭도 정확한 경로(`/photos`, `/photos/upload-url`, `/photos/{id}`)로만 `ADMIN`을 막고, `/photos/{id}/like`는 그 밖이라 컨트롤러의 `isAuthenticated()`가 그대로 적용된다.
+**권한은 사진 조회·업로드와 같다** (`ACTIVE`·`INACTIVE`) — 활동사진은 자료 갈래가 아니라 `INACTIVE`도 그대로 쓴다. **다른 것은 삭제뿐이다** — 그쪽은 본인이 올린 것만이고 `ADMIN`이 전체를 지운다 ([#400](https://github.com/HackerKHU/hacker_HP/issues/400)).
 
 **동시에 눌러도 좋아요는 하나다.** 공지·게시글 좋아요와 같은 이유로 `INSERT ... ON CONFLICT DO NOTHING`을 DB에 맡긴다.
 
