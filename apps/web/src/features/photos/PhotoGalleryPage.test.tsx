@@ -15,8 +15,12 @@ import { PhotoGalleryPage } from './PhotoGalleryPage'
 /**
  * 활동사진 갤러리.
  *
- * 여기서 지키는 것은 **#60 완료 조건** — 최신순 그리드와 페이지네이션, 그리고 **삭제가
- * `ADMIN`에게만 보이는가**다. 정렬은 서버가 고정하므로 화면이 다시 정렬하지 않는 것도 본다.
+ * 여기서 지키는 것은 **#60 완료 조건** — 최신순 그리드와 페이지네이션, 그리고 **누구에게
+ * 업로드·삭제가 보이는가**다. 정렬은 서버가 고정하므로 화면이 다시 정렬하지 않는 것도 본다.
+ *
+ * 삭제는 한때 `ADMIN` 전용이었다. #400이 업로드를 부원 전체에게 열면서 **조건이 역할이 아니라
+ * 소유자**가 됐다 (T-613~T-619) — 역할 하나로 가르면 카드마다 답이 달라야 하는 자리에서 전부
+ * 같은 답이 나온다.
  */
 
 const api = vi.hoisted(() => ({
@@ -38,14 +42,16 @@ function photo(
   id: number,
   caption: string | null,
   like: { count: number; mine: boolean } = { count: 0, mine: false },
+  // 기본은 남이 올린 사진이다 (`BASE.id`가 1). 소유자 판단을 보는 사례가 값을 넘긴다.
+  uploaderId: number | null = 2,
 ): Photo {
   return {
     id,
     caption,
     url: `/landing/mt.jpg?full=${id}`,
     thumbnailUrl: `/landing/mt.jpg?thumb=${id}`,
-    uploaderId: 2,
-    uploaderName: '김관리',
+    uploaderId,
+    uploaderName: uploaderId === null ? '탈퇴한 회원' : '김관리',
     createdAt: '2026-08-01T09:00:00Z',
     likeCount: like.count,
     likedByMe: like.mine,
@@ -355,18 +361,76 @@ describe('활동사진 갤러리', () => {
   })
 
   /*
-   * **#60 완료 조건 — 삭제는 `ADMIN`에게만 보인다.** 노출 제어일 뿐 권한 통제가 아니지만
-   * (§3-1-7), 부원에게 누를 수 없는 버튼을 보여줄 이유도 없다.
+   * **업로드는 부원 누구나 한다** (#400). 예전에는 정반대를 단언했다 — 일반 부원에게
+   * 업로드 진입점이 **없는지**를 봤다. 소모임장이 사진을 올릴 수 있게 열면서 뒤집혔다.
+   *
+   * 삭제는 여전히 안 보인다. 남이 올린 사진이기 때문이지(`uploaderId: 2` vs `BASE.id: 1`)
+   * 역할 때문이 아니다 — 그 차이를 아래 두 사례가 가른다.
    */
-  it('일반 부원에게는 삭제·업로드 진입점이 없다', async () => {
+  it('일반 부원에게 업로드는 보이고 남의 사진 삭제는 안 보인다', async () => {
     renderGallery()
     await screen.findByText('2026 신입생 환영회')
 
-    expect(screen.queryByRole('link', { name: '업로드' })).toBeNull()
+    expect(screen.getByRole('link', { name: '업로드' })).toHaveAttribute(
+      'href',
+      '/photos/new',
+    )
     expect(screen.queryByRole('button', { name: /삭제/ })).toBeNull()
   })
 
-  it('ADMIN에게는 삭제·업로드 진입점이 보인다', async () => {
+  /* 소유자 판단이 역할이 아니라 id로 이루어지는지. 여기가 이 화면의 핵심이다. */
+  it('본인이 올린 사진에는 삭제가 보인다', async () => {
+    api.rows = [photo(501, '내가 올린 사진', undefined, BASE.id)]
+
+    renderGallery()
+    await screen.findByText('내가 올린 사진')
+
+    expect(
+      screen.getByRole('button', { name: '내가 올린 사진 삭제' }),
+    ).toBeVisible()
+  })
+
+  /*
+   * **업로더가 비어 있는 사진**(탈퇴한 회원의 것)은 `ADMIN`만 지운다 — 주인이 없어
+   * "본인"이 성립하지 않는다. `uploaderId`와 내 id를 그냥 견주면 **둘 다 비었을 때**
+   * 통과하는 구현이 나온다.
+   */
+  it('업로더가 없는 사진은 일반 부원에게 삭제가 안 보인다', async () => {
+    api.rows = [photo(501, '주인 없는 사진', undefined, null)]
+
+    renderGallery()
+    await screen.findByText('주인 없는 사진')
+
+    expect(screen.queryByRole('button', { name: /삭제/ })).toBeNull()
+  })
+
+  /* 활동사진은 자료 갈래가 아니라 비활동 부원도 그대로 쓴다 (#228). */
+  /*
+   * T-615. 갤러리는 공개 화면이 아니지만 세션이 서기 전에도 한 번 그려진다. 그 순간을
+   * `me`로 가르지 않으면 **누를 수 없는 버튼이 잠깐 보였다 사라진다.**
+   */
+  it('로그인하지 않으면 업로드가 안 보인다', async () => {
+    auth.me = null
+
+    renderGallery()
+    await screen.findByAltText('2026 신입생 환영회')
+
+    expect(screen.queryByRole('link', { name: '업로드' })).toBeNull()
+  })
+
+  it('INACTIVE 부원에게도 업로드가 보인다', async () => {
+    auth.me = { ...BASE, status: 'INACTIVE' }
+
+    renderGallery()
+    await screen.findByText('2026 신입생 환영회')
+
+    expect(screen.getByRole('link', { name: '업로드' })).toHaveAttribute(
+      'href',
+      '/photos/new',
+    )
+  })
+
+  it('ADMIN에게는 남의 사진에도 삭제가 보인다', async () => {
     auth.me = { ...BASE, role: 'ADMIN' }
 
     renderGallery()
@@ -374,10 +438,23 @@ describe('활동사진 갤러리', () => {
 
     expect(screen.getByRole('link', { name: '업로드' })).toHaveAttribute(
       'href',
-      '/admin/photos/new',
+      '/photos/new',
     )
     expect(
       screen.getByRole('button', { name: '2026 신입생 환영회 삭제' }),
+    ).toBeVisible()
+  })
+
+  /* 탈퇴한 회원의 사진도 `ADMIN`은 지운다 — 위 사례의 반대쪽이다. */
+  it('업로더가 없는 사진도 ADMIN은 지울 수 있다', async () => {
+    auth.me = { ...BASE, role: 'ADMIN' }
+    api.rows = [photo(501, '주인 없는 사진', undefined, null)]
+
+    renderGallery()
+    await screen.findByText('주인 없는 사진')
+
+    expect(
+      screen.getByRole('button', { name: '주인 없는 사진 삭제' }),
     ).toBeVisible()
   })
 
