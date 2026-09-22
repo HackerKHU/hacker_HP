@@ -191,19 +191,19 @@ public class SecurityConfig {
                   .requestMatchers("/api/v1/admin/**")
                   .hasRole("ADMIN")
                   /*
-                   * 활동사진 쓰기(#57)도 같은 이유로 필터에서 한 번 더 막는다 — PhotoController의
-                   * @PreAuthorize는 본문을 역직렬화한 뒤에야 걸리므로, ACTIVE 회원이 깨진 본문을
-                   * 보내면 @PreAuthorize에 닿기도 전에 400이 나가 "권한 없으면 403" 계약이 깨진다.
+                   * 활동사진 쓰기에는 역할 조건이 없다 (2026-09-03, #400). 업로드는 부원 전체에게
+                   * 열렸고, 삭제의 "본인 것만"은 역할이 아니라 소유자 판단이라 경로만 보고는 정할 수
+                   * 없다 — PhotoService가 행을 잠근 채 본다.
                    *
-                   * **`**`가 아니라 정확한 경로다** (#346 리뷰). 좋아요(`POST`·`DELETE
-                   * /photos/{id}/like`)는 ACTIVE·INACTIVE에게 열려야 하는데, 와일드카드로 두면
-                   * 그 경로까지 ADMIN 전용으로 막혀 컨트롤러의 @PreAuthorize("isAuthenticated()")에
-                   * 닿기도 전에 여기서 거절된다.
+                   * 예전에는 여기서 ADMIN을 강제했다. 그때 적어 둔 두 가지는 지금도 유효하다.
+                   *
+                   *   ① 필터가 먼저 거절하면 본문을 읽기 전이라 "권한 없으면 403"이 본문 모양에
+                   *      흔들리지 않는다. 지금은 거절할 역할 조건 자체가 없어 해당하지 않는다.
+                   *   ② 경로를 `**`로 뭉치지 않는다 (#346 리뷰). 좋아요(`/photos/{id}/like`)까지
+                   *      함께 걸려 컨트롤러의 @PreAuthorize에 닿기도 전에 막힌다.
+                   *
+                   * ②는 새 규칙을 여기 더할 때 다시 걸린다. 그래서 매처를 지우면서 이 경고를 남긴다.
                    */
-                  .requestMatchers(HttpMethod.POST, "/api/v1/photos", "/api/v1/photos/upload-url")
-                  .hasRole("ADMIN")
-                  .requestMatchers(HttpMethod.DELETE, "/api/v1/photos/*")
-                  .hasRole("ADMIN")
                   .anyRequest()
                   .authenticated();
             })

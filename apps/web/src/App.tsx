@@ -93,10 +93,26 @@ function App() {
           />
 
           {/*
-            활동사진 갤러리는 `ACTIVE`면 누구나 본다 (spec §3-1-3 매트릭스).
-            **업로드·삭제만 ADMIN**이라 그쪽은 아래 관리자 라우트에 둔다.
+            활동사진 갤러리. 조회도 업로드도 `ACTIVE`·`INACTIVE` 부원 누구나 한다
+            (spec §3-1-3 매트릭스, 3-3 결정 30 — #400).
+
+            **`/admin` 아래가 아니다.** 업로드가 부원 전체에게 열리면서 관리자 화면이
+            아니게 됐다 — 관리자 화면과 부원 화면은 `/admin` 접두사로 가른다.
+
+            삭제는 별도 화면 없이 갤러리 안에서 하고, 그 버튼은 **본인이 올린 사진과
+            ADMIN에게만** 보인다.
           */}
           <Route path="/photos" element={<PhotoGalleryPage />} />
+          <Route path="/photos/new" element={<PhotoUploadPage />} />
+          {/*
+            옛 주소를 잇는다. 업로드가 `ADMIN` 전용이던 시절의 경로라 관리자가 북마크해
+            뒀을 수 있다 — 옛 `/bookmarks`를 자료게시판으로 보낸 것과 같은 처리다
+            (spec 2-1 §2-1-5).
+          */}
+          <Route
+            path="/admin/photos/new"
+            element={<Navigate to="/photos/new" replace />}
+          />
 
           {/*
             자유 게시판. **`/admin` 아래가 아니다** — 승인된 ACTIVE·INACTIVE 부원 모두
@@ -122,11 +138,6 @@ function App() {
           <Route path="/admin/notices/new" element={<NoticeFormPage />} />
           <Route path="/admin/notices/:id/edit" element={<NoticeFormPage />} />
           <Route path="/admin/members" element={<MemberListPage />} />
-          {/*
-            사진 업로드는 ADMIN 전용이다 (spec §2-1-10 화면 목록). 삭제는 별도 화면 없이
-            갤러리 안에서 하되, 그 버튼도 ADMIN에게만 보인다.
-          */}
-          <Route path="/admin/photos/new" element={<PhotoUploadPage />} />
         </Route>
       </Route>
 

@@ -35,10 +35,14 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 활동사진 조회·업로드·삭제 (#57, spec 3-2 §3-2-5).
  *
- * <p><b>조회는 {@code isAuthenticated()}, 쓰기는 {@code hasRole('ADMIN')}만 적는다.</b> {@code ACTIVE} 조건은
- * {@code AccountStatusFilter}가 인가보다 먼저 보장하므로 여기서 다시 적지 않는다 ({@code NoticeController}와 같은 관례).
+ * <p><b>전부 {@code isAuthenticated()}만 적는다.</b> 상태 조건은 {@code AccountStatusFilter}가 인가보다 먼저 보장하므로
+ * 여기서 다시 적지 않는다 ({@code NoticeController}와 같은 관례).
+ *
+ * <p><b>업로드가 부원 전체에게 열려 있다</b> (2026-09-03, #400). 소모임장이 사진을 올릴 수 있게 하려고 연 것이고, 그 하나 때문에 관리자 권한을 주는
+ * 것은 너무 크다. 삭제의 <b>"본인 것만"</b>은 역할이 아니라 소유자 판단이라 {@code @PreAuthorize}로 적을 수 없다 — {@code
+ * PhotoService}가 행을 잠근 채 본다 (3-1 §3-1-7: 화면이 버튼을 숨기는 것과 별개로 서버가 확인한다).
  */
-@Tag(name = "활동사진", description = "조회는 ACTIVE, 업로드·삭제는 ADMIN 전용. 원본은 presigned URL로 직접 올린다")
+@Tag(name = "활동사진", description = "조회·업로드는 부원 전체. 삭제는 본인 것만(ADMIN은 전체). 원본은 presigned URL로 직접 올린다")
 @RestController
 @RequestMapping("/api/v1/photos")
 public class PhotoController {
@@ -75,7 +79,7 @@ public class PhotoController {
               mediaType = MediaType.APPLICATION_JSON_VALUE,
               schema = @Schema(implementation = ErrorResponse.class)))
   @PostMapping("/upload-url")
-  @PreAuthorize("hasRole('ADMIN')")
+  @PreAuthorize("isAuthenticated()")
   public List<PhotoUploadUrlResponse> issueUploadUrls(
       @Valid @RequestBody PhotoUploadUrlRequest request) {
     return photoService.issueUploadUrls(request.extensions());
@@ -104,7 +108,7 @@ public class PhotoController {
               mediaType = MediaType.APPLICATION_JSON_VALUE,
               schema = @Schema(implementation = ErrorResponse.class)))
   @PostMapping
-  @PreAuthorize("hasRole('ADMIN')")
+  @PreAuthorize("isAuthenticated()")
   public PhotoRegisterResponse register(
       @AuthenticationPrincipal Long userId, @Valid @RequestBody PhotoRegisterRequest request) {
     return photoService.register(userId, request);
@@ -121,7 +125,22 @@ public class PhotoController {
     return new PagedModel<>(photoService.list(pageable, viewerId, liked));
   }
 
-  @Operation(summary = "활동사진 삭제")
+  @Operation(
+      summary = "활동사진 삭제",
+      description =
+          """
+          **본인이 올린 사진만 지운다.** `ADMIN`은 전체를 지운다 (#400).
+
+          **업로더가 비어 있는 사진**(탈퇴한 회원의 것)은 `ADMIN`만 지운다 — 주인이 없어
+          "본인"이 성립하지 않는다. 자료와 같은 규칙이다.
+          """)
+  @ApiResponse(
+      responseCode = "403",
+      description = "`FORBIDDEN` — 남이 올린 사진",
+      content =
+          @Content(
+              mediaType = MediaType.APPLICATION_JSON_VALUE,
+              schema = @Schema(implementation = ErrorResponse.class)))
   @ApiResponse(responseCode = "204", description = "삭제됨")
   @ApiResponse(
       responseCode = "404",
@@ -131,7 +150,7 @@ public class PhotoController {
               mediaType = MediaType.APPLICATION_JSON_VALUE,
               schema = @Schema(implementation = ErrorResponse.class)))
   @DeleteMapping("/{id}")
-  @PreAuthorize("hasRole('ADMIN')")
+  @PreAuthorize("isAuthenticated()")
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void delete(@AuthenticationPrincipal Long userId, @PathVariable Long id) {
     photoService.delete(userId, id);

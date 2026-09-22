@@ -19,12 +19,14 @@ import org.hackerkhu.hackerhp.domain.photo.repository.PhotoLikeRepository;
 import org.hackerkhu.hackerhp.domain.photo.repository.PhotoRepository;
 import org.hackerkhu.hackerhp.domain.user.dto.DisplayName;
 import org.hackerkhu.hackerhp.domain.user.entity.Role;
-import org.hackerkhu.hackerhp.domain.user.entity.Status;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.domain.user.service.RequesterCheck;
 import org.hackerkhu.hackerhp.global.error.BusinessException;
 import org.hackerkhu.hackerhp.global.error.ErrorCode;
 import org.hackerkhu.hackerhp.global.storage.FileStorage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -48,6 +50,8 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
  */
 @Service
 public class PhotoService {
+
+  private static final Logger log = LoggerFactory.getLogger(PhotoService.class);
 
   private static final Set<String> ALLOWED_EXTENSIONS = Set.of("jpg", "jpeg", "png");
 
@@ -96,7 +100,7 @@ public class PhotoService {
    * (apps/api/AGENTS.md, spec 3-2 §3-2-6 일괄 승인과 같은 원칙). 항목마다 독립된 트랜잭션으로 처리하므로 뒤 항목의 실패가 이미 커밋된 앞
    * 항목을 되돌리지도 않는다.
    *
-   * <p>요청자 권한이 통째로 사라진 경우({@link #requireActiveAdmin})는 예외다 — 그건 개별 항목의 문제가 아니라 요청 자체가 더 이상 유효하지
+   * <p>요청자가 더 이상 쓸 수 없는 계정인 경우({@link #requireWritable})는 예외다 — 그건 개별 항목의 문제가 아니라 요청 자체가 더 이상 유효하지
    * 않다는 뜻이므로 {@link BusinessException}을 그대로 던져 나머지 항목의 처리를 멈춘다.
    */
   public PhotoRegisterResponse register(Long uploaderId, PhotoRegisterRequest request) {
@@ -117,9 +121,9 @@ public class PhotoService {
    * 사진 한 장을 등록한다. 되돌릴 수 없는 순서로 세 단계를 밟는다.
    *
    * <ol>
-   *   <li>요청자 권한을 잠근 채 다시 확인하고({@link #requireActiveAdmin}), 자리표시자 경로(임시 키)로 행을 만들어 커밋한다 — 최종
-   *       키({@code photos/{photoId}/{uuid}.jpg})에 이 행의 id가 들어가야 하는데, INSERT 전에는 id가 없다. 이 행은 아직
-   *       "완결"되지 않았으므로 {@link PhotoRepository#findByStoredPathNotStartingWith}가 목록에서 뺀다.
+   *   <li>요청자 상태를 잠근 채 다시 확인하고({@link #requireWritable}), 자리표시자 경로(임시 키)로 행을 만들어 커밋한다 — 최종 키({@code
+   *       photos/{photoId}/{uuid}.jpg})에 이 행의 id가 들어가야 하는데, INSERT 전에는 id가 없다. 이 행은 아직 "완결"되지 않았으므로
+   *       {@link PhotoRepository#findByStoredPathNotStartingWith}가 목록에서 뺀다.
    *   <li>그 id로 최종 키를 만들어 리사이즈본·썸네일을 올린 뒤, 요청자 권한을 <b>다시 한번</b> 확인하고 행에 최종 키를 반영해 커밋한다 — 1번 트랜잭션이
    *       끝나며 잠금은 이미 풀렸고 S3 업로드는 트랜잭션 밖이라, 그 사이 다른 관리자가 요청자를 정지·강등했을 수 있다. <b>이 중 무엇이든 실패하면 1번이 만든
    *       행을 지운다</b> — 임시 원본은 아직 그대로라 같은 키로 다시 등록을 시도할 수 있다. S3 업로드 실패는 항목 하나의 문제가 아니라 S3 자체의 문제이므로
@@ -175,7 +179,7 @@ public class PhotoService {
     Photo photo =
         transactionTemplate.execute(
             status -> {
-              requireActiveAdmin(uploaderId);
+              requireWritable(uploaderId);
               Photo created =
                   Photo.upload(caption, tempKey, userRepository.getReferenceById(uploaderId));
               photoRepository.saveAndFlush(created);
@@ -198,7 +202,7 @@ public class PhotoService {
       response =
           transactionTemplate.execute(
               status -> {
-                requireActiveAdmin(uploaderId);
+                requireWritable(uploaderId);
                 Photo managed = photoRepository.getReferenceById(photoId);
                 managed.assignStoredPath(finalKey);
                 // 방금 등록한 사진이라 좋아요는 아직 없다.
@@ -287,26 +291,50 @@ public class PhotoService {
   }
 
   private String deleteRow(Long requesterId, Long id) {
-    requireActiveAdmin(requesterId);
+    User requester = requireWritable(requesterId);
     Photo photo =
         photoRepository.findById(id).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+    requireOwnerOrAdmin(requester, photo, requesterId);
     String storedPath = photo.getStoredPath();
     photoRepository.delete(photo);
     return storedPath;
   }
 
   /**
-   * 요청자의 <b>현재</b> 권한을 행을 잠근 채 확인한다. {@code @PreAuthorize}는 <b>세션에 담긴</b> 값을 본다 — 등록·삭제가 S3와 왕복하는
-   * 동안 다른 관리자가 이 계정을 강등·정지했다면, 세션은 여전히 ADMIN이라 판단하지만 실제 권한은 이미 사라진 뒤다. 되돌릴 수 없는 S3 쓰기를 시작하기 전에 반드시
-   * 부른다 ({@link UserApplicationService#submit}과 같은 이유로 {@code findByIdForUpdate}를 쓴다).
+   * 요청자의 <b>현재</b> 상태를 행을 잠근 채 확인한다. {@code @PreAuthorize}는 <b>세션에 담긴</b> 값을 본다 — 등록·삭제가 S3와 왕복하는
+   * 동안 다른 관리자가 이 계정을 정지했다면, 세션은 여전히 쓸 수 있다고 판단하지만 실제로는 아니다. 되돌릴 수 없는 S3 쓰기를 시작하기 전에 반드시 부른다 ({@link
+   * UserApplicationService#submit}과 같은 이유로 {@code findByIdForUpdate}를 쓴다).
+   *
+   * <p><b>{@code ADMIN}을 요구하지 않는다</b> (2026-09-03, #400). 활동사진 업로드가 부원 전체에게 열리면서 조건이 "활성 관리자인가"에서
+   * "쓸 수 있는 계정인가"로 바뀌었다. {@code RequesterCheck#requireActive}가 그 판단을 이미 들고 있다 — {@code INACTIVE}는
+   * 통과하고 {@code SUSPENDED}·{@code PENDING}은 각자의 코드로 거절된다.
+   *
+   * <p><b>검사 자체를 지우면 안 된다.</b> 이 메서드가 있는 이유는 권한 등급이 아니라 <b>세션과 실제 상태가 어긋나는 창</b>이다. 그 창은 조건이 느슨해져도
+   * 그대로 있다.
    */
-  private void requireActiveAdmin(Long requesterId) {
-    User requester =
-        userRepository
-            .findByIdForUpdate(requesterId)
-            .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHENTICATED));
-    if (requester.getRole() != Role.ADMIN || requester.getStatus() != Status.ACTIVE) {
-      throw new BusinessException(ErrorCode.FORBIDDEN);
+  private User requireWritable(Long requesterId) {
+    User requester = userRepository.findByIdForUpdate(requesterId).orElse(null);
+    RequesterCheck.requireActive(requester, requesterId);
+    return requester;
+  }
+
+  /**
+   * 지울 수 있는 사람인가 — <b>{@code ADMIN}은 전부, 그 밖에는 본인이 올린 것만</b> (3-1 §3-1-3, #400).
+   *
+   * <p>자료와 같은 규칙이다 ({@code NoteEditService#requireOwnerOrAdmin}). <b>업로더가 비어 있는 사진</b>(탈퇴한 회원의 것)은
+   * {@code ADMIN}만 지운다 — 주인이 없으므로 "본인"이 성립하지 않는다.
+   *
+   * <p><b>이름이 아니라 id로 견준다.</b> 표시 이름은 동명이인을 가르려고 학번 뒷자리를 붙인 값이라(#300) 비교 기준이 될 수 없고, 탈퇴한 회원끼리는 이름이
+   * 모두 같다.
+   */
+  private void requireOwnerOrAdmin(User requester, Photo photo, Long requesterId) {
+    if (requester.getRole() == Role.ADMIN) {
+      return;
+    }
+    User uploader = photo.getUploader();
+    if (uploader == null || !requesterId.equals(uploader.getId())) {
+      log.info("남의 사진을 지우려 했다: requesterId={} photoId={}", requesterId, photo.getId());
+      throw new BusinessException(ErrorCode.FORBIDDEN, "본인이 올린 사진만 삭제할 수 있습니다.");
     }
   }
 
