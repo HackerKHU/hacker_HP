@@ -85,10 +85,10 @@ vi.mock('@/api/auth', () => ({
 
 function renderUpload() {
   render(
-    <MemoryRouter initialEntries={['/admin/photos/new']}>
+    <MemoryRouter initialEntries={['/photos/new']}>
       <SessionProvider>
         <Routes>
-          <Route path="/admin/photos/new" element={<PhotoUploadPage />} />
+          <Route path="/photos/new" element={<PhotoUploadPage />} />
           <Route path="/photos" element={<h1>갤러리</h1>} />
         </Routes>
       </SessionProvider>
