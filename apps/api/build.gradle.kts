@@ -48,7 +48,7 @@ dependencies {
     testImplementation("org.testcontainers:postgresql")
     // S3 흐름(업로드→리사이즈→정리)을 진짜 오브젝트 스토어로 검증한다 — Postgres를
     // Testcontainers로 검증하는 것과 같은 이유다.
-    testImplementation("org.testcontainers:minio")
+    // 특정 구현에 묶이지 않도록 GenericContainer로 직접 배선한다 (testsupport/storage/ObjectStore).
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

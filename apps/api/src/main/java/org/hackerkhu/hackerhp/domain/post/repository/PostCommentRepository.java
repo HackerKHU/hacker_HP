@@ -22,7 +22,7 @@ public interface PostCommentRepository extends JpaRepository<PostComment, Long> 
   List<PostComment> findByPostId(Long postId, Sort sort);
 
   /**
-   * 그 페이지에 실린 게시글들의 댓글 수를 <b>한 번에</b> 센다 (#374, 3-3 결정 31).
+   * 그 페이지에 실린 게시글들의 댓글 수를 <b>한 번에</b> 센다 (#374, 3-3 결정 32).
    *
    * <p><b>셀 뿐 저장하지 않는다.</b> {@code posts}에 카운터 열을 두면 댓글 등록·삭제와 게시글 삭제 CASCADE마다 그 열을 따로 맞춰야 하고, 한 번
    * 어긋나면 되돌릴 근거가 없다 — 좋아요가 같은 갈림길에서 카운터를 버리고 행을 남긴 것과 같은 판단이다(결정 24 D1).

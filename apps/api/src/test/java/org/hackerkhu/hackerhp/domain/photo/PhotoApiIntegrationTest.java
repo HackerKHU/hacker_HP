@@ -26,6 +26,7 @@ import org.hackerkhu.hackerhp.domain.photo.repository.PhotoRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
 import org.hackerkhu.hackerhp.global.storage.FileStorage;
+import org.hackerkhu.testsupport.storage.ObjectStore;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
@@ -42,8 +43,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
-import org.testcontainers.containers.MinIOContainer;
-import org.testcontainers.utility.DockerImageName;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -53,9 +52,10 @@ import software.amazon.awssdk.services.s3.S3Client;
  * {@code POST /photos/upload-url}, {@code POST /photos}, {@code GET /photos}, {@code DELETE
  * /photos/{id}} — #57, spec 3-2 §3-2-5.
  *
- * <p>진짜 S3 흐름(presigned PUT으로 직접 올리고, 서버가 읽어 리사이즈하고, 정리하는 것)을 MinIO로 검증한다 — {@code
- * AbstractIntegrationTest}가 Postgres를 Testcontainers로 검증하는 것과 같은 이유다. <b>컨테이너를 JVM 전체에서 하나만
- * 쓴다</b>(정적 초기화로 한 번만 띄운다) — 같은 이유로 {@code @Testcontainers}·{@code @Container}는 쓰지 않는다.
+ * <p>진짜 S3 흐름(presigned PUT으로 직접 올리고, 서버가 읽어 리사이즈하고, 정리하는 것)을 실제 S3 호환 서버로 검증한다({@link
+ * ObjectStore}) — {@code AbstractIntegrationTest}가 Postgres를 Testcontainers로 검증하는 것과 같은 이유다.
+ * <b>컨테이너를 JVM 전체에서 하나만 쓴다</b>(정적 초기화로 한 번만 띄운다) — 같은 이유로
+ * {@code @Testcontainers}·{@code @Container}는 쓰지 않는다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -64,51 +64,31 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
   private static final String BUCKET = "hacker-uploads-test";
 
   /**
-   * MinIO 컨테이너.
-   *
-   * <p><b>{@code quay.io}에서 받고 태그를 고정한다</b> (2026-09-22). 예전에는 {@code minio/minio:latest}였는데,
-   * Docker Hub의 그 저장소가 사라져 <b>CI가 이미지를 받지 못하고 통째로 실패했다</b> — 코드를 한 줄도 건드리지 않은 PR에서도 그랬다. MinIO의 공식
-   * 배포처는 {@code quay.io}다.
-   *
-   * <p><b>{@code latest}로 두지 않는다.</b> 그것이 이번 고장의 원인이다 — 태그가 떠 있으면 <b>우리가 아무것도 안 해도 어느 날 깨진다.</b> 올릴
-   * 때는 여기 적힌 태그를 실제로 받아 보고 바꾼다.
-   *
-   * <p>{@code asCompatibleSubstituteFor}가 필요한 이유는 Testcontainers가 {@code MinIOContainer}에 기대하는 이름이
-   * {@code minio/minio}라서다. 레지스트리만 다르고 같은 이미지다.
-   */
-  private static final MinIOContainer MINIO =
-      new MinIOContainer(
-          DockerImageName.parse("quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z")
-              .asCompatibleSubstituteFor("minio/minio"));
-
-  static {
-    MINIO.start();
-  }
-
-  /**
    * {@code app.storage}는 자료(#207)와 공용이다(#213 통합) — 자료는 {@code endpoint}를 안 쓰므로 이 오버라이드가 자료 테스트에 영향을
    * 주지 않는다.
+   *
+   * <p>컨테이너는 {@link ObjectStore}가 JVM당 하나만 띄운다 — 왜 MinIO·LocalStack·S3Mock이 아닌지는 그쪽에 적혀 있다 (#407).
    */
   @DynamicPropertySource
   static void storageProperties(DynamicPropertyRegistry registry) {
     registry.add("app.storage.bucket", () -> BUCKET);
-    registry.add("app.storage.region", () -> "us-east-1");
-    registry.add("app.storage.endpoint", MINIO::getS3URL);
-    registry.add("app.storage.access-key", MINIO::getUserName);
-    registry.add("app.storage.secret-key", MINIO::getPassword);
+    registry.add("app.storage.region", () -> ObjectStore.REGION);
+    registry.add("app.storage.endpoint", () -> ObjectStore.endpoint().toString());
+    registry.add("app.storage.access-key", () -> ObjectStore.ACCESS_KEY);
+    registry.add("app.storage.secret-key", () -> ObjectStore.SECRET_KEY);
   }
 
-  /** MinIO는 버킷을 미리 만들어주지 않는다 — 앱이 뜨기 전에 한 번만 만든다. */
+  /** 버킷을 미리 만들어주지 않는다 — 앱이 뜨기 전에 한 번만 만든다. */
   @BeforeAll
   static void createBucket() {
     try (S3Client client =
         S3Client.builder()
-            .region(Region.of("us-east-1"))
-            .endpointOverride(URI.create(MINIO.getS3URL()))
+            .region(Region.of(ObjectStore.REGION))
+            .endpointOverride(ObjectStore.endpoint())
             .forcePathStyle(true)
             .credentialsProvider(
                 StaticCredentialsProvider.create(
-                    AwsBasicCredentials.create(MINIO.getUserName(), MINIO.getPassword())))
+                    AwsBasicCredentials.create(ObjectStore.ACCESS_KEY, ObjectStore.SECRET_KEY)))
             .build()) {
       client.createBucket(b -> b.bucket(BUCKET));
     }
@@ -121,8 +101,8 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
   @Autowired private JdbcTemplate jdbcTemplate;
 
   /**
-   * S3 왕복 <b>도중</b>을 만들기 위한 spy다. {@code MockitoBean}이 아니라 spy인 이유는, 이 테스트가 진짜 MinIO와 주고받는 흐름 전체를
-   * 재기 때문이다 — 통째로 갈아끼우면 리사이즈·서명·다운로드가 함께 사라진다.
+   * S3 왕복 <b>도중</b>을 만들기 위한 spy다. {@code MockitoBean}이 아니라 spy인 이유는, 이 테스트가 진짜 오브젝트 스토어와 주고받는 흐름
+   * 전체를 재기 때문이다 — 통째로 갈아끼우면 리사이즈·서명·다운로드가 함께 사라진다.
    */
   @MockitoSpyBean private FileStorage storage;
 
@@ -179,7 +159,7 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
    * 발급받은 presigned PUT URL로 실제 바이트를 올린다 — 브라우저가 하는 일을 그대로 재현한다.
    *
    * <p><b>Content-Type을 서명 발급 때와 똑같이 실어야 한다.</b> presigned URL의 서명에 그 헤더 값이 포함되므로, 다른 값을 보내면 (또는 아예
-   * 안 보내면) MinIO/S3가 서명이 안 맞는다며 {@code 400}으로 거부한다.
+   * 안 보내면) S3(대역 포함)가 서명이 안 맞는다며 {@code 400}으로 거부한다.
    */
   private static void putToPresignedUrl(String url, byte[] content, String contentType)
       throws Exception {
@@ -382,7 +362,7 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
     Long photoId = registered.get("id").asLong();
 
     // T-507. 화면은 이 URL을 보관해 lazy-load·확대에 쓰므로 자료 다운로드의 1분을 공유하면
-    // 정상 탐색 중에 만료된다. 실제 MinIO 서명까지 관통해 10분 계약을 고정한다.
+    // 정상 탐색 중에 만료된다. 실제 서명까지 관통해 10분 계약을 고정한다.
     assertThat(registered.get("url").asText()).contains("X-Amz-Expires=600");
     assertThat(registered.get("thumbnailUrl").asText()).contains("X-Amz-Expires=600");
 
