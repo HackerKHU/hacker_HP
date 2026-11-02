@@ -303,6 +303,36 @@ describe('옛 주소', () => {
     await screen.findByRole('heading', { name: '자료게시판' })
     expect(screen.getByTestId('pathname')).toHaveTextContent('/notes')
   })
+
+  /*
+   * 사진 업로드가 `ADMIN` 전용이던 시절의 주소다 (#400·#401). 관리자가 북마크해 뒀을 수
+   * 있고, **부원 화면이 된 뒤로는 `/admin` 아래에 둘 수도 없다.**
+   */
+  it('/admin/photos/new로 들어오면 부원용 업로드 화면으로 보낸다', async () => {
+    auth.me = () => Promise.resolve(BASE)
+
+    renderAt('/admin/photos/new')
+
+    await screen.findByRole('heading', { name: '사진 올리기' })
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/photos/new')
+  })
+
+  /*
+   * T-621. 주소가 `/admin` 밖으로 나오면서 **가드도 함께 옮겨졌는지**를 본다. 라우트만
+   * 옮기고 부원 블록 밖에 두면 로그인하지 않은 사람에게도 업로드 화면이 열린다.
+   */
+  it('로그인하지 않고 /photos/new로 들어오면 로그인 화면으로 보낸다', async () => {
+    auth.me = () =>
+      Promise.reject(
+        new ApiError('UNAUTHENTICATED', 401, '로그인이 필요합니다.'),
+      )
+
+    renderAt('/photos/new')
+
+    expect(
+      await screen.findByRole('heading', { name: '로그인' }),
+    ).toBeInTheDocument()
+  })
 })
 
 describe('헤더 메뉴 노출', () => {

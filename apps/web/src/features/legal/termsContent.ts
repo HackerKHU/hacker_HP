@@ -24,7 +24,7 @@ interface TermsSection {
 
 /** 개인정보처리방침과 함께 릴리스 브랜치에서 실제 배포일로 고친다. */
 export const TERMS_UPDATED = {
-  effectiveDate: '2026년 8월 31일',
+  effectiveDate: '2026년 9월 22일',
 }
 
 export const TERMS_SECTIONS: TermsSection[] = [
@@ -58,7 +58,7 @@ export const TERMS_SECTIONS: TermsSection[] = [
   {
     title: '5. 게시물의 삭제',
     paragraphs: [
-      '운영진은 위 3항을 어긴 게시물을 지울 수 있습니다. 자료는 올리신 본인도 지우실 수 있고 운영진은 전체를 지울 수 있으며, 공지와 활동사진은 운영진만 다룹니다.',
+      '운영진은 위 3항을 어긴 게시물을 지울 수 있습니다. 자료와 활동사진은 올리신 본인도 지우실 수 있고 운영진은 전체를 지울 수 있으며, 공지는 운영진만 다룹니다.',
       '자유 게시판 글은 올리신 분이 상세 화면에서 직접 완전히 삭제할 수 있고, 운영진도 관리 목적으로 완전히 삭제할 수 있습니다. 삭제하면 되돌릴 수 없습니다.',
     ],
   },

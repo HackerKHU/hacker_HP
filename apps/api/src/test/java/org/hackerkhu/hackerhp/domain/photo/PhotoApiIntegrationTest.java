@@ -1,6 +1,9 @@
 package org.hackerkhu.hackerhp.domain.photo;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -22,6 +25,7 @@ import org.hackerkhu.hackerhp.domain.photo.entity.Photo;
 import org.hackerkhu.hackerhp.domain.photo.repository.PhotoRepository;
 import org.hackerkhu.hackerhp.domain.user.entity.User;
 import org.hackerkhu.hackerhp.domain.user.repository.UserRepository;
+import org.hackerkhu.hackerhp.global.storage.FileStorage;
 import org.hackerkhu.testsupport.user.Accounts;
 import org.hackerkhu.testsupport.web.Csrf;
 import org.junit.jupiter.api.AfterEach;
@@ -32,11 +36,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.containers.MinIOContainer;
+import org.testcontainers.utility.DockerImageName;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -56,7 +63,23 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
 
   private static final String BUCKET = "hacker-uploads-test";
 
-  private static final MinIOContainer MINIO = new MinIOContainer("minio/minio:latest");
+  /**
+   * MinIO 컨테이너.
+   *
+   * <p><b>{@code quay.io}에서 받고 태그를 고정한다</b> (2026-09-22). 예전에는 {@code minio/minio:latest}였는데,
+   * Docker Hub의 그 저장소가 사라져 <b>CI가 이미지를 받지 못하고 통째로 실패했다</b> — 코드를 한 줄도 건드리지 않은 PR에서도 그랬다. MinIO의 공식
+   * 배포처는 {@code quay.io}다.
+   *
+   * <p><b>{@code latest}로 두지 않는다.</b> 그것이 이번 고장의 원인이다 — 태그가 떠 있으면 <b>우리가 아무것도 안 해도 어느 날 깨진다.</b> 올릴
+   * 때는 여기 적힌 태그를 실제로 받아 보고 바꾼다.
+   *
+   * <p>{@code asCompatibleSubstituteFor}가 필요한 이유는 Testcontainers가 {@code MinIOContainer}에 기대하는 이름이
+   * {@code minio/minio}라서다. 레지스트리만 다르고 같은 이미지다.
+   */
+  private static final MinIOContainer MINIO =
+      new MinIOContainer(
+          DockerImageName.parse("quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z")
+              .asCompatibleSubstituteFor("minio/minio"));
 
   static {
     MINIO.start();
@@ -95,11 +118,19 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
   @Autowired private UserRepository userRepository;
   @Autowired private PhotoRepository photoRepository;
   @Autowired private ObjectMapper objectMapper;
+  @Autowired private JdbcTemplate jdbcTemplate;
+
+  /**
+   * S3 왕복 <b>도중</b>을 만들기 위한 spy다. {@code MockitoBean}이 아니라 spy인 이유는, 이 테스트가 진짜 MinIO와 주고받는 흐름 전체를
+   * 재기 때문이다 — 통째로 갈아끼우면 리사이즈·서명·다운로드가 함께 사라진다.
+   */
+  @MockitoSpyBean private FileStorage storage;
 
   private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
 
   private User admin;
   private User member;
+  private User resting;
 
   @BeforeEach
   void createAccounts() {
@@ -115,6 +146,9 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
     member =
         userRepository.saveAndFlush(
             Accounts.approved("sub-member", "member@khu.ac.kr", "20240002"));
+    resting =
+        userRepository.saveAndFlush(
+            Accounts.inactive("sub-resting", "resting@khu.ac.kr", "20230003"));
   }
 
   @AfterEach
@@ -164,10 +198,15 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
 
   /** presigned PUT URL 발급 → S3 직접 업로드까지 끝낸 원본 키 하나를 만든다. */
   private String uploadOriginal(byte[] content, String extension) throws Exception {
+    return uploadOriginal(admin, content, extension);
+  }
+
+  /** 올리는 사람을 받는다 — 업로드가 부원 전체에게 열려(#400) 관리자 말고도 이 흐름을 탄다. */
+  private String uploadOriginal(User uploader, byte[] content, String extension) throws Exception {
     String uploadUrlBody = "{\"extensions\":[\"%s\"]}".formatted(extension);
     String responseBody =
         mockMvc
-            .perform(write(admin, post("/api/v1/photos/upload-url"), uploadUrlBody))
+            .perform(write(uploader, post("/api/v1/photos/upload-url"), uploadUrlBody))
             .andExpect(status().isOk())
             .andReturn()
             .getResponse()
@@ -188,12 +227,21 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
         .andExpect(jsonPath("$[0].uploadUrl").isNotEmpty());
   }
 
+  /**
+   * <b>일반 부원도 발급받는다</b> (2026-09-03, #400).
+   *
+   * <p>예전에는 정반대를 단언했다 — {@code memberCannotIssueUploadUrls}가 {@code 403 FORBIDDEN}을 기대했다. 소모임장이 사진을
+   * 올릴 수 있게 하려고 업로드를 부원 전체에게 열면서 뒤집혔다 (3-3 결정 30).
+   *
+   * <p>권한이 갈리는 지점 전체는 {@code PhotoWritePermissionIntegrationTest}가 본다 (T-604 ~ T-612). 여기서는 이 API의
+   * 겉모습만 확인한다.
+   */
   @Test
-  void memberCannotIssueUploadUrls() throws Exception {
+  void aMemberCanIssueUploadUrls() throws Exception {
     mockMvc
         .perform(write(member, post("/api/v1/photos/upload-url"), "{\"extensions\":[\"jpg\"]}"))
-        .andExpect(status().isForbidden())
-        .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].uploadUrl").isNotEmpty());
   }
 
   @Test
@@ -208,6 +256,109 @@ class PhotoApiIntegrationTest extends AbstractIntegrationTest {
    * 전체 업로드 흐름을 한 번 관통한다: presigned URL 발급 → S3 직접 업로드 → 등록(서버가
    * 리사이즈) → 목록 조회 → 삭제. 각 단계가 이전 단계의 산출물을 실제로 쓰는지까지 본다.
    */
+  /**
+   * T-604 (등록 경로) — <b>일반 부원이 원본을 올리고 실제로 등록한다.</b>
+   *
+   * <p>{@code /upload-url}만 두드리는 것으로는 부족하다 (#402 리뷰). 권한이 바뀐 자리는 {@code registerOne}이고, 거기서 {@code
+   * requireWritable}이 <b>두 번</b> 불린다 — S3 왕복 앞뒤로 한 번씩이다. 발급만 재면 그 두 자리가 사라져도 통과한다.
+   *
+   * <p><b>{@code uploader_id}가 그 부원이어야 한다.</b> 인증 주체에서만 정해지므로, 여기가 어긋나면 남의 이름으로 사진이 올라간다.
+   */
+  @Test
+  void aPlainMemberRegistersAPhotoAndDeletesTheirOwn() throws Exception {
+    String key = uploadOriginal(member, image(800, 600, "png"), "png");
+
+    String body =
+        mockMvc
+            .perform(
+                write(
+                    member,
+                    post("/api/v1/photos"),
+                    "{\"photos\":[{\"key\":\"%s\",\"caption\":\"소모임 사진\"}]}".formatted(key)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.registered[0].uploaderId").value(member.getId()))
+            .andExpect(jsonPath("$.failed.length()").value(0))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    Long photoId = objectMapper.readTree(body).get("registered").get(0).get("id").asLong();
+
+    Photo saved = photoRepository.findById(photoId).orElseThrow();
+    assertThat(saved.getStoredPath()).as("완결된 최종 키다").startsWith("photos/" + photoId + "/");
+
+    mockMvc
+        .perform(Csrf.with(sessions.as(member, delete("/api/v1/photos/{id}", photoId))))
+        .andExpect(status().isNoContent());
+
+    assertThat(photoRepository.existsById(photoId)).isFalse();
+  }
+
+  /**
+   * T-611 — <b>S3 왕복 <i>도중에</i> 정지되면 완결되지 않은 행이 남지 않는다</b> (MUST).
+   *
+   * <p>{@code registerOne}은 ① 자리표시자 행을 커밋하고 ② S3에 올린 뒤 ③ 최종 키를 반영하며 <b>다시 한번</b> 상태를 확인한다. ②가 도는 동안
+   * 잠금은 풀려 있어 그 사이에 정지될 수 있고, 그때 ①이 만든 행을 지우지 않으면 <b>완결되지 않은 행이 영영 남는다.</b>
+   *
+   * <p><b>등록 전에 정지시키는 것으로는 이 자리를 재지 못한다</b> (#402 리뷰). 그러면 ①의 확인에서 걸려 ③은 불리지도 않는다 — 실제로 ③을 지워 보니 그
+   * 방식의 사례는 그대로 통과했다. 그래서 <b>업로드가 시작되는 순간</b>(②)에 정지시킨다.
+   */
+  @Test
+  void aSuspensionMidUploadLeavesNoRow() throws Exception {
+    String key = uploadOriginal(member, image(400, 300, "png"), "png");
+
+    // ②가 시작될 때 정지시킨다 — ①은 이미 통과해 자리표시자 행이 커밋된 뒤다.
+    doAnswer(
+            invocation -> {
+              jdbcTemplate.update(
+                  "UPDATE users SET status = 'SUSPENDED' WHERE id = ?", member.getId());
+              return invocation.callRealMethod();
+            })
+        .when(storage)
+        .upload(anyString(), any(byte[].class), anyString());
+
+    mockMvc
+        .perform(
+            write(
+                member,
+                post("/api/v1/photos"),
+                "{\"photos\":[{\"key\":\"%s\",\"caption\":null}]}".formatted(key)))
+        .andExpect(status().isForbidden());
+
+    assertThat(photoRepository.count()).as("완결되지 않은 행이 남지 않는다").isZero();
+  }
+
+  /**
+   * T-605 (등록 경로) — <b>{@code INACTIVE} 부원도 실제로 등록한다.</b>
+   *
+   * <p>{@code /upload-url}만 두드리는 것으로는 부족하다 (#402 리뷰). {@code registerOne}의 {@code requireWritable}이
+   * {@code INACTIVE}를 거절하도록 바뀌거나 업로더 저장이 어긋나도, 발급만 재는 사례는 그대로 통과한다.
+   *
+   * <p>활동사진은 자료 갈래가 아니라 비활동 부원도 그대로 쓴다 (#228) — 여기서만 빼면 <i>"자료만 막는다"</i> 가 어긋난다.
+   */
+  @Test
+  void anInactiveMemberRegistersAPhoto() throws Exception {
+    String key = uploadOriginal(resting, image(640, 480, "png"), "png");
+
+    String body =
+        mockMvc
+            .perform(
+                write(
+                    resting,
+                    post("/api/v1/photos"),
+                    "{\"photos\":[{\"key\":\"%s\",\"caption\":null}]}".formatted(key)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.registered[0].uploaderId").value(resting.getId()))
+            .andExpect(jsonPath("$.failed.length()").value(0))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    Long photoId = objectMapper.readTree(body).get("registered").get(0).get("id").asLong();
+
+    assertThat(photoRepository.findById(photoId).orElseThrow().getStoredPath())
+        .as("완결된 최종 키다")
+        .startsWith("photos/" + photoId + "/");
+  }
+
   @Test
   void adminCanUploadListAndDeletePhoto() throws Exception {
     String key = uploadOriginal(image(800, 600, "png"), "png");

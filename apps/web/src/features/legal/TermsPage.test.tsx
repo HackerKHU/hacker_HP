@@ -59,7 +59,7 @@ describe('이용약관', () => {
     // 서비스 중단 고지
     expect(screen.getByText(/최소 30일 전에 공지로/)).toBeInTheDocument()
     expect(
-      screen.getByText('이 약관은 2026년 8월 31일부터 시행합니다.'),
+      screen.getByText('이 약관은 2026년 9월 22일부터 시행합니다.'),
     ).toBeInTheDocument()
   })
 

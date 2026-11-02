@@ -47,8 +47,9 @@ function formatDate(iso: string): string {
  *
  * **앨범 그룹은 없다** — 각 이미지가 개별 레코드다.
  *
- * 조회는 `ACTIVE`면 누구나, **삭제는 `ADMIN`만** 보인다 (spec §3-1-3 매트릭스). 노출
- * 제어일 뿐 권한 통제가 아니다 (§3-1-7) — 서버가 같은 조건으로 다시 막는다.
+ * 조회·업로드는 `ACTIVE`·`INACTIVE` 부원 누구나, **삭제는 본인이 올린 것만** 보인다
+ * (spec §3-1-3 매트릭스, #400). `ADMIN`에게는 전부 보인다. 노출 제어일 뿐 권한 통제가
+ * 아니다 (§3-1-7) — 서버가 같은 조건으로 다시 막는다.
  */
 /**
  * 이 화면의 주소에는 `page` 말고 다른 조회 조건이 없다. 그래서 매번 새로 만든다.
@@ -67,7 +68,25 @@ export function PhotoGalleryPage() {
   const { pathname } = useLocation()
   const { state, reportApiError } = useSession()
   const alert = useLiveAlert()
-  const isAdmin = state.kind === 'active' && state.user.role === 'ADMIN'
+  /*
+   * **`INACTIVE`도 여기 들어온다.** 세션은 `ACTIVE`·`INACTIVE`를 같은 `kind`로 둔다
+   * (`fromUser` — 활동사진은 자료 갈래가 아니라 비활동 부원도 그대로 쓴다, #231).
+   * 그래서 `kind`만 보면 "쓸 수 있는 부원인가"가 된다.
+   */
+  const me = state.kind === 'active' ? state.user : null
+  const isAdmin = me?.role === 'ADMIN'
+
+  /**
+   * 그 사진을 지울 수 있는가 — **본인이 올린 것만. `ADMIN`은 전체** (spec §3-1-3, #400).
+   *
+   * **업로더가 비어 있는 사진**(탈퇴한 회원의 것)은 `ADMIN`만 지운다. 주인이 없어 "본인"이
+   * 성립하지 않는다 — 자료와 같은 규칙이다. `uploaderId`가 `null`이면 `===` 비교가 어떤
+   * id와도 맞지 않으므로 따로 거르지 않는다.
+   *
+   * 버튼을 숨기는 것은 권한이 아니다 (spec §3-1-7). 서버가 행을 잠근 채 다시 본다 — 여기서
+   * 하는 일은 **누를 수 없는 버튼을 안 보이게** 하는 것뿐이다.
+   */
+  const canDelete = (photo: Photo) => isAdmin || photo.uploaderId === me?.id
 
   const page = parsePage(searchParams.get('page'))
   const [data, setData] = useState<Page<Photo> | null>(null)
@@ -209,12 +228,14 @@ export function PhotoGalleryPage() {
          */}
         <h1 className="text-3xl font-semibold tracking-tight">갤러리</h1>
         {/*
-         * **업로드는 `ADMIN` 전용이다** (spec §3-1-3 매트릭스). 자료와 다른 점이다 —
-         * 자료는 부원 누구나 올린다. 진입점도 `/admin` 아래에 둔다.
+         * **업로드는 부원 누구나 한다** (spec §3-1-3 매트릭스, 3-3 결정 30 — #400). 소모임장이
+         * 사진을 올릴 수 있게 하려고 열었고, 그 하나 때문에 관리자 권한을 주는 것은 너무 크다.
+         *
+         * 자료와 같아졌다. 진입점도 `/admin` 아래가 아니다.
          */}
-        {isAdmin && (
+        {me !== null && (
           <Button variant="outline" size="sm" asChild>
-            <Link to="/admin/photos/new">업로드</Link>
+            <Link to="/photos/new">업로드</Link>
           </Button>
         )}
       </div>
@@ -320,7 +341,7 @@ export function PhotoGalleryPage() {
                       </p>
                     </div>
 
-                    {isAdmin && (
+                    {canDelete(photo) && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button
