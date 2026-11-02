@@ -40,6 +40,8 @@
 - 로그인 상태는 `sessions.as(user, request)` 한 줄이다. **세션은 진짜 저장소에 만든다** — `MockHttpSession`을 쓰려면 세션 자동설정을 꺼야 하고, 그러면 테스트마다 어느 방식인지 골라야 한다.
 - 계정은 `Accounts.signedIn/applied/approved/admin/suspended`로 만든다. **가입 단계를 그대로 밟는다** — 상태를 손으로 조립하면 실제로는 만들어질 수 없는 계정이 생긴다.
 - **구글 OAuth 콜백 전체 흐름은 통합으로 타지 않는다.** 도메인·`email_verified` 검증(위 표의 MUST)은 `GoogleOidcUserServiceTest`가 서비스 단위로 덮고, 배선은 #82·#48이 실제 구글로 밟는다. 가짜 OIDC 서버를 띄우는 것은 별도 결정이 필요하다.
+- **S3 대역은 두 테스트만 쓴다.** `PhotoApiIntegrationTest`·`OrphanObjectCleanupJobIntegrationTest`가 SeaweedFS 컨테이너로(`testsupport/storage/ObjectStore`) **진짜 S3 동작**(presigned PUT 직접 업로드, 서명 검증, `HeadObject`, etag 대조, 버킷 나열·삭제)을 재고, 나머지는 `FakeStorageConfig`로 가볍게 돈다 — 좋아요처럼 S3를 건드리지 않는 기능에 진짜 왕복이 필요 없다. **이 둘을 가짜로 바꾸지 않는다** ([3-3 결정 31](3-3-DESIGN-DECISIONS.md#3-3-32-결정-31--테스트의-s3-대역은-받을-수-있는-이미지여야-한다) D2) — 그러면 운영에서만 틀리는 코드를 잡을 자리가 없어진다.
+- **컨테이너 이미지 태그는 고정하고, 올릴 때는 실제로 받아서 띄워 본다** (MUST, 결정 31 D3). 떠 있는 태그(`latest`·`stable`)는 **우리가 아무것도 안 해도 어느 날 CI를 깨뜨린다** — 실제로 두 번 겪었다(`minio/minio:latest`의 Docker Hub 소멸, 그 뒤 `quay.io`의 익명 pull 차단). **받히는 것만 확인하면 모자라다** — LocalStack은 manifest가 `200`인데도 컨테이너가 라이선스 오류로 죽었다(#407 작업 중 겪어 되돌렸다).
 - **CI에서 도는 것은 #45가 붙인다.** 러너에 Docker가 있어야 Testcontainers가 뜬다.
 
 ## 5-2 필수 테스트 사례
